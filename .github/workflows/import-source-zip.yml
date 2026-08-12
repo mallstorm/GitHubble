@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - 'GitHubble_1.0.0_RC3.2_repository_manager_Sources.zip'
+      - '.import-trigger/**'
 
 permissions:
   contents: write
@@ -47,13 +48,11 @@ jobs:
 
           rsync -a --delete \
             --exclude='.git/' \
+            --exclude='.github/workflows/' \
             --exclude="$ARCHIVE" \
             "$SRC/" ./
           rm -f "$ARCHIVE"
-          rm -rf .bootstrap .cleanup
-          rm -f .github/workflows/connector-check.yml
-          rm -f .github/workflows/bootstrap-safe.yml
-          rm -f .github/workflows/import-source-zip.yml
+          rm -rf .bootstrap .cleanup .import-trigger
 
           git config user.name 'mallstorm'
           git config user.email '142712475+mallstorm@users.noreply.github.com'
