@@ -1,8 +1,84 @@
-name: Connector permission check
+name: Bootstrap GitHubble RC3.2 sources
+
 on:
-  workflow_dispatch:
+  push:
+    paths:
+      - '.bootstrap/READY'
+
+permissions:
+  contents: write
+
 jobs:
-  check:
+  import-and-build:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
-      - run: echo connector-ok
+      - uses: actions/checkout@v4
+
+      - name: Reconstruct source archive
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import base64, hashlib
+          parts = sorted(Path('.bootstrap').glob('part-*.b85'))
+          if not parts:
+              raise SystemExit('No source archive parts found')
+          encoded = ''.join(p.read_text(encoding='ascii') for p in parts)
+          raw = base64.b85decode(encoded.encode('ascii'))
+          expected = '2f43df4ad3029985ee3f924edb3c63819155a25d1e58d51d8c97e83838dc31c6'
+          actual = hashlib.sha256(raw).hexdigest()
+          if actual != expected:
+              raise SystemExit(f'Archive SHA256 mismatch: {actual}')
+          Path('/tmp/GitHubble_RC3.2_sources.tar.xz').write_bytes(raw)
+          print(f'Reconstructed {len(raw)} bytes; SHA256={actual}')
+          PY
+
+      - name: Replace repository with source tree
+        shell: bash
+        run: |
+          rm -rf /tmp/githubble-src
+          mkdir -p /tmp/githubble-src
+          tar -xJf /tmp/GitHubble_RC3.2_sources.tar.xz -C /tmp/githubble-src
+          rsync -a --delete \
+            --exclude='.git/' \
+            --exclude='.bootstrap/' \
+            --exclude='.github/workflows/' \
+            /tmp/githubble-src/ ./
+          rm -rf .bootstrap
+          git config user.name 'mallstorm'
+          git config user.email '142712475+mallstorm@users.noreply.github.com'
+          git add -A
+          git commit -m 'GitHubble RC3.2: repository manager sources'
+          git push origin HEAD:main
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK
+        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.1'
+
+      - name: Build and test imported RC3.2
+        env:
+          GITHUB_CLIENT_ID: ${{ secrets.GITHUB_CLIENT_ID }}
+        run: gradle --no-daemon test assembleRelease assembleDebugAndroidTest bundleRelease
+
+      - name: Upload validation artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: githubble-rc3.2-bootstrap-validation
+          if-no-files-found: ignore
+          path: |
+            app/build/outputs/apk/release/*.apk
+            app/build/outputs/bundle/release/*.aab
+            app/build/outputs/apk/androidTest/debug/*.apk
+            app/build/reports/**
