@@ -1,0 +1,4 @@
+# GitHubble
+/build/
+.gradle/
+local.properties
