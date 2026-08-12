@@ -26,7 +26,7 @@ jobs:
               raise SystemExit('No source archive parts found')
           encoded = ''.join(p.read_text(encoding='ascii') for p in parts)
           raw = base64.b85decode(encoded.encode('ascii'))
-          expected = '2f43df4ad3029985ee3f924edb3c63819155a25d1e58d51d8c97e83838dc31c6'
+          expected = 'c661a49942d4dac44a995170b881a7c80df2c46b4ca160ba8a2d47f62b762020'
           actual = hashlib.sha256(raw).hexdigest()
           if actual != expected:
               raise SystemExit(f'Archive SHA256 mismatch: {actual}')
