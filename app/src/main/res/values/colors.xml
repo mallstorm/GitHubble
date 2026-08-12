@@ -1,0 +1,5 @@
+<resources>
+    <color name="launcher_light_bg">#FFFFFF</color>
+    <color name="launcher_beige_bg">#FBF7EB</color>
+    <color name="launcher_dark_bg">#182226</color>
+</resources>

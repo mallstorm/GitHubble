@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+<string name="app_name">GitHubble</string>
+<string name="nav_home">Главная</string><string name="nav_search">Поиск</string><string name="nav_events">События</string><string name="nav_favorites">Избранное</string><string name="nav_profile">Настройки</string>
+<string name="back">Назад</string><string name="guest_mode">Гостевой режим</string><string name="github_connected">GitHub подключён</string>
+<string name="login_github">Войти через GitHub</string><string name="logout">Выйти</string><string name="oauth_backend">OAuth backend URL</string>
+<string name="no_real_notifications">После подключения GitHub здесь появятся реальные персональные уведомления.</string>
+<string name="no_account_data">Для этого раздела требуется вход в GitHub.</string>
+<string name="stabilization_build">GitHubble 0.25.0 · перевод, код и beta-аудит</string>
+<string name="nav_activity">Активность</string>
+</resources>

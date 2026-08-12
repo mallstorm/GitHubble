@@ -1,4 +1,7 @@
-# GitHubble
-/build/
-.gradle/
+*.jks
+*.keystore
+keystore.properties
 local.properties
+.gradle/
+build/
+**/build/

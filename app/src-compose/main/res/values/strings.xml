@@ -1,0 +1,3 @@
+<resources>
+<string name="app_name">GitHubble</string><string name="home">Home</string><string name="search">Search</string><string name="notifications">Notifications</string><string name="favorites">Favorites</string><string name="profile">Profile</string>
+</resources>

@@ -1,0 +1,8 @@
+buildscript {
+    repositories {
+        def offlineRepo = file('/mnt/data/offline_env/APKForge-Offline-Dev-Linux-x86_64/workspace/APKForge/offline-maven')
+        if (offlineRepo.exists()) maven { url uri(offlineRepo) }
+        google(); mavenCentral()
+    }
+    dependencies { classpath 'com.android.tools.build:gradle:9.2.1' }
+}
