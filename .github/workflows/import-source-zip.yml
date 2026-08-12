@@ -1,0 +1,62 @@
+name: Import GitHubble RC3.2 source ZIP
+
+on:
+  push:
+    paths:
+      - 'GitHubble_1.0.0_RC3.2_repository_manager_Sources.zip'
+
+permissions:
+  contents: write
+
+jobs:
+  import-source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify uploaded source archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          ARCHIVE='GitHubble_1.0.0_RC3.2_repository_manager_Sources.zip'
+          test -f "$ARCHIVE"
+          EXPECTED='c20c835a2050521ef1b572156d311ee5b8f98f417b477bc341154d8f70b682bd'
+          ACTUAL="$(sha256sum "$ARCHIVE" | awk '{print $1}')"
+          echo "SHA256=$ACTUAL"
+          test "$ACTUAL" = "$EXPECTED"
+
+      - name: Expand source tree and replace bootstrap repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          ARCHIVE='GitHubble_1.0.0_RC3.2_repository_manager_Sources.zip'
+          rm -rf /tmp/githubble-import
+          mkdir -p /tmp/githubble-import
+          unzip -q "$ARCHIVE" -d /tmp/githubble-import
+
+          SRC='/tmp/githubble-import'
+          FILE_COUNT="$(find "$SRC" -mindepth 1 -maxdepth 1 -type f | wc -l)"
+          DIR_COUNT="$(find "$SRC" -mindepth 1 -maxdepth 1 -type d | wc -l)"
+          if [ "$FILE_COUNT" -eq 0 ] && [ "$DIR_COUNT" -eq 1 ]; then
+            ONLY_DIR="$(find "$SRC" -mindepth 1 -maxdepth 1 -type d -print -quit)"
+            if [ -f "$ONLY_DIR/settings.gradle" ] || [ -f "$ONLY_DIR/settings.gradle.kts" ]; then
+              SRC="$ONLY_DIR"
+            fi
+          fi
+
+          rsync -a --delete \
+            --exclude='.git/' \
+            --exclude="$ARCHIVE" \
+            "$SRC/" ./
+          rm -f "$ARCHIVE"
+          rm -rf .bootstrap .cleanup
+          rm -f .github/workflows/connector-check.yml
+          rm -f .github/workflows/bootstrap-safe.yml
+          rm -f .github/workflows/import-source-zip.yml
+
+          git config user.name 'mallstorm'
+          git config user.email '142712475+mallstorm@users.noreply.github.com'
+          git add -A
+          git commit -m 'GitHubble RC3.2: repository manager full sources'
+          git push origin HEAD:main
