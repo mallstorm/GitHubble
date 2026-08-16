@@ -39,46 +39,45 @@ RC3.2 закрепляет рабочую линию **Repository Manager** по
 - переключать видимость `Public ↔ Private` с подтверждением опасного действия;
 - создавать ветки, теги, forks и Releases;
 - удалять репозиторий только после ввода точного `owner/repository`;
-- загружать один файл;
-- загружать ZIP как обычный файл;
-- импортировать ZIP как полноценное дерево исходников;
-- выбирать Android-папку через Storage Access Framework и рекурсивно загружать её структуру;
-- сохранять структуру каталогов и собирать импорт в один Git tree / commit;
-- работать с пустым репозиторием через безопасный bootstrap-механизм;
-- показывать предварительный состав импорта, количество файлов, известный размер и текущий прогресс.
+- выбирать Android-папку через Storage Access Framework и загружать её с сохранением структуры каталогов;
+- импортировать ZIP как набор исходников;
+- загружать одиночный файл или ZIP как один файл репозитория;
+- видеть preview импорта, количество файлов, размер, пример путей и прогресс операции.
 
-Для больших файлов используется потоковая отправка содержимого в Git blobs API без загрузки всего файла в оперативную память. Практический предел одного импортируемого blob — `99 MiB`; для более крупных файлов следует использовать Git LFS или Release assets.
+Импорт папки и ZIP выполняется через GitHub Git objects API: файлы отправляются как blobs, затем формируется tree и один commit. Большие файлы не загружаются полностью в оперативную память. Небезопасные пути ZIP и служебные каталоги `.git`, `__MACOSX`, `.DS_Store`, `Thumbs.db` блокируются или игнорируются.
 
-Небезопасные ZIP-пути (`..`) блокируются, а служебные `.git`, `__MACOSX`, `.DS_Store`, `Thumbs.db` не импортируются.
-
-## Авторизация и безопасность
-
-GitHubble не использует встроенную форму логин/пароль GitHub. Авторизация проходит через официальный GitHub flow в браузере / Custom Tab, после чего приложение получает разрешённую OAuth-сессию.
-
-Токены хранятся локально в защищённом хранилище Android и не экспортируются вместе с настройками или диагностикой. Release signing выполняется вне исходного кода; keystore и пароли подписи не должны попадать в репозиторий.
+Практический лимит одного импортируемого Git blob — **99 MiB**. Для более крупных файлов следует использовать Git LFS или Release assets.
 
 ## GitHub App permissions
 
-Для полной функциональности Repository Manager зарегистрированному GitHub App требуются как минимум:
+Для полного набора функций GitHub App `GiHubble` должна иметь необходимые разрешения, в частности:
 
-- **Contents: Read and write** — файлы, ZIP и импорт папок;
-- **Administration: Read and write** — настройки репозитория, видимость и удаление;
-- **Workflows: Read and write** — только если приложение должно импортировать или изменять `.github/workflows/*`;
-- соответствующие разрешения **Issues / Pull Requests / Discussions** для этих функций приложения.
+- Repository Contents: **Read and write**;
+- Repository Administration: **Read and write**;
+- Workflows: **Read and write** только если приложение должно импортировать или изменять `.github/workflows/*`;
+- Issues / Pull Requests / Discussions и другие permissions — для соответствующих разделов приложения.
 
-Набор permissions следует держать минимальным и расширять только под реально используемые функции.
+Если permission недоступен, приложение не должно имитировать успешную операцию: пользователь получает реальную ошибку GitHub API или read-only режим.
+
+## Безопасность
+
+- Client Secret, private key, access token и signing passwords не хранятся в репозитории;
+- публичный GitHub App Client ID передаётся при сборке через `GITHUB_CLIENT_ID`;
+- Device Flow завершается на официальной странице GitHub;
+- OAuth-токен хранится в Keystore-backed зашифрованном хранилище;
+- удаление репозитория требует подтверждения точного имени;
+- публикация приватного репозитория сопровождается предупреждением о возможной публикации секретов;
+- release signing выполняется вне исходного репозитория.
 
 ## Сборка
 
-Рекомендуемое окружение:
+Требуемое окружение:
 
-- JDK `21`;
-- Java source / target `17`;
-- Gradle `9.5.1`;
-- Android SDK Platform `36`;
-- Build Tools `36.0.0`;
-- публичный `GITHUB_CLIENT_ID` GitHub App;
-- приватные signing variables только в защищённой CI / release-среде.
+- JDK 21, Java source/target 17;
+- Gradle 9.5.1;
+- Android SDK platform 36;
+- Android build-tools 36.0.0;
+- `GITHUB_CLIENT_ID` для GitHub App Device Flow.
 
 ```bash
 export ANDROID_HOME=/path/to/android-sdk
@@ -86,10 +85,16 @@ export GITHUB_CLIENT_ID=<public GitHub App client id>
 gradle --no-daemon assembleRelease assembleDebugAndroidTest bundleRelease
 ```
 
-## CI
+GitHub Actions workflow **Android RC CI** собирает RC-артефакты и генерирует SBOM. Рабочая кодовая база RC3.2 успешно прошла CI.
 
-В репозитории используется GitHub Actions workflow **Android RC CI** для сборки RC-артефактов и генерации SBOM. Текущая RC3.2-линия успешно проходит CI на `main`.
+## Актуальная документация
 
-## Статус проекта
+В `main` намеренно не хранятся исторические stage/alpha отчёты и устаревшие NEXT_BLOCK-документы. Для текущего состояния используйте:
 
-`1.0.0-rc3.2-repository-manager` — текущая закреплённая база для дальнейшей разработки GitHubble. Следующие изменения должны продолжаться от актуального `main`, сохраняя рабочие Device Flow, Repository Manager, приватные репозитории, импорт исходников, локализацию и существующий пользовательский интерфейс.
+- `README.md` — основное описание приложения;
+- `ARCHITECTURE.md` — текущая архитектура;
+- `BUILD_STATUS.md` — статус проверенной сборки;
+- `IMPLEMENTATION_REPORT_RC3.2_REPOSITORY_MANAGER.md` — отчёт текущего прохода;
+- `OAUTH_SETUP.md` и `GITHUB_APP_CLIENT.md` — Device Flow / GitHub App;
+- `COPILOT_INTEGRATION.md` — интеграция Copilot Cloud Agent;
+- `release/` — актуальные release, privacy и permission документы.
