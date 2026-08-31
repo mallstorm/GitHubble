@@ -6,7 +6,6 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 import java.util.Calendar;
 import java.util.LinkedHashMap;
 import java.util.Locale;
@@ -183,7 +182,9 @@ public final class AccountUsageController {
         Calendar now = Calendar.getInstance();
         int year = now.get(Calendar.YEAR);
         int month = now.get(Calendar.MONTH) + 1;
-        String encoded = URLEncoder.encode(login, StandardCharsets.UTF_8);
+        String encoded;
+        try { encoded = URLEncoder.encode(login, "UTF-8"); }
+        catch (Exception ignored) { encoded = login; }
         String base = "https://api.github.com/users/" + encoded + "/settings/billing/usage";
         try {
             JSONObject summary = api.getJson(base + "/summary?year=" + year + "&month=" + month + "&product=actions");
