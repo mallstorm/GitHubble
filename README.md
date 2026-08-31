@@ -4,22 +4,22 @@
 
 ## Текущая версия
 
-- Version: `1.0.0-rc3.2-repository-manager`
-- versionCode: `36`
+- Version: `1.0.0-rc4-stabilization`
+- versionCode: `37`
 - applicationId: `app.githubble.mobile`
 - minSdk: `28`
 - targetSdk / compileSdk: `36`
 - Java source/target: `17`
-- основная ветка разработки: `main`
+- стабилизационная ветка: `rc4-stabilization`
 
-RC3.2 закрепляет рабочую линию **Repository Manager** поверх RC3.1 и предыдущих этапов локализации, поиска, трекинга, GitHub API, Copilot Cloud Agent и стабилизации.
+RC4 доводит линию RC3.2 до финишной стабилизации: добавляет прозрачную диагностику доступа к приватным репозиториям, квоты GitHub API / Actions, состояние Workflows/Runs и уточняет необходимые GitHub App permissions.
 
 ## Основные возможности
 
 - авторизация GitHub через **GitHub App Device Flow** без хранения логина и пароля;
 - безопасное хранение OAuth-токена с использованием Android Keystore;
 - просмотр профиля, организаций, репозиториев, веток, тегов и Releases;
-- работа с публичными и приватными репозиториями в пределах выданных GitHub App permissions;
+- работа с публичными и приватными репозиториями в пределах выданных GitHub App permissions и Repository access установки GiHubble;
 - просмотр файлов, исходного кода, Markdown и diff;
 - Issues, Pull Requests и Discussions;
 - отслеживание репозиториев и разработчиков с локальной историей и уведомлениями;
@@ -28,7 +28,27 @@ RC3.2 закрепляет рабочую линию **Repository Manager** по
 - офлайн-кэш и очередь действий;
 - диагностика, экспорт состояния и контроль производительности;
 - интеграционные компоненты для GitHub Copilot / Cloud Agent;
-- светлая, бежевая и тёмная визуальные линии приложения.
+- светлая, бежевая и тёмная визуальные линии приложения;
+- главная карточка **«Квоты и Actions»**: REST API rate limit, доступные/приватные репозитории, Actions usage, Workflows и последние Runs.
+
+## Private repository access
+
+GitHubble запрашивает `/user/repos?visibility=all&affiliation=owner,collaborator,organization_member`, поэтому приложение не отбрасывает приватные репозитории своим фильтром.
+
+Для GitHub App действуют два независимых условия: аккаунт пользователя должен иметь доступ к репозиторию, и установленное приложение **GiHubble** должно иметь Repository access к этому репозиторию. Если собственный приватный репозиторий не отображается, откройте **GitHub → Settings → Applications → Installed GitHub Apps → GiHubble → Configure** и выберите **All repositories** либо добавьте нужный репозиторий в Selected repositories. Затем обновите список или выполните повторный вход.
+
+## Квоты, Actions и Workflows
+
+RC4 показывает на главной:
+
+- остаток и общий лимит GitHub REST API;
+- текущий план GitHub и включённую Actions-квоту, когда её можно определить;
+- фактический Actions usage текущего месяца через GitHub billing usage API при наличии **Account Plan: Read**;
+- количество доступных и приватных репозиториев;
+- количество установок GiHubble, если GitHub разрешает перечисление installations;
+- число Workflows, активных workflow и состояние последних Runs по доступным репозиториям при наличии **Repository Actions: Read**.
+
+Если billing/Actions permission недоступен, приложение явно показывает ограниченный режим и не подставляет выдуманные значения.
 
 ## Repository Manager
 
@@ -52,9 +72,11 @@ RC3.2 закрепляет рабочую линию **Repository Manager** по
 
 Для полного набора функций GitHub App `GiHubble` должна иметь необходимые разрешения, в частности:
 
+- Account Plan: **Read** — точный Actions billing/usage;
+- Repository Actions: **Read** — Workflows и Runs;
 - Repository Contents: **Read and write**;
 - Repository Administration: **Read and write**;
-- Workflows: **Read and write** только если приложение должно импортировать или изменять `.github/workflows/*`;
+- Repository Workflows: **Read and write** только если приложение должно импортировать или изменять `.github/workflows/*`;
 - Issues / Pull Requests / Discussions и другие permissions — для соответствующих разделов приложения.
 
 Если permission недоступен, приложение не должно имитировать успешную операцию: пользователь получает реальную ошибку GitHub API или read-only режим.
@@ -77,24 +99,24 @@ RC3.2 закрепляет рабочую линию **Repository Manager** по
 - Gradle 9.5.1;
 - Android SDK platform 36;
 - Android build-tools 36.0.0;
+- Android Gradle Plugin 9.2.1;
 - `GITHUB_CLIENT_ID` для GitHub App Device Flow.
+
+Репозиторий умеет автоматически использовать локальный Maven-кэш автономной Linux-среды по пути `/mnt/data/offline_env/APKForge-Offline-Dev-Linux-x86_64/workspace/APKForge/offline-maven`, если он существует.
 
 ```bash
 export ANDROID_HOME=/path/to/android-sdk
 export GITHUB_CLIENT_ID=<public GitHub App client id>
-gradle --no-daemon assembleRelease assembleDebugAndroidTest bundleRelease
+gradle --no-daemon test assembleRelease assembleDebugAndroidTest bundleRelease
 ```
 
-GitHub Actions workflow **Android RC CI** собирает RC-артефакты и генерирует SBOM. Рабочая кодовая база RC3.2 успешно прошла CI.
-
 ## Актуальная документация
-
-В `main` намеренно не хранятся исторические stage/alpha отчёты и устаревшие NEXT_BLOCK-документы. Для текущего состояния используйте:
 
 - `README.md` — основное описание приложения;
 - `ARCHITECTURE.md` — текущая архитектура;
 - `BUILD_STATUS.md` — статус проверенной сборки;
-- `IMPLEMENTATION_REPORT_RC3.2_REPOSITORY_MANAGER.md` — отчёт текущего прохода;
+- `IMPLEMENTATION_REPORT_RC3.2_REPOSITORY_MANAGER.md` — Repository Manager;
+- `IMPLEMENTATION_REPORT_RC4_STABILIZATION.md` — финальный стабилизационный проход;
 - `OAUTH_SETUP.md` и `GITHUB_APP_CLIENT.md` — Device Flow / GitHub App;
 - `COPILOT_INTEGRATION.md` — интеграция Copilot Cloud Agent;
-- `release/` — актуальные release, privacy и permission документы.
+- `release/` — release, privacy и permission документы.
