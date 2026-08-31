@@ -1,8 +1,10 @@
 package app.githubble.mobile.ui;
 
 import android.app.Activity;
+import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
+import android.net.Uri;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.GridLayout;
@@ -13,14 +15,22 @@ import android.widget.TextView;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import app.githubble.mobile.R;
+import app.githubble.mobile.cache.EntityCache;
+import app.githubble.mobile.controller.AccountUsageController;
+import app.githubble.mobile.network.GitHubApiClient;
+import app.githubble.mobile.security.SecureStore;
 
 /**
  * Independent renderer for the GitHubble home dashboard.
  * Keeps the main Activity focused on navigation and screen orchestration.
  */
 public final class HomeScreen {
+    private static final ExecutorService USAGE_IO = Executors.newSingleThreadExecutor();
+
     public interface Actions {
         void openIssues();
         void openPullRequests();
@@ -35,7 +45,6 @@ public final class HomeScreen {
         void openProfile();
         void openRepository(String fullName);
     }
-
 
     public static final class RepoPreview {
         public final String fullName;
@@ -123,6 +132,10 @@ public final class HomeScreen {
 
     public void render() {
         renderSummary();
+        if (signedIn) {
+            sectionTitle("Квоты и Actions", "Доступ", this::openGitHubInstallations);
+            renderAccountUsage();
+        }
         sectionTitle("Быстрый доступ", null);
         renderQuickGrid();
         sectionTitle("Наблюдение", dashboard.trackingUnread > 0 ? dashboard.trackingUnread + " новых" : "Открыть", actions::openTracking);
@@ -135,6 +148,130 @@ public final class HomeScreen {
         build.setGravity(Gravity.CENTER);
         build.setPadding(0, dp(10), 0, dp(2));
         content.addView(build);
+    }
+
+    private void renderAccountUsage() {
+        LinearLayout box = new LinearLayout(activity);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(15), dp(12), dp(15), dp(12));
+        box.setBackground(round(palette.card, 18, palette.border, 1));
+        box.setElevation(dp(1));
+        TextView loading = text("Получаем GitHub API, Actions и Workflows…", 13, false);
+        loading.setTextColor(palette.muted);
+        box.addView(loading);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
+        params.setMargins(0, 0, 0, dp(10));
+        content.addView(box, params);
+
+        USAGE_IO.execute(() -> {
+            try {
+                GitHubApiClient api = new GitHubApiClient(new SecureStore(activity), new EntityCache(activity));
+                AccountUsageController.Snapshot snapshot = new AccountUsageController(api).load();
+                activity.runOnUiThread(() -> renderAccountSnapshot(box, snapshot));
+            } catch (Exception error) {
+                String message = error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage();
+                activity.runOnUiThread(() -> {
+                    box.removeAllViews();
+                    TextView failed = text("Не удалось получить квоты: " + message, 12, false);
+                    failed.setTextColor(palette.muted);
+                    box.addView(failed);
+                    addInstallAccessAction(box);
+                });
+            }
+        });
+    }
+
+    private void renderAccountSnapshot(LinearLayout box, AccountUsageController.Snapshot s) {
+        box.removeAllViews();
+        usageRow(box, "Аккаунт", s.login.isEmpty() ? "GitHub" : "@" + s.login + " · " + planTitle(s.plan));
+        usageRow(box, "GitHub API", s.apiLimit > 0 ? s.apiRemaining + " / " + s.apiLimit + " запросов" : String.valueOf(s.apiRemaining));
+
+        String minutes;
+        if (s.billingAvailable) {
+            minutes = trimNumber(s.actionsMinutesUsed) + " мин";
+            if (s.actionsMinutesIncluded > 0) minutes += " / " + s.actionsMinutesIncluded + " включено";
+        } else {
+            minutes = s.actionsMinutesIncluded > 0 ? "до " + s.actionsMinutesIncluded + " мин по плану" : "Billing API недоступен";
+        }
+        usageRow(box, "Actions", minutes);
+
+        String storage = s.actionsStorageIncludedMb > 0
+                ? (s.actionsStorageIncludedMb >= 1024 ? (s.actionsStorageIncludedMb / 1024) + " ГБ включено" : s.actionsStorageIncludedMb + " МБ включено")
+                : "зависит от плана";
+        if (!s.actionsOtherUsage.isEmpty()) storage += " · usage: " + s.actionsOtherUsage;
+        usageRow(box, "Storage", storage);
+
+        String workflow = s.activeWorkflowCount + " активных / " + s.workflowCount + " всего";
+        if (s.workflowRepositoriesScanned > 0) workflow += " · " + s.workflowRepositoriesScanned + " репо";
+        if (s.workflowScanTruncated) workflow += "+";
+        usageRow(box, "Workflows", workflow);
+
+        String runHealth = s.latestRunFailures == 0 && s.latestRunsInProgress == 0
+                ? "последние проверенные без ошибок"
+                : "ошибок " + s.latestRunFailures + " · выполняются " + s.latestRunsInProgress;
+        usageRow(box, "Runs", runHealth);
+
+        String repoAccess = s.repositoryCount + " доступно · приватных " + s.privateRepositoryCount;
+        if (s.installationCount >= 0) repoAccess += " · установок GiHubble " + s.installationCount;
+        usageRow(box, "Репозитории", repoAccess);
+
+        if (!s.billingAvailable) {
+            TextView billing = text("Точная месячная квота Actions требует Account permission «Plan: Read» у GitHub App. Без неё GitHubble показывает только лимит плана и не подставляет выдуманные цифры.", 11, false);
+            billing.setTextColor(palette.muted);
+            billing.setPadding(dp(2), dp(8), dp(2), dp(2));
+            box.addView(billing);
+        }
+        if (s.privateRepositoryCount == 0 || s.installationCount == 0) {
+            TextView hint = text("Приватные репозитории доступны только если GiHubble установлено для них. Сам факт владения репозиторием не обходит Repository access GitHub App.", 11, false);
+            hint.setTextColor(palette.muted);
+            hint.setPadding(dp(2), dp(8), dp(2), dp(2));
+            box.addView(hint);
+        }
+        addInstallAccessAction(box);
+    }
+
+    private void usageRow(LinearLayout parent, String label, String value) {
+        LinearLayout row = new LinearLayout(activity);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        TextView left = text(label, 12, true);
+        left.setTextColor(palette.muted);
+        left.setPadding(dp(2), dp(4), dp(8), dp(4));
+        row.addView(left, new LinearLayout.LayoutParams(dp(92), -2));
+        TextView right = text(value, 12, false);
+        right.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        right.setPadding(dp(4), dp(4), dp(2), dp(4));
+        right.setTextIsSelectable(true);
+        row.addView(right, new LinearLayout.LayoutParams(0, -2, 1));
+        parent.addView(row);
+    }
+
+    private void addInstallAccessAction(LinearLayout parent) {
+        TextView action = text("Настроить доступ GiHubble к приватным репозиториям  ›", 12, true);
+        action.setTextColor(palette.green);
+        action.setGravity(Gravity.CENTER_VERTICAL);
+        action.setPadding(dp(2), dp(10), dp(2), dp(4));
+        action.setOnClickListener(v -> openGitHubInstallations());
+        parent.addView(action);
+    }
+
+    private void openGitHubInstallations() {
+        try {
+            Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/settings/installations"));
+            activity.startActivity(intent);
+        } catch (Exception ignored) {
+            actions.openProfile();
+        }
+    }
+
+    private String planTitle(String plan) {
+        if ("pro".equalsIgnoreCase(plan)) return "GitHub Pro";
+        if ("free".equalsIgnoreCase(plan)) return "GitHub Free";
+        return plan == null || plan.isEmpty() || "unknown".equalsIgnoreCase(plan) ? "план не определён" : plan;
+    }
+
+    private String trimNumber(double value) {
+        if (Math.abs(value - Math.rint(value)) < 0.0001d) return String.valueOf((long) Math.rint(value));
+        return String.format(Locale.US, "%.2f", value);
     }
 
     private void renderSummary() {
@@ -192,7 +329,6 @@ public final class HomeScreen {
         addTile(grid, R.drawable.tile_history, "История", Color.rgb(93, 111, 104), actions::openHistory);
         content.addView(grid, new LinearLayout.LayoutParams(-1, -2));
     }
-
 
     private void renderTrackingSummary() {
         LinearLayout row = new LinearLayout(activity);
