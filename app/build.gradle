@@ -12,12 +12,12 @@ android {
         applicationId 'app.githubble.mobile'
         minSdk 28
         targetSdk 36
-        versionCode 36
-        versionName '1.0.0-rc3.2-repository-manager'
+        versionCode 37
+        versionName '1.0.0-rc4-stabilization'
         buildConfigField 'String', 'GITHUB_CLIENT_ID', '"' + escapedGithubClientId + '"'
         buildConfigField 'String', 'GITHUB_OAUTH_SCOPES', '""'
         buildConfigField 'boolean', 'FEATURE_FREEZE', 'false'
-        buildConfigField 'String', 'RC_CHANNEL', '"rc3.2"'
+        buildConfigField 'String', 'RC_CHANNEL', '"rc4"'
         testInstrumentationRunner 'app.githubble.mobile.RcInstrumentationTest'
     }
     buildTypes {
@@ -28,8 +28,6 @@ android {
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
-
-
 
     bundle {
         language { enableSplit = false }
