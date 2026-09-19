@@ -96,6 +96,7 @@ public final class RepositoryAccessController {
         if (forceNetwork) {
             api.invalidatePrefix("https://api.github.com/user/installations");
             api.invalidatePrefix("https://api.github.com/user/repos");
+            api.invalidatePrefix("https://api.github.com/user/installations/");
         }
 
         Map<String, JSONObject> merged = new LinkedHashMap<>();

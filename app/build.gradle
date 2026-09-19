@@ -13,11 +13,11 @@ android {
         applicationId 'app.githubble.mobile'
         minSdk 28
         targetSdk 36
-        versionCode 43
-        versionName '1.0.0-rc3.8.1-release'
+        versionCode 44
+        versionName '1.0.0-rc3.9-release'
         buildConfigField 'String', 'GITHUB_CLIENT_ID', '"' + escapedGithubClientId + '"'
         buildConfigField 'boolean', 'FEATURE_FREEZE', 'false'
-        buildConfigField 'String', 'RC_CHANNEL', '"rc3.8.1"'
+        buildConfigField 'String', 'RC_CHANNEL', '"rc3.9"'
         testInstrumentationRunner 'app.githubble.mobile.RcInstrumentationTest'
     }
     buildTypes {

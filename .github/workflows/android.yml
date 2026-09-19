@@ -62,13 +62,13 @@ jobs:
             --ks "${RUNNER_TEMP}/githubble-release.p12" \
             --ks-key-alias "${KEY_ALIAS}" \
             --ks-pass env:STORE_PASSWORD --key-pass env:KEY_PASSWORD \
-            --out dist/GitHubble-1.0.0-RC3.8.1-release.apk \
+            --out dist/GitHubble-1.0.0-RC3.9-release.apk \
             "${RUNNER_TEMP}/githubble-aligned.apk"
-          "${SDK_BIN}/apksigner" verify --verbose --print-certs dist/GitHubble-1.0.0-RC3.8.1-release.apk > dist/APK_VERIFICATION.txt
-          "${SDK_BIN}/aapt" dump badging dist/GitHubble-1.0.0-RC3.8.1-release.apk | grep '^package:' > dist/PACKAGE_INFO.txt
+          "${SDK_BIN}/apksigner" verify --verbose --print-certs dist/GitHubble-1.0.0-RC3.9-release.apk > dist/APK_VERIFICATION.txt
+          "${SDK_BIN}/aapt" dump badging dist/GitHubble-1.0.0-RC3.9-release.apk | grep '^package:' > dist/PACKAGE_INFO.txt
           grep -q "name='app.githubble.mobile'" dist/PACKAGE_INFO.txt
-          grep -q "versionCode='43'" dist/PACKAGE_INFO.txt
-          sha256sum dist/GitHubble-1.0.0-RC3.8.1-release.apk > dist/SHA256SUMS.txt
+          grep -q "versionCode='44'" dist/PACKAGE_INFO.txt
+          sha256sum dist/GitHubble-1.0.0-RC3.9-release.apk > dist/SHA256SUMS.txt
           rm -f "${RUNNER_TEMP}/githubble-release.p12" "${RUNNER_TEMP}/githubble-aligned.apk"
 
       - name: Export exact main source tree
@@ -76,14 +76,14 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          git archive --format=zip --output=dist/GitHubble-1.0.0-RC3.8.1-main-sources.zip HEAD
-          test -s dist/GitHubble-1.0.0-RC3.8.1-main-sources.zip
-          sha256sum dist/GitHubble-1.0.0-RC3.8.1-main-sources.zip > dist/SOURCE_SHA256.txt
+          git archive --format=zip --output=dist/GitHubble-1.0.0-RC3.9-main-sources.zip HEAD
+          test -s dist/GitHubble-1.0.0-RC3.9-main-sources.zip
+          sha256sum dist/GitHubble-1.0.0-RC3.9-main-sources.zip > dist/SOURCE_SHA256.txt
           printf '%s\n' "$(git rev-parse HEAD)" > dist/SOURCE_COMMIT.txt
 
       - uses: actions/upload-artifact@v4
         with:
-          name: githubble-rc3.8.1-signed-release
+          name: githubble-rc3.9-signed-release
           path: dist/*
           if-no-files-found: error
           retention-days: 30

@@ -999,7 +999,9 @@ public class MainActivity extends Activity {
     private void renderRepositoryAccessSummary(RepositoryAccessController.SyncResult result){
         sectionTitle("Доступ GitHub App",null);
         if(!result.hasInstallations()){
-            TextView warning=text("GitHub авторизация есть, но доступная установка GiHubble для этого аккаунта не найдена. Поэтому приватные репозитории приложение видеть не может.",13,false);
+            TextView warning=text(result.repositories.length()==0
+                    ?"Вход выполнен, но GitHub не вернул доступные репозитории. Проверьте установку GiHubble и разрешение доступа к private-репозиториям."
+                    :"Репозитории загружены через GitHub API; информация об установках GiHubble недоступна или отсутствует. Доступ к остальным репозиториям зависит от разрешений приложения.",13,false);
             warning.setTextColor(MUTED);
             card(warning);
             Button install=button("Установить / настроить GiHubble");
@@ -2391,7 +2393,7 @@ public class MainActivity extends Activity {
             ImageView avatar=createProfileAvatar(dp(86));guest.addView(avatar,new LinearLayout.LayoutParams(dp(86),dp(86)));
             TextView name=text("Гостевой режим",22,true);name.setGravity(Gravity.CENTER);guest.addView(name);
             TextView note=text("Публичный поиск доступен без входа. Подключите GitHub, чтобы загрузить личный профиль и приватные данные, разрешённые GiHubble.",13,false);note.setTextColor(MUTED);note.setGravity(Gravity.CENTER);guest.addView(note);card(guest);
-            Button login=button("Войти через GitHub");login.setOnClickListener(v->startSmartLogin());content.addView(login,new LinearLayout.LayoutParams(-1,dp(52)));
+            Button login=button("Войти через GitHub · Device Flow");login.setOnClickListener(v->startSmartLogin());content.addView(login,new LinearLayout.LayoutParams(-1,dp(52)));
             Button register=button("Создать аккаунт GitHub");register.setTextColor(GREEN);register.setBackground(round(CARD,14,GREEN,1));register.setOnClickListener(v->startGitHubRegistration());
             LinearLayout.LayoutParams registerParams=new LinearLayout.LayoutParams(-1,dp(52));registerParams.setMargins(0,dp(9),0,0);content.addView(register,registerParams);
             TextView secureRegistration=text("Вход через официальный GitHub по восьмисимвольному коду Device Flow. Пароль GitHub приложение не получает.",11,false);secureRegistration.setTextColor(MUTED);secureRegistration.setGravity(Gravity.CENTER);secureRegistration.setPadding(dp(8),dp(11),dp(8),0);content.addView(secureRegistration);
@@ -2807,16 +2809,21 @@ public class MainActivity extends Activity {
                 AccountOperationsController.BillingSnapshot snapshot=accountOperations.loadBillingSnapshot();
                 runOnUiThread(()->{
                     content.removeView(pb);
-                    sectionTitle("Тариф и лимиты",null);
+                    sectionTitle("GitHub Actions · использование",null);
                     settingsRow("Аккаунт",snapshot.login.isEmpty()?"—":"@"+snapshot.login);
                     settingsRow("Тариф",snapshot.planName.isEmpty()?"Не определён":snapshot.planName);
-                    String minutes=snapshot.minutesUsed<0?"Недоступно":snapshot.minutesUsed+" / "+(snapshot.minutesLimit<0?"—":snapshot.minutesLimit);
-                    settingsRow("Actions минуты",minutes);
-                    if(snapshot.minutesRemaining()>=0)settingsRow("Осталось минут",String.valueOf(snapshot.minutesRemaining()));
-                    settingsRow("Artifacts",formatAccountBytes(snapshot.artifactStorageBytes)+(snapshot.storageLimitBytes<0?"":" / "+formatAccountBytes(snapshot.storageLimitBytes)));
-                    if(snapshot.storageRemainingBytes()>=0)settingsRow("Остаток лимита*",formatAccountBytes(snapshot.storageRemainingBytes()));
-                    settingsRow("Actions cache",formatAccountBytes(snapshot.cacheStorageBytes)+" · отдельно, 10 GB/репозиторий");
-                    TextView storageNote=text("* Остаток рассчитан по текущим Actions artifacts. GitHub Packages используют общий пул с artifact storage и могут уменьшать фактический остаток. Cache в 500 MB/1 GB не входит.",10,false);storageNote.setTextColor(MUTED);card(storageNote);
+                    settingsRow("Период учёта (UTC)",snapshot.billingPeriod);
+                    String minutes=snapshot.billingApiAvailable
+                        ?String.format(Locale.ROOT,"%.2f мин",snapshot.minutesUsed)
+                        :"Недоступно — см. предупреждение ниже";
+                    settingsRow("Actions: учтённое использование",minutes);
+                    settingsRow("Минут включено в тариф*",snapshot.minutesLimit<0?"Не определено":String.valueOf(snapshot.minutesLimit));
+                    TextView quotaNote=text("* Лимит — справочное значение стандартного тарифа, а не подтверждённый остаток. Billing API показывает использование за период; учёт зависит от типа раннера, владельца репозитория и тарифных условий.",11,false);
+                    quotaNote.setTextColor(MUTED);card(quotaNote);
+                    sectionTitle("Инвентаризация хранилища (не биллинг)",null);
+                    settingsRow("Найдено Actions artifacts",formatAccountBytes(snapshot.artifactStorageBytes));
+                    settingsRow("Найдено Actions cache",formatAccountBytes(snapshot.cacheStorageBytes));
+                    TextView storageNote=text("Это сумма найденных объектов в проверенных репозиториях, а не глобальная квота или остаток хранилища GitHub. Точный остаток см. в GitHub Billing.",11,false);storageNote.setTextColor(MUTED);card(storageNote);
                     settingsRow("Приватных репозиториев",String.valueOf(snapshot.privateRepositories));
                     settingsRow("Проверено репозиториев",String.valueOf(snapshot.repositoriesScanned));
                     if(snapshot.repositoryScanTruncated){
@@ -2826,6 +2833,7 @@ public class MainActivity extends Activity {
                         TextView warning=text(snapshot.billingWarning,12,false);warning.setTextColor(MUTED);card(warning);
                     }
 
+                    Button refreshBilling=button("Обновить квоту и хранилище");refreshBilling.setOnClickListener(v->{api.invalidatePrefix("https://api.github.com/users/");api.invalidatePrefix("https://api.github.com/user/repos");showAccountCenter();});content.addView(refreshBilling,new LinearLayout.LayoutParams(-1,dp(50)));
                     sectionTitle("Хранилище Actions","Нажмите репозиторий для очистки");
                     int rendered=0;
                     for(AccountOperationsController.RepositoryUsage usage:snapshot.repositories){
