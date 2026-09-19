@@ -29,6 +29,7 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import app.githubble.mobile.auth.OAuthManager;
+import app.githubble.mobile.auth.WebOAuthManager;
 import app.githubble.mobile.network.GitHubApiClient;
 import app.githubble.mobile.network.GitHubGraphQlClient;
 import app.githubble.mobile.security.SecureStore;
@@ -84,6 +85,7 @@ public class MainActivity extends Activity {
     private GitHubApiClient api;
     private GitHubGraphQlClient graphql;
     private OAuthManager oauth;
+    private WebOAuthManager webOauth;
     private TrackingDatabase trackingDb;
     private TrackingEngine trackingEngine;
     private TranslationCache translationCache;
@@ -140,6 +142,7 @@ public class MainActivity extends Activity {
         api = new GitHubApiClient(secureStore, entityCache);
         graphql = new GitHubGraphQlClient(api);
         oauth = new OAuthManager(this, secureStore);
+        webOauth = new WebOAuthManager(this, secureStore);
         trackingDb = new TrackingDatabase(this);
         trackingEngine = new TrackingEngine(this, trackingDb, api);
         translationCache = new TranslationCache(this);
@@ -2249,10 +2252,12 @@ public class MainActivity extends Activity {
             ImageView avatar=createProfileAvatar(dp(86));guest.addView(avatar,new LinearLayout.LayoutParams(dp(86),dp(86)));
             TextView name=text("Гостевой режим",22,true);name.setGravity(Gravity.CENTER);guest.addView(name);
             TextView note=text("Публичный поиск доступен без входа. Подключите GitHub, чтобы загрузить личный профиль и приватные данные, разрешённые GiHubble.",13,false);note.setTextColor(MUTED);note.setGravity(Gravity.CENTER);guest.addView(note);card(guest);
-            Button login=button("Войти в существующий аккаунт");login.setOnClickListener(v->startSmartLogin());content.addView(login,new LinearLayout.LayoutParams(-1,dp(52)));
+            Button login=button("Войти через GitHub");login.setOnClickListener(v->startWebGitHubLogin());content.addView(login,new LinearLayout.LayoutParams(-1,dp(52)));
+            Button device=button("Войти по 8-значному коду");device.setTextColor(GREEN);device.setBackground(round(CARD,14,GREEN,1));device.setOnClickListener(v->startSmartLogin());
+            LinearLayout.LayoutParams deviceParams=new LinearLayout.LayoutParams(-1,dp(52));deviceParams.setMargins(0,dp(9),0,0);content.addView(device,deviceParams);
             Button register=button("Создать аккаунт GitHub");register.setTextColor(GREEN);register.setBackground(round(CARD,14,GREEN,1));register.setOnClickListener(v->startGitHubRegistration());
             LinearLayout.LayoutParams registerParams=new LinearLayout.LayoutParams(-1,dp(52));registerParams.setMargins(0,dp(9),0,0);content.addView(register,registerParams);
-            TextView secureRegistration=text("Регистрация и подтверждение выполняются на официальных страницах GitHub в защищённой вкладке Chrome. GitHubble не получает пароль.",11,false);secureRegistration.setTextColor(MUTED);secureRegistration.setGravity(Gravity.CENTER);secureRegistration.setPadding(dp(8),dp(11),dp(8),0);content.addView(secureRegistration);
+            TextView secureRegistration=text("Основной вход открывает официальный GitHub и возвращает вас в GitHubble. Вход по коду оставлен как запасной Device Flow. Пароль GitHub приложение не получает.",11,false);secureRegistration.setTextColor(MUTED);secureRegistration.setGravity(Gravity.CENTER);secureRegistration.setPadding(dp(8),dp(11),dp(8),0);content.addView(secureRegistration);
             return;
         }
         JSONObject profile=getCachedProfile();
@@ -2838,6 +2843,8 @@ public class MainActivity extends Activity {
         String login=getProfileLogin();settingsActionRow("Личный профиль",isSignedIn()?(login.isEmpty()?"GitHub подключён":"@"+login):"Не подключён",() -> navigate(this::showProfile));
         settingsRow("Защита токена",isSignedIn()?"Android Keystore":"Нет активного сеанса");
         settingsActionRow("GitHub Client ID",githubClientIdStatus(),() -> showGitHubClientIdDialog(false));
+        settingsActionRow("OAuth backend",effectiveOAuthBackend().isEmpty()?"Не настроен":"Настроен",() -> showOAuthBackendDialog(false));
+        settingsRow("Способы входа","GitHub OAuth + Device Flow");
         settingsActionRow("GitHub Billing и Actions",isSignedIn()?"Минуты, место и безопасная очистка":"Требуется вход",() -> navigate(this::showAccountCenter));
         settingsActionRow("Приватные репозитории","Доступ GiHubble",this::openPrivateRepositoryAccess);
         sectionTitle("Интерфейс",null);
@@ -2866,7 +2873,7 @@ public class MainActivity extends Activity {
         sectionTitle("Приложение",null);
         settingsRow("Версия",BuildConfig.VERSION_NAME);
         settingsRow("GitHub App","GiHubble");
-        settingsActionRow("Состояние Release Candidate","RC3.4 · Login + Account Center",() -> navigate(this::showReleaseCandidateStatus));
+        settingsActionRow("Состояние Release Candidate","RC3.6 · Dual GitHub Auth",() -> navigate(this::showReleaseCandidateStatus));
         if(isSignedIn()){
             Button out=button("Выйти из GitHub");out.setOnClickListener(v->confirmSignOut());LinearLayout.LayoutParams op=new LinearLayout.LayoutParams(-1,dp(52));op.setMargins(0,dp(6),0,dp(6));content.addView(out,op);
         }
@@ -3106,6 +3113,97 @@ public class MainActivity extends Activity {
         String embedded=BuildConfig.GITHUB_CLIENT_ID==null?"":BuildConfig.GITHUB_CLIENT_ID.trim();
         if(!embedded.isEmpty())return embedded;
         return prefs.getString("github_client_id","").trim();
+    }
+
+    private String effectiveOAuthBackend(){
+        String embedded=BuildConfig.GITHUB_OAUTH_BACKEND==null?"":BuildConfig.GITHUB_OAUTH_BACKEND.trim();
+        if(!embedded.isEmpty())return embedded;
+        return prefs.getString("github_oauth_backend","").trim();
+    }
+
+    private void startWebGitHubLogin(){
+        String clientId=effectiveGitHubClientId();
+        if(clientId.isEmpty()){
+            showGitHubClientIdDialog(false);
+            return;
+        }
+        String backend=effectiveOAuthBackend();
+        if(backend.isEmpty()){
+            showOAuthBackendDialog(true);
+            return;
+        }
+        try{
+            WebOAuthManager.Request request=webOauth.begin(clientId,BuildConfig.GITHUB_OAUTH_CALLBACK);
+            GitHubCustomTabs.open(this,request.authorizationUri,GREEN,"dark".equals(activeTheme));
+        }catch(Exception e){
+            errorDialog("Не удалось открыть GitHub",e.getMessage());
+        }
+    }
+
+    private void showOAuthBackendDialog(boolean continueLogin){
+        final EditText input=new EditText(this);
+        input.setSingleLine(true);
+        input.setHint("https://example.com");
+        String current=prefs.getString("github_oauth_backend","");
+        if(!current.isEmpty())input.setText(current);
+
+        LinearLayout box=new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(18),dp(4),dp(18),0);
+        TextView info=text("Основной вход через GitHub использует OAuth web-flow с PKCE. Client Secret хранится только на HTTPS backend, а не в APK. Для готового публичного релиза этот адрес задаётся разработчиком при сборке.",12,false);
+        info.setTextColor(MUTED);
+        box.addView(info);
+        LinearLayout.LayoutParams ip=new LinearLayout.LayoutParams(-1,dp(54));ip.setMargins(0,dp(12),0,0);box.addView(input,ip);
+
+        AlertDialog dialog=new AlertDialog.Builder(this)
+            .setTitle("OAuth backend")
+            .setView(box)
+            .setNegativeButton("Отмена",null)
+            .setPositiveButton(continueLogin?"Сохранить и войти":"Сохранить",null)
+            .create();
+        dialog.setOnShowListener(x -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            String value=input.getText().toString().trim();
+            if(value.endsWith("/"))value=value.substring(0,value.length()-1);
+            if(!value.startsWith("https://")){
+                input.setError("Нужен HTTPS адрес");
+                return;
+            }
+            prefs.edit().putString("github_oauth_backend",value).apply();
+            dialog.dismiss();
+            if(continueLogin)startWebGitHubLogin();
+        }));
+        dialog.show();
+    }
+
+    private void handleWebOAuthCallback(Uri uri){
+        WebOAuthManager.Callback callback=webOauth.consumeCallback(uri);
+        if(!callback.ok()){
+            errorDialog("Вход GitHub не завершён",callback.error);
+            return;
+        }
+        String backend=effectiveOAuthBackend();
+        if(backend.isEmpty()){
+            errorDialog("OAuth backend не настроен","Authorization code получен, но безопасный обмен на токен выполнить негде. Настройте OAuth backend и повторите вход.");
+            return;
+        }
+        ProgressDialog progress=ProgressDialog.show(this,"Вход через GitHub","Получаем токен…",true,false);
+        io.execute(() -> {
+            try{
+                webOauth.exchangeWithBackend(backend,callback);
+                runOnUiThread(() -> {
+                    progress.dismiss();
+                    prefs.edit().putBoolean(PREF_AUTH_JUST_COMPLETED,false).apply();
+                    loadAndStoreGitHubProfile();
+                    openRoot(this::showProfile);
+                    toast("GitHub успешно подключён");
+                });
+            }catch(Exception e){
+                runOnUiThread(() -> {
+                    progress.dismiss();
+                    errorDialog("Не удалось завершить вход",e.getMessage());
+                });
+            }
+        });
     }
 
     private void startSmartLogin(){
@@ -3404,7 +3502,15 @@ public class MainActivity extends Activity {
     }
 
     private void handleIntent(Intent i){
-        // Smart login uses GitHub Device Flow and does not require a custom callback URI.
+        if(i != null && Intent.ACTION_VIEW.equals(i.getAction()) && i.getData()!=null){
+            Uri data=i.getData();
+            if("githubble".equalsIgnoreCase(data.getScheme()) && "oauth".equalsIgnoreCase(data.getHost()) && "/callback".equals(data.getPath())){
+                i.setData(null);
+                i.setAction(null);
+                handleWebOAuthCallback(data);
+                return;
+            }
+        }
         if(i != null && "app.githubble.mobile.OPEN_TRACKING".equals(i.getAction())) {
             i.setAction(null);
             openRoot(this::showTracking);
