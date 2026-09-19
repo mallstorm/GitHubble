@@ -48,6 +48,7 @@ import app.githubble.mobile.diagnostics.TrackingDiagnostics;
 import app.githubble.mobile.diagnostics.DiagnosticsExporter;
 import app.githubble.mobile.cache.EntityCache;
 import app.githubble.mobile.controller.RepositoryController;
+import app.githubble.mobile.controller.RepositoryAccessController;
 import app.githubble.mobile.controller.AccountOperationsController;
 import app.githubble.mobile.controller.RepositoryImportController;
 import app.githubble.mobile.controller.ProfileController;
@@ -92,6 +93,7 @@ public class MainActivity extends Activity {
     private TranslationEngine translationEngine;
     private EntityCache entityCache;
     private RepositoryController repositoryController;
+    private RepositoryAccessController repositoryAccess;
     private AccountOperationsController accountOperations;
     private ProfileController profileController;
     private TranslationController translationController;
@@ -118,6 +120,8 @@ public class MainActivity extends Activity {
     private boolean registrationCustomTabActive = false;
     private boolean registrationCustomTabWasPaused = false;
     private boolean registrationReturnDialogVisible = false;
+    private boolean repositoryAccessBrowserActive = false;
+    private boolean repositoryAccessBrowserWasPaused = false;
     private static final String PREF_REGISTRATION_PENDING = "github_registration_pending";
     private static final String PREF_REGISTRATION_LAUNCHED_AT = "github_registration_launched_at";
     private static final String PREF_AUTH_JUST_COMPLETED = "github_auth_just_completed";
@@ -148,6 +152,7 @@ public class MainActivity extends Activity {
         translationCache = new TranslationCache(this);
         translationEngine = new TranslationEngine();
         repositoryController = new RepositoryController(api);
+        repositoryAccess = new RepositoryAccessController(api);
         accountOperations = new AccountOperationsController(api);
         profileController = new ProfileController(api);
         translationController = new TranslationController(secureStore, prefs, translationCache, translationEngine);
@@ -192,6 +197,7 @@ public class MainActivity extends Activity {
         stopCopilotForegroundPolling();
         super.onPause();
         if (registrationCustomTabActive) registrationCustomTabWasPaused = true;
+        if (repositoryAccessBrowserActive) repositoryAccessBrowserWasPaused = true;
     }
 
     @Override protected void onResume() {
@@ -211,6 +217,13 @@ public class MainActivity extends Activity {
             registrationCustomTabWasPaused = false;
             prefs.edit().putBoolean(PREF_REGISTRATION_PENDING, false).apply();
             new Handler(Looper.getMainLooper()).postDelayed(this::showRegistrationReturnDialog, 250L);
+        }
+        if (repositoryAccessBrowserActive && repositoryAccessBrowserWasPaused) {
+            repositoryAccessBrowserActive = false;
+            repositoryAccessBrowserWasPaused = false;
+            new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                if (isSignedIn()) openRoot(() -> showMyRepositories(true));
+            }, 450L);
         }
     }
 
@@ -910,10 +923,118 @@ public class MainActivity extends Activity {
 
     private String repoFromApiUrl(String url){String marker="/repos/";int i=url.indexOf(marker);return i>=0?url.substring(i+marker.length()):"";}
 
-    private void showMyRepositories(){showMyRepositoriesPage(1,true);}
-    private void showMyRepositoriesPage(int page,boolean first){
-        if(first){setCurrentScreen(this::showMyRepositories);shell("Репозитории",true);heroBanner("Мои репозитории","Публичные и приватные проекты, доступные GiHubble",R.drawable.ic_repository);if(!isSignedIn()){accountRequiredCard("Войдите, чтобы увидеть доступные вашему аккаунту репозитории.");return;}Button create=button("Создать репозиторий");create.setOnClickListener(v->showCreateRepositoryDialog());content.addView(create,new LinearLayout.LayoutParams(-1,dp(50)));Button privateAccess=button("Настроить доступ к приватным");privateAccess.setOnClickListener(v->openPrivateRepositoryAccess());LinearLayout.LayoutParams pap=new LinearLayout.LayoutParams(-1,dp(50));pap.setMargins(0,dp(7),0,0);content.addView(privateAccess,pap);}
-        ProgressBar pb=new ProgressBar(this);content.addView(pb);io.execute(()->{try{JSONArray repos=getArray("https://api.github.com/user/repos?visibility=all&affiliation=owner,collaborator,organization_member&sort=updated&per_page=50&page="+page);if(first)prefs.edit().putString("cache_my_repositories",repos.toString()).apply();runOnUiThread(()->{content.removeView(pb);if(first)sectionTitle("Доступные репозитории",null);renderRepositoryItems(repos);if(repos.length()==50)addLoadMoreButton("Показать ещё репозитории",()->showMyRepositoriesPage(page+1,false));});}catch(Exception e){String cached=prefs.getString("cache_my_repositories","");runOnUiThread(()->{content.removeView(pb);if(first&&!cached.isEmpty()){try{toast("Офлайн: показан сохранённый список");renderRepositoryItems(new JSONArray(cached));}catch(Exception ex){errorCard("Ошибка кэша",ex.getMessage());}}else errorCard("Не удалось загрузить репозитории",e.getMessage());});}});
+    private void showMyRepositories(){showMyRepositories(false);}
+
+    private void showMyRepositories(boolean forceNetwork){
+        setCurrentScreen(this::showMyRepositories);
+        shell("Репозитории",true);
+        heroBanner("Мои репозитории","Синхронизация через установку GitHub App GiHubble",R.drawable.ic_repository);
+        if(!isSignedIn()){
+            accountRequiredCard("Войдите, чтобы увидеть доступные вашему аккаунту репозитории.");
+            return;
+        }
+
+        Button refresh=button(forceNetwork?"Обновление…":"Обновить репозитории");
+        refresh.setEnabled(!forceNetwork);
+        refresh.setOnClickListener(v->showMyRepositories(true));
+        content.addView(refresh,new LinearLayout.LayoutParams(-1,dp(50)));
+
+        Button create=button("Создать репозиторий");
+        create.setOnClickListener(v->showCreateRepositoryDialog());
+        LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,dp(50));cp.setMargins(0,dp(7),0,0);
+        content.addView(create,cp);
+
+        Button privateAccess=button("Настроить доступ GiHubble");
+        privateAccess.setOnClickListener(v->openPrivateRepositoryAccess());
+        LinearLayout.LayoutParams pap=new LinearLayout.LayoutParams(-1,dp(50));pap.setMargins(0,dp(7),0,0);
+        content.addView(privateAccess,pap);
+
+        ProgressBar pb=new ProgressBar(this);
+        content.addView(pb);
+        io.execute(() -> {
+            try{
+                RepositoryAccessController.SyncResult result=repositoryAccess.sync(forceNetwork);
+                prefs.edit()
+                        .putString("cache_my_repositories",result.repositories.toString())
+                        .putString("repository_access_settings_url",result.bestSettingsUrl())
+                        .putLong("repository_last_sync",System.currentTimeMillis())
+                        .apply();
+                runOnUiThread(() -> {
+                    if(!"Репозитории".equals(currentTitle))return;
+                    content.removeView(pb);
+                    renderRepositoryAccessSummary(result);
+                    sectionTitle("Доступные репозитории · "+result.repositories.length(),null);
+                    renderRepositoryItems(result.repositories);
+                });
+            }catch(Exception e){
+                String cached=prefs.getString("cache_my_repositories","");
+                runOnUiThread(() -> {
+                    if(!"Репозитории".equals(currentTitle))return;
+                    content.removeView(pb);
+                    if(!cached.isEmpty()){
+                        try{
+                            errorCard("Синхронизация GitHub не удалась","Показан последний сохранённый список. "+e.getMessage());
+                            renderRepositoryItems(new JSONArray(cached));
+                        }catch(Exception ignored){
+                            errorCard("Не удалось загрузить репозитории",e.getMessage());
+                        }
+                    }else{
+                        errorCard("Не удалось синхронизировать GitHub",e.getMessage());
+                    }
+                });
+            }
+        });
+    }
+
+    private void renderRepositoryAccessSummary(RepositoryAccessController.SyncResult result){
+        sectionTitle("Доступ GitHub App",null);
+        if(!result.hasInstallations()){
+            TextView warning=text("GitHub авторизация есть, но доступная установка GiHubble для этого аккаунта не найдена. Поэтому приватные репозитории приложение видеть не может.",13,false);
+            warning.setTextColor(MUTED);
+            card(warning);
+            Button install=button("Установить / настроить GiHubble");
+            install.setOnClickListener(v->openPrivateRepositoryAccess());
+            content.addView(install,new LinearLayout.LayoutParams(-1,dp(50)));
+            if(!result.warning.isEmpty())errorCard("Диагностика доступа",result.warning);
+            return;
+        }
+
+        settingsRow("Установок GiHubble",String.valueOf(result.installations.size()));
+        settingsRow("Приватных доступно",String.valueOf(result.privateCount));
+        settingsRow("Публичных доступно",String.valueOf(result.publicCount));
+
+        for(RepositoryAccessController.Installation installation:result.installations){
+            String selection="all".equalsIgnoreCase(installation.repositorySelection)
+                    ?"Все репозитории"
+                    :"selected".equalsIgnoreCase(installation.repositorySelection)
+                    ?"Выбранные репозитории"
+                    :installation.repositorySelection;
+            String detail=selection+" · "+installation.privateCount+" private · "+installation.publicCount+" public";
+            settingsActionRow(
+                    installation.account.isEmpty()?"GitHub installation":installation.account,
+                    detail,
+                    () -> {
+                        prefs.edit().putString("repository_access_settings_url",installation.settingsUrl()).apply();
+                        openPrivateRepositoryAccess();
+                    }
+            );
+            if(!installation.error.isEmpty()){
+                TextView err=text("Ошибка доступа: "+installation.error,11,false);
+                err.setTextColor(MUTED);
+                card(err);
+            }
+        }
+
+        if(result.privateCount==0){
+            TextView hint=text("Если у аккаунта есть приватные репозитории, но здесь 0, откройте настройку GiHubble выше и выберите «All repositories» либо отметьте нужные private-репозитории. После возврата список обновится автоматически.",12,false);
+            hint.setTextColor(MUTED);
+            card(hint);
+        }
+        if(!result.warning.isEmpty()){
+            TextView warning=text(result.warning,11,false);
+            warning.setTextColor(MUTED);
+            card(warning);
+        }
     }
 
     private void renderRepositoryArray(String expectedTitle,ProgressBar pb,JSONArray repos){if(!expectedTitle.equals(currentTitle))return;content.removeView(pb);sectionTitle("Доступно: "+repos.length(),null);renderRepositoryItems(repos);}
@@ -2646,7 +2767,10 @@ public class MainActivity extends Activity {
 
 
     private void openPrivateRepositoryAccess(){
-        openSecureGitHubPage(AccountOperationsController.INSTALLATIONS_PAGE);
+        repositoryAccessBrowserActive = true;
+        repositoryAccessBrowserWasPaused = false;
+        String url = prefs.getString("repository_access_settings_url", AccountOperationsController.INSTALLATIONS_PAGE);
+        openSecureGitHubPage(url);
     }
 
     private void openSecureGitHubPage(String url){
@@ -2873,7 +2997,7 @@ public class MainActivity extends Activity {
         sectionTitle("Приложение",null);
         settingsRow("Версия",BuildConfig.VERSION_NAME);
         settingsRow("GitHub App","GiHubble");
-        settingsActionRow("Состояние Release Candidate","RC3.6 · Dual GitHub Auth",() -> navigate(this::showReleaseCandidateStatus));
+        settingsActionRow("Состояние Release Candidate","RC3.7 · Repository Sync",() -> navigate(this::showReleaseCandidateStatus));
         if(isSignedIn()){
             Button out=button("Выйти из GitHub");out.setOnClickListener(v->confirmSignOut());LinearLayout.LayoutParams op=new LinearLayout.LayoutParams(-1,dp(52));op.setMargins(0,dp(6),0,dp(6));content.addView(out,op);
         }
