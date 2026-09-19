@@ -392,11 +392,11 @@ public final class HomeScreen {
         view.setText(value);
         view.setTextSize(sp);
         view.setTextColor(palette.text);
-        if (bold) view.setTypeface(null, 1);
+        if (bold) view.setTypeface(null, android.graphics.Typeface.BOLD);
         view.setPadding(dp(4), dp(4), dp(4), dp(4));
         view.setLineSpacing(0f, activity.getResources().getConfiguration().fontScale >= 1.25f ? 1.18f : 1.08f);
         view.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
-        if(android.os.Build.VERSION.SDK_INT>=23){view.setBreakStrategy(android.text.Layout.BREAK_STRATEGY_HIGH_QUALITY);view.setHyphenationFrequency(android.text.Layout.HYPHENATION_FREQUENCY_NORMAL);}
+        if(android.os.Build.VERSION.SDK_INT>=29){view.setBreakStrategy(android.graphics.text.LineBreaker.BREAK_STRATEGY_HIGH_QUALITY);view.setHyphenationFrequency(android.graphics.text.LineBreaker.HYPHENATION_FREQUENCY_NORMAL);}
         return view;
     }
 
