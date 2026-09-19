@@ -3,6 +3,11 @@ apply plugin: 'com.android.application'
 def githubClientId = (project.findProperty('GITHUB_CLIENT_ID') ?: System.getenv('GITHUB_CLIENT_ID') ?: 'Iv23ligNq2gfjSk90Tn7').toString()
 def escapedGithubClientId = githubClientId.replace('\\', '\\\\').replace('\"', '\\"')
 
+def githubOauthBackend = (project.findProperty('GITHUB_OAUTH_BACKEND') ?: System.getenv('GITHUB_OAUTH_BACKEND') ?: '').toString()
+def escapedGithubOauthBackend = githubOauthBackend.replace('\\', '\\\\').replace('\"', '\\\"')
+def githubOauthCallback = (project.findProperty('GITHUB_OAUTH_CALLBACK') ?: System.getenv('GITHUB_OAUTH_CALLBACK') ?: 'githubble://oauth/callback').toString()
+def escapedGithubOauthCallback = githubOauthCallback.replace('\\', '\\\\').replace('\"', '\\\"')
+
 android {
     buildFeatures { buildConfig true }
     namespace 'app.githubble.mobile'
