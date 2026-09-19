@@ -3035,17 +3035,31 @@ public class MainActivity extends Activity {
         }).setNegativeButton("Отмена",null).show();
     }
 
+    private ComponentName launcherAliasComponent(String suffix){
+        String activityClass=MainActivity.class.getName();
+        int dot=activityClass.lastIndexOf('.');
+        String namespace=dot>=0?activityClass.substring(0,dot):activityClass;
+        return new ComponentName(getPackageName(),namespace+"."+suffix);
+    }
+
     private void switchLauncherIcon(String theme){
         PackageManager pm=getPackageManager();
-        String pkg=getPackageName();
-        String[] aliases={pkg+".LightIcon",pkg+".BeigeIcon",pkg+".DarkIcon"};
-        String selected="beige".equals(theme)?aliases[1]:"dark".equals(theme)?aliases[2]:aliases[0];
-        for(String name:aliases){
-            pm.setComponentEnabledSetting(
-                new ComponentName(pkg,name),
-                name.equals(selected)?PackageManager.COMPONENT_ENABLED_STATE_ENABLED:PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
-                PackageManager.DONT_KILL_APP
-            );
+        ComponentName[] aliases={
+            launcherAliasComponent("LightIcon"),
+            launcherAliasComponent("BeigeIcon"),
+            launcherAliasComponent("DarkIcon")
+        };
+        int selectedIndex="beige".equals(theme)?1:"dark".equals(theme)?2:0;
+        for(int i=0;i<aliases.length;i++){
+            try{
+                pm.setComponentEnabledSetting(
+                    aliases[i],
+                    i==selectedIndex?PackageManager.COMPONENT_ENABLED_STATE_ENABLED:PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                    PackageManager.DONT_KILL_APP
+                );
+            }catch(IllegalArgumentException ignored){
+                // Never crash the app if a build variant changes launcher aliases.
+            }
         }
     }
 
@@ -3057,27 +3071,34 @@ public class MainActivity extends Activity {
     private void restoreLegacyThemeIconAfterUpgrade(){
         final String migrationKey="legacy_theme_icons_restored_v31";
         if(prefs.getBoolean(migrationKey,false)) return;
-        prefs.edit().putBoolean(migrationKey,true).apply();
 
         PackageManager pm=getPackageManager();
-        String pkg=getPackageName();
-        String[] aliases={pkg+".LightIcon",pkg+".BeigeIcon",pkg+".DarkIcon"};
+        ComponentName[] aliases={
+            launcherAliasComponent("LightIcon"),
+            launcherAliasComponent("BeigeIcon"),
+            launcherAliasComponent("DarkIcon")
+        };
         int selectedIndex="beige".equals(activeTheme)?1:"dark".equals(activeTheme)?2:0;
         int temporaryIndex=(selectedIndex+1)%aliases.length;
 
-        // Enable a temporary launcher component first so there is always one icon.
-        pm.setComponentEnabledSetting(
-            new ComponentName(pkg,aliases[temporaryIndex]),
-            PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
-            PackageManager.DONT_KILL_APP
-        );
-        pm.setComponentEnabledSetting(
-            new ComponentName(pkg,aliases[selectedIndex]),
-            PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
-            PackageManager.DONT_KILL_APP
-        );
-
-        new Handler(Looper.getMainLooper()).postDelayed(() -> switchLauncherIcon(activeTheme),350L);
+        try{
+            // Enable a temporary launcher component first so there is always one icon.
+            pm.setComponentEnabledSetting(
+                aliases[temporaryIndex],
+                PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
+                PackageManager.DONT_KILL_APP
+            );
+            pm.setComponentEnabledSetting(
+                aliases[selectedIndex],
+                PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                PackageManager.DONT_KILL_APP
+            );
+            prefs.edit().putBoolean(migrationKey,true).apply();
+            new Handler(Looper.getMainLooper()).postDelayed(() -> switchLauncherIcon(activeTheme),350L);
+        }catch(IllegalArgumentException error){
+            // Launcher alias migration is cosmetic and must never prevent startup.
+            prefs.edit().putBoolean(migrationKey,true).apply();
+        }
     }
 
     private void startSmartLogin(){
