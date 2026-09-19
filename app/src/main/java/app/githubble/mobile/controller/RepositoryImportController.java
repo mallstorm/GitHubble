@@ -169,7 +169,7 @@ public final class RepositoryImportController {
         Preview preview = previewZip(zipUri);
         if (preview.files == 0) throw new IllegalArgumentException("В ZIP нет файлов для загрузки");
         BaseState base = prepareBase(fullName, requestedBranch);
-        JSONArray tree = new JSONArray(); long total = 0; int done = 0;
+        JSONArray tree = new JSONArray(); long total = 0; int done = 0; Set<String> paths = new HashSet<>();
         try (InputStream raw = resolver.openInputStream(zipUri); ZipInputStream zip = new ZipInputStream(new BufferedInputStream(require(raw)))) {
             ZipEntry entry;
             while ((entry = zip.getNextEntry()) != null) {
