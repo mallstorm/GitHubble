@@ -1053,7 +1053,7 @@ public class MainActivity extends Activity {
         for(int i=0;i<repos.length();i++){
             JSONObject repository=repos.optJSONObject(i);
             if(repository==null || (repositoriesPrivateOnly && !repository.optBoolean("private",false)))continue;
-            addRepoCard(repository);shown++;
+            try{addRepoCard(repository);shown++;}catch(Exception ignored){}
         }
         if(shown==0)card(text(repositoriesPrivateOnly?"Приватные репозитории не найдены среди доступных GiHubble проектов. Проверьте разрешения GitHub App.":"Репозитории не найдены или приложение GiHubble не установлено для нужных репозиториев.",14,false));
     }
