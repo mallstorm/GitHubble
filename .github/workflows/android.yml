@@ -1,4 +1,4 @@
-name: GitHubble Android Release
+name: GitHubble Android CI and Release
 
 on:
   push:
@@ -24,12 +24,33 @@ jobs:
         with:
           gradle-version: '9.5.1'
 
-      - name: Test and compile release (not debug)
+      - name: Read release manifest
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          source version.properties
+          echo "name=${VERSION_NAME}" >> "$GITHUB_OUTPUT"
+          echo "code=${VERSION_CODE}" >> "$GITHUB_OUTPUT"
+
+      - name: Unit tests, lint and release compile
         env:
           GITHUB_CLIENT_ID: ${{ secrets.GITHUB_CLIENT_ID }}
-        run: gradle --no-daemon test assembleRelease
+        run: gradle --no-daemon test lintRelease assembleDebug assembleRelease
+
+      - name: On-device regression suite
+        uses: ReactiveCircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          script: |
+            adb install -r app/build/outputs/apk/debug/app-debug.apk
+            adb shell am instrument -w app.githubble.mobile.debug/app.githubble.mobile.RcInstrumentationTest
 
       - name: Sign release APK
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:
           KEYSTORE_B64: ${{ secrets.GITHUBBLE_RELEASE_KEYSTORE_BASE64 }}
           STORE_PASSWORD: ${{ secrets.GITHUBBLE_RELEASE_STORE_PASSWORD }}
@@ -39,21 +60,10 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          if [ -n "${KEYSTORE_B64}" ]; then
-            test -n "${STORE_PASSWORD}" && test -n "${KEY_PASSWORD}" && test -n "${KEY_ALIAS}"
-            printf '%s' "${KEYSTORE_B64}" | base64 --decode > "${RUNNER_TEMP}/githubble-release.p12"
-            echo "Signing mode: repository-provided release keystore" > dist/SIGNING_INFO.txt
-          else
-            STORE_PASSWORD="$(openssl rand -hex 24)"
-            KEY_PASSWORD="${STORE_PASSWORD}"
-            KEY_ALIAS="githubble-release"
-            keytool -genkeypair -noprompt \
-              -keystore "${RUNNER_TEMP}/githubble-release.p12" -storetype PKCS12 \
-              -storepass "${STORE_PASSWORD}" -keypass "${KEY_PASSWORD}" \
-              -alias "${KEY_ALIAS}" -keyalg RSA -keysize 3072 -validity 3650 \
-              -dname "CN=GitHubble Temporary Release, O=GitHubble"
-            echo "Signing mode: TEMPORARY generated certificate. This APK cannot update a different signed installation; save a permanent keystore in GitHub Actions secrets for updatable future releases." > dist/SIGNING_INFO.txt
-          fi
+          test -n "${KEYSTORE_B64}" || { echo "Release keystore secret is required" >&2; exit 1; }
+          test -n "${STORE_PASSWORD}" && test -n "${KEY_PASSWORD}" && test -n "${KEY_ALIAS}"
+          printf '%s' "${KEYSTORE_B64}" | base64 --decode > "${RUNNER_TEMP}/githubble-release.p12"
+          echo "Signing mode: persistent repository release keystore" > dist/SIGNING_INFO.txt
           SDK_BIN="${ANDROID_HOME}/build-tools/36.0.0"
           UNSIGNED="app/build/outputs/apk/release/app-release-unsigned.apk"
           test -s "${UNSIGNED}"
@@ -62,13 +72,13 @@ jobs:
             --ks "${RUNNER_TEMP}/githubble-release.p12" \
             --ks-key-alias "${KEY_ALIAS}" \
             --ks-pass env:STORE_PASSWORD --key-pass env:KEY_PASSWORD \
-            --out dist/GitHubble-1.0.0-RC3.8.1-release.apk \
+            --out "dist/GitHubble-${{ steps.version.outputs.name }}-release.apk" \
             "${RUNNER_TEMP}/githubble-aligned.apk"
-          "${SDK_BIN}/apksigner" verify --verbose --print-certs dist/GitHubble-1.0.0-RC3.8.1-release.apk > dist/APK_VERIFICATION.txt
-          "${SDK_BIN}/aapt" dump badging dist/GitHubble-1.0.0-RC3.8.1-release.apk | grep '^package:' > dist/PACKAGE_INFO.txt
+          "${SDK_BIN}/apksigner" verify --verbose --print-certs "dist/GitHubble-${{ steps.version.outputs.name }}-release.apk" > dist/APK_VERIFICATION.txt
+          "${SDK_BIN}/aapt" dump badging "dist/GitHubble-${{ steps.version.outputs.name }}-release.apk" | grep '^package:' > dist/PACKAGE_INFO.txt
           grep -q "name='app.githubble.mobile'" dist/PACKAGE_INFO.txt
-          grep -q "versionCode='43'" dist/PACKAGE_INFO.txt
-          sha256sum dist/GitHubble-1.0.0-RC3.8.1-release.apk > dist/SHA256SUMS.txt
+          grep -q "versionCode='${{ steps.version.outputs.code }}'" dist/PACKAGE_INFO.txt
+          sha256sum "dist/GitHubble-${{ steps.version.outputs.name }}-release.apk" > dist/SHA256SUMS.txt
           rm -f "${RUNNER_TEMP}/githubble-release.p12" "${RUNNER_TEMP}/githubble-aligned.apk"
 
       - name: Export exact main source tree
@@ -76,14 +86,14 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          git archive --format=zip --output=dist/GitHubble-1.0.0-RC3.8.1-main-sources.zip HEAD
-          test -s dist/GitHubble-1.0.0-RC3.8.1-main-sources.zip
-          sha256sum dist/GitHubble-1.0.0-RC3.8.1-main-sources.zip > dist/SOURCE_SHA256.txt
+          git archive --format=zip --output="dist/GitHubble-${{ steps.version.outputs.name }}-main-sources.zip" HEAD
+          test -s "dist/GitHubble-${{ steps.version.outputs.name }}-main-sources.zip"
+          sha256sum "dist/GitHubble-${{ steps.version.outputs.name }}-main-sources.zip" > dist/SOURCE_SHA256.txt
           printf '%s\n' "$(git rev-parse HEAD)" > dist/SOURCE_COMMIT.txt
 
       - uses: actions/upload-artifact@v4
         with:
-          name: githubble-rc3.8.1-signed-release
+          name: githubble-${{ steps.version.outputs.name }}-${{ github.sha }}
           path: dist/*
           if-no-files-found: error
           retention-days: 30
