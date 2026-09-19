@@ -4,15 +4,15 @@
 
 ## Текущая версия
 
-- Version: `1.0.0-rc3.6-dual-auth`
-- versionCode: `40`
+- Version: `1.0.0-rc3.7-repository-sync`
+- versionCode: `41`
 - applicationId: `app.githubble.mobile`
 - minSdk: `28`
 - targetSdk / compileSdk: `36`
 - Java source/target: `17`
 - основная ветка разработки: `main`
 
-RC3.6 объединяет **Account Center** и двойную авторизацию GitHub: основной browser OAuth с PKCE + запасной 8-значный Device Flow.
+RC3.7 добавляет авторитетную синхронизацию репозиториев через GitHub App installations поверх Account Center и двойной авторизации.
 
 ## Основные возможности
 
@@ -29,6 +29,18 @@ RC3.6 объединяет **Account Center** и двойную авториза
 - диагностика, экспорт состояния и контроль производительности;
 - интеграционные компоненты для GitHub Copilot / Cloud Agent;
 - светлая, бежевая и тёмная визуальные линии приложения.
+
+
+## Repository Sync RC3.7
+
+Экран **Мои репозитории** синхронизируется через официальный GitHub App user-access-token маршрут:
+
+- `GET /user/installations`;
+- `GET /user/installations/{installation_id}/repositories`.
+
+Так приложение видит именно пересечение доступа пользователя и установки GiHubble, включая разрешённые приватные репозитории. Кнопка **Обновить репозитории** очищает локальный API/ETag-кэш и делает принудительную синхронизацию.
+
+Экран показывает число установок, public/private репозиториев, режим `All repositories` / `Selected repositories` и ошибки permission. После возврата из GitHub Settings список синхронизируется автоматически.
 
 ## Repository Manager
 
