@@ -47,7 +47,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          gradle --no-daemon test lintRelease assembleDebug assembleRelease
+          gradle --no-daemon test lintRelease assembleDebug assembleDebugAndroidTest assembleRelease
           result=$?
           if [ "$result" -ne 0 ]; then
             report="app/build/intermediates/lint_intermediate_text_report/release/lintReportRelease/lint-results-release.txt"
@@ -64,6 +64,7 @@ jobs:
           disable-animations: true
           script: |
             adb install -r app/build/outputs/apk/debug/app-debug.apk
+            adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
             adb shell am instrument -w app.githubble.mobile.debug/app.githubble.mobile.RcInstrumentationTest
 
       - name: Sign release APK
