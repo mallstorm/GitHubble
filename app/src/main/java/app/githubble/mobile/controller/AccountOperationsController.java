@@ -52,7 +52,8 @@ public final class AccountOperationsController {
         public final String planName;
         public final long minutesUsed;
         public final long minutesLimit;
-        public final long actionsStorageBytes;
+        public final long artifactStorageBytes;
+        public final long cacheStorageBytes;
         public final long storageLimitBytes;
         public final int privateRepositories;
         public final int repositoriesScanned;
@@ -62,7 +63,7 @@ public final class AccountOperationsController {
         public final List<RepositoryUsage> repositories;
 
         BillingSnapshot(String login, String planName, long minutesUsed, long minutesLimit,
-                        long actionsStorageBytes, long storageLimitBytes, int privateRepositories,
+                        long artifactStorageBytes, long cacheStorageBytes, long storageLimitBytes, int privateRepositories,
                         int repositoriesScanned, boolean repositoryScanTruncated,
                         boolean billingApiAvailable, String billingWarning,
                         List<RepositoryUsage> repositories) {
@@ -70,7 +71,8 @@ public final class AccountOperationsController {
             this.planName = planName;
             this.minutesUsed = minutesUsed;
             this.minutesLimit = minutesLimit;
-            this.actionsStorageBytes = actionsStorageBytes;
+            this.artifactStorageBytes = artifactStorageBytes;
+            this.cacheStorageBytes = cacheStorageBytes;
             this.storageLimitBytes = storageLimitBytes;
             this.privateRepositories = privateRepositories;
             this.repositoriesScanned = repositoriesScanned;
@@ -85,7 +87,7 @@ public final class AccountOperationsController {
         }
 
         public long storageRemainingBytes() {
-            return storageLimitBytes < 0 ? -1 : Math.max(0, storageLimitBytes - actionsStorageBytes);
+            return storageLimitBytes < 0 ? -1 : Math.max(0, storageLimitBytes - artifactStorageBytes);
         }
     }
 
@@ -187,7 +189,8 @@ public final class AccountOperationsController {
 
         JSONArray owned = loadOwnedRepositories();
         List<RepositoryUsage> usages = new ArrayList<>();
-        long storage = 0L;
+        long artifactStorage = 0L;
+        long cacheStorage = 0L;
         int privateCount = 0;
         int scanCount = Math.min(owned.length(), MAX_REPOSITORIES_TO_SCAN);
         for (int i = 0; i < scanCount; i++) {
@@ -199,11 +202,12 @@ public final class AccountOperationsController {
             if (full.isEmpty()) continue;
             RepositoryUsage usage = scanRepositoryUsage(full, isPrivate);
             usages.add(usage);
-            storage += usage.totalBytes();
+            artifactStorage += usage.artifactBytes;
+            cacheStorage += usage.cacheBytes;
         }
         usages.sort(Comparator.comparingLong(RepositoryUsage::totalBytes).reversed());
 
-        return new BillingSnapshot(login, planName, minutesUsed, minutesLimit, storage, storageLimit,
+        return new BillingSnapshot(login, planName, minutesUsed, minutesLimit, artifactStorage, cacheStorage, storageLimit,
                 privateCount, scanCount, owned.length() > scanCount, billingAvailable, billingWarning, usages);
     }
 
