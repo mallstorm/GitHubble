@@ -18,7 +18,7 @@ jobs:
           GITHUB_CLIENT_ID: ${{ secrets.GITHUB_CLIENT_ID }}
         run: gradle --no-daemon test assembleRelease assembleDebugAndroidTest bundleRelease
       - name: Generate SBOM
-        run: python3 tools/generate-sbom.py . release/GitHubble_1.0.0-rc3.2_SPDX.json
+        run: python3 tools/generate-sbom.py . release/GitHubble_1.0.0-rc3.3_SPDX.json
       - uses: actions/upload-artifact@v4
         with:
           name: githubble-rc-unsigned

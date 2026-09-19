@@ -47,6 +47,7 @@ import app.githubble.mobile.diagnostics.TrackingDiagnostics;
 import app.githubble.mobile.diagnostics.DiagnosticsExporter;
 import app.githubble.mobile.cache.EntityCache;
 import app.githubble.mobile.controller.RepositoryController;
+import app.githubble.mobile.controller.AccountOperationsController;
 import app.githubble.mobile.controller.RepositoryImportController;
 import app.githubble.mobile.controller.ProfileController;
 import app.githubble.mobile.controller.TranslationController;
@@ -89,6 +90,7 @@ public class MainActivity extends Activity {
     private TranslationEngine translationEngine;
     private EntityCache entityCache;
     private RepositoryController repositoryController;
+    private AccountOperationsController accountOperations;
     private ProfileController profileController;
     private TranslationController translationController;
     private ScreenStateStore screenState;
@@ -143,6 +145,7 @@ public class MainActivity extends Activity {
         translationCache = new TranslationCache(this);
         translationEngine = new TranslationEngine();
         repositoryController = new RepositoryController(api);
+        accountOperations = new AccountOperationsController(api);
         profileController = new ProfileController(api);
         translationController = new TranslationController(secureStore, prefs, translationCache, translationEngine);
         screenState = new ScreenStateStore(this);
@@ -906,7 +909,7 @@ public class MainActivity extends Activity {
 
     private void showMyRepositories(){showMyRepositoriesPage(1,true);}
     private void showMyRepositoriesPage(int page,boolean first){
-        if(first){setCurrentScreen(this::showMyRepositories);shell("Репозитории",true);heroBanner("Мои репозитории","Собственные, совместные и организационные проекты",R.drawable.ic_repository);if(!isSignedIn()){accountRequiredCard("Войдите, чтобы увидеть доступные вашему аккаунту репозитории.");return;}Button create=button("Создать репозиторий");create.setOnClickListener(v->showCreateRepositoryDialog());content.addView(create,new LinearLayout.LayoutParams(-1,dp(50)));}
+        if(first){setCurrentScreen(this::showMyRepositories);shell("Репозитории",true);heroBanner("Мои репозитории","Публичные и приватные проекты, доступные GiHubble",R.drawable.ic_repository);if(!isSignedIn()){accountRequiredCard("Войдите, чтобы увидеть доступные вашему аккаунту репозитории.");return;}Button create=button("Создать репозиторий");create.setOnClickListener(v->showCreateRepositoryDialog());content.addView(create,new LinearLayout.LayoutParams(-1,dp(50)));Button privateAccess=button("Настроить доступ к приватным");privateAccess.setOnClickListener(v->openPrivateRepositoryAccess());LinearLayout.LayoutParams pap=new LinearLayout.LayoutParams(-1,dp(50));pap.setMargins(0,dp(7),0,0);content.addView(privateAccess,pap);}
         ProgressBar pb=new ProgressBar(this);content.addView(pb);io.execute(()->{try{JSONArray repos=getArray("https://api.github.com/user/repos?visibility=all&affiliation=owner,collaborator,organization_member&sort=updated&per_page=50&page="+page);if(first)prefs.edit().putString("cache_my_repositories",repos.toString()).apply();runOnUiThread(()->{content.removeView(pb);if(first)sectionTitle("Доступные репозитории",null);renderRepositoryItems(repos);if(repos.length()==50)addLoadMoreButton("Показать ещё репозитории",()->showMyRepositoriesPage(page+1,false));});}catch(Exception e){String cached=prefs.getString("cache_my_repositories","");runOnUiThread(()->{content.removeView(pb);if(first&&!cached.isEmpty()){try{toast("Офлайн: показан сохранённый список");renderRepositoryItems(new JSONArray(cached));}catch(Exception ex){errorCard("Ошибка кэша",ex.getMessage());}}else errorCard("Не удалось загрузить репозитории",e.getMessage());});}});
     }
 
@@ -1610,7 +1613,7 @@ public class MainActivity extends Activity {
         addAction(upload,"Загрузить файл/ZIP",()->startRepositoryFileImport(full,defaultBranch));
         addAction(upload,"Открыть файлы",()->navigate(()->showRepositoryFiles(full,defaultBranch,"")));content.addView(upload);
         sectionTitle("Git и публикация",null);GridLayout actions=new GridLayout(this);actions.setColumnCount(adaptiveColumns(2));
-        addAction(actions,"Создать fork",()->showForkDialog(full));addAction(actions,"Новая ветка",()->showCreateBranchDialog(full,defaultBranch));addAction(actions,"Новый тег",()->showCreateTagDialog(full,defaultBranch));addAction(actions,"Новый Release",()->showCreateReleaseDialog(full,defaultBranch));content.addView(actions);
+        addAction(actions,"Создать fork",()->showForkDialog(full));addAction(actions,"Новая ветка",()->showCreateBranchDialog(full,defaultBranch));addAction(actions,"Новый тег",()->showCreateTagDialog(full,defaultBranch));addAction(actions,"Новый Release",()->showCreateReleaseDialog(full,defaultBranch));addAction(actions,"Actions / место",()->navigate(()->showActionsCleanup(full)));addAction(actions,"Коммиты "+defaultBranch,()->navigate(()->showRepositoryCommits(full,defaultBranch)));content.addView(actions);
         boolean isPrivate=repo!=null&&repo.optBoolean("private",false);boolean admin=repo==null||repo.optJSONObject("permissions")==null||repo.optJSONObject("permissions").optBoolean("admin",true);
         sectionTitle("Настройки репозитория",null);GridLayout settings=new GridLayout(this);settings.setColumnCount(adaptiveColumns(2));
         if(admin){addAction(settings,"Имя и описание",()->showEditRepositoryDialog(full,repo));addAction(settings,isPrivate?"Сделать публичным":"Сделать приватным",()->showRepositoryVisibilityDialog(full,isPrivate));addAction(settings,"Удалить репозиторий",()->showDeleteRepositoryDialog(full));}
@@ -2636,12 +2639,204 @@ public class MainActivity extends Activity {
         Button app=button("Открыть системные настройки приложения");app.setTextColor(GREEN);app.setBackground(round(CARD,14,GREEN,1));app.setOnClickListener(v->startActivity(TrackingDiagnostics.appDetailsIntent(this)));LinearLayout.LayoutParams ap=new LinearLayout.LayoutParams(-1,dp(50));ap.setMargins(0,dp(8),0,0);content.addView(app,ap);
     }
 
+
+    private void openPrivateRepositoryAccess(){
+        openSecureGitHubPage(AccountOperationsController.INSTALLATIONS_PAGE);
+    }
+
+    private void openSecureGitHubPage(String url){
+        try{
+            boolean customTab=GitHubCustomTabs.open(this,Uri.parse(url),GREEN,"dark".equals(activeTheme));
+            if(!customTab)openWeb(url);
+        }catch(Exception e){openWeb(url);}
+    }
+
+    private void showAccountCenter(){
+        setCurrentScreen(this::showAccountCenter);
+        shell("Аккаунт GitHub",false);
+        heroBanner("Billing и Actions","Тариф, минуты, место и очистка GitHub Actions",R.drawable.ic_settings);
+        if(!isSignedIn()){accountRequiredCard("Подключите GitHub, чтобы загрузить данные аккаунта и Actions.");return;}
+        ProgressBar pb=new ProgressBar(this);content.addView(pb);
+        io.execute(()->{
+            try{
+                AccountOperationsController.BillingSnapshot snapshot=accountOperations.loadBillingSnapshot();
+                runOnUiThread(()->{
+                    content.removeView(pb);
+                    sectionTitle("Тариф и лимиты",null);
+                    settingsRow("Аккаунт",snapshot.login.isEmpty()?"—":"@"+snapshot.login);
+                    settingsRow("Тариф",snapshot.planName.isEmpty()?"Не определён":snapshot.planName);
+                    String minutes=snapshot.minutesUsed<0?"Недоступно":snapshot.minutesUsed+" / "+(snapshot.minutesLimit<0?"—":snapshot.minutesLimit);
+                    settingsRow("Actions минуты",minutes);
+                    if(snapshot.minutesRemaining()>=0)settingsRow("Осталось минут",String.valueOf(snapshot.minutesRemaining()));
+                    settingsRow("Actions storage",formatAccountBytes(snapshot.actionsStorageBytes)+(snapshot.storageLimitBytes<0?"":" / "+formatAccountBytes(snapshot.storageLimitBytes)));
+                    if(snapshot.storageRemainingBytes()>=0)settingsRow("Свободно Actions",formatAccountBytes(snapshot.storageRemainingBytes()));
+                    settingsRow("Приватных репозиториев",String.valueOf(snapshot.privateRepositories));
+                    settingsRow("Проверено репозиториев",String.valueOf(snapshot.repositoriesScanned));
+                    if(snapshot.repositoryScanTruncated){
+                        TextView cut=text("Для защиты лимита GitHub API этот экран сканирует до 100 ваших репозиториев за один проход.",11,false);cut.setTextColor(MUTED);card(cut);
+                    }
+                    if(!snapshot.billingWarning.isEmpty()){
+                        TextView warning=text(snapshot.billingWarning,12,false);warning.setTextColor(MUTED);card(warning);
+                    }
+
+                    sectionTitle("Хранилище Actions","Нажмите репозиторий для очистки");
+                    int rendered=0;
+                    for(AccountOperationsController.RepositoryUsage usage:snapshot.repositories){
+                        if(usage.totalBytes()<=0&&!usage.actionsAccessible)continue;
+                        String detail=formatAccountBytes(usage.totalBytes())+" · artifacts "+usage.artifacts+" · cache "+usage.caches+(usage.isPrivate?" · private":"");
+                        settingsActionRow(usage.fullName,detail,()->navigate(()->showActionsCleanup(usage.fullName)));
+                        rendered++;
+                    }
+                    if(rendered==0){
+                        TextView empty=text("Активных артефактов и Actions cache не найдено либо у GiHubble нет permission Actions: read.",12,false);empty.setTextColor(MUTED);card(empty);
+                    }
+
+                    sectionTitle("Оплата GitHub",null);
+                    TextView payment=text("Карта, PayPal и подтверждение платежа вводятся только на официальной странице GitHub. GitHubble не получает и не хранит платёжные реквизиты.",12,false);payment.setTextColor(MUTED);card(payment);
+                    Button billing=button("Открыть Billing & payment");billing.setOnClickListener(v->openSecureGitHubPage(AccountOperationsController.BILLING_PAGE));content.addView(billing,new LinearLayout.LayoutParams(-1,dp(52)));
+
+                    sectionTitle("Доступ",null);
+                    settingsActionRow("Приватные репозитории","Выбрать репозитории для GiHubble",this::openPrivateRepositoryAccess);
+                    TextView perms=text("Для этого центра нужны: Metadata: read для репозиториев, Actions: read/write для просмотра и очистки, Account permission Plan: read для Billing API.",11,false);perms.setTextColor(MUTED);card(perms);
+                });
+            }catch(Exception e){runOnUiThread(()->{content.removeView(pb);errorCard("Не удалось загрузить данные аккаунта",e.getMessage());});}
+        });
+    }
+
+    private void showActionsCleanup(String full){
+        setCurrentScreen(()->showActionsCleanup(full));
+        shell("Actions storage",true);
+        heroBanner(full,"Артефакты и кэши GitHub Actions",R.drawable.ic_history);
+        if(!isSignedIn()){accountRequiredCard("Подключите GitHub для управления Actions.");return;}
+        ProgressBar pb=new ProgressBar(this);content.addView(pb);
+        io.execute(()->{
+            try{
+                List<AccountOperationsController.CleanupItem> items=accountOperations.loadCleanupItems(full);
+                runOnUiThread(()->{
+                    content.removeView(pb);
+                    if(items.isEmpty()){
+                        TextView empty=text("Артефактов и Actions cache нет.",13,false);empty.setTextColor(MUTED);card(empty);return;
+                    }
+                    long total=0L;for(AccountOperationsController.CleanupItem item:items)total+=Math.max(0L,item.sizeBytes);
+                    settingsRow("Найдено",items.size()+" объектов · "+formatAccountBytes(total));
+                    TextView note=text("Отметьте только то, что действительно можно удалить. Исходный код и Releases этим экраном не затрагиваются.",11,false);note.setTextColor(MUTED);card(note);
+                    List<CheckBox> checks=new ArrayList<>();
+                    for(AccountOperationsController.CleanupItem item:items){
+                        CheckBox box=new CheckBox(this);
+                        String type=AccountOperationsController.CleanupItem.CACHE.equals(item.kind)?"CACHE":"ARTIFACT";
+                        box.setText(type+" · "+item.name+"\n"+formatAccountBytes(item.sizeBytes)+(item.extra.isEmpty()?"":" · "+item.extra));
+                        box.setTextColor(TEXT);box.setTextSize(13);box.setPadding(dp(6),dp(7),dp(6),dp(7));
+                        checks.add(box);card(box);
+                    }
+                    LinearLayout actions=new LinearLayout(this);
+                    Button all=button("Выбрать всё");all.setOnClickListener(v->{for(CheckBox b:checks)b.setChecked(true);});
+                    Button delete=button("Удалить выбранное");delete.setOnClickListener(v->{
+                        List<AccountOperationsController.CleanupItem> selected=new ArrayList<>();long bytes=0L;
+                        for(int i=0;i<checks.size();i++)if(checks.get(i).isChecked()){selected.add(items.get(i));bytes+=items.get(i).sizeBytes;}
+                        if(selected.isEmpty()){toast("Ничего не выбрано");return;}
+                        long finalBytes=bytes;
+                        new AlertDialog.Builder(this).setTitle("Удалить выбранное?")
+                                .setMessage("Объектов: "+selected.size()+"\nБудет освобождено примерно: "+formatAccountBytes(finalBytes)+"\n\nОперация необратима для этих Actions-артефактов/кэшей.")
+                                .setNegativeButton("Отмена",null)
+                                .setPositiveButton("Удалить",(d,w)->deleteActionsItems(full,selected)).show();
+                    });
+                    actions.addView(all,new LinearLayout.LayoutParams(0,dp(50),1));
+                    LinearLayout.LayoutParams dpv=new LinearLayout.LayoutParams(0,dp(50),1);dpv.setMargins(dp(7),0,0,0);actions.addView(delete,dpv);content.addView(actions);
+                });
+            }catch(Exception e){runOnUiThread(()->{content.removeView(pb);errorCard("Не удалось загрузить Actions",e.getMessage());});}
+        });
+    }
+
+    private void deleteActionsItems(String full,List<AccountOperationsController.CleanupItem> selected){
+        ProgressDialog dialog=ProgressDialog.show(this,"Очистка Actions","Удаление выбранных объектов…",true,false);
+        io.execute(()->{
+            AccountOperationsController.DeleteResult result=accountOperations.deleteCleanupItems(selected);
+            runOnUiThread(()->{
+                dialog.dismiss();
+                new AlertDialog.Builder(this).setTitle("Очистка завершена")
+                        .setMessage("Удалено: "+result.deleted+"\nОшибок: "+result.failed+"\nОсвобождено: "+formatAccountBytes(result.bytesFreed))
+                        .setPositiveButton("Обновить",(d,w)->showActionsCleanup(full)).show();
+            });
+        });
+    }
+
+    private void showRepositoryCommits(String full,String branch){
+        setCurrentScreen(()->showRepositoryCommits(full,branch));
+        shell("Коммиты",true);
+        heroBanner(full,"Ветка "+branch,R.drawable.ic_history);
+        Button rollback=button("Удалить HEAD-коммит ветки");rollback.setOnClickListener(v->showDeleteHeadCommitDialog(full,branch));content.addView(rollback,new LinearLayout.LayoutParams(-1,dp(52)));
+        TextView warning=text("Удаление HEAD выполняется как принудительное перемещение ветки на родительский коммит. Это переписывает историю ветки.",11,false);warning.setTextColor(MUTED);card(warning);
+        ProgressBar pb=new ProgressBar(this);content.addView(pb);
+        io.execute(()->{
+            try{
+                JSONArray commits=getArray("https://api.github.com/repos/"+full+"/commits?sha="+Uri.encode(branch)+"&per_page=30");
+                runOnUiThread(()->{
+                    content.removeView(pb);sectionTitle("Последние коммиты",null);
+                    for(int i=0;i<commits.length();i++){
+                        JSONObject item=commits.optJSONObject(i);if(item==null)continue;
+                        JSONObject commit=item.optJSONObject("commit");JSONObject author=commit==null?null:commit.optJSONObject("author");
+                        LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.VERTICAL);
+                        String message=commit==null?"Коммит":commit.optString("message","Коммит");row.addView(text(firstLine(message),14,true));
+                        String sha=item.optString("sha","");TextView meta=text(shortSha(sha)+(author==null?"":" · "+author.optString("name",""))+" · "+formatGitHubDate(author==null?"":author.optString("date","")),11,false);meta.setTextColor(MUTED);row.addView(meta);
+                        String url=item.optString("html_url","");if(!url.isEmpty())row.setOnClickListener(v->openWeb(url));card(row);
+                    }
+                });
+            }catch(Exception e){runOnUiThread(()->{content.removeView(pb);errorCard("Не удалось загрузить коммиты",e.getMessage());});}
+        });
+    }
+
+    private void showDeleteHeadCommitDialog(String full,String branch){
+        ProgressDialog load=ProgressDialog.show(this,"HEAD-коммит","Проверка ветки…",true,false);
+        io.execute(()->{
+            try{
+                AccountOperationsController.BranchHead head=accountOperations.loadBranchHead(full,branch);
+                runOnUiThread(()->{
+                    load.dismiss();
+                    String summary=firstLine(head.message)+"\n\nHEAD: "+shortSha(head.sha)+"\nРодитель: "+shortSha(head.parentSha)+"\n\nВетка будет принудительно перемещена назад на один коммит.";
+                    new AlertDialog.Builder(this).setTitle("Удалить последний коммит?")
+                            .setMessage(summary).setNegativeButton("Отмена",null)
+                            .setPositiveButton("Продолжить",(d,w)->confirmHeadReset(full,head)).show();
+                });
+            }catch(Exception e){runOnUiThread(()->{load.dismiss();errorDialog("Откат недоступен",e.getMessage());});}
+        });
+    }
+
+    private void confirmHeadReset(String full,AccountOperationsController.BranchHead head){
+        EditText input=new EditText(this);input.setHint(shortSha(head.sha));input.setSingleLine(true);
+        new AlertDialog.Builder(this).setTitle("Подтверждение переписывания истории")
+                .setMessage("Введите короткий SHA удаляемого HEAD-коммита: "+shortSha(head.sha))
+                .setView(input).setNegativeButton("Отмена",null)
+                .setPositiveButton("Удалить HEAD",(d,w)->{
+                    if(!shortSha(head.sha).equals(input.getText().toString().trim())){toast("SHA не совпадает — операция отменена");return;}
+                    performHeadReset(full,head);
+                }).show();
+    }
+
+    private void performHeadReset(String full,AccountOperationsController.BranchHead head){
+        ProgressDialog progress=ProgressDialog.show(this,"Коммиты","Перемещение ветки…",true,false);
+        io.execute(()->{
+            try{
+                accountOperations.resetBranchToParent(full,head);
+                runOnUiThread(()->{progress.dismiss();new AlertDialog.Builder(this).setTitle("HEAD удалён").setMessage("Ветка "+head.branch+" теперь указывает на "+shortSha(head.parentSha)).setPositiveButton("Обновить",(d,w)->showRepositoryCommits(full,head.branch)).show();});
+            }catch(Exception e){runOnUiThread(()->{progress.dismiss();errorDialog("Не удалось изменить ветку",e.getMessage());});}
+        });
+    }
+
+    private String formatAccountBytes(long bytes){
+        if(bytes<1024L)return bytes+" B";
+        double kb=bytes/1024d;if(kb<1024d)return String.format(Locale.US,"%.1f KB",kb);
+        double mb=kb/1024d;if(mb<1024d)return String.format(Locale.US,"%.1f MB",mb);
+        return String.format(Locale.US,"%.2f GB",mb/1024d);
+    }
+
     private void showSettings(){
         rememberScreen("settings",null);
         setCurrentScreen(this::showSettings);shell("Настройки",false);
         sectionTitle("Аккаунт",null);
         String login=getProfileLogin();settingsActionRow("Личный профиль",isSignedIn()?(login.isEmpty()?"GitHub подключён":"@"+login):"Не подключён",() -> navigate(this::showProfile));
         settingsRow("Защита токена",isSignedIn()?"Android Keystore":"Нет активного сеанса");
+        settingsActionRow("GitHub Billing и Actions",isSignedIn()?"Минуты, место и безопасная очистка":"Требуется вход",() -> navigate(this::showAccountCenter));
+        settingsActionRow("Приватные репозитории","Доступ GiHubble",this::openPrivateRepositoryAccess);
         sectionTitle("Интерфейс",null);
         settingsRow("Язык интерфейса","Русский");
         settingsActionRow("Оформление и иконка",themeDisplayName(),this::showThemeChooser);
