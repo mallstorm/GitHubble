@@ -3,6 +3,11 @@ apply plugin: 'com.android.application'
 def configuredGithubClientId = (project.findProperty('GITHUB_CLIENT_ID') ?: System.getenv('GITHUB_CLIENT_ID') ?: '').toString().trim()
 def githubClientId = configuredGithubClientId.isEmpty() ? 'Iv23ligNq2gfjSk90Tn7' : configuredGithubClientId
 def escapedGithubClientId = githubClientId.replace('\\', '\\\\').replace('\"', '\\"')
+def releaseVersion = new Properties()
+file('../version.properties').withInputStream { releaseVersion.load(it) }
+def appVersionName = releaseVersion.getProperty('VERSION_NAME')
+def appVersionCode = releaseVersion.getProperty('VERSION_CODE').toInteger()
+def releaseChannel = releaseVersion.getProperty('RELEASE_CHANNEL')
 
 android {
     buildFeatures { buildConfig true }
@@ -13,11 +18,11 @@ android {
         applicationId 'app.githubble.mobile'
         minSdk 28
         targetSdk 36
-        versionCode 43
-        versionName '1.0.0-rc3.8.1-release'
+        versionCode appVersionCode
+        versionName appVersionName
         buildConfigField 'String', 'GITHUB_CLIENT_ID', '"' + escapedGithubClientId + '"'
         buildConfigField 'boolean', 'FEATURE_FREEZE', 'false'
-        buildConfigField 'String', 'RC_CHANNEL', '"rc3.8.1"'
+        buildConfigField 'String', 'RC_CHANNEL', '"' + releaseChannel + '"'
         testInstrumentationRunner 'app.githubble.mobile.RcInstrumentationTest'
     }
     buildTypes {
@@ -38,8 +43,8 @@ android {
     }
 
     lint {
-        checkReleaseBuilds false
-        abortOnError false
+        checkReleaseBuilds true
+        abortOnError true
     }
 
     compileOptions {

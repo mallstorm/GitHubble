@@ -19,6 +19,8 @@ import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
@@ -29,6 +31,8 @@ import java.util.zip.ZipInputStream;
 public final class RepositoryImportController {
     public static final long MAX_BLOB_BYTES = 99L * 1024L * 1024L;
     public static final int MAX_FILES = 5000;
+    public static final long MAX_TOTAL_UNCOMPRESSED_BYTES = 512L * 1024L * 1024L;
+    public static final int MAX_PATH_DEPTH = 32;
     private static final String BOOTSTRAP_PATH = ".githubble-bootstrap";
 
     public interface ProgressListener {
@@ -105,7 +109,7 @@ public final class RepositoryImportController {
     }
 
     public Preview previewZip(Uri zipUri) throws Exception {
-        int files = 0, ignored = 0; long bytes = 0; boolean workflow = false; List<String> samples = new ArrayList<>();
+        int files = 0, ignored = 0; long bytes = 0; boolean workflow = false; List<String> samples = new ArrayList<>(); Set<String> paths = new HashSet<>();
         try (InputStream raw = resolver.openInputStream(zipUri); ZipInputStream zip = new ZipInputStream(new BufferedInputStream(require(raw)))) {
             ZipEntry entry;
             while ((entry = zip.getNextEntry()) != null) {
@@ -114,9 +118,12 @@ public final class RepositoryImportController {
                 try { path = RepositoryPathPolicy.normalize(entry.getName()); }
                 catch (IllegalArgumentException unsafe) { ignored++; continue; }
                 if (RepositoryPathPolicy.shouldIgnore(path)) { ignored++; continue; }
+                validateArchivePath(path, paths);
                 files++; if (files > MAX_FILES) throw new IllegalArgumentException("В архиве больше " + MAX_FILES + " файлов. Разделите импорт на несколько коммитов.");
                 long size = entry.getSize(); if (size > MAX_BLOB_BYTES) throw new IllegalArgumentException("Файл больше допустимого лимита GitHub: " + path);
-                if (size > 0) bytes += size;
+                long actual = drainEntry(zip, path);
+                bytes += actual;
+                if (bytes > MAX_TOTAL_UNCOMPRESSED_BYTES) throw new IllegalArgumentException("Распакованный ZIP больше 512 MiB");
                 workflow |= RepositoryPathPolicy.isWorkflow(path);
                 if (samples.size() < 12) samples.add(path);
             }
@@ -128,7 +135,7 @@ public final class RepositoryImportController {
         List<DocEntry> entries = collectFolder(treeUri);
         if (entries.isEmpty()) throw new IllegalArgumentException("В выбранной папке нет файлов для загрузки");
         BaseState base = prepareBase(fullName, requestedBranch);
-        JSONArray tree = new JSONArray(); long total = 0; int done = 0;
+        JSONArray tree = new JSONArray(); long total = 0; int done = 0; Set<String> paths = new HashSet<>();
         for (DocEntry entry : entries) {
             if (entry.size > MAX_BLOB_BYTES) throw new IllegalArgumentException("Файл больше 99 MiB: " + entry.path);
             JSONObject blob;
@@ -171,11 +178,14 @@ public final class RepositoryImportController {
                 try { path = RepositoryPathPolicy.normalize(entry.getName()); }
                 catch (IllegalArgumentException unsafe) { continue; }
                 if (RepositoryPathPolicy.shouldIgnore(path)) continue;
+                validateArchivePath(path, paths);
                 long declared = entry.getSize();
                 if (declared > MAX_BLOB_BYTES) throw new IllegalArgumentException("Файл больше 99 MiB: " + path);
-                JSONObject blob = api.postBase64Blob("https://api.github.com/repos/" + fullName + "/git/blobs", new NonClosingInputStream(zip), MAX_BLOB_BYTES);
+                CountingInputStream counting = new CountingInputStream(zip, MAX_BLOB_BYTES, MAX_TOTAL_UNCOMPRESSED_BYTES-total);
+                JSONObject blob = api.postBase64Blob("https://api.github.com/repos/" + fullName + "/git/blobs", counting, MAX_BLOB_BYTES);
                 addBlobTreeEntry(tree, path, blob.optString("sha", ""));
-                if (declared > 0) total += declared;
+                total += counting.count;
+                if (total > MAX_TOTAL_UNCOMPRESSED_BYTES) throw new IllegalArgumentException("Распакованный ZIP больше 512 MiB");
                 done++; if (listener != null) listener.onProgress(done, preview.files, path);
                 zip.closeEntry();
             }
@@ -300,11 +310,28 @@ public final class RepositoryImportController {
         return input;
     }
 
-    private static final class NonClosingInputStream extends InputStream {
-        private final InputStream delegate;
-        NonClosingInputStream(InputStream delegate) { this.delegate = delegate; }
-        @Override public int read() throws IOException { return delegate.read(); }
-        @Override public int read(byte[] b, int off, int len) throws IOException { return delegate.read(b, off, len); }
-        @Override public void close() { }
+    private static void validateArchivePath(String path, Set<String> paths) {
+        if (path.split("/").length > MAX_PATH_DEPTH) throw new IllegalArgumentException("Слишком глубокий путь в ZIP: " + path);
+        String key = path.toLowerCase(Locale.ROOT);
+        if (!paths.add(key)) throw new IllegalArgumentException("Повторяющийся путь в ZIP: " + path);
     }
+
+    private static long drainEntry(InputStream input, String path) throws IOException {
+        byte[] buffer = new byte[64 * 1024]; long count = 0L; int n;
+        while ((n=input.read(buffer))!=-1) {
+            count += n;
+            if (count > MAX_BLOB_BYTES) throw new IOException("Файл больше 99 MiB: " + path);
+        }
+        return count;
+    }
+
+    private static final class CountingInputStream extends InputStream {
+        private final InputStream delegate; private final long perFileLimit; private final long remainingTotal; long count;
+        CountingInputStream(InputStream delegate,long perFileLimit,long remainingTotal){this.delegate=delegate;this.perFileLimit=perFileLimit;this.remainingTotal=remainingTotal;}
+        @Override public int read() throws IOException {int value=delegate.read();if(value!=-1)increment(1);return value;}
+        @Override public int read(byte[] b,int off,int len)throws IOException{int n=delegate.read(b,off,len);if(n>0)increment(n);return n;}
+        private void increment(int n)throws IOException{count+=n;if(count>perFileLimit)throw new IOException("Файл в ZIP больше 99 MiB");if(count>remainingTotal)throw new IOException("Распакованный ZIP больше 512 MiB");}
+        @Override public void close(){ }
+    }
+
 }

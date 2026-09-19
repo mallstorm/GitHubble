@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-import hashlib, json, pathlib, re, sys
+import hashlib, json, pathlib, sys
 from datetime import datetime, timezone
 root=pathlib.Path(sys.argv[1] if len(sys.argv)>1 else '.').resolve()
 out=pathlib.Path(sys.argv[2] if len(sys.argv)>2 else root/'release'/'GitHubble_SPDX.json')
-app_gradle=(root/'app'/'build.gradle').read_text(encoding='utf-8',errors='replace')
-m=re.search(r"versionName\s+['\"]([^'\"]+)['\"]",app_gradle)
-version=m.group(1) if m else 'UNKNOWN'
+properties={}
+for line in (root/'version.properties').read_text(encoding='utf-8').splitlines():
+    if '=' in line and not line.lstrip().startswith('#'):
+        key,value=line.split('=',1); properties[key.strip()]=value.strip()
+version=properties.get('VERSION_NAME','UNKNOWN')
 files=[]
 for base in [root/'app'/'src', root/'app'/'build.gradle', root/'build.gradle', root/'settings.gradle']:
     paths=[base] if base.is_file() else sorted(p for p in base.rglob('*') if p.is_file())

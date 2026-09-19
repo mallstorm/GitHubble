@@ -1,16 +1,20 @@
 # Статус сборки GitHubble
 
-Текущая версия: `1.0.0-rc3.2-repository-manager` (`versionCode 36`).
+Текущая версия: `1.0.0-rc4.0` (`versionCode 45`).
 
-Рабочая кодовая база RC3.2 в `main` успешно прошла GitHub Actions workflow **Android RC CI** на коммите `b0d5a20a67b9e2dc90637387f6f9a4830509e3dc`.
+Проверки GitHub Actions для каждого push и pull request:
 
-Проверено в CI:
+- unit tests;
+- Android Lint для release;
+- `assembleDebug` и `assembleRelease`;
+- on-device regression suite на Android emulator API 35;
+- экспорт точного source archive и SHA-256.
 
-- Android SDK platform 36 / build-tools 36.0.0;
-- Gradle-сборка RC-артефактов;
-- генерация SBOM;
-- публикация unsigned build artifact.
+Подписанный APK публикуется только из `main`. Workflow требует постоянный PKCS12
+keystore и пароли из GitHub Actions Secrets; временный сертификат больше не
+создаётся, поэтому несовместимое обновление приложения не может быть выпущено
+случайно.
 
-Позднейшие изменения в `main` после этого коммита относятся только к документации и не изменяют код приложения.
-
-Release signing выполняется вне репозитория; keystore и пароли подписи в исходниках не хранятся.
+Локальная среда текущего coding-прохода не содержит Gradle/Android SDK. Итоговый
+compile gate является GitHub Actions workflow; его результат считается
+авторитетным для релизного артефакта.

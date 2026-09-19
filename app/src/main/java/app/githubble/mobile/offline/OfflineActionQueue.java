@@ -33,6 +33,11 @@ public final class OfflineActionQueue extends SQLiteOpenHelper {
         public String serverSnapshot = "";
         public String status = PENDING;
         public String lastError = "";
+        public String accountId = "";
+        public String repository = "";
+        public String actionType = "mutation";
+        public String idempotencyKey = "";
+        public long expiresAt;
         public long createdAt;
         public long nextAttemptAt;
         public int attempts;
@@ -66,20 +71,39 @@ public final class OfflineActionQueue extends SQLiteOpenHelper {
                 "next_attempt_at INTEGER NOT NULL DEFAULT 0,"+
                 "attempts INTEGER NOT NULL DEFAULT 0,"+
                 "force_send INTEGER NOT NULL DEFAULT 0,"+
-                "last_http_status INTEGER NOT NULL DEFAULT 0)");
-        db.execSQL("CREATE INDEX idx_offline_ready ON offline_actions(status,next_attempt_at,created_at)");
-        db.execSQL("CREATE UNIQUE INDEX idx_offline_entity_pending ON offline_actions(entity_key) WHERE status='PENDING' AND entity_key<>''");
+                "last_http_status INTEGER NOT NULL DEFAULT 0,"+
+                "account_id TEXT NOT NULL DEFAULT '',"+
+                "repository TEXT NOT NULL DEFAULT '',"+
+                "action_type TEXT NOT NULL DEFAULT 'mutation',"+
+                "idempotency_key TEXT NOT NULL DEFAULT '',"+
+                "expires_at INTEGER NOT NULL DEFAULT 0)");
+        db.execSQL("CREATE INDEX idx_offline_ready ON offline_actions(account_id,status,next_attempt_at,created_at)");
+        db.execSQL("CREATE UNIQUE INDEX idx_offline_entity_pending ON offline_actions(account_id,entity_key) WHERE status='PENDING' AND entity_key<>''");
     }
 
     @Override public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
         if (oldVersion < 2) db.execSQL("ALTER TABLE offline_actions ADD COLUMN last_http_status INTEGER NOT NULL DEFAULT 0");
+        if (oldVersion < 3) {
+            db.execSQL("ALTER TABLE offline_actions ADD COLUMN account_id TEXT NOT NULL DEFAULT ''");
+            db.execSQL("ALTER TABLE offline_actions ADD COLUMN repository TEXT NOT NULL DEFAULT ''");
+            db.execSQL("ALTER TABLE offline_actions ADD COLUMN action_type TEXT NOT NULL DEFAULT 'mutation'");
+            db.execSQL("ALTER TABLE offline_actions ADD COLUMN idempotency_key TEXT NOT NULL DEFAULT ''");
+            db.execSQL("ALTER TABLE offline_actions ADD COLUMN expires_at INTEGER NOT NULL DEFAULT 0");
+            db.execSQL("DROP INDEX IF EXISTS idx_offline_ready");
+            db.execSQL("DROP INDEX IF EXISTS idx_offline_entity_pending");
+            db.execSQL("CREATE INDEX idx_offline_ready ON offline_actions(account_id,status,next_attempt_at,created_at)");
+            db.execSQL("CREATE UNIQUE INDEX idx_offline_entity_pending ON offline_actions(account_id,entity_key) WHERE status='PENDING' AND entity_key<>''");
+            // Legacy entries have no trustworthy owner and must never replay under a new token.
+            ContentValues legacy = new ContentValues(); legacy.put("status", FAILED); legacy.put("last_error", "Требуется повторить действие после обновления: владелец старой записи неизвестен");
+            db.update("offline_actions", legacy, "account_id=''", null);
+        }
     }
 
     /** Adds or replaces a replay-safe mutation for the same entity key. */
     public synchronized long enqueue(Action a) {
         long now = System.currentTimeMillis();
         if (a.entityKey != null && !a.entityKey.isEmpty()) {
-            getWritableDatabase().delete("offline_actions", "entity_key=? AND status=?", new String[]{a.entityKey, PENDING});
+            getWritableDatabase().delete("offline_actions", "account_id=? AND entity_key=? AND status=?", new String[]{safe(a.accountId),a.entityKey,PENDING});
         }
         ContentValues v = values(a);
         v.put("created_at", a.createdAt > 0 ? a.createdAt : now);
@@ -106,6 +130,7 @@ public final class OfflineActionQueue extends SQLiteOpenHelper {
     public synchronized void discard(long id) { getWritableDatabase().delete("offline_actions", "id=?", new String[]{String.valueOf(id)}); }
 
     public synchronized void clearAll() { getWritableDatabase().delete("offline_actions", null, null); }
+    public synchronized void clearAccount(String accountId) { getWritableDatabase().delete("offline_actions", "account_id=?", new String[]{safe(accountId)}); }
 
     public synchronized void retry(long id, boolean force) {
         ContentValues v = new ContentValues();
@@ -117,11 +142,16 @@ public final class OfflineActionQueue extends SQLiteOpenHelper {
         ProcessResult result = new ProcessResult();
         long now = System.currentTimeMillis();
         List<Action> ready = new ArrayList<>();
-        try (Cursor c = getReadableDatabase().query("offline_actions", null, "status=? AND next_attempt_at<=?", new String[]{PENDING,String.valueOf(now)}, null, null, "created_at ASC", "30")) {
+        String activeAccount = api.accountScope();
+        try (Cursor c = getReadableDatabase().query("offline_actions", null, "account_id=? AND status=? AND next_attempt_at<=?", new String[]{activeAccount,PENDING,String.valueOf(now)}, null, null, "created_at ASC", "30")) {
             while (c.moveToNext()) ready.add(from(c));
         }
         for (Action action : ready) {
             try {
+                if (!activeAccount.equals(action.accountId)) { result.deferred++; continue; }
+                if (action.expiresAt > 0L && action.expiresAt <= now) {
+                    markFailed(action.id, "Срок хранения отложенного действия истёк", true); result.failed++; continue;
+                }
                 if (!action.force && !action.conflictUrl.isEmpty() && !action.baseVersion.isEmpty()) {
                     JSONObject server = api.getJson(action.conflictUrl);
                     String current = server.optString(action.versionField, "");
@@ -173,6 +203,8 @@ public final class OfflineActionQueue extends SQLiteOpenHelper {
         v.put("summary", safe(a.summary)); v.put("conflict_url", safe(a.conflictUrl)); v.put("version_field", safe(a.versionField));
         v.put("base_version", safe(a.baseVersion)); v.put("server_snapshot", safe(a.serverSnapshot)); v.put("status", safe(a.status));
         v.put("last_error", safe(a.lastError)); v.put("next_attempt_at", a.nextAttemptAt); v.put("attempts", a.attempts); v.put("force_send", a.force ? 1 : 0);
+        v.put("account_id", safe(a.accountId)); v.put("repository", safe(a.repository)); v.put("action_type", safe(a.actionType));
+        v.put("idempotency_key", safe(a.idempotencyKey)); v.put("expires_at", a.expiresAt);
         return v;
     }
 
@@ -181,6 +213,7 @@ public final class OfflineActionQueue extends SQLiteOpenHelper {
         a.id = l(c,"id"); a.method=s(c,"method"); a.url=s(c,"url"); a.body=s(c,"body"); a.entityKey=s(c,"entity_key"); a.summary=s(c,"summary");
         a.conflictUrl=s(c,"conflict_url"); a.versionField=s(c,"version_field"); a.baseVersion=s(c,"base_version"); a.serverSnapshot=s(c,"server_snapshot");
         a.status=s(c,"status"); a.lastError=s(c,"last_error"); a.createdAt=l(c,"created_at"); a.nextAttemptAt=l(c,"next_attempt_at"); a.attempts=i(c,"attempts"); a.force=i(c,"force_send")!=0;
+        a.accountId=s(c,"account_id"); a.repository=s(c,"repository"); a.actionType=s(c,"action_type"); a.idempotencyKey=s(c,"idempotency_key"); a.expiresAt=l(c,"expires_at");
         return a;
     }
     private static String s(Cursor c,String n){String v=c.getString(c.getColumnIndexOrThrow(n));return v==null?"":v;}

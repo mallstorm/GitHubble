@@ -86,7 +86,7 @@ public final class RcInstrumentationTest extends Instrumentation {
     }
 
     private static void testDatabaseSchemas(Context context) {
-        eq(2, SchemaMigrationRegistry.TRACKING_SCHEMA); eq(2, SchemaMigrationRegistry.OFFLINE_QUEUE_SCHEMA);
+        eq(2, SchemaMigrationRegistry.TRACKING_SCHEMA); eq(3, SchemaMigrationRegistry.OFFLINE_QUEUE_SCHEMA);
         TrackingDatabase tracking = new TrackingDatabase(context); tracking.getWritableDatabase(); tracking.clearAll();
         OfflineActionQueue queue = new OfflineActionQueue(context); queue.getWritableDatabase(); queue.clearAll();
     }

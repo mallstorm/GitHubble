@@ -92,10 +92,11 @@ public final class RepositoryAccessController {
         this.api = api;
     }
 
-    public SyncResult sync(boolean forceNetwork) throws Exception {
+    public synchronized SyncResult sync(boolean forceNetwork) throws Exception {
         if (forceNetwork) {
             api.invalidatePrefix("https://api.github.com/user/installations");
             api.invalidatePrefix("https://api.github.com/user/repos");
+            api.invalidatePrefix("https://api.github.com/user/installations/");
         }
 
         Map<String, JSONObject> merged = new LinkedHashMap<>();

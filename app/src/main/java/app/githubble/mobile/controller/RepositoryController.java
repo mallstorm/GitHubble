@@ -23,6 +23,7 @@ public final class RepositoryController {
     public JSONArray assignees(String full)throws Exception{return api.getArray("https://api.github.com/repos/"+full+"/assignees?per_page=100");}
     public JSONArray milestones(String full)throws Exception{return api.getArray("https://api.github.com/repos/"+full+"/milestones?state=open&per_page=100");}
     public JSONObject updateIssueMetadata(String full,int number,JSONArray labels,JSONArray assignees,Integer milestone)throws Exception{JSONObject p=new JSONObject();p.put("labels",labels==null?new JSONArray():labels);p.put("assignees",assignees==null?new JSONArray():assignees);if(milestone==null)p.put("milestone",JSONObject.NULL);else p.put("milestone",milestone);JSONObject result=api.patchJson("https://api.github.com/repos/"+full+"/issues/"+number,p);api.invalidatePrefix("https://api.github.com/repos/"+full+"/issues");api.invalidatePrefix("https://api.github.com/repos/"+full+"/pulls");return result;}
-    public boolean isStarred(String full){try{api.getText("https://api.github.com/user/starred/"+full);return true;}catch(Exception e){return false;}}
+    /** null means unknown (network/auth/permission error); only HTTP 404 means false. */
+    public Boolean isStarred(String full){try{api.getText("https://api.github.com/user/starred/"+full);return true;}catch(GitHubApiClient.ApiException e){return e.statusCode==404?Boolean.FALSE:null;}catch(Exception e){return null;}}
     public void setStarred(String full,boolean enabled)throws Exception{String url="https://api.github.com/user/starred/"+full;if(enabled)api.putEmpty(url);else api.delete(url);api.invalidate(url);api.invalidate("https://api.github.com/repos/"+full);}
 }

@@ -76,10 +76,11 @@ import app.githubble.mobile.search.SmartSearchHistory;
 import app.githubble.mobile.search.SearchMode;
 import app.githubble.mobile.search.SearchFilters;
 import app.githubble.mobile.search.AdvancedSearchPlanner;
+import app.githubble.mobile.repository.RepositoryStore;
 
 public class MainActivity extends Activity {
     private LinearLayout content;
-    private final ExecutorService io = Executors.newSingleThreadExecutor();
+    private final ExecutorService io = Executors.newFixedThreadPool(4);
     private SharedPreferences prefs;
     private SecureStore secureStore;
     private GitHubApiClient api;
@@ -92,6 +93,7 @@ public class MainActivity extends Activity {
     private EntityCache entityCache;
     private RepositoryController repositoryController;
     private RepositoryAccessController repositoryAccess;
+    private RepositoryStore repositoryStore;
     private boolean repositoriesPrivateOnly = false;
     private AccountOperationsController accountOperations;
     private ProfileController profileController;
@@ -113,6 +115,7 @@ public class MainActivity extends Activity {
     private final AtomicBoolean notificationRefreshInFlight = new AtomicBoolean(false);
     private final AtomicBoolean homeDashboardRefreshInFlight = new AtomicBoolean(false);
     private final AtomicBoolean trackingCheckInFlight = new AtomicBoolean(false);
+    private final java.util.concurrent.atomic.AtomicLong screenGeneration = new java.util.concurrent.atomic.AtomicLong();
     private final Handler copilotPollHandler = new Handler(Looper.getMainLooper());
     private Runnable copilotPollRunnable;
     private String activeCopilotTaskId = "";
@@ -151,6 +154,7 @@ public class MainActivity extends Activity {
         translationEngine = new TranslationEngine();
         repositoryController = new RepositoryController(api);
         repositoryAccess = new RepositoryAccessController(api);
+        repositoryStore = new RepositoryStore(prefs);
         accountOperations = new AccountOperationsController(api);
         profileController = new ProfileController(api);
         translationController = new TranslationController(secureStore, prefs, translationCache, translationEngine);
@@ -167,6 +171,7 @@ public class MainActivity extends Activity {
         if (prefs.getBoolean("copilot_monitor_enabled", false)) CopilotTaskMonitorJobService.schedule(this, prefs.getInt("copilot_monitor_interval_minutes", 60));
         if (!trackingDb.getDevelopers(true).isEmpty()) TrackingJobService.schedule(this, prefs.getInt("tracking_interval_hours", 6));
         io.execute(() -> { try { features.offlineQueue.processReady(api); } catch (Exception ignored) {} });
+        if (!oauth.hasUsableToken() && oauth.canRefresh()) io.execute(() -> { try { if(oauth.refreshIfNeeded(BuildConfig.GITHUB_CLIENT_ID)) runOnUiThread(this::showHome); } catch(Exception ignored) { } });
         migrateSecureSettings();
         applyTheme();
         restoreLegacyThemeIconAfterUpgrade();
@@ -249,6 +254,7 @@ public class MainActivity extends Activity {
     }
 
     private void shell(String title, boolean showSearchAction) {
+        screenGeneration.incrementAndGet();
         currentTitle = title;
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -340,10 +346,10 @@ public class MainActivity extends Activity {
         nav.setPadding(dp(8), dp(5), dp(8), dp(3));
         nav.setBackgroundColor(SURFACE);
         addNav(nav, R.drawable.ic_home, "Главная", "Главная".equals(currentTitle), () -> openRoot(this::showHome));
+        addNav(nav, R.drawable.ic_repository, "Репозитории", "Репозитории".equals(currentTitle), () -> openRoot(this::showMyRepositories));
         addNav(nav, R.drawable.ic_search, "Поиск", "Поиск".equals(currentTitle), () -> openRoot(this::showSearch));
         addNav(nav, R.drawable.ic_bell, "Активность", "Активность".equals(currentTitle), () -> openRoot(this::showNotifications));
-        addNav(nav, R.drawable.tile_star, "Избранное", "Избранное".equals(currentTitle), () -> openRoot(this::showFavorites));
-        addNav(nav, R.drawable.ic_settings, "Настройки", "Настройки".equals(currentTitle), () -> openRoot(this::showSettings));
+        addNav(nav, R.drawable.ic_profile, "Профиль", "Профиль".equals(currentTitle), () -> openRoot(this::showProfile));
         return nav;
     }
 
@@ -356,7 +362,7 @@ public class MainActivity extends Activity {
         iconCapsule.setBackground(round(active ? blend(SUBTLE, GREEN, 0.14f) : Color.TRANSPARENT, 18, Color.TRANSPARENT, 0));
         ImageView i = imageIcon(iconRes, active ? GREEN : MUTED, 20);
         iconCapsule.addView(i, new LinearLayout.LayoutParams(dp(42), dp(30)));
-        TextView l = text(label, 10, active); l.setGravity(Gravity.CENTER); l.setTextColor(active ? GREEN : MUTED); l.setPadding(0,0,0,0);
+        TextView l = text(label, 12, active); l.setGravity(Gravity.CENTER); l.setTextColor(active ? GREEN : MUTED); l.setPadding(0,0,0,0);
         box.addView(iconCapsule, new LinearLayout.LayoutParams(dp(50), dp(34)));
         box.addView(l, new LinearLayout.LayoutParams(-1, dp(22)));
         box.setOnClickListener(v -> action.run());
@@ -472,10 +478,12 @@ public class MainActivity extends Activity {
         int notifications = isSignedIn() ? prefs.getInt("activity_new_count", 0) + trackingDb.unreadCount() : -1;
         List<HomeScreen.RepoPreview> recent = new ArrayList<>();
         int repositoryCount = -1;
-        String cached = prefs.getString("cache_my_repositories", "");
-        if (!cached.isEmpty()) {
+        String accountId = currentAccountId();
+        repositoryStore.migrateLegacy(accountId);
+        RepositoryStore.Snapshot snapshot = repositoryStore.read(accountId);
+        if (snapshot.hasData()) {
             try {
-                JSONArray repos = new JSONArray(cached);
+                JSONArray repos = snapshot.repositories;
                 repositoryCount = repos.length();
                 int max = Math.min(3, repos.length());
                 for (int i = 0; i < max; i++) {
@@ -520,10 +528,8 @@ public class MainActivity extends Activity {
                     editor.putInt("home_open_prs", result.optInt("total_count", 0));
                 }
             } catch (Exception ignored) {}
-            try {
-                JSONArray repos = getArray("https://api.github.com/user/repos?visibility=all&affiliation=owner,collaborator,organization_member&sort=pushed&per_page=100");
-                editor.putString("cache_my_repositories", repos.toString());
-            } catch (Exception ignored) {}
+            try { repositoryStore.saveSuccess(currentAccountId(), repositoryAccess.sync(false).repositories); }
+            catch (Exception error) { repositoryStore.saveError(currentAccountId(), error); }
             try {
                 long seen = prefs.getLong("activity_last_seen_epoch", 0L);
                 List<JSONObject> activity = loadSupportedActivityFeed();
@@ -547,7 +553,7 @@ public class MainActivity extends Activity {
         v.setTextColor(color);
         v.setGravity(Gravity.CENTER);
         v.setPadding(0,0,0,0);
-        TextView l = text(label, 9, false);
+        TextView l = text(label, 11, false);
         l.setTextColor(MUTED);
         l.setGravity(Gravity.CENTER);
         l.setPadding(0,0,0,0);
@@ -931,6 +937,9 @@ public class MainActivity extends Activity {
             accountRequiredCard("Войдите, чтобы увидеть доступные вашему аккаунту репозитории.");
             return;
         }
+        final long generation=screenGeneration.get();
+        final String accountId=currentAccountId();
+        repositoryStore.migrateLegacy(accountId);
 
         LinearLayout visibilityFilters = new LinearLayout(this);
         Button allRepositories=button("Все");
@@ -964,30 +973,27 @@ public class MainActivity extends Activity {
         io.execute(() -> {
             try{
                 RepositoryAccessController.SyncResult result=repositoryAccess.sync(forceNetwork);
+                RepositoryStore.Snapshot snapshot=repositoryStore.saveSuccess(accountId,result.repositories);
                 prefs.edit()
-                        .putString("cache_my_repositories",result.repositories.toString())
                         .putString("repository_access_settings_url",result.bestSettingsUrl())
                         .putLong("repository_last_sync",System.currentTimeMillis())
                         .apply();
                 runOnUiThread(() -> {
-                    if(!"Репозитории".equals(currentTitle))return;
+                    if(generation!=screenGeneration.get() || !accountId.equals(currentAccountId()))return;
                     content.removeView(pb);
                     renderRepositoryAccessSummary(result);
-                    sectionTitle("Доступные репозитории · "+result.repositories.length(),null);
-                    renderRepositoryItems(result.repositories);
+                    sectionTitle("Доступные репозитории · "+snapshot.repositories.length(),null);
+                    if(snapshot.invalid>0) errorCard("Некорректные карточки", "GitHub вернул "+snapshot.invalid+" записей без full_name; они не скрыты бесследно и отмечены в диагностике.");
+                    renderRepositoryItems(snapshot.repositories);
                 });
             }catch(Exception e){
-                String cached=prefs.getString("cache_my_repositories","");
+                RepositoryStore.Snapshot snapshot=repositoryStore.saveError(accountId,e);
                 runOnUiThread(() -> {
-                    if(!"Репозитории".equals(currentTitle))return;
+                    if(generation!=screenGeneration.get() || !accountId.equals(currentAccountId()))return;
                     content.removeView(pb);
-                    if(!cached.isEmpty()){
-                        try{
-                            errorCard("Синхронизация GitHub не удалась","Показан последний сохранённый список. "+e.getMessage());
-                            renderRepositoryItems(new JSONArray(cached));
-                        }catch(Exception ignored){
-                            errorCard("Не удалось загрузить репозитории",e.getMessage());
-                        }
+                    if(snapshot.hasData()){
+                        errorCard("Синхронизация GitHub не удалась","Показан последний сохранённый список от "+formatEpoch(snapshot.lastSyncedAt)+". "+e.getMessage());
+                        renderRepositoryItems(snapshot.repositories);
                     }else{
                         errorCard("Не удалось синхронизировать GitHub",e.getMessage());
                     }
@@ -999,7 +1005,9 @@ public class MainActivity extends Activity {
     private void renderRepositoryAccessSummary(RepositoryAccessController.SyncResult result){
         sectionTitle("Доступ GitHub App",null);
         if(!result.hasInstallations()){
-            TextView warning=text("GitHub авторизация есть, но доступная установка GiHubble для этого аккаунта не найдена. Поэтому приватные репозитории приложение видеть не может.",13,false);
+            TextView warning=text(result.repositories.length()==0
+                    ?"Вход выполнен, но GitHub не вернул доступные репозитории. Проверьте установку GiHubble и разрешение доступа к private-репозиториям."
+                    :"Репозитории загружены через GitHub API; информация об установках GiHubble недоступна или отсутствует. Доступ к остальным репозиториям зависит от разрешений приложения.",13,false);
             warning.setTextColor(MUTED);
             card(warning);
             Button install=button("Установить / настроить GiHubble");
@@ -1053,7 +1061,7 @@ public class MainActivity extends Activity {
         for(int i=0;i<repos.length();i++){
             JSONObject repository=repos.optJSONObject(i);
             if(repository==null || (repositoriesPrivateOnly && !repository.optBoolean("private",false)))continue;
-            try{addRepoCard(repository);shown++;}catch(Exception ignored){}
+            try{addRepoCard(repository);shown++;}catch(Exception error){TextView invalid=text("Не удалось показать карточку: "+repository.optString("full_name","без имени"),12,false);invalid.setTextColor(MUTED);card(invalid);}
         }
         if(shown==0)card(text(repositoriesPrivateOnly?"Приватные репозитории не найдены среди доступных GiHubble проектов. Проверьте разрешения GitHub App.":"Репозитории не найдены или приложение GiHubble не установлено для нужных репозиториев.",14,false));
     }
@@ -1447,7 +1455,7 @@ public class MainActivity extends Activity {
                 String branch=r.optString("default_branch","main"), language=r.optString("language","—");
                 String license=r.optJSONObject("license")!=null?r.optJSONObject("license").optString("spdx_id","—"):"—";
                 String readme=overview.readme;
-                boolean starred=isSignedIn()&&repositoryController.isStarred(full);
+                Boolean starred=isSignedIn()?repositoryController.isStarred(full):null;
                 prefs.edit().putString("cache_repo_"+full,r.toString()).putString("cache_readme_"+full,readme).putString("cache_repo_updated_"+full,r.optString("updated_at","")).apply();
                 String finalReadme=readme;
                 runOnUiThread(()->{
@@ -1473,7 +1481,8 @@ public class MainActivity extends Activity {
                     addAction(actions,"Профиль @"+owner,()->navigate(() -> showDeveloperProfile(owner)));
                     addAction(actions,trackingDb.isTracked(owner)?"Не отслеживать автора":"Отслеживать автора",()->toggleDeveloperTracking(owner));
                     if(isSignedIn()){
-                        addAction(actions,starred?"★ Убрать звезду":"☆ Поставить звезду",()->toggleRepositoryStar(full,starred));
+                        if(starred!=null)addAction(actions,starred?"★ Убрать звезду":"☆ Поставить звезду",()->toggleRepositoryStar(full,starred));
+                        else addAction(actions,"Звезда: статус неизвестен",()->toast("Проверьте сеть и разрешения GitHub"));
                         addAction(actions,"Управление",()->navigate(() -> showRepositoryAdmin(full,r)));
                     }
                     addAction(actions,"Избранное",()->{saveFavorite(full);toast("Добавлено в избранное");});
@@ -2391,7 +2400,7 @@ public class MainActivity extends Activity {
             ImageView avatar=createProfileAvatar(dp(86));guest.addView(avatar,new LinearLayout.LayoutParams(dp(86),dp(86)));
             TextView name=text("Гостевой режим",22,true);name.setGravity(Gravity.CENTER);guest.addView(name);
             TextView note=text("Публичный поиск доступен без входа. Подключите GitHub, чтобы загрузить личный профиль и приватные данные, разрешённые GiHubble.",13,false);note.setTextColor(MUTED);note.setGravity(Gravity.CENTER);guest.addView(note);card(guest);
-            Button login=button("Войти через GitHub");login.setOnClickListener(v->startSmartLogin());content.addView(login,new LinearLayout.LayoutParams(-1,dp(52)));
+            Button login=button("Войти через GitHub · Device Flow");login.setOnClickListener(v->startSmartLogin());content.addView(login,new LinearLayout.LayoutParams(-1,dp(52)));
             Button register=button("Создать аккаунт GitHub");register.setTextColor(GREEN);register.setBackground(round(CARD,14,GREEN,1));register.setOnClickListener(v->startGitHubRegistration());
             LinearLayout.LayoutParams registerParams=new LinearLayout.LayoutParams(-1,dp(52));registerParams.setMargins(0,dp(9),0,0);content.addView(register,registerParams);
             TextView secureRegistration=text("Вход через официальный GitHub по восьмисимвольному коду Device Flow. Пароль GitHub приложение не получает.",11,false);secureRegistration.setTextColor(MUTED);secureRegistration.setGravity(Gravity.CENTER);secureRegistration.setPadding(dp(8),dp(11),dp(8),0);content.addView(secureRegistration);
@@ -2656,12 +2665,12 @@ public class MainActivity extends Activity {
             JSONObject user=profileController.publicProfile(URLEncoder.encode(login,"UTF-8"));
             JSONArray repos=getArray("https://api.github.com/users/"+URLEncoder.encode(login,"UTF-8")+"/repos?type=owner&sort=pushed&direction=desc&per_page=30");
             Bitmap avatarBitmap=downloadBitmap(user.optString("avatar_url",""));
-            boolean githubFollowing=isSignedIn()&&profileController.isFollowing(login);
+            Boolean githubFollowing=isSignedIn()?profileController.isFollowing(login):null;
             runOnUiThread(() -> renderDeveloperProfile(user,repos,avatarBitmap,pb,githubFollowing));
         }catch(Exception e){runOnUiThread(() -> {content.removeView(pb);TrackingDatabase.Developer cached=trackingDb.getDeveloper(login);if(cached!=null)renderCachedDeveloperProfile(cached);else errorCard("Не удалось загрузить профиль",e.getMessage());});}});
     }
 
-    private void renderDeveloperProfile(JSONObject user,JSONArray repos,Bitmap avatarBitmap,ProgressBar pb,boolean githubFollowing){
+    private void renderDeveloperProfile(JSONObject user,JSONArray repos,Bitmap avatarBitmap,ProgressBar pb,Boolean githubFollowing){
         content.removeView(pb);
         String login=user.optString("login","");String name=cleanNullable(user.optString("name",""));if(name.isEmpty())name=login;
         LinearLayout hero=new LinearLayout(this);hero.setOrientation(LinearLayout.VERTICAL);hero.setGravity(Gravity.CENTER);
@@ -2681,7 +2690,8 @@ public class MainActivity extends Activity {
 
         GridLayout tracking=new GridLayout(this);tracking.setColumnCount(adaptiveColumns(2));
         addAction(tracking,trackingDb.isTracked(login)?"Не отслеживать локально":"Отслеживать новинки",()->toggleDeveloperTracking(login));
-        if(isSignedIn())addAction(tracking,githubFollowing?"Отписаться в GitHub":"Подписаться в GitHub",()->toggleGitHubFollow(login,githubFollowing));
+        if(isSignedIn()&&githubFollowing!=null)addAction(tracking,githubFollowing?"Отписаться в GitHub":"Подписаться в GitHub",()->toggleGitHubFollow(login,githubFollowing));
+        else if(isSignedIn())addAction(tracking,"Подписка: статус неизвестен",()->toast("Проверьте сеть и разрешения GitHub"));
         addAction(tracking,"Открыть GitHub",()->openWeb(user.optString("html_url","https://github.com/"+login)));
         content.addView(tracking);
 
@@ -2807,16 +2817,21 @@ public class MainActivity extends Activity {
                 AccountOperationsController.BillingSnapshot snapshot=accountOperations.loadBillingSnapshot();
                 runOnUiThread(()->{
                     content.removeView(pb);
-                    sectionTitle("Тариф и лимиты",null);
+                    sectionTitle("GitHub Actions · использование",null);
                     settingsRow("Аккаунт",snapshot.login.isEmpty()?"—":"@"+snapshot.login);
                     settingsRow("Тариф",snapshot.planName.isEmpty()?"Не определён":snapshot.planName);
-                    String minutes=snapshot.minutesUsed<0?"Недоступно":snapshot.minutesUsed+" / "+(snapshot.minutesLimit<0?"—":snapshot.minutesLimit);
-                    settingsRow("Actions минуты",minutes);
-                    if(snapshot.minutesRemaining()>=0)settingsRow("Осталось минут",String.valueOf(snapshot.minutesRemaining()));
-                    settingsRow("Artifacts",formatAccountBytes(snapshot.artifactStorageBytes)+(snapshot.storageLimitBytes<0?"":" / "+formatAccountBytes(snapshot.storageLimitBytes)));
-                    if(snapshot.storageRemainingBytes()>=0)settingsRow("Остаток лимита*",formatAccountBytes(snapshot.storageRemainingBytes()));
-                    settingsRow("Actions cache",formatAccountBytes(snapshot.cacheStorageBytes)+" · отдельно, 10 GB/репозиторий");
-                    TextView storageNote=text("* Остаток рассчитан по текущим Actions artifacts. GitHub Packages используют общий пул с artifact storage и могут уменьшать фактический остаток. Cache в 500 MB/1 GB не входит.",10,false);storageNote.setTextColor(MUTED);card(storageNote);
+                    settingsRow("Период учёта (UTC)",snapshot.billingPeriod);
+                    String minutes=snapshot.billingApiAvailable
+                        ?String.format(Locale.ROOT,"%.2f мин",snapshot.minutesUsed)
+                        :"Недоступно — см. предупреждение ниже";
+                    settingsRow("Actions: учтённое использование",minutes);
+                    settingsRow("Минут включено в тариф*",snapshot.minutesLimit<0?"Не определено":String.valueOf(snapshot.minutesLimit));
+                    TextView quotaNote=text("* Лимит — справочное значение стандартного тарифа, а не подтверждённый остаток. Billing API показывает использование за период; учёт зависит от типа раннера, владельца репозитория и тарифных условий.",11,false);
+                    quotaNote.setTextColor(MUTED);card(quotaNote);
+                    sectionTitle("Инвентаризация хранилища (не биллинг)",null);
+                    settingsRow("Найдено Actions artifacts",formatAccountBytes(snapshot.artifactStorageBytes));
+                    settingsRow("Найдено Actions cache",formatAccountBytes(snapshot.cacheStorageBytes));
+                    TextView storageNote=text("Это сумма найденных объектов в проверенных репозиториях, а не глобальная квота или остаток хранилища GitHub. Точный остаток см. в GitHub Billing.",11,false);storageNote.setTextColor(MUTED);card(storageNote);
                     settingsRow("Приватных репозиториев",String.valueOf(snapshot.privateRepositories));
                     settingsRow("Проверено репозиториев",String.valueOf(snapshot.repositoriesScanned));
                     if(snapshot.repositoryScanTruncated){
@@ -2826,6 +2841,7 @@ public class MainActivity extends Activity {
                         TextView warning=text(snapshot.billingWarning,12,false);warning.setTextColor(MUTED);card(warning);
                     }
 
+                    Button refreshBilling=button("Обновить квоту и хранилище");refreshBilling.setOnClickListener(v->{api.invalidatePrefix("https://api.github.com/users/");api.invalidatePrefix("https://api.github.com/user/repos");showAccountCenter();});content.addView(refreshBilling,new LinearLayout.LayoutParams(-1,dp(50)));
                     sectionTitle("Хранилище Actions","Нажмите репозиторий для очистки");
                     int rendered=0;
                     for(AccountOperationsController.RepositoryUsage usage:snapshot.repositories){
@@ -2911,8 +2927,7 @@ public class MainActivity extends Activity {
         setCurrentScreen(()->showRepositoryCommits(full,branch));
         shell("Коммиты",true);
         heroBanner(full,"Ветка "+branch,R.drawable.ic_history);
-        Button rollback=button("Удалить HEAD-коммит ветки");rollback.setOnClickListener(v->showDeleteHeadCommitDialog(full,branch));content.addView(rollback,new LinearLayout.LayoutParams(-1,dp(52)));
-        TextView warning=text("Удаление HEAD выполняется как принудительное перемещение ветки на родительский коммит. Это переписывает историю ветки.",11,false);warning.setTextColor(MUTED);card(warning);
+        TextView warning=text("Опасное принудительное удаление HEAD убрано. Для отмены изменений используйте revert-коммит и Pull Request на GitHub — история ветки останется восстанавливаемой.",12,false);warning.setTextColor(MUTED);card(warning);
         ProgressBar pb=new ProgressBar(this);content.addView(pb);
         io.execute(()->{
             try{
@@ -3096,18 +3111,18 @@ public class MainActivity extends Activity {
 
     private void showReleaseCandidateStatus(){
         rememberScreen("rc_status",null);setCurrentScreen(this::showReleaseCandidateStatus);shell("Release Candidate",false);
-        heroBanner("GitHubble 1.0 RC3.2","Repository Manager: папки, ZIP и полное управление репозиториями",R.drawable.ic_tools);
+        heroBanner("GitHubble "+BuildConfig.VERSION_NAME,"Безопасная синхронизация аккаунта и репозиториев",R.drawable.ic_tools);
         JSONObject release=ReleaseIntegrity.inspect(this);JSONObject perf=performanceMonitor.snapshot();JSONObject migrations=SchemaMigrationRegistry.matrix();
         LinearLayout info=new LinearLayout(this);info.setOrientation(LinearLayout.VERTICAL);
         addProfileDetail(info,"Версия",release.optString("version_name",BuildConfig.VERSION_NAME));
-        addProfileDetail(info,"Канал",release.optString("channel","rc3.2"));
+        addProfileDetail(info,"Канал",release.optString("channel",BuildConfig.RC_CHANNEL));
         addProfileDetail(info,"Отладочная сборка",release.optBoolean("debuggable",false)?"Да":"Нет");
         addProfileDetail(info,"Cold start",perf.optLong("cold_start_ms",-1)+" мс");
         addProfileDetail(info,"Java heap",compactBytes(perf.optLong("java_heap_used_bytes",0)));
         addProfileDetail(info,"Схема наблюдения",String.valueOf(migrations.optInt("tracking_schema",0)));
         addProfileDetail(info,"Схема офлайн-очереди",String.valueOf(migrations.optInt("offline_queue_schema",0)));
         card(info);
-        TextView freeze=text("RC3.2 расширяет управление репозиториями: импорт папок и ZIP единым коммитом, загрузка файлов, изменение видимости и безопасное удаление. Перед стабильным 1.0 приоритет — проверка GitHub App permissions, большие импорты и совместимость устройств.",13,false);freeze.setTextColor(MUTED);card(freeze);
+        TextView freeze=text("Версия "+BuildConfig.VERSION_NAME+" · канал "+BuildConfig.RC_CHANNEL+". Device Flow, account-scoped cache и безопасная офлайн-очередь.",13,false);freeze.setTextColor(MUTED);card(freeze);
     }
 
     private String compactBytes(long bytes){if(bytes<1024)return bytes+" Б";if(bytes<1024L*1024L)return String.format(Locale.ROOT,"%.1f КБ",bytes/1024.0);return String.format(Locale.ROOT,"%.1f МБ",bytes/(1024.0*1024.0));}
@@ -3132,7 +3147,7 @@ public class MainActivity extends Activity {
         io.execute(()->{try{DiagnosticsExporter.Result result=DiagnosticsExporter.export(this,prefs,entityCache,translationCache,trackingDb,api);runOnUiThread(()->{progress.dismiss();new AlertDialog.Builder(this).setTitle("Диагностика экспортирована").setMessage(result.displayName+" сохранён в Downloads/GitHubble. Токены, API-ключи, пароли и signing key не включены.").setPositiveButton("Поделиться",(d,w)->{try{Intent share=new Intent(Intent.ACTION_SEND);share.setType("application/zip");share.putExtra(Intent.EXTRA_STREAM,result.uri);share.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);startActivity(Intent.createChooser(share,"Отправить диагностику"));}catch(Exception e){toast("Файл сохранён в Downloads/GitHubble");}}).setNegativeButton("Закрыть",null).show();});}catch(Exception e){runOnUiThread(()->{progress.dismiss();errorDialog("Не удалось экспортировать диагностику",e.getMessage());});}});
     }
 
-    private void confirmSignOut(){new AlertDialog.Builder(this).setTitle("Выйти из GitHub?").setMessage("Зашифрованный токен и локальные данные профиля будут удалены. Локальное избранное останется на устройстве.").setPositiveButton("Выйти",(d,w)->{oauth.signOut();prefs.edit().remove("github_profile_json").remove("github_avatar_url").remove("home_open_issues").remove("home_open_prs").remove("home_dashboard_last_refresh").putInt("activity_new_count",0).apply();File avatar=new File(getFilesDir(),"github_avatar.png");if(avatar.isFile())avatar.delete();openRoot(this::showSettings);}).setNegativeButton("Отмена",null).show();}
+    private void confirmSignOut(){new AlertDialog.Builder(this).setTitle("Выйти из GitHub?").setMessage("Токен, приватный кэш и отложенные действия этого аккаунта будут удалены. Локальное избранное останется.").setPositiveButton("Выйти",(d,w)->{String account=currentAccountId();repositoryStore.clear(account);features.offlineQueue.clearAccount(api.accountScope());api.clearSessionCaches();oauth.signOut();prefs.edit().remove("github_profile_json").remove("github_avatar_url").remove("home_open_issues").remove("home_open_prs").remove("home_dashboard_last_refresh").remove("repository_access_settings_url").putInt("activity_new_count",0).apply();File avatar=new File(getFilesDir(),"github_avatar.png");if(avatar.isFile())avatar.delete();openRoot(this::showSettings);}).setNegativeButton("Отмена",null).show();}
 
     private void migrateSecureSettings(){
         String legacy=prefs.getString("translator_endpoint","");
@@ -3145,7 +3160,8 @@ public class MainActivity extends Activity {
         try{return java.time.Instant.parse(iso).toEpochMilli();}catch(Exception ignored){return 0L;}
     }
 
-    private boolean isSignedIn(){return !secureStore.get("github_token").isEmpty();}
+    private boolean isSignedIn(){return oauth!=null&&oauth.hasUsableToken();}
+    private String currentAccountId(){return api.accountScope();}
     private void accountRequiredCard(String message){TextView note=text(message,14,false);note.setTextColor(MUTED);card(note);Button login=button("Войти через GitHub");login.setOnClickListener(v->navigate(this::showProfile));content.addView(login,new LinearLayout.LayoutParams(-1,dp(50)));}
     private void openWeb(String url){try{startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse(url)));}catch(Exception e){toast("Не удалось открыть ссылку");}}
     private String formatGitHubDate(String iso){if(iso==null||iso.isEmpty())return "";try{java.time.Instant instant=java.time.Instant.parse(iso);java.time.format.DateTimeFormatter formatter=java.time.format.DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm",new Locale("ru")).withZone(java.time.ZoneId.systemDefault());return formatter.format(instant);}catch(Exception e){return iso.length()>=10?iso.substring(0,10):iso;}}
@@ -3589,7 +3605,6 @@ public class MainActivity extends Activity {
 
     private JSONArray getArray(String url)throws Exception{return api.getArray(url);}
     private String getText(String url)throws Exception{return api.getText(url);}
-    private HttpURLConnection openConnection(String url)throws Exception{throw new UnsupportedOperationException("Use GitHubApiClient");}
     private JSONObject getJson(String url)throws Exception{return api.getJson(url);}
     private static String readAll(InputStream in)throws Exception{ByteArrayOutputStream o=new ByteArrayOutputStream();byte[] b=new byte[8192];int n;while((n=in.read(b))>0)o.write(b,0,n);return o.toString("UTF-8");}
     private static String limit(String s,int n){return s.length()>n?s.substring(0,n)+"\n…":s;}

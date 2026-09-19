@@ -11,6 +11,7 @@ import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -35,8 +36,10 @@ public final class GitHubApiClient {
     public GitHubApiClient(SecureStore secureStore, EntityCache entityCache) { this.secureStore = secureStore; this.entityCache = entityCache; }
     public int getRemaining() { return remaining; }
     public long getResetEpochSeconds() { return resetEpochSeconds; }
-    public void invalidate(String url) { if(url==null)return; etags.remove(url); cachedBodies.remove(url); if(entityCache!=null)entityCache.remove(url); }
-    public void invalidatePrefix(String prefix) { if(prefix==null)return; for(String key:new java.util.ArrayList<>(cachedBodies.keySet()))if(key.startsWith(prefix)){etags.remove(key);cachedBodies.remove(key);} if(entityCache!=null)entityCache.removePrefix(prefix); }
+    public String accountScope() { String login=secureStore.get("github_login"); return scopeForToken(login.isEmpty()?secureStore.get("github_token"):"login:"+login.toLowerCase(java.util.Locale.ROOT)); }
+    public void invalidate(String url) { if(url==null)return; String key=cacheKey(url); etags.remove(key); cachedBodies.remove(key); if(entityCache!=null)entityCache.remove(key); }
+    public void invalidatePrefix(String prefix) { if(prefix==null)return; String scoped=cacheKey(prefix); for(String key:new java.util.ArrayList<>(cachedBodies.keySet()))if(key.startsWith(scoped)){etags.remove(key);cachedBodies.remove(key);} if(entityCache!=null)entityCache.removePrefix(scoped); }
+    public void clearSessionCaches() { etags.clear(); cachedBodies.clear(); if(entityCache!=null)entityCache.removePrefix("acct:"+accountScope()+"|"); }
 
     public JSONObject getJson(String url) throws Exception { return new JSONObject(getWithFallback(url, true)); }
     public JSONArray getArray(String url) throws Exception { return new JSONArray(getWithFallback(url, true)); }
@@ -45,10 +48,10 @@ public final class GitHubApiClient {
     private String getWithFallback(String url, boolean authenticated) throws Exception {
         try { return request("GET", url, null, authenticated); }
         catch (ApiException error) {
-            if ((error.statusCode >= 500 || error.statusCode == 429) && entityCache != null) { EntityCache.Entry entry = entityCache.get(url, true); if(entry != null) return entry.payload; }
+            if ((error.statusCode >= 500 || error.statusCode == 429) && entityCache != null) { EntityCache.Entry entry = entityCache.get(cacheKey(url), true); if(entry != null) return entry.payload; }
             throw error;
         } catch (IOException error) {
-            if (entityCache != null) { EntityCache.Entry entry = entityCache.get(url, true); if(entry != null) return entry.payload; }
+            if (entityCache != null) { EntityCache.Entry entry = entityCache.get(cacheKey(url), true); if(entry != null) return entry.payload; }
             throw error;
         }
     }
@@ -71,7 +74,7 @@ public final class GitHubApiClient {
         c.setChunkedStreamingMode(64 * 1024);
         c.setRequestProperty("Accept", "application/vnd.github+json");
         c.setRequestProperty("X-GitHub-Api-Version", "2026-03-10");
-        c.setRequestProperty("User-Agent", "GitHubble-Android/1.0-rc3.2");
+        c.setRequestProperty("User-Agent", "GitHubble-Android/" + app.githubble.mobile.BuildConfig.VERSION_NAME);
         c.setRequestProperty("Content-Type", "application/json; charset=utf-8");
         String token = secureStore.get("github_token");
         if (!token.isEmpty()) c.setRequestProperty("Authorization", "Bearer " + token);
@@ -143,14 +146,15 @@ public final class GitHubApiClient {
             c.setRequestMethod(method);
             c.setRequestProperty("Accept", "application/vnd.github+json");
             c.setRequestProperty("X-GitHub-Api-Version", "2026-03-10");
-            c.setRequestProperty("User-Agent", "GitHubble-Android/1.0-rc3.2");
+            c.setRequestProperty("User-Agent", "GitHubble-Android/" + app.githubble.mobile.BuildConfig.VERSION_NAME);
             String token = secureStore.get("github_token");
             if (authenticated && !token.isEmpty()) c.setRequestProperty("Authorization", "Bearer " + token);
             if ("GET".equals(method)) {
-                String tag = etags.get(url);
+                String key = cacheKey(url);
+                String tag = etags.get(key);
                 if ((tag == null || tag.isEmpty()) && entityCache != null) {
-                    EntityCache.Entry entry = entityCache.get(url, true);
-                    if (entry != null) { tag = entry.etag; cachedBodies.put(url, entry.payload); if(tag != null) etags.put(url, tag); }
+                    EntityCache.Entry entry = entityCache.get(key, true);
+                    if (entry != null) { tag = entry.etag; cachedBodies.put(key, entry.payload); if(tag != null) etags.put(key, tag); }
                 }
                 if (tag != null && !tag.isEmpty()) c.setRequestProperty("If-None-Match", tag);
             }
@@ -166,23 +170,30 @@ public final class GitHubApiClient {
             int code = c.getResponseCode();
             updateRateLimit(c);
             if (code == 304) {
-                if (cachedBodies.containsKey(url)) return cachedBodies.get(url);
-                if (entityCache != null) { EntityCache.Entry entry = entityCache.get(url, true); if(entry != null) return entry.payload; }
+                String key = cacheKey(url);
+                if (cachedBodies.containsKey(key)) return cachedBodies.get(key);
+                if (entityCache != null) { EntityCache.Entry entry = entityCache.get(key, true); if(entry != null) return entry.payload; }
+                throw new ApiException(502, "GitHub вернул 304 без локального тела ответа", resetEpochSeconds);
             }
             String response = readAll(code >= 200 && code < 300 ? c.getInputStream() : c.getErrorStream());
             if (code >= 200 && code < 300) {
                 String etag = c.getHeaderField("ETag");
                 String normalized = response == null || response.trim().isEmpty() ? "{}" : response;
                 if ("GET".equals(method)) {
-                    if (etag != null) etags.put(url, etag);
-                    cachedBodies.put(url, normalized);
-                    if (entityCache != null) entityCache.put(url, inferType(url), normalized, etag, ttlFor(url));
+                    String key = cacheKey(url);
+                    if (etag != null) etags.put(key, etag);
+                    cachedBodies.put(key, normalized);
+                    if (entityCache != null) entityCache.put(key, inferType(url), normalized, etag, ttlFor(url));
                 }
                 return normalized;
             }
-            if ((code == 502 || code == 503 || code == 504) && attempts < 3) {
-                Thread.sleep(350L * attempts); continue;
+            if ((code == 502 || code == 503 || code == 504 || code == 429) && attempts < 3) {
+                long retryAfter = 0L;
+                try { retryAfter = Long.parseLong(value(c.getHeaderField("Retry-After"), "0")) * 1000L; } catch (Exception ignored) { }
+                long wait = retryAfter > 0L ? Math.min(retryAfter, 30_000L) : 350L * attempts + (long)(Math.random()*180L);
+                Thread.sleep(wait); continue;
             }
+            if (code == 401) secureStore.put("github_reauth_required", "true");
             throw new ApiException(code, humanMessage(code, response), resetEpochSeconds);
         }
     }
@@ -224,6 +235,14 @@ public final class GitHubApiClient {
     }
 
     private static String value(String value, String fallback) { return value == null ? fallback : value; }
+    private String cacheKey(String url) { return "acct:" + accountScope() + "|" + url; }
+    private static String scopeForToken(String token) {
+        if (token == null || token.isEmpty()) return "public";
+        try {
+            byte[] digest=MessageDigest.getInstance("SHA-256").digest(token.getBytes(StandardCharsets.UTF_8));
+            StringBuilder out=new StringBuilder(); for(int i=0;i<12;i++)out.append(String.format(java.util.Locale.ROOT,"%02x",digest[i])); return out.toString();
+        } catch(Exception e){return Integer.toHexString(token.hashCode());}
+    }
     private static String readAll(InputStream in) throws IOException {
         if (in == null) return "";
         try (InputStream input = in; ByteArrayOutputStream out = new ByteArrayOutputStream()) {

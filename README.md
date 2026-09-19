@@ -4,19 +4,19 @@
 
 ## Текущая версия
 
-- Version: `1.0.0-rc3.7-repository-sync`
-- versionCode: `41`
+- Version: `1.0.0-rc4.0`
+- versionCode: `45`
 - applicationId: `app.githubble.mobile`
 - minSdk: `28`
 - targetSdk / compileSdk: `36`
 - Java source/target: `17`
 - основная ветка разработки: `main`
 
-RC3.7 добавляет авторитетную синхронизацию репозиториев через GitHub App installations поверх Account Center и двойной авторизации.
+RC4.0 объединяет синхронизацию Home и списка репозиториев, изолирует приватные данные и очередь по аккаунту, исправляет lifecycle OAuth и усиливает release CI.
 
 ## Основные возможности
 
-- два способа авторизации: основной **GitHub OAuth web-flow с PKCE** и запасной **GitHub Device Flow** по 8-значному коду;
+- единственный способ авторизации — официальный **GitHub Device Flow** по одноразовому коду;
 - безопасное хранение OAuth-токена с использованием Android Keystore;
 - просмотр профиля, организаций, репозиториев, веток, тегов и Releases;
 - работа с публичными и приватными репозиториями в пределах выданных GitHub App permissions;
@@ -86,7 +86,7 @@ RC3.7 добавляет авторитетную синхронизацию р�
 
 Платёжные реквизиты (карта/PayPal) приложение не запрашивает и не хранит: GitHub не предоставляет публичный REST API для изменения способа оплаты, поэтому платёжная форма остаётся на официальной стороне GitHub.
 
-В **Управление репозиторием → Коммиты** доступен защищённый откат только текущего HEAD выбранной ветки на его первого родителя. Операция выполняется через принудительное обновление Git ref и требует повторного подтверждения коротким SHA. Произвольное удаление коммита из середины истории не имитируется.
+Принудительное удаление HEAD из обычной навигации убрано. Для отмены изменений следует создавать revert-коммит и Pull Request, сохраняя историю и правила защиты ветки.
 
 ## Безопасность
 
@@ -106,7 +106,7 @@ RC3.7 добавляет авторитетную синхронизацию р�
 - Gradle 9.5.1;
 - Android SDK platform 36;
 - Android build-tools 36.0.0;
-- `GITHUB_CLIENT_ID` для GitHub App;\n- `GITHUB_OAUTH_BACKEND` для основного web-flow;\n- callback GitHub App: `githubble://oauth/callback`.
+- `GITHUB_CLIENT_ID` для GitHub App с включённым Device Flow.
 
 ```bash
 export ANDROID_HOME=/path/to/android-sdk
@@ -114,7 +114,7 @@ export GITHUB_CLIENT_ID=<public GitHub App client id>
 gradle --no-daemon assembleRelease assembleDebugAndroidTest bundleRelease
 ```
 
-GitHub Actions workflow **Android RC CI** собирает RC-артефакты и генерирует SBOM. Рабочая кодовая база RC3.2 успешно прошла CI.
+GitHub Actions запускает unit tests, release lint, debug/release compilation и on-device regression suite. Подписанный release создаётся только для `main` и только постоянным keystore из GitHub Secrets.
 
 ## Актуальная документация
 
@@ -123,7 +123,6 @@ GitHub Actions workflow **Android RC CI** собирает RC-артефакты
 - `README.md` — основное описание приложения;
 - `ARCHITECTURE.md` — текущая архитектура;
 - `BUILD_STATUS.md` — статус проверенной сборки;
-- `IMPLEMENTATION_REPORT_RC3.2_REPOSITORY_MANAGER.md` — отчёт текущего прохода;
 - `OAUTH_SETUP.md` и `GITHUB_APP_CLIENT.md` — Device Flow / GitHub App;
 - `COPILOT_INTEGRATION.md` — интеграция Copilot Cloud Agent;
 - `release/` — актуальные release, privacy и permission документы.

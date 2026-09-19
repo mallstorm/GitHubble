@@ -112,6 +112,13 @@ public final class OAuthManager {
             String tokenType = response.optString("token_type", "bearer");
             secureStore.put("github_token_scope", scope);
             secureStore.put("github_token_type", tokenType);
+            long nowSeconds = System.currentTimeMillis() / 1000L;
+            long expiresIn = response.optLong("expires_in", 0L);
+            long refreshExpiresIn = response.optLong("refresh_token_expires_in", 0L);
+            secureStore.put("github_token_expires_at", expiresIn > 0L ? String.valueOf(nowSeconds + expiresIn) : "");
+            secureStore.put("github_refresh_token", response.optString("refresh_token", ""));
+            secureStore.put("github_refresh_token_expires_at", refreshExpiresIn > 0L ? String.valueOf(nowSeconds + refreshExpiresIn) : "");
+            secureStore.remove("github_reauth_required");
             return new PollResult(PollState.AUTHORIZED, "Готово", currentIntervalSeconds);
         }
 
@@ -139,8 +146,50 @@ public final class OAuthManager {
         secureStore.remove("github_token_type");
         secureStore.remove("github_refresh_token");
         secureStore.remove("github_token_expires_at");
+        secureStore.remove("github_refresh_token_expires_at");
+        secureStore.remove("github_reauth_required");
         secureStore.remove("github_login");
         secureStore.remove("github_name");
+    }
+
+    public boolean hasUsableToken() {
+        if (secureStore.get("github_token").isEmpty()) return false;
+        if ("true".equals(secureStore.get("github_reauth_required"))) return false;
+        String expires = secureStore.get("github_token_expires_at");
+        if (expires.isEmpty()) return true;
+        try { return Long.parseLong(expires) > System.currentTimeMillis()/1000L + 30L; }
+        catch (Exception e) { return false; }
+    }
+
+    public boolean canRefresh() {
+        String refresh = secureStore.get("github_refresh_token");
+        if (refresh.isEmpty()) return false;
+        String expires = secureStore.get("github_refresh_token_expires_at");
+        if (expires.isEmpty()) return true;
+        try { return Long.parseLong(expires) > System.currentTimeMillis()/1000L + 60L; }
+        catch (Exception e) { return false; }
+    }
+
+    /** Atomically rotates expiring GitHub App user tokens when refresh data is available. */
+    public synchronized boolean refreshIfNeeded(String clientId) throws Exception {
+        if (hasUsableToken()) return true;
+        if (!canRefresh() || clientId == null || clientId.trim().isEmpty()) return false;
+        String body = "client_id=" + enc(clientId.trim())
+                + "&grant_type=refresh_token&refresh_token=" + enc(secureStore.get("github_refresh_token"));
+        JSONObject response = postForm(ACCESS_TOKEN_URL, body);
+        String token = response.optString("access_token", "");
+        if (token.isEmpty()) return false;
+        long now = System.currentTimeMillis()/1000L;
+        secureStore.put("github_token", token);
+        secureStore.put("github_token_type", response.optString("token_type", "bearer"));
+        secureStore.put("github_token_scope", response.optString("scope", secureStore.get("github_token_scope")));
+        secureStore.put("github_token_expires_at", response.optLong("expires_in", 0L)>0L?String.valueOf(now+response.optLong("expires_in")):"");
+        String rotated = response.optString("refresh_token", "");
+        if (!rotated.isEmpty()) secureStore.put("github_refresh_token", rotated);
+        long refreshTtl = response.optLong("refresh_token_expires_in", 0L);
+        if (refreshTtl > 0L) secureStore.put("github_refresh_token_expires_at", String.valueOf(now+refreshTtl));
+        secureStore.remove("github_reauth_required");
+        return true;
     }
 
     private static JSONObject postForm(String endpoint, String body) throws Exception {

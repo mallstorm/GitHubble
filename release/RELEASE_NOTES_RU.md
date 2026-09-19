@@ -1,21 +1,17 @@
-# GitHubble 1.0.0 RC3.2 — Repository Manager
+# GitHubble 1.0.0 RC4.0 — модернизация и стабилизация
 
-Текущая линия: `1.0.0-rc3.2-repository-manager`, versionCode `36`.
-
-Основные изменения RC3.2:
-
-- полноценное управление репозиториями из Android-приложения;
-- создание публичных и приватных репозиториев;
-- изменение имени и описания;
-- переключение `Public ↔ Private` с подтверждением;
-- безопасное удаление после ввода точного `owner/repository`;
-- импорт Android-папки через Storage Access Framework с сохранением структуры;
-- импорт ZIP как исходников;
-- загрузка одиночного файла или ZIP как файла;
-- загрузка через Git blobs/trees/commits без удержания больших файлов целиком в памяти;
-- защита от небезопасных ZIP-путей и служебных `.git`/OS-файлов;
-- поддержка пустых репозиториев через безопасный bootstrap;
-- обновлённые Repository Contents / Administration / Workflows permissions;
-- сохранены Device Flow, Keystore-backed токены, расширенный поиск, трекинг, Issues/PR/Discussions, офлайн-функции и Copilot Cloud Agent.
-
-Кодовая база RC3.2 успешно прошла workflow **Android RC CI**. Release signing выполняется вне исходного репозитория.
+- единый `RepositoryStore`: Home и «Мои репозитории» используют один snapshot;
+- пагинация более 100 репозиториев, stale-while-revalidate и явное состояние ошибки;
+- HTTP/ETag cache изолирован по аккаунту, 304 без тела больше не маскируется;
+- OAuth сохраняет expiry/refresh metadata, поддерживает безопасную ротацию и reauth после 401;
+- офлайн-очередь привязана к аккаунту, repository и idempotency key, имеет TTL;
+- logout очищает приватный кэш и очередь текущего аккаунта;
+- устаревший force reset HEAD удалён из навигации; default branch защищена;
+- очистка Actions инвалидирует каждый затронутый репозиторий;
+- неизвестное состояние star/follow не показывается как `false`;
+- bottom navigation: Главная, Репозитории, Поиск, Активность, Профиль;
+- исправлены accessibility touch targets и семантика без принудительного focus order;
+- диагностический экспорт использует whitelist и не выгружает приватные payload;
+- версия вынесена в `version.properties`, UI/User-Agent/artifacts читают BuildConfig;
+- CI выполняет tests, lint, debug/release build и emulator regression suite;
+- release без постоянного signing keystore блокируется.

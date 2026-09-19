@@ -1,0 +1,1377 @@
+{
+  "spdxVersion": "SPDX-2.3",
+  "dataLicense": "CC0-1.0",
+  "SPDXID": "SPDXRef-DOCUMENT",
+  "name": "GitHubble-1.0.0-rc4.0",
+  "documentNamespace": "https://gihubble.local/spdx/9ccaf76277425a734a63",
+  "creationInfo": {
+    "created": "2026-09-19T18:10:31Z",
+    "creators": [
+      "Tool: GitHubble-SBOM-Generator/1.1"
+    ]
+  },
+  "packages": [
+    {
+      "name": "GitHubble",
+      "SPDXID": "SPDXRef-Package-GitHubble",
+      "versionInfo": "1.0.0-rc4.0",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": true,
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    }
+  ],
+  "files": [
+    {
+      "SPDXID": "SPDXRef-File-520e053f541b",
+      "fileName": "./app/src/androidTest/java/app/githubble/mobile/AuthPaginationInstrumentationTest.java",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "5d3acded6bc0d6e2e04e25c5193cc615f1708679429b788b5c9695485038d526"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-65387e53a02c",
+      "fileName": "./app/src/androidTest/java/app/githubble/mobile/RcInstrumentationTest.java",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "644fdbe4a358335c59f20dd0cdef4a55429f439b4068535780697b3518e1569b"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-8c55c3ccc257",
+      "fileName": "./app/src/main/AndroidManifest.xml",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "cfe9c26d510e8a9560cbf471f9becc35b92a3f609460296872f2b0941e16d0a6"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-58a433eb49e9",
+      "fileName": "./app/src/main/java/app/githubble/mobile/MainActivity.java",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "15b555d3f1628581f1c8d95779e5cbbdf84f610da307b79f4190d2dd27c3deef"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-1339b6bed0ff",
+      "fileName": "./app/src/main/java/app/githubble/mobile/accessibility/AccessibilityAudit.java",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "d5faca50a546edd8836c45bf1645436d9e20b09d2fb24f24df4f174b67b25f48"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-f1ff56f4bf59",
+      "fileName": "./app/src/main/java/app/githubble/mobile/auth/OAuthManager.java",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "b8433d05daab19ada33a080b1fe1e935856f79ea8c5a9b0b25b88189ce9ffc22"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-197065ad1b23",
+      "fileName": "./app/src/main/java/app/githubble/mobile/backup/PortableSettingsManager.java",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "1a1578313f2b2f16e1d787ab20c0d3371530dd9df38efca5044246b27b856df9"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-6408f49a073b",
+      "fileName": "./app/src/main/java/app/githubble/mobile/cache/EntityCache.java",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "e6822e16d807ecdbd5a0dab1488558be0e88484d66f0145e3277719a782ce00c"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-f58e5a0ea4d2",
+      "fileName": "./app/src/main/java/app/githubble/mobile/code/CodeHighlighter.java",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "4efbb6f2d4012e15b8b105fdcf9499350ba4425fbe1fda2a6314e0f7953e584c"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-a9cf452bc2a9",
+      "fileName": "./app/src/main/java/app/githubble/mobile/controller/AccountOperationsController.java",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "4901372a2e55c6bc9801ca9c75704c047c0cbfe70d2058e612069a6b3a775294"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-88db992b47f4",
+      "fileName": "./app/src/main/java/app/githubble/mobile/controller/CopilotAgentController.java",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "54b689a33381cd5d0e2bab7c46892227655025651c1bace3e041d91278c259c7"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-8010fda24a96",
+      "fileName": "./app/src/main/java/app/githubble/mobile/controller/CopilotPermissionReport.java",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "681a954931f00bf306f2cf31c21246f660cc866be3329c513ed044debbe69850"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-87956d5ffbc3",
+      "fileName": "./app/src/main/java/app/githubble/mobile/controller/ProfileController.java",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "1f13b5452900e9f09117efc342281258fd665a0f8ac5be27f68a51eb973a7044"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-3ae74f972ef0",
+      "fileName": "./app/src/main/java/app/githubble/mobile/controller/PullRequestAdvancedController.java",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "27d499357f26759801fb7eef7cf1cd4cefb4993ca8ad38b133ce64ab9d62f453"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-4985896e5b0a",
+      "fileName": "./app/src/main/java/app/githubble/mobile/controller/RepositoryAccessController.java",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "8165609327f1bdd754ed8e3e4b1a78bba65997156ea6ca375d00f3ad556072fa"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-0ab00afccf8e",
+      "fileName": "./app/src/main/java/app/githubble/mobile/controller/RepositoryAdminController.java",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "e044a594b9d0fae6e661a6f003f6d455abaab0fdddc834f3e6781ec44f20a597"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-b13530bfa358",
+      "fileName": "./app/src/main/java/app/githubble/mobile/controller/RepositoryController.java",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "c9553494dee60336d7c4d5ee29288001862615d824b82e86142d459f12036120"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-a213258828ab",
+      "fileName": "./app/src/main/java/app/githubble/mobile/controller/RepositoryImportController.java",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "d626cf4281c4dcb4e556d19a28047be4a626e64fb598d300213852e5f66fef0f"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-8e4620efab4d",
+      "fileName": "./app/src/main/java/app/githubble/mobile/controller/TranslationController.java",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "f4f3a5806a566f5a63f6044750f952833b1ce013025dc0f9b915f2f20d3fa443"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-2d792c208400",
+      "fileName": "./app/src/main/java/app/githubble/mobile/copilot/CopilotNotificationHelper.java",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "f843672d2b825e730d78304691ae3bab150a3db7024c33e31526d784a7d40187"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-49af56d014c5",
+      "fileName": "./app/src/main/java/app/githubble/mobile/copilot/CopilotTaskMonitorJobService.java",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "4d11c15eecc177778f2fda8379e9f334078458a6751794439ffa4c01ffad00ce"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-63d6057cde9c",
+      "fileName": "./app/src/main/java/app/githubble/mobile/database/SchemaMigrationRegistry.java",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "10b198b97db152fe2752988613a1af4adf0baa4a690f125fdceafb3dc26db00e"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-165329bd6daa",
+      "fileName": "./app/src/main/java/app/githubble/mobile/diagnostics/DiagnosticsExporter.java",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "bb00bb0ccc8f0c52fd4ed3e3a49dbff37e21a63b2c9e3ffa9e2bea0114f134d7"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-d4fa51e51c35",
+      "fileName": "./app/src/main/java/app/githubble/mobile/diagnostics/TrackingDiagnostics.java",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "60325b56e6f5dc581cd252826fd3171358508d9e7c559182a204e3243e93976e"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-ab787d35cac0",
+      "fileName": "./app/src/main/java/app/githubble/mobile/diff/DiffModel.java",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "dd56720d3fb6dee4ddf4370f6d61949ba770346b03e3f9375c819b8a804846e0"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-3fad4a5e4478",
+      "fileName": "./app/src/main/java/app/githubble/mobile/model/RepositorySummary.java",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "25defa0f1f37c05fbf29668d75d0715dbcfdc5b412d37846f88613b75e6d5712"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-158a52ec21b3",
+      "fileName": "./app/src/main/java/app/githubble/mobile/navigation/NavigationState.java",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "b6c66184357a7903e19aca06c671bec25c3d0743209d64cdf6d7e203434c5962"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-110d4bda36a1",
+      "fileName": "./app/src/main/java/app/githubble/mobile/network/GitHubApiClient.java",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "c864ec2286b4c4bbe3e5b087593889ad32182bec39935eb36c56452ae7f11d52"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-d3dff22303dc",
+      "fileName": "./app/src/main/java/app/githubble/mobile/network/GitHubGraphQlClient.java",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "3b42204510f91833d1b2f7dba9a72a9a5381e39f58d9b01299f07eca65dfc770"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-14d2d7c8bb7e",
+      "fileName": "./app/src/main/java/app/githubble/mobile/offline/OfflineActionQueue.java",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "df4d337814f02c1fe2c87cd7ff99c8469af488abf345fc3ec89f541453fcf9dd"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-ab2a183c76fc",
+      "fileName": "./app/src/main/java/app/githubble/mobile/offline/OfflineMutationDispatcher.java",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "42bd2d2b445ef8778fe2d7acfd24707279788850f32252a03a23e91f5d1e0ad6"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-e9e6945ddaed",
+      "fileName": "./app/src/main/java/app/githubble/mobile/performance/PerformanceMonitor.java",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "cd6e30c93185461e999ca0bb5838a095ce746f8cda939a8ffae1183b8457e92a"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-cde9792ce55d",
+      "fileName": "./app/src/main/java/app/githubble/mobile/preview/FilePreviewController.java",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "95156bad84f238eff7f84ea7423959d25e918201708a00258820e62dc45b968a"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-0218846d8041",
+      "fileName": "./app/src/main/java/app/githubble/mobile/privacy/UserDataManager.java",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "63869632b00b455e3cd78abf51313a79a4feedd244ebf2293a1946b178761ae7"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-23bec2e4d571",
+      "fileName": "./app/src/main/java/app/githubble/mobile/release/ReleaseIntegrity.java",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "fc5cf1fa822b4013360b3518a5f72bf3e75e2ecf433f119a8046c6fb16b2e433"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-2e4043896f1e",
+      "fileName": "./app/src/main/java/app/githubble/mobile/repository/RepositoryStore.java",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "e722b16ad3e9b8b1722673b87c063d7c903e42f84d9ea168cc73e01a0937cb8f"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-3dcac678a782",
+      "fileName": "./app/src/main/java/app/githubble/mobile/screen/FeatureControllerRegistry.java",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "3f7004232f5e8a1935bafd91eb811277b099bc049ad238daaa089d8b77402504"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-84de13832738",
+      "fileName": "./app/src/main/java/app/githubble/mobile/search/AdvancedSearchPlanner.java",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "f781298ea9fcd72597d85a06fc52d91d4ddc0ee25cdfff7b3e273b193e7d3982"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-59d24d48be42",
+      "fileName": "./app/src/main/java/app/githubble/mobile/search/RepositorySearchRanker.java",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "7fcb4f02451e8a8ead3e3538350863ca2dc72a8c031d321ce04d4200e5e2a220"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-630d1df43658",
+      "fileName": "./app/src/main/java/app/githubble/mobile/search/SearchFilters.java",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "56b29a4fc115c41939d52ea058677c19e30ed3852beaf19b553b605ece389188"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-19000bc1f83b",
+      "fileName": "./app/src/main/java/app/githubble/mobile/search/SearchMode.java",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "0b7cc0941b0bdd47e08658af8e4309c1db2ec7e3831ca2b06c069f6a319729c0"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-73805749aa09",
+      "fileName": "./app/src/main/java/app/githubble/mobile/search/SmartSearchHistory.java",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "fb63ede1df33b42a8d30283ce55e49c1dc7c13315b53e29236896c9ea89ee973"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-b8aaeb04f00d",
+      "fileName": "./app/src/main/java/app/githubble/mobile/search/SmartSearchPlanner.java",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "c3420a6832a75ce6b6721889fbfe00df595a19cfa3b024d68cc6aa43ffbc3509"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-8d6a812bfa7c",
+      "fileName": "./app/src/main/java/app/githubble/mobile/security/SecureStore.java",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "ee11c10ed1a0e8dda726afbd67919b27cae7c76e2a6ce2cfce7bc5abe441c762"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-c0322fb7cb20",
+      "fileName": "./app/src/main/java/app/githubble/mobile/state/FeatureUiState.java",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "b530eb76ac81310fdc119f1b26e0fac4691e503c8d3ec16587c829ffd7bd3fb2"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-7b5108b9658a",
+      "fileName": "./app/src/main/java/app/githubble/mobile/state/ScreenStateStore.java",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "a5bec57dbf3f1f0f9e2024d35857deadc29d23bec7ffeab39bb1cbf80b227105"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-be1f4403524f",
+      "fileName": "./app/src/main/java/app/githubble/mobile/tracking/TrackingDatabase.java",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "6ae3d26a4878a75ad2ae33f82e836590743fa0b65ec57a10a48e1ae743da7668"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-e9dfbf0bbd50",
+      "fileName": "./app/src/main/java/app/githubble/mobile/tracking/TrackingEngine.java",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "eeb19d0e9561a8e3f40215da6c23e523d0383f0171732b95d403faa1107ebbc9"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-e1b16d482a01",
+      "fileName": "./app/src/main/java/app/githubble/mobile/tracking/TrackingJobService.java",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "fe8daf7cfcc53fe6f5332d8f022b3b5064c4ba601a04367dc5ea6ee2367ca528"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-780bfae2bc2c",
+      "fileName": "./app/src/main/java/app/githubble/mobile/tracking/TrackingNotificationHelper.java",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "972450d5226bca7751065bebf574e77ae0f120efc036dc8e588a45a8e4260677"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-9e921e293f10",
+      "fileName": "./app/src/main/java/app/githubble/mobile/translation/LanguageDetector.java",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "a82e2c92c69fb848e3fe59f8e83943ac2ec701a0bbe284cfd9a0b9c9a46d6c69"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-918427397093",
+      "fileName": "./app/src/main/java/app/githubble/mobile/translation/TranslationCache.java",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "a0f1ed2187ed8825a81e3d39489bb0aeedc723d64f710e4726fbaf87a4372fd0"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-a789f12686eb",
+      "fileName": "./app/src/main/java/app/githubble/mobile/translation/TranslationEngine.java",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "0639a441d1003c51bcd2aac03e985c929c15dbc1dae95d287d2c91b3effa09ed"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-15f6af0255fb",
+      "fileName": "./app/src/main/java/app/githubble/mobile/ui/HomeScreen.java",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "7107b051d19a78ed0b5f46ab172f2274187de93cfaf6772db09f52c7ff7f08d6"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-2b64d7332dd0",
+      "fileName": "./app/src/main/java/app/githubble/mobile/ui/SearchScreen.java",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "a1d96b3718185c6c6569ddab9112336f0b264ea6730782b0f4e75381ca2fe4f1"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-21f7455106bc",
+      "fileName": "./app/src/main/java/app/githubble/mobile/util/DeviceCodeFormatter.java",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "c65ccf70e4e30bd1057f33f217d0b43014c978af04c8dc24d3e9eb8cc11b75a7"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-52d8c8cd3b53",
+      "fileName": "./app/src/main/java/app/githubble/mobile/util/PaginationState.java",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "67b77c711158b7ef72e76617dfb143790ebae91ead3d801450c37b3d34359d30"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-2a836cda98f9",
+      "fileName": "./app/src/main/java/app/githubble/mobile/util/RepositoryPathPolicy.java",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "be0a87650843630e0572eaf796ffda6190b881856d55143a30702be52090c2df"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-4d04917606f7",
+      "fileName": "./app/src/main/java/app/githubble/mobile/web/GitHubCustomTabs.java",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "f11ba172114169c30ec3082f1efdf7329f30e629889f466e321221f0382cd8f0"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-c1d15db57f1f",
+      "fileName": "./app/src/main/res/drawable/ic_ai.xml",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "835bfbeef58d753adf9d7f1c2c60214d3b47decf8db1c4b66e9f47fc6689cbde"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-e5d2c5fe972b",
+      "fileName": "./app/src/main/res/drawable/ic_android.xml",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "6c347e3ea197ea75fd74a6cd76cb323d8f502ae62f3d4d827e9e828e3c87610a"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-038479b72a34",
+      "fileName": "./app/src/main/res/drawable/ic_back.xml",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "cef633ad60a3178a561648f0a8e47aa532190ea484e506fa4eaa75ab7d366498"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-e1e40fcb62b1",
+      "fileName": "./app/src/main/res/drawable/ic_bell.xml",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "8c66e8f45bfd94ea1348a62a77aeea235f2d580827d931f813bb1dde03c28af1"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-5ad3be43385a",
+      "fileName": "./app/src/main/res/drawable/ic_copilot.xml",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "e12b045f0329a6281d0f3b7db3195c249d61ba761ecbaaae7dbac6d993dd4e77"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-156d7c619072",
+      "fileName": "./app/src/main/res/drawable/ic_discussion.xml",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "0374ca29d46dedb0fc68013e6cae0bec310b43fe35e3fbf3a3634b2d65b9a861"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-e695b02cf715",
+      "fileName": "./app/src/main/res/drawable/ic_explore.xml",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "10a693424202503dc8f159c729370d60798d4d276d14cd4bab219e44f485e86b"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-b1ff7d413f15",
+      "fileName": "./app/src/main/res/drawable/ic_history.xml",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "50738d675bc40f4fdbdf920116056b2bd37a0632d5969e249e68a1ed0d2d0748"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-c5445f28ae0c",
+      "fileName": "./app/src/main/res/drawable/ic_home.xml",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "71dd8415732d44249f2af02b8d7dfb63db1bbb18bfe9272cef448b7d027c41da"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-8fa85ff514a4",
+      "fileName": "./app/src/main/res/drawable/ic_issue.xml",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "ce0ac7b1d880f8a8eb9ae0bb7c2363a562cb553b166ce6d5830e8a8b304e0b62"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-c8f06452beb1",
+      "fileName": "./app/src/main/res/drawable/ic_kotlin.xml",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "324a11d89cdf71d5477cc62e04c26157e8766a9b699e4db7f84a4cdd606f715f"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-d26c17a4d8ed",
+      "fileName": "./app/src/main/res/drawable/ic_notification.xml",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "d9b78c6b59af17f9ca621bb7a518bc6a6b92804cffce424314e3ec6033cc6a6f"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-6cf86da93817",
+      "fileName": "./app/src/main/res/drawable/ic_organization.xml",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "5c2412cf2bdb0f3fa26af88981471bf6dff43a796222e931e17fb0b09e8b22a7"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-31d0b4b5a531",
+      "fileName": "./app/src/main/res/drawable/ic_profile.xml",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "dad7672e59f4f8801f4426678433ba3f7c27bf3e3c8ab2cbc6cd0615ab6b9e91"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-66ca9a0d547c",
+      "fileName": "./app/src/main/res/drawable/ic_projects.xml",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "fd4c56f5cc795bc1ade5e39a7590fa2f782846b249dc9ae66f25685ac0f56d7b"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-6d66f9cd5472",
+      "fileName": "./app/src/main/res/drawable/ic_pull_request.xml",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "b9fb65d91d647a979c8e8529e8dbeb8babd9ded58314cb5c5fa6cba6fbb0b6be"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-ccf9daf54847",
+      "fileName": "./app/src/main/res/drawable/ic_release.xml",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "dd4832a98a40b67b04abece02d0748fb98af7b22d2fc7a7e0e0c8c430f13b759"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-3e4347174bcc",
+      "fileName": "./app/src/main/res/drawable/ic_repository.xml",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "b2bac87cf69292798161decb999ea0e8d0057e7f2ace0badac88048c2151b9c8"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-f147bc5a18c9",
+      "fileName": "./app/src/main/res/drawable/ic_search.xml",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "23156814578e88282a271c0b7673ee199ef1a7ec6f2973c0f852394c02b14bb7"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-a169fd717c3c",
+      "fileName": "./app/src/main/res/drawable/ic_settings.xml",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "8048b33e70d4a2b1780ed76aa498073373fcc8dc55bf86a279283e07c6f26da1"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-fcb37758d2d5",
+      "fileName": "./app/src/main/res/drawable/ic_star.xml",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "6f70bf56517d230ed50074da577e84e3d35104c0b5f833e7dd0076abfba58919"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-ffeb24b8ea0e",
+      "fileName": "./app/src/main/res/drawable/ic_tools.xml",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "5c1ef146428fc42e0bd8ba1661cb424c5ea08ccb215c32e7ddde33a40bf52e62"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-9abec951c3ee",
+      "fileName": "./app/src/main/res/drawable-nodpi/tile_discussion.webp",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "1b6aee95d603ac1999543dbba3463066acf8dfdc515cc3884e269bbc315ad2cd"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-90ad3eb7875e",
+      "fileName": "./app/src/main/res/drawable-nodpi/tile_history.webp",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "7a57c4b678717585d5133c0d0991f67bb52730a635ac73232a453778c606a5e2"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-99f5ea8d6933",
+      "fileName": "./app/src/main/res/drawable-nodpi/tile_issue.webp",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "26ba851c286a2806a5e795b0106b9584d1e426b9ad3713a434e7ca51b0db4800"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-880fc0bdcbdf",
+      "fileName": "./app/src/main/res/drawable-nodpi/tile_organization.webp",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "994c8aa875625b2909605d75ad87f3143c551abee1e009e8794746e28ec12e40"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-641009d13d60",
+      "fileName": "./app/src/main/res/drawable-nodpi/tile_projects.webp",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "b29abddf085b6c12df2b93649513db1eb1fd2fd0dc7d0b5031d2116971ea8c2f"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-29c8200ab1be",
+      "fileName": "./app/src/main/res/drawable-nodpi/tile_pull_request.webp",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "dafcfdfb2b64bdb5bbb63b9e7dece7dc0faa99ace459893a9b9eaea02801cbea"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-9cc09defecc0",
+      "fileName": "./app/src/main/res/drawable-nodpi/tile_release.webp",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "5e3a923132ee62d1d86aae8e195521c53c06a51b9823b0d295caad82113a1962"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-2f7b39110861",
+      "fileName": "./app/src/main/res/drawable-nodpi/tile_repository.webp",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "aa17606aa80ae7cfc9d5493e02dca5596b7772e5b3ca010c72bac34b2aaf2f66"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-74b88bad012d",
+      "fileName": "./app/src/main/res/drawable-nodpi/tile_star.webp",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "807b06ab0bfb247849e1f3ba444a899728f6ff09cf04044a993a584c2fc09834"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-7431e127696c",
+      "fileName": "./app/src/main/res/mipmap-hdpi/ic_launcher_beige.png",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "681dd7d29ac8abec35e00f342f1218c2c815ac18fdbe2217b0523b5f5ae62445"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-dca2c1a29682",
+      "fileName": "./app/src/main/res/mipmap-hdpi/ic_launcher_dark.png",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "b1c6fe0e131e0a4ecc89bec919551023e296c338512059fa1f62b93addbe2c6f"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-2640f8c6218c",
+      "fileName": "./app/src/main/res/mipmap-hdpi/ic_launcher_light.png",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "9b92a0d3794352d8c0a038933f4bd51e9ee6023bee6af73f297fbe2ec1916a00"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-1e047c3e9dd2",
+      "fileName": "./app/src/main/res/mipmap-mdpi/ic_launcher_beige.png",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "11cfac3015cc29281c4b4b4c8ec8045e0e8749045f3ebaf0ff7267e82b98d8e4"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-0d311c64a35e",
+      "fileName": "./app/src/main/res/mipmap-mdpi/ic_launcher_dark.png",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "72e133b653108fcdc22e57142620b1fff650c3bde5c7418f817845408ed175f8"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-3313280dffce",
+      "fileName": "./app/src/main/res/mipmap-mdpi/ic_launcher_light.png",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "982663a33d8fc4726a2eb9075dff2bd512ea8c25ff365866ee63fa603ff605d2"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-3fd48f774637",
+      "fileName": "./app/src/main/res/mipmap-xhdpi/ic_launcher_beige.png",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "9a1c8b810ff0c86c0f481eda8b15bdb97c866fd8cf32cb97b8afdfb56980da80"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-b48b789dbe1f",
+      "fileName": "./app/src/main/res/mipmap-xhdpi/ic_launcher_dark.png",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "e1e9cfce57741b50ad4190f8b705f5da57240a770a10573932a9cb2a83b39212"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-35ee4d31a104",
+      "fileName": "./app/src/main/res/mipmap-xhdpi/ic_launcher_light.png",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "c3d5d1b59fa5c75039dac967938e28e51613484dce21495c168a0b799ce1dd51"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-8fe755e3bd70",
+      "fileName": "./app/src/main/res/mipmap-xxhdpi/ic_launcher_beige.png",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "8b5c7915718d52c44baeacf2ebf22e548b64c8583345f0301188326129e8065a"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-c15b6ffb067f",
+      "fileName": "./app/src/main/res/mipmap-xxhdpi/ic_launcher_dark.png",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "8310f4d408350c345a90e1c6f0a16d482ea896cbd8c4b1ca04560ecfef914b8a"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-b322e24a3914",
+      "fileName": "./app/src/main/res/mipmap-xxhdpi/ic_launcher_light.png",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "41804640f0b1f3f43ffb7d97d30d1186db63cc0e2411de92e7847f22316d3831"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-e3b15b37fe98",
+      "fileName": "./app/src/main/res/mipmap-xxxhdpi/ic_launcher_beige.png",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "8733c7b59aad905b548f48767fb558538e50f14f360e721322b6a3630e09c4b3"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-c5040095fdb5",
+      "fileName": "./app/src/main/res/mipmap-xxxhdpi/ic_launcher_dark.png",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "c4d5a191196c96bf323b25c47a048f3348e360147745f5cd178aa86576a74476"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-f1bc68a0d7c4",
+      "fileName": "./app/src/main/res/mipmap-xxxhdpi/ic_launcher_light.png",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "d2ad1f5cd56313801c0c8eeb9cf3c617400b1c50d78479fb9a07556839c311f2"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-969faa2a5d9f",
+      "fileName": "./app/src/main/res/values/colors.xml",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "dfec0a513add50b6aaceffeab4a701b261baabaa9ef6ebc796ebd00a9b4e863a"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-d2281fbb3027",
+      "fileName": "./app/src/main/res/values/strings.xml",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "4eca3104990f0c36e261f085741f1254011bd7d0d74d51247b729b07325b6295"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-f79cc2688e29",
+      "fileName": "./app/src/main/res/values/styles.xml",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "ab77871ccca9ae0010fd771f9bedbaf5c7a1946aabdc3798e5d850d34e20b413"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-ebe6ff2e09d1",
+      "fileName": "./app/src/main/res/values-ru/strings.xml",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "4eca3104990f0c36e261f085741f1254011bd7d0d74d51247b729b07325b6295"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-f4a01d6a4fcb",
+      "fileName": "./app/build.gradle",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "690b770311492f16d62a4510d7790762374d757cdb947d004f2c8484593abc80"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-f07866736216",
+      "fileName": "./build.gradle",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "695ffa49a050822335a323d5532aabea2c5e162f0ae880e5922245a12fbb6ba2"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-05efc8b16577",
+      "fileName": "./settings.gradle",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "185508edc20bf574d227aeb3d77e30be9d8b44b576ef1a508241a0ab0f01629b"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "copyrightText": "NOASSERTION"
+    }
+  ],
+  "relationships": [
+    {
+      "spdxElementId": "SPDXRef-DOCUMENT",
+      "relationshipType": "DESCRIBES",
+      "relatedSpdxElement": "SPDXRef-Package-GitHubble"
+    }
+  ]
+}

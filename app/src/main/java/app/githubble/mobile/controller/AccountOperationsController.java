@@ -7,11 +7,14 @@ import org.json.JSONObject;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.LinkedHashSet;
+import java.util.Set;
 
 /**
  * Account-level GitHub operations: billing usage, Actions storage cleanup and
@@ -50,7 +53,8 @@ public final class AccountOperationsController {
     public static final class BillingSnapshot {
         public final String login;
         public final String planName;
-        public final long minutesUsed;
+        public final double minutesUsed;
+        public final String billingPeriod;
         public final long minutesLimit;
         public final long artifactStorageBytes;
         public final long cacheStorageBytes;
@@ -62,7 +66,7 @@ public final class AccountOperationsController {
         public final String billingWarning;
         public final List<RepositoryUsage> repositories;
 
-        BillingSnapshot(String login, String planName, long minutesUsed, long minutesLimit,
+        BillingSnapshot(String login, String planName, double minutesUsed, long minutesLimit, String billingPeriod,
                         long artifactStorageBytes, long cacheStorageBytes, long storageLimitBytes, int privateRepositories,
                         int repositoriesScanned, boolean repositoryScanTruncated,
                         boolean billingApiAvailable, String billingWarning,
@@ -70,6 +74,7 @@ public final class AccountOperationsController {
             this.login = login;
             this.planName = planName;
             this.minutesUsed = minutesUsed;
+            this.billingPeriod = billingPeriod;
             this.minutesLimit = minutesLimit;
             this.artifactStorageBytes = artifactStorageBytes;
             this.cacheStorageBytes = cacheStorageBytes;
@@ -83,11 +88,13 @@ public final class AccountOperationsController {
         }
 
         public long minutesRemaining() {
-            return minutesLimit < 0 || minutesUsed < 0 ? -1 : Math.max(0, minutesLimit - minutesUsed);
+            // This endpoint does not report remaining included minutes.
+            return -1;
         }
 
         public long storageRemainingBytes() {
-            return storageLimitBytes < 0 ? -1 : Math.max(0, storageLimitBytes - artifactStorageBytes);
+            // Inventory of artifacts does not equal billed account-wide storage.
+            return -1;
         }
     }
 
@@ -151,19 +158,21 @@ public final class AccountOperationsController {
         long minutesLimit = includedMinutes(planName);
         long storageLimit = includedStorage(planName);
 
-        long minutesUsed = -1;
+        double minutesUsed = -1;
+        LocalDate now = LocalDate.now(ZoneOffset.UTC);
+        String billingPeriod = String.format(Locale.ROOT, "%04d-%02d", now.getYear(), now.getMonthValue());
         boolean billingAvailable = false;
         String billingWarning = "";
         if (!login.isEmpty()) {
-            LocalDate now = LocalDate.now();
             String url = "https://api.github.com/users/" + enc(login)
                     + "/settings/billing/usage/summary?year=" + now.getYear()
                     + "&month=" + now.getMonthValue() + "&product=Actions";
             try {
                 JSONObject billing = api.getJson(url);
                 JSONArray items = billing.optJSONArray("usageItems");
+                if (items == null) throw new IllegalStateException("GitHub Billing API не вернул usageItems");
                 double minuteSum = 0d;
-                if (items != null) {
+                {
                     for (int i = 0; i < items.length(); i++) {
                         JSONObject item = items.optJSONObject(i);
                         if (item == null) continue;
@@ -176,18 +185,27 @@ public final class AccountOperationsController {
                         }
                     }
                 }
-                minutesUsed = Math.round(minuteSum);
+                minutesUsed = minuteSum;
                 billingAvailable = true;
             } catch (GitHubApiClient.ApiException e) {
                 if (e.statusCode == 403 || e.statusCode == 404) {
-                    billingWarning = "Billing API недоступен текущему токену. Для GiHubble включите Account permission: Plan — Read.";
+                    billingWarning = "GitHub Billing API недоступен (HTTP " + e.statusCode + "). Проверьте Account permission: Plan — Read и доступ к биллингу личного аккаунта.";
                 } else {
                     billingWarning = e.getMessage();
                 }
+            } catch (Exception e) {
+                billingWarning = "Не удалось получить квоту GitHub Actions: " + e.getMessage();
             }
         }
 
-        JSONArray owned = loadOwnedRepositories();
+        JSONArray owned;
+        try {
+            owned = loadOwnedRepositories();
+        } catch (Exception e) {
+            owned = new JSONArray();
+            String msg = "Инвентаризация репозиториев недоступна: " + e.getMessage();
+            billingWarning = billingWarning.isEmpty() ? msg : billingWarning + "\n" + msg;
+        }
         List<RepositoryUsage> usages = new ArrayList<>();
         long artifactStorage = 0L;
         long cacheStorage = 0L;
@@ -207,7 +225,7 @@ public final class AccountOperationsController {
         }
         usages.sort(Comparator.comparingLong(RepositoryUsage::totalBytes).reversed());
 
-        return new BillingSnapshot(login, planName, minutesUsed, minutesLimit, artifactStorage, cacheStorage, storageLimit,
+        return new BillingSnapshot(login, planName, minutesUsed, minutesLimit, billingPeriod, artifactStorage, cacheStorage, storageLimit,
                 privateCount, scanCount, owned.length() > scanCount, billingAvailable, billingWarning, usages);
     }
 
@@ -264,9 +282,9 @@ public final class AccountOperationsController {
                 failed++;
             }
         }
-        if (!items.isEmpty()) {
-            api.invalidatePrefix("https://api.github.com/repos/" + items.get(0).repository + "/actions/");
-        }
+        Set<String> touched = new LinkedHashSet<>();
+        for (CleanupItem item : items) if (item != null && item.repository != null) touched.add(item.repository);
+        for (String repository : touched) api.invalidatePrefix("https://api.github.com/repos/" + repository + "/actions/");
         return new DeleteResult(deleted, failed, bytes);
     }
 
@@ -289,9 +307,21 @@ public final class AccountOperationsController {
         if (head == null || head.parentSha == null || head.parentSha.isEmpty()) {
             throw new IllegalStateException("У HEAD-коммита нет родителя — откат невозможен");
         }
+        JSONObject repositoryJson = api.getJson("https://api.github.com/repos/" + repository);
+        if (head.branch.equals(repositoryJson.optString("default_branch", ""))) {
+            throw new IllegalStateException("Откат default branch из мобильного клиента запрещён. Создайте revert-коммит через Pull Request.");
+        }
+        JSONObject currentRef = api.getJson("https://api.github.com/repos/" + repository + "/git/ref/heads/" + enc(head.branch));
+        JSONObject currentObject = currentRef.optJSONObject("object");
+        String currentSha = currentObject == null ? "" : currentObject.optString("sha", "");
+        if (!head.sha.equals(currentSha)) throw new IllegalStateException("Ветка изменилась после открытия экрана. Обновите список коммитов.");
+        JSONObject backup = new JSONObject();
+        backup.put("ref", "refs/tags/githubble-recovery-" + head.sha.substring(0, Math.min(12, head.sha.length())));
+        backup.put("sha", head.sha);
+        api.postJson("https://api.github.com/repos/" + repository + "/git/refs", backup, true);
         JSONObject body = new JSONObject();
         body.put("sha", head.parentSha);
-        body.put("force", true);
+        body.put("force", false);
         api.patchJson("https://api.github.com/repos/" + repository + "/git/refs/heads/" + enc(head.branch), body);
         api.invalidatePrefix("https://api.github.com/repos/" + repository);
     }

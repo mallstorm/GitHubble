@@ -1,6 +1,6 @@
 # Архитектура GitHubble
 
-Текущая линия: `1.0.0-rc3.2-repository-manager`.
+Текущая линия: `1.0.0-rc4.0`.
 
 GitHubble — нативное Android-приложение с Java-ядром и отдельными feature-контроллерами вокруг центрального UI слоя. Основная рабочая реализация находится в `app/src/main`.
 
@@ -10,13 +10,14 @@ GitHubble — нативное Android-приложение с Java-ядром �
 - `GitHubApiClient.java` / `GitHubGraphQlClient.java` — централизованный доступ к GitHub REST/GraphQL;
 - `OAuthManager.java` + `SecureStore.java` — GitHub Device Flow и Keystore-backed хранение токена;
 - `RepositoryController.java` — чтение и базовые операции с репозиториями;
+- `RepositoryStore.java` — единый account-scoped snapshot репозиториев для Home и списка;
 - `RepositoryAdminController.java` — настройки, видимость, создание и удаление репозиториев;
 - `RepositoryImportController.java` — импорт папок, ZIP и одиночных файлов через Git blobs/trees/commits;
 - `RepositoryPathPolicy.java` — нормализация путей и защита импорта;
 - `TrackingEngine` / `TrackingDatabase` — наблюдение и локальная история;
 - `AdvancedSearchPlanner` / `SmartSearchPlanner` — расширенный поиск;
 - `TranslationEngine` — защищённая локализация пользовательского текста;
-- `OfflineActionQueue` — очередь действий для нестабильной сети;
+- `OfflineActionQueue` — account-scoped очередь с TTL, idempotency key и защитой от replay другим аккаунтом;
 - `CopilotAgentController` — интеграционные функции GitHub Copilot Cloud Agent.
 
 ## Принципы
@@ -28,4 +29,4 @@ GitHubble — нативное Android-приложение с Java-ядром �
 - опасные операции требуют явного подтверждения;
 - при недоступном GitHub App permission функция должна корректно деградировать или показать реальную API-ошибку.
 
-Исторические stage-документы удалены из `main`; актуальным описанием состояния служат `README.md` и `IMPLEMENTATION_REPORT_RC3.2_REPOSITORY_MANAGER.md`.
+Исторические stage-документы удалены из `main`; актуальным описанием состояния служат `README.md`, `BUILD_STATUS.md` и `release/RELEASE_NOTES_RU.md`.
