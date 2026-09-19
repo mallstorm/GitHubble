@@ -12,6 +12,6 @@ GitHubble использует официальный GitHub Device Flow зар�
 
 ## Permissions for Account Center
 
-Для отображения приватных репозиториев GitHub App должна быть установлена на нужные репозитории (или на все репозитории аккаунта) и иметь как минимум Metadata: read. Для просмотра и удаления GitHub Actions artifacts/cache нужны Actions: read/write. Для личного Billing Usage API требуется Account permission Plan: read.
+Для отображения приватных репозиториев GitHub App должна быть установлена на нужные репозитории (или на все репозитории аккаунта) и иметь как минимум Metadata: read. Для просмотра и удаления GitHub Actions artifacts/cache нужны Actions: read/write. Для защищённого отката HEAD-коммита нужна Repository permission Contents: write. Для личного Billing Usage API требуется Account permission Plan: read.
 
 Способ оплаты не передаётся приложению: управление картой/PayPal выполняется только на официальной странице GitHub Billing, открываемой из GitHubble через защищённую Custom Tab.
