@@ -137,6 +137,8 @@ public final class OAuthManager {
         secureStore.remove("github_token");
         secureStore.remove("github_token_scope");
         secureStore.remove("github_token_type");
+        secureStore.remove("github_refresh_token");
+        secureStore.remove("github_token_expires_at");
         secureStore.remove("github_login");
         secureStore.remove("github_name");
     }
