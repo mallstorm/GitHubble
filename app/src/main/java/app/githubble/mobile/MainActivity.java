@@ -2837,6 +2837,7 @@ public class MainActivity extends Activity {
         sectionTitle("Аккаунт",null);
         String login=getProfileLogin();settingsActionRow("Личный профиль",isSignedIn()?(login.isEmpty()?"GitHub подключён":"@"+login):"Не подключён",() -> navigate(this::showProfile));
         settingsRow("Защита токена",isSignedIn()?"Android Keystore":"Нет активного сеанса");
+        settingsActionRow("GitHub Client ID",githubClientIdStatus(),() -> showGitHubClientIdDialog(false));
         settingsActionRow("GitHub Billing и Actions",isSignedIn()?"Минуты, место и безопасная очистка":"Требуется вход",() -> navigate(this::showAccountCenter));
         settingsActionRow("Приватные репозитории","Доступ GiHubble",this::openPrivateRepositoryAccess);
         sectionTitle("Интерфейс",null);
@@ -2865,7 +2866,7 @@ public class MainActivity extends Activity {
         sectionTitle("Приложение",null);
         settingsRow("Версия",BuildConfig.VERSION_NAME);
         settingsRow("GitHub App","GiHubble");
-        settingsActionRow("Состояние Release Candidate","RC3.2 · Repository Manager",() -> navigate(this::showReleaseCandidateStatus));
+        settingsActionRow("Состояние Release Candidate","RC3.4 · Login + Account Center",() -> navigate(this::showReleaseCandidateStatus));
         if(isSignedIn()){
             Button out=button("Выйти из GitHub");out.setOnClickListener(v->confirmSignOut());LinearLayout.LayoutParams op=new LinearLayout.LayoutParams(-1,dp(52));op.setMargins(0,dp(6),0,dp(6));content.addView(out,op);
         }
@@ -3101,16 +3102,22 @@ public class MainActivity extends Activity {
         }
     }
 
+    private String effectiveGitHubClientId(){
+        String embedded=BuildConfig.GITHUB_CLIENT_ID==null?"":BuildConfig.GITHUB_CLIENT_ID.trim();
+        if(!embedded.isEmpty())return embedded;
+        return prefs.getString("github_client_id","").trim();
+    }
+
     private void startSmartLogin(){
-        final String clientId=BuildConfig.GITHUB_CLIENT_ID==null?"":BuildConfig.GITHUB_CLIENT_ID.trim();
+        String clientId=effectiveGitHubClientId();
         if(clientId.isEmpty()){
-            new AlertDialog.Builder(this)
-                .setTitle("Вход GitHub пока не активирован")
-                .setMessage("Механизм умного входа уже встроен, но тестовая сборка создана без зарегистрированного GitHub OAuth Client ID. Client ID задаётся разработчиком при сборке и больше не запрашивается у пользователя.")
-                .setPositiveButton("Понятно",null)
-                .show();
+            showGitHubClientIdDialog(true);
             return;
         }
+        startGitHubDeviceFlow(clientId);
+    }
+
+    private void startGitHubDeviceFlow(String clientId){
         final ProgressDialog progress=new ProgressDialog(this);
         progress.setTitle("Подготовка входа");
         progress.setMessage("Получаем одноразовый код у GitHub…");
@@ -3126,10 +3133,61 @@ public class MainActivity extends Activity {
             }catch(Exception e){
                 runOnUiThread(() -> {
                     progress.dismiss();
-                    new AlertDialog.Builder(this).setTitle("Не удалось начать вход").setMessage(e.getMessage()).setPositiveButton("ОК",null).show();
+                    new AlertDialog.Builder(this)
+                        .setTitle("Не удалось начать вход")
+                        .setMessage(e.getMessage()+"\n\nПроверьте Client ID и убедитесь, что у GitHub App GiHubble включён Device Flow.")
+                        .setNegativeButton("Закрыть",null)
+                        .setPositiveButton("Изменить Client ID",(d,w)->showGitHubClientIdDialog(true))
+                        .show();
                 });
             }
         });
+    }
+
+    private void showGitHubClientIdDialog(boolean continueLogin){
+        final EditText input=new EditText(this);
+        input.setSingleLine(true);
+        input.setHint("Client ID GitHub App");
+        String current=prefs.getString("github_client_id","");
+        if(!current.isEmpty())input.setText(current);
+
+        LinearLayout box=new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(18),dp(4),dp(18),0);
+        TextView info=text("Для этой тестовой сборки Client ID не был зашит через GitHub Actions. Это не секрет: скопируйте Public Client ID приложения GiHubble в GitHub → Settings → Developer settings → GitHub Apps → GiHubble.",12,false);
+        info.setTextColor(MUTED);
+        box.addView(info);
+        LinearLayout.LayoutParams ip=new LinearLayout.LayoutParams(-1,dp(54));ip.setMargins(0,dp(12),0,0);box.addView(input,ip);
+
+        AlertDialog dialog=new AlertDialog.Builder(this)
+            .setTitle("Подключить GiHubble к GitHub")
+            .setView(box)
+            .setNeutralButton("Открыть GitHub Apps",null)
+            .setNegativeButton("Отмена",null)
+            .setPositiveButton(continueLogin?"Сохранить и войти":"Сохранить",null)
+            .create();
+
+        dialog.setOnShowListener(x -> {
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v -> openSecureGitHubPage("https://github.com/settings/apps"));
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+                String value=input.getText().toString().trim();
+                if(value.isEmpty()){
+                    input.setError("Введите Client ID");
+                    return;
+                }
+                prefs.edit().putString("github_client_id",value).apply();
+                dialog.dismiss();
+                if(continueLogin)startGitHubDeviceFlow(value);
+                else toast("Client ID сохранён");
+            });
+        });
+        dialog.show();
+    }
+
+    private String githubClientIdStatus(){
+        String embedded=BuildConfig.GITHUB_CLIENT_ID==null?"":BuildConfig.GITHUB_CLIENT_ID.trim();
+        if(!embedded.isEmpty())return "Встроен в сборку";
+        return prefs.getString("github_client_id","").trim().isEmpty()?"Не настроен":"Сохранён локально";
     }
 
     private void showDeviceLogin(OAuthManager.DeviceSession session,String clientId){
