@@ -4,19 +4,19 @@
 
 ## Текущая версия
 
-- Version: `1.0.0-rc3.3-account-center`
-- versionCode: `37`
+- Version: `1.0.0-rc3.6-dual-auth`
+- versionCode: `40`
 - applicationId: `app.githubble.mobile`
 - minSdk: `28`
 - targetSdk / compileSdk: `36`
 - Java source/target: `17`
 - основная ветка разработки: `main`
 
-RC3.3 добавляет **Account Center** поверх Repository Manager: приватные репозитории, Billing/Actions usage, безопасную очистку Actions storage и контролируемый откат HEAD-коммита ветки.
+RC3.6 объединяет **Account Center** и двойную авторизацию GitHub: основной browser OAuth с PKCE + запасной 8-значный Device Flow.
 
 ## Основные возможности
 
-- авторизация GitHub через **GitHub App Device Flow** без хранения логина и пароля;
+- два способа авторизации: основной **GitHub OAuth web-flow с PKCE** и запасной **GitHub Device Flow** по 8-значному коду;
 - безопасное хранение OAuth-токена с использованием Android Keystore;
 - просмотр профиля, организаций, репозиториев, веток, тегов и Releases;
 - работа с публичными и приватными репозиториями в пределах выданных GitHub App permissions;
@@ -94,7 +94,7 @@ RC3.3 добавляет **Account Center** поверх Repository Manager: п�
 - Gradle 9.5.1;
 - Android SDK platform 36;
 - Android build-tools 36.0.0;
-- `GITHUB_CLIENT_ID` для GitHub App Device Flow.
+- `GITHUB_CLIENT_ID` для GitHub App;\n- `GITHUB_OAUTH_BACKEND` для основного web-flow;\n- callback GitHub App: `githubble://oauth/callback`.
 
 ```bash
 export ANDROID_HOME=/path/to/android-sdk
