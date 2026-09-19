@@ -1,6 +1,6 @@
 apply plugin: 'com.android.application'
 
-def githubClientId = (project.findProperty('GITHUB_CLIENT_ID') ?: System.getenv('GITHUB_CLIENT_ID') ?: '').toString()
+def githubClientId = (project.findProperty('GITHUB_CLIENT_ID') ?: System.getenv('GITHUB_CLIENT_ID') ?: 'Iv23ligNq2gfjSk90Tn7').toString()
 def escapedGithubClientId = githubClientId.replace('\\', '\\\\').replace('\"', '\\"')
 
 android {
@@ -12,12 +12,12 @@ android {
         applicationId 'app.githubble.mobile'
         minSdk 28
         targetSdk 36
-        versionCode 38
-        versionName '1.0.0-rc3.4-login-account-center'
+        versionCode 39
+        versionName '1.0.0-rc3.5-device-flow-restored'
         buildConfigField 'String', 'GITHUB_CLIENT_ID', '"' + escapedGithubClientId + '"'
         buildConfigField 'String', 'GITHUB_OAUTH_SCOPES', '""'
         buildConfigField 'boolean', 'FEATURE_FREEZE', 'false'
-        buildConfigField 'String', 'RC_CHANNEL', '"rc3.4"'
+        buildConfigField 'String', 'RC_CHANNEL', '"rc3.5"'
         testInstrumentationRunner 'app.githubble.mobile.RcInstrumentationTest'
     }
     buildTypes {
