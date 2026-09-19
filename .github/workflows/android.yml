@@ -37,7 +37,16 @@ jobs:
       - name: Unit tests, lint and release compile
         env:
           GITHUB_CLIENT_ID: ${{ secrets.GITHUB_CLIENT_ID }}
-        run: gradle --no-daemon test lintRelease assembleDebug assembleRelease
+        shell: bash
+        run: |
+          set +e
+          gradle --no-daemon test lintRelease assembleDebug assembleRelease
+          result=$?
+          if [ "$result" -ne 0 ]; then
+            report="app/build/intermediates/lint_intermediate_text_report/release/lintReportRelease/lint-results-release.txt"
+            [ ! -f "$report" ] || cat "$report"
+          fi
+          exit "$result"
 
       - name: On-device regression suite
         uses: ReactiveCircus/android-emulator-runner@v2
