@@ -145,20 +145,23 @@ public final class RepositoryAccessController {
             warning = e.getMessage();
         }
 
+        // Merge every page of /user/repos even when installations returned some entries.
+        // /user/repos can contain projects that an installation endpoint did not return.
         boolean fallbackUsed = false;
-        if (merged.isEmpty()) {
-            try {
-                JSONArray fallback = loadUserRepositories();
-                for (int i = 0; i < fallback.length(); i++) {
-                    JSONObject repository = fallback.optJSONObject(i);
-                    if (repository == null) continue;
-                    String full = repository.optString("full_name", "");
-                    if (!full.isEmpty()) merged.put(full, repository);
-                }
-                fallbackUsed = true;
-            } catch (Exception fallbackError) {
-                if (warning.isEmpty()) warning = fallbackError.getMessage();
+        try {
+            JSONArray userRepositories = loadUserRepositories();
+            for (int i = 0; i < userRepositories.length(); i++) {
+                JSONObject repository = userRepositories.optJSONObject(i);
+                if (repository == null) continue;
+                String full = repository.optString("full_name", "");
+                if (!full.isEmpty()) merged.put(full, repository);
             }
+            fallbackUsed = true;
+        } catch (GitHubApiClient.ApiException e) {
+            // Authentication failures must not be disguised as an empty repository list.
+            if (e.statusCode == 401) throw e;
+            warning = warning.isEmpty() ? e.getMessage() : warning + "; " + e.getMessage();
+            if (merged.isEmpty()) throw e;
         }
 
         List<JSONObject> sorted = new ArrayList<>(merged.values());
