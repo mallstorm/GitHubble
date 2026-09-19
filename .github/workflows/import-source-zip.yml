@@ -1,6 +1,7 @@
 name: Import reviewed GitHubble source tree
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
     paths:
@@ -37,7 +38,7 @@ jobs:
           test -f "$WORK/source/version.properties"
           rsync -a --delete \
             --exclude='.git/' \
-            --exclude='.github/workflows/import-source-zip.yml' \
+            --exclude='.github/workflows/' \
             --exclude="$ARCHIVE" \
             --exclude="$CHECKSUM" \
             "$WORK/source/" ./
