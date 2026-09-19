@@ -71,6 +71,16 @@ jobs:
           sha256sum dist/GitHubble-1.0.0-RC3.8.1-release.apk > dist/SHA256SUMS.txt
           rm -f "${RUNNER_TEMP}/githubble-release.p12" "${RUNNER_TEMP}/githubble-aligned.apk"
 
+      - name: Export exact main source tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          git archive --format=zip --output=dist/GitHubble-1.0.0-RC3.8.1-main-sources.zip HEAD
+          test -s dist/GitHubble-1.0.0-RC3.8.1-main-sources.zip
+          sha256sum dist/GitHubble-1.0.0-RC3.8.1-main-sources.zip > dist/SOURCE_SHA256.txt
+          printf '%s\n' "$(git rev-parse HEAD)" > dist/SOURCE_COMMIT.txt
+
       - uses: actions/upload-artifact@v4
         with:
           name: githubble-rc3.8.1-signed-release
