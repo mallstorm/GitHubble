@@ -2668,8 +2668,10 @@ public class MainActivity extends Activity {
                     String minutes=snapshot.minutesUsed<0?"Недоступно":snapshot.minutesUsed+" / "+(snapshot.minutesLimit<0?"—":snapshot.minutesLimit);
                     settingsRow("Actions минуты",minutes);
                     if(snapshot.minutesRemaining()>=0)settingsRow("Осталось минут",String.valueOf(snapshot.minutesRemaining()));
-                    settingsRow("Actions storage",formatAccountBytes(snapshot.actionsStorageBytes)+(snapshot.storageLimitBytes<0?"":" / "+formatAccountBytes(snapshot.storageLimitBytes)));
-                    if(snapshot.storageRemainingBytes()>=0)settingsRow("Свободно Actions",formatAccountBytes(snapshot.storageRemainingBytes()));
+                    settingsRow("Artifacts",formatAccountBytes(snapshot.artifactStorageBytes)+(snapshot.storageLimitBytes<0?"":" / "+formatAccountBytes(snapshot.storageLimitBytes)));
+                    if(snapshot.storageRemainingBytes()>=0)settingsRow("Остаток лимита*",formatAccountBytes(snapshot.storageRemainingBytes()));
+                    settingsRow("Actions cache",formatAccountBytes(snapshot.cacheStorageBytes)+" · отдельно, 10 GB/репозиторий");
+                    TextView storageNote=text("* Остаток рассчитан по текущим Actions artifacts. GitHub Packages используют общий пул с artifact storage и могут уменьшать фактический остаток. Cache в 500 MB/1 GB не входит.",10,false);storageNote.setTextColor(MUTED);card(storageNote);
                     settingsRow("Приватных репозиториев",String.valueOf(snapshot.privateRepositories));
                     settingsRow("Проверено репозиториев",String.valueOf(snapshot.repositoriesScanned));
                     if(snapshot.repositoryScanTruncated){
@@ -2683,7 +2685,7 @@ public class MainActivity extends Activity {
                     int rendered=0;
                     for(AccountOperationsController.RepositoryUsage usage:snapshot.repositories){
                         if(usage.totalBytes()<=0&&!usage.actionsAccessible)continue;
-                        String detail=formatAccountBytes(usage.totalBytes())+" · artifacts "+usage.artifacts+" · cache "+usage.caches+(usage.isPrivate?" · private":"");
+                        String detail="artifact "+formatAccountBytes(usage.artifactBytes)+" · cache "+formatAccountBytes(usage.cacheBytes)+(usage.isPrivate?" · private":"");
                         settingsActionRow(usage.fullName,detail,()->navigate(()->showActionsCleanup(usage.fullName)));
                         rendered++;
                     }
