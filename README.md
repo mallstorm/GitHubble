@@ -66,7 +66,7 @@ RC3.3 добавляет **Account Center** поверх Repository Manager: п�
 
 - тариф аккаунта и включённые лимиты для GitHub Free / Pro;
 - расход Actions minutes текущего месяца через Billing Usage API;
-- оценку текущего Actions storage как сумму workflow artifacts и Actions cache в собственных репозиториях;
+- текущий объём workflow artifacts отдельно от Actions cache: artifact quota сравнивается с 500 MB/1 GB, cache показывается отдельно с базовым лимитом 10 GB на репозиторий;
 - список репозиториев, отсортированный по занимаемому месту;
 - безопасную очистку: пользователь отмечает галочками конкретные artifacts/cache и подтверждает удаление;
 - переход к официальной GitHub Billing & payment странице внутри защищённой Custom Tab;
