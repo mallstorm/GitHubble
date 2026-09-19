@@ -3277,7 +3277,9 @@ public class MainActivity extends Activity {
                     progress.dismiss();
                     new AlertDialog.Builder(this)
                         .setTitle("Не удалось начать вход")
-                        .setMessage(e.getMessage()+"\n\nПроверьте Client ID и убедитесь, что у GitHub App GiHubble включён Device Flow.")
+                        .setMessage((e instanceof java.net.SocketTimeoutException || e instanceof java.net.ConnectException || e instanceof java.net.UnknownHostException)
+                            ? "Не удалось подключиться к GitHub. Проверьте интернет, VPN и разрешение доступа к сети для GitHubble.\n\n"+e.getMessage()
+                            : e.getMessage()+"\n\nУбедитесь, что у GitHub App GiHubble включён Device Flow.")
                         .setNegativeButton("Закрыть",null)
                         .show();
                 });
@@ -3300,8 +3302,14 @@ public class MainActivity extends Activity {
         TextView code=text(session.userCode,28,true);
         code.setGravity(Gravity.CENTER);
         code.setTextColor(GREEN);
-        code.setPadding(0,dp(10),0,dp(4));
-        box.addView(code);
+        code.setTextAlignment(View.TEXT_ALIGNMENT_CENTER);
+        code.setLetterSpacing(0.06f);
+        code.setMinHeight(dp(72));
+        code.setPadding(dp(12),dp(14),dp(12),dp(14));
+        code.setBackground(round(CARD,14,BORDER,1));
+        LinearLayout.LayoutParams codeParams=new LinearLayout.LayoutParams(-1,dp(72));
+        codeParams.setMargins(dp(8),dp(12),dp(8),dp(12));
+        box.addView(code,codeParams);
 
         TextView hint=text("Код скопирован: "+pasteCode+". Страница подтверждения откроется в защищённой вкладке Chrome. GitHubble продолжит ждать авторизацию автоматически.",12,false);
         hint.setTextColor(MUTED);
@@ -3371,6 +3379,11 @@ public class MainActivity extends Activity {
         });
         dialog.setOnCancelListener(x -> cancelled.set(true));
         dialog.show();
+        if(dialog.getWindow()!=null){
+            int maxDialogWidth=dp(430);
+            int availableWidth=getResources().getDisplayMetrics().widthPixels-dp(32);
+            dialog.getWindow().setLayout(Math.min(maxDialogWidth,availableWidth),android.view.WindowManager.LayoutParams.WRAP_CONTENT);
+        }
         copyGitHubDeviceCode(session,false);
         openOfficialGitHubLogin(session.verificationUri);
         pollDeviceAuthorization(session,clientId,status,dialog,cancelled);
