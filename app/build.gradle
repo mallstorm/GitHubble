@@ -12,12 +12,14 @@ android {
         applicationId 'app.githubble.mobile'
         minSdk 28
         targetSdk 36
-        versionCode 39
-        versionName '1.0.0-rc3.5-device-flow-restored'
+        versionCode 40
+        versionName '1.0.0-rc3.6-dual-auth'
         buildConfigField 'String', 'GITHUB_CLIENT_ID', '"' + escapedGithubClientId + '"'
         buildConfigField 'String', 'GITHUB_OAUTH_SCOPES', '""'
+        buildConfigField 'String', 'GITHUB_OAUTH_BACKEND', '"' + escapedGithubOauthBackend + '"'
+        buildConfigField 'String', 'GITHUB_OAUTH_CALLBACK', '"' + escapedGithubOauthCallback + '"'
         buildConfigField 'boolean', 'FEATURE_FREEZE', 'false'
-        buildConfigField 'String', 'RC_CHANNEL', '"rc3.5"'
+        buildConfigField 'String', 'RC_CHANNEL', '"rc3.6"'
         testInstrumentationRunner 'app.githubble.mobile.RcInstrumentationTest'
     }
     buildTypes {
