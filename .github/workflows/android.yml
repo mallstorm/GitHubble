@@ -1,6 +1,7 @@
 name: GitHubble Android CI and Release
 
 on:
+  workflow_dispatch:
   push:
   pull_request:
 
