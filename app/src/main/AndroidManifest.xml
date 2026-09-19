@@ -19,7 +19,14 @@
         android:label="@string/app_name"
         android:theme="@style/AppTheme"
         android:usesCleartextTraffic="false">
-        <activity android:name=".MainActivity" android:exported="false" android:launchMode="singleTop" />
+        <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTop">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="githubble" android:host="oauth" android:path="/callback" />
+            </intent-filter>
+        </activity>
         <service
             android:name=".tracking.TrackingJobService"
             android:permission="android.permission.BIND_JOB_SERVICE"
