@@ -16,6 +16,7 @@ import android.view.View;
 import android.view.inputmethod.EditorInfo;
 import android.widget.*;
 
+import app.githubble.mobile.R;
 import app.githubble.mobile.search.SearchFilters;
 import app.githubble.mobile.search.SearchMode;
 import app.githubble.mobile.search.SmartSearchHistory;
