@@ -22,9 +22,6 @@
         android:usesCleartextTraffic="false">
         <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTop">
         </activity>
-        <receiver
-            android:name=".auth.DeviceCodeToolbarReceiver"
-            android:exported="false" />
         <service
             android:name=".auth.DeviceCodeAccessibilityService"
             android:label="@string/github_device_code_accessibility_label"
