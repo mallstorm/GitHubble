@@ -184,13 +184,13 @@ public final class HomeScreen {
         hero.setClipToOutline(true);
 
         ImageView landscape = new ImageView(activity);
-        landscape.setImageResource(R.drawable.home_hero);
+        landscape.setImageResource(R.drawable.home_geo_emerald);
         landscape.setScaleType(ImageView.ScaleType.CENTER_CROP);
         hero.addView(landscape, new FrameLayout.LayoutParams(-1, -1));
 
         View scrim = new View(activity);
         scrim.setBackground(new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
-                new int[]{0xEA0C2126, 0xB7153030, 0x7B102A2E}));
+                new int[]{0x76112335, 0x2E142935, 0x16102429}));
         hero.addView(scrim, new FrameLayout.LayoutParams(-1, -1));
 
         LinearLayout header = new LinearLayout(activity);
@@ -218,19 +218,6 @@ public final class HomeScreen {
         brandText.addView(logo);
         brandText.addView(tagline);
         header.addView(brandText, new LinearLayout.LayoutParams(0, -2, 1));
-
-        FrameLayout bell = headerAction(R.drawable.ic_bell, "Уведомления");
-        if (signedIn && data.notifications > 0) {
-            TextView badge = text(data.notifications > 99 ? "99+" : String.valueOf(data.notifications), 9, true);
-            badge.setTextColor(Color.WHITE);
-            badge.setGravity(Gravity.CENTER);
-            badge.setBackground(round(0xFFE34B59, 10, 0, 0));
-            FrameLayout.LayoutParams badgeLp = new FrameLayout.LayoutParams(
-                    data.notifications > 9 ? dp(25) : dp(19), dp(19), Gravity.END | Gravity.TOP);
-            bell.addView(badge, badgeLp);
-        }
-        bell.setOnClickListener(v -> actions.openNotifications());
-        header.addView(bell, new LinearLayout.LayoutParams(dp(38), dp(48)));
 
         ImageView account = actions.profileAvatar();
         account.setContentDescription("Профиль GitHub");
@@ -285,8 +272,8 @@ public final class HomeScreen {
 
     private static int retainedBannerIndex = 0;
     private static final int[] HERO_IMAGES = {
-            R.drawable.home_hero, R.drawable.home_hero_mist,
-            R.drawable.home_hero_night, R.drawable.home_hero_golden
+            R.drawable.home_geo_emerald, R.drawable.home_geo_amethyst,
+            R.drawable.home_geo_copper, R.drawable.home_geo_aurora
     };
 
     private void installHeroCarousel(FrameLayout hero, ImageView landscape) {
@@ -479,28 +466,34 @@ public final class HomeScreen {
         LinearLayout box = new LinearLayout(activity);
         box.setOrientation(LinearLayout.VERTICAL);
         box.setGravity(Gravity.TOP);
-        box.setPadding(dp(5),dp(5),dp(4),dp(3));
+        box.setPadding(dp(8),dp(9),dp(5),dp(4));
         box.setBackground(round(palette.card,10,palette.border,1));
         // Always draw a visible icon: vector tinted white on its own branded color badge.
         ImageView icon = imageIcon(item.icon, Color.WHITE);
         icon.setBackground(round(item.accent, 10, 0, 0));
         icon.setPadding(dp(6), dp(6), dp(6), dp(6));
         icon.setContentDescription(item.title);
-        box.addView(icon,new LinearLayout.LayoutParams(dp(34),dp(34)));
+        LinearLayout.LayoutParams iconLp = new LinearLayout.LayoutParams(dp(34), dp(34));
+        iconLp.setMargins(dp(5), 0, 0, 0);
+        box.addView(icon, iconLp);
         TextView title = text(item.title,10,true);
         title.setPadding(0,dp(2),0,0);
         title.setSingleLine();
         title.setEllipsize(TextUtils.TruncateAt.END);
-        box.addView(title,new LinearLayout.LayoutParams(-1,-2));
+        LinearLayout.LayoutParams titleLp = new LinearLayout.LayoutParams(-1, -2);
+        titleLp.setMargins(dp(2), 0, 0, 0);
+        box.addView(title, titleLp);
         TextView subtitle = text(item.subtitle,8,false);
         subtitle.setTextColor(palette.muted);
         subtitle.setPadding(0,0,0,0);
         subtitle.setSingleLine();
         subtitle.setEllipsize(TextUtils.TruncateAt.END);
-        box.addView(subtitle,new LinearLayout.LayoutParams(-1,-2));
+        LinearLayout.LayoutParams subtitleLp = new LinearLayout.LayoutParams(-1, -2);
+        subtitleLp.setMargins(dp(2), 0, 0, 0);
+        box.addView(subtitle, subtitleLp);
         box.setOnClickListener(v -> item.action.run());
         GridLayout.LayoutParams p = new GridLayout.LayoutParams();
-        p.width=0;p.height=dp(72);
+        p.width=0;p.height=dp(77);
         p.columnSpec=GridLayout.spec(GridLayout.UNDEFINED,1f);
         p.setMargins(dp(2),dp(2),dp(2),dp(2));
         grid.addView(box,p);
@@ -576,7 +569,7 @@ public final class HomeScreen {
                 "JetBrains/kotlin", false);
         recommendation(row, "GitHub", "Open Source", R.drawable.ic_github_mark, slate,
                 "github/gitignore", false);
-        content.addView(row, new LinearLayout.LayoutParams(-1, dp(106)));
+        content.addView(row, new LinearLayout.LayoutParams(-1, dp(88)));
     }
 
     private String formatStars(long value) {
@@ -595,7 +588,7 @@ public final class HomeScreen {
         RecommendationPreview info = data.recommendation(repo);
         LinearLayout card = new LinearLayout(activity);
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(dp(6), dp(7), dp(6), dp(6));
+        card.setPadding(dp(6), dp(6), dp(6), dp(5));
         card.setBackground(round(palette.card, 12, palette.border, 1));
         card.setOnClickListener(v -> actions.openRepository(repo));
 
@@ -606,7 +599,7 @@ public final class HomeScreen {
         art.setPadding(dp(5), dp(5), dp(5), dp(5));
         art.setBackground(round("Kotlin".equals(name) ? 0xFF17243C : accent, 9, 0, 0));
         art.setContentDescription("Логотип " + name);
-        top.addView(art, new LinearLayout.LayoutParams(dp(30), dp(30)));
+        top.addView(art, new LinearLayout.LayoutParams(dp(36), dp(36)));
         LinearLayout names = new LinearLayout(activity);
         names.setOrientation(LinearLayout.VERTICAL);
         names.setPadding(dp(4), 0, 0, 0);

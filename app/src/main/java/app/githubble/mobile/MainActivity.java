@@ -287,7 +287,7 @@ public class MainActivity extends Activity {
             top.addView(back, new LinearLayout.LayoutParams(dp(46), dp(46)));
         }
 
-        if ("Главная".equals(title)) {
+        if ("Главная".equals(title) || "Репозитории".equals(title)) {
             ImageView homeBrand = new ImageView(this);
             homeBrand.setImageResource(R.drawable.ic_home_rocket);
             homeBrand.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
@@ -300,7 +300,7 @@ public class MainActivity extends Activity {
         titles.setGravity(Gravity.CENTER_VERTICAL);
         TextView logo = text("GitHubble", 20, true);
         logo.setPadding(0, 0, 0, 0);
-        TextView page = text("Главная".equals(title) ? "Ваш GitHub всегда рядом" : title, 13, false);
+        TextView page = text(("Главная".equals(title) || "Репозитории".equals(title)) ? "Ваш GitHub всегда рядом" : title, 13, false);
         page.setTextColor(MUTED);
         page.setPadding(0, 0, 0, 0);
         titles.addView(logo);
@@ -313,6 +313,7 @@ public class MainActivity extends Activity {
             top.addView(search);
         }
 
+        if (!"Репозитории".equals(title)) {
         FrameLayout bellWrap = new FrameLayout(this);
         ImageView bell = iconButton(R.drawable.ic_bell, "Уведомления");
         bell.setOnClickListener(v -> navigate(this::showNotifications));
@@ -330,6 +331,7 @@ public class MainActivity extends Activity {
             bellWrap.addView(badge, badgeP);
         }
         top.addView(bellWrap, new LinearLayout.LayoutParams(dp(50), dp(50)));
+        }
 
         ImageView account = createTopAccountIcon();
         account.setContentDescription("Личный профиль");
@@ -1059,92 +1061,69 @@ public class MainActivity extends Activity {
 
     private void showMyRepositories(boolean forceNetwork){
         setCurrentScreen(this::showMyRepositories);
-        shell("Репозитории",true);
+        shell("Репозитории",false);
         if(!isSignedIn()){
-            accountRequiredCard("Войдите, чтобы увидеть доступные вашему аккаунту репозитории.");
+            accountRequiredCard("Войдите в GitHub, чтобы открыть свои репозитории.");
             return;
         }
         final long generation=screenGeneration.get();
         final String accountId=currentAccountId();
         repositoryStore.migrateLegacy(accountId);
-
-        sectionTitle("Мои репозитории",null);
-        LinearLayout visibilityFilters = new LinearLayout(this);
-        Button allRepositories=button("Все");
-        Button privateRepositories=button("Приватные");
-        Button publicRepositories=button("Публичные");
-        allRepositories.setEnabled(repositoriesPrivateOnly || repositoriesPublicOnly);
-        privateRepositories.setEnabled(!repositoriesPrivateOnly);
-        publicRepositories.setEnabled(!repositoriesPublicOnly);
-        allRepositories.setOnClickListener(v->{repositoriesPrivateOnly=false;repositoriesPublicOnly=false;showMyRepositories(false);});
-        privateRepositories.setOnClickListener(v->{repositoriesPrivateOnly=true;repositoriesPublicOnly=false;showMyRepositories(false);});
-        publicRepositories.setOnClickListener(v->{repositoriesPrivateOnly=false;repositoriesPublicOnly=true;showMyRepositories(false);});
-        visibilityFilters.addView(allRepositories,new LinearLayout.LayoutParams(0,dp(46),1));
-        LinearLayout.LayoutParams fp=new LinearLayout.LayoutParams(0,dp(46),1);fp.setMargins(dp(6),0,0,0);
-        visibilityFilters.addView(privateRepositories,fp);
-        LinearLayout.LayoutParams pp=new LinearLayout.LayoutParams(0,dp(46),1);pp.setMargins(dp(6),0,0,0);
-        visibilityFilters.addView(publicRepositories,pp);
-        content.addView(visibilityFilters);
-
-        LinearLayout presentationTools=new LinearLayout(this);
-        Button sort=compactButton("Сортировка: "+repositorySortLabel());
-        sort.setOnClickListener(v->showRepositorySortDialog());
-        presentationTools.addView(sort,new LinearLayout.LayoutParams(0,dp(44),1));
-        Button layout=compactButton(repositoriesGrid?"Вид: плитка":"Вид: список");
-        layout.setOnClickListener(v->{repositoriesGrid=!repositoriesGrid;prefs.edit().putBoolean("repositories_grid",repositoriesGrid).apply();showMyRepositories(false);});
-        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(44),1);lp.setMargins(dp(6),0,0,0);
-        presentationTools.addView(layout,lp);content.addView(presentationTools);
-
-        LinearLayout tools=new LinearLayout(this);
-        Button refresh=button(forceNetwork?"Обновление…":"Обновить");
-        refresh.setEnabled(!forceNetwork); refresh.setOnClickListener(v->showMyRepositories(true));
-        tools.addView(refresh,new LinearLayout.LayoutParams(0,dp(48),1));
-        Button create=button("Создать"); create.setOnClickListener(v->showCreateRepositoryDialog());
-        LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(0,dp(48),1);cp.setMargins(dp(6),0,0,0);
-        tools.addView(create,cp); content.addView(tools);
-
-        RepositoryStore.Snapshot saved=repositoryStore.read(accountId);
-        if(saved.hasData()){
-            sectionTitle("Доступные · "+saved.repositories.length(),null);
-            renderRepositoryItems(sortedRepositories(saved.repositories));
-            TextView status=text("Последняя синхронизация: "+formatEpoch(saved.lastSyncedAt),11,false);
-            status.setTextColor(MUTED);status.setGravity(Gravity.CENTER);status.setPadding(0,0,0,dp(8));content.addView(status);
-        }
-
-        ProgressBar pb=new ProgressBar(this);
-        content.addView(pb);
-        io.execute(() -> {
+        RepositoryStore.Snapshot cached=repositoryStore.read(accountId);
+        app.githubble.mobile.ui.RepositoriesScreen screen =
+                new app.githubble.mobile.ui.RepositoriesScreen(this,content,
+                        new app.githubble.mobile.ui.RepositoriesScreen.Actions() {
+                            @Override public void create(){ showCreateRepositoryDialog(); }
+                            @Override public void refresh(){ showMyRepositories(true); }
+                            @Override public void sort(){ showRepositorySortDialog(); }
+                            @Override public void open(String full){
+                                navigate(() -> showRepository(full));
+                            }
+                            @Override public void menu(JSONObject repo){
+                                String full=repo.optString("full_name","");
+                                String[] items={"Открыть","Управление","Открыть на GitHub","Обновить репозитории"};
+                                new AlertDialog.Builder(MainActivity.this)
+                                        .setTitle(full).setItems(items,(dialog,index)->{
+                                            if(index==0)navigate(() -> showRepository(full));
+                                            if(index==1)navigate(() -> showRepositoryAdmin(full,repo));
+                                            if(index==2)openWeb("https://github.com/"+full);
+                                            if(index==3)showMyRepositories(true);
+                                        }).show();
+                            }
+                        },CARD,TEXT,MUTED,GREEN,BORDER,SUBTLE,
+                        new LinkedHashSet<>(prefs.getStringSet("favorites",new LinkedHashSet<>())));
+        screen.render(sortedRepositories(cached.repositories),repositorySortLabel(),
+                cached.lastSyncedAt>0?"Синхронизация: "+formatEpoch(cached.lastSyncedAt)
+                        :"Синхронизация ещё не выполнялась");
+        if(cached.status==RepositoryStore.Status.ERROR || cached.status==RepositoryStore.Status.STALE)
+            screen.setStatus("Последняя синхронизация завершилась ошибкой. Сохранённые данные доступны.");
+        final boolean needsNetwork=forceNetwork || cached.lastSyncedAt==0L
+                || System.currentTimeMillis()-cached.lastSyncedAt>120000L;
+        if(!needsNetwork)return;
+        screen.setStatus("Обновляем данные GitHub…");
+        io.execute(()->{
             try{
                 RepositoryAccessController.SyncResult result=repositoryAccess.sync(forceNetwork);
-                RepositoryStore.Snapshot snapshot=repositoryStore.saveSuccess(accountId,result.repositories);
-                prefs.edit()
-                        .putString("repository_access_settings_url",result.bestSettingsUrl())
-                        .putLong("repository_last_sync",System.currentTimeMillis())
-                        .apply();
-                runOnUiThread(() -> {
-                    if(generation!=screenGeneration.get() || !accountId.equals(currentAccountId()))return;
-                    content.removeView(pb);
-                    if(!saved.hasData()){
-                        sectionTitle("Доступные · "+snapshot.repositories.length(),null);
-                        renderRepositoryItems(sortedRepositories(snapshot.repositories));
-                    } else if(snapshot.repositories.length()!=saved.repositories.length()){
-                        showMyRepositories(false);
-                        return;
-                    }
-                    if(snapshot.invalid>0) errorCard("Часть данных GitHub не распознана", "В диагностике отмечено "+snapshot.invalid+" записей без имени.");
-                    if(!result.hasInstallations() && snapshot.repositories.length()==0) repositoryAccessHelp();
+                RepositoryStore.Snapshot fresh=repositoryStore.saveSuccess(accountId,result.repositories);
+                prefs.edit().putString("repository_access_settings_url",result.bestSettingsUrl())
+                        .putLong("repository_last_sync",System.currentTimeMillis()).apply();
+                runOnUiThread(()->{
+                    if(generation!=screenGeneration.get()||!accountId.equals(currentAccountId()))return;
+                    screen.updateData(sortedRepositories(fresh.repositories));
+                    screen.setStatus("Синхронизировано: "+formatEpoch(fresh.lastSyncedAt));
+                    if(fresh.invalid>0)
+                        errorCard("Часть данных GitHub не распознана",
+                                "Не удалось прочитать "+fresh.invalid+" записей.");
+                    if(!result.hasInstallations()&&fresh.repositories.length()==0)repositoryAccessHelp();
                 });
-            }catch(Exception e){
-                RepositoryStore.Snapshot snapshot=repositoryStore.saveError(accountId,e);
-                runOnUiThread(() -> {
-                    if(generation!=screenGeneration.get() || !accountId.equals(currentAccountId()))return;
-                    content.removeView(pb);
-                    if(snapshot.hasData()){
-                        errorCard("Синхронизация GitHub не удалась","Показан последний сохранённый список от "+formatEpoch(snapshot.lastSyncedAt)+". "+e.getMessage());
-                        renderRepositoryItems(sortedRepositories(snapshot.repositories));
-                    }else{
-                        errorCard("Не удалось синхронизировать GitHub",e.getMessage());
-                    }
+            }catch(Exception ex){
+                RepositoryStore.Snapshot stale=repositoryStore.saveError(accountId,ex);
+                runOnUiThread(()->{
+                    if(generation!=screenGeneration.get()||!accountId.equals(currentAccountId()))return;
+                    screen.setStatus(stale.hasData()
+                            ?"Сеть недоступна: показаны сохранённые репозитории"
+                            :"Ошибка загрузки: "+ex.getMessage());
+                    if(!stale.hasData())repositoryAccessHelp();
                 });
             }
         });
