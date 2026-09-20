@@ -30,6 +30,7 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import app.githubble.mobile.auth.OAuthManager;
+import app.githubble.mobile.auth.DeviceCodeAssist;
 import app.githubble.mobile.network.GitHubApiClient;
 import app.githubble.mobile.network.GitHubGraphQlClient;
 import app.githubble.mobile.security.SecureStore;
@@ -4535,6 +4536,8 @@ public class MainActivity extends Activity {
     private void showDeviceLogin(OAuthManager.DeviceSession session,String clientId){
         final AtomicBoolean cancelled=new AtomicBoolean(false);
         final String pasteCode=normalizeGitHubDeviceCode(session.userCode);
+        DeviceCodeAssist.begin(this,session.userCode,
+            session.startedAtMillis + session.expiresInSeconds * 1000L);
         LinearLayout box=new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
         box.setPadding(dp(18),dp(2),dp(18),dp(2));
@@ -4556,7 +4559,7 @@ public class MainActivity extends Activity {
         codeParams.setMargins(dp(8),dp(12),dp(8),dp(12));
         box.addView(code,codeParams);
 
-        TextView hint=text("Код скопирован: "+pasteCode+". Страница подтверждения откроется в защищённой вкладке Chrome. GitHubble продолжит ждать авторизацию автоматически.",12,false);
+        TextView hint=text("1. Код целиком скопирован. На странице GitHub удерживайте первое поле и выберите «Вставить».\n2. Во вкладке Chrome код останется на нижней панели.\n3. Кнопка «Авто» экспериментально распределяет символы по полям, если вы разрешите службу Android.",12,false);
         hint.setTextColor(MUTED);
         hint.setGravity(Gravity.CENTER);
         hint.setPadding(dp(2),dp(2),dp(2),dp(2));
@@ -4605,6 +4608,29 @@ public class MainActivity extends Activity {
         actions.addView(copy,new LinearLayout.LayoutParams(actionParams));
         box.addView(actions,new LinearLayout.LayoutParams(-1,dp(48)));
 
+        Button autoFill=new Button(this);
+        autoFill.setText("Автозаполнение восьми полей (необязательно)");
+        autoFill.setAllCaps(false);
+        autoFill.setTextSize(12);
+        autoFill.setSingleLine(true);
+        autoFill.setOnClickListener(v -> {
+            if (!DeviceCodeAssist.isAccessibilityEnabled(this)) {
+                new AlertDialog.Builder(this)
+                    .setTitle("Автозаполнение через Android")
+                    .setMessage("Необязательная экспериментальная функция. Android предоставляет включённой службе специальных возможностей широкий доступ к экрану. GitHubble будет пытаться вводить одноразовый код только после вашего нажатия «Авто», в Chrome, при обнаружении страницы Device Flow GitHub с восемью полями.\n\nСлужба не нажимает кнопку подтверждения. Её можно выключить в настройках Android. Чтобы использовать обычную вставку, разрешение не требуется.")
+                    .setPositiveButton("Открыть специальные возможности",(d,w) -> {
+                        try { startActivity(new Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)); }
+                        catch (Exception e) { toast("Не удалось открыть специальные возможности Android"); }
+                    })
+                    .setNegativeButton("Не включать",null).show();
+                return;
+            }
+            if (DeviceCodeAssist.arm(this)) {
+                openOfficialGitHubLogin(session.verificationUri);
+            } else toast("Код истёк. Начните вход заново.");
+        });
+        box.addView(autoFill,new LinearLayout.LayoutParams(-1,dp(48)));
+
         copyGitHubDeviceCode(session,false);
         code.setOnClickListener(v -> copyGitHubDeviceCode(session,true));
 
@@ -4620,9 +4646,13 @@ public class MainActivity extends Activity {
         copy.setOnClickListener(v -> copyGitHubDeviceCode(session,true));
         cancel.setOnClickListener(v -> {
             cancelled.set(true);
+            DeviceCodeAssist.clear(this);
             dialog.dismiss();
         });
-        dialog.setOnCancelListener(x -> cancelled.set(true));
+        dialog.setOnCancelListener(x -> {
+            cancelled.set(true);
+            DeviceCodeAssist.clear(this);
+        });
         dialog.show();
         if(dialog.getWindow()!=null){
             int maxDialogWidth=dp(430);
@@ -4637,24 +4667,10 @@ public class MainActivity extends Activity {
     private String normalizeGitHubDeviceCode(String value){return DeviceCodeFormatter.normalize(value);}
 
     private void copyGitHubDeviceCode(OAuthManager.DeviceSession session,boolean showMessage){
-        String pasteCode=normalizeGitHubDeviceCode(session==null?null:session.userCode);
-        if(pasteCode.isEmpty()){
-            if(showMessage)toast("Код GitHub недоступен");
-            return;
-        }
-        ClipboardManager clipboard=(ClipboardManager)getSystemService(CLIPBOARD_SERVICE);
-        if(clipboard==null){
-            if(showMessage)toast("Буфер обмена недоступен");
-            return;
-        }
-        ClipData clip=ClipData.newPlainText("GitHub device code",pasteCode);
-        if(Build.VERSION.SDK_INT>=33){
-            PersistableBundle extras=new PersistableBundle();
-            extras.putBoolean(ClipDescription.EXTRA_IS_SENSITIVE,true);
-            clip.getDescription().setExtras(extras);
-        }
-        clipboard.setPrimaryClip(clip);
-        if(showMessage)toast("Скопированы все 8 символов: "+pasteCode);
+        boolean copied=DeviceCodeAssist.copy(this);
+        if(showMessage)toast(copied
+            ? "Скопированы все 8 символов. Удерживайте первое поле → Вставить."
+            : "Код GitHub истёк или буфер обмена недоступен");
     }
 
     private void startGitHubRegistration(){
@@ -4691,8 +4707,10 @@ public class MainActivity extends Activity {
 
     private void openOfficialGitHubLogin(String verificationUri){
         try{
-            boolean customTab=GitHubCustomTabs.open(this,Uri.parse(verificationUri),GREEN,"dark".equals(activeTheme));
-            if(!customTab)toast("Chrome Custom Tab недоступен — открыта официальная страница GitHub в браузере");
+            String code=DeviceCodeAssist.currentCode(this);
+            boolean customTab=GitHubCustomTabs.openDeviceLogin(this,Uri.parse(verificationUri),
+                GREEN,"dark".equals(activeTheme),code);
+            if(!customTab)toast("В этом браузере нижняя панель кода недоступна. Код уже скопирован; используйте обычную вставку.");
         }catch(Exception e){toast("Не удалось открыть подтверждение GitHub: "+e.getMessage());}
     }
 
@@ -4708,6 +4726,7 @@ public class MainActivity extends Activity {
                     OAuthManager.PollState state=result.state;
                     runOnUiThread(() -> {if(dialog.isShowing())status.setText(result.message);});
                     if(state==OAuthManager.PollState.AUTHORIZED){
+                        DeviceCodeAssist.clear(this);
                         runOnUiThread(() -> {
                             if(dialog.isShowing())dialog.dismiss();
                             loadAndStoreGitHubProfile();
@@ -4718,6 +4737,7 @@ public class MainActivity extends Activity {
                         return;
                     }
                     if(state==OAuthManager.PollState.DENIED||state==OAuthManager.PollState.EXPIRED||state==OAuthManager.PollState.ERROR){
+                        DeviceCodeAssist.clear(this);
                         runOnUiThread(() -> {
                             if(dialog.isShowing())dialog.dismiss();
                             new AlertDialog.Builder(this).setTitle("Вход не завершён").setMessage(result.message).setPositiveButton("ОК",null).show();
@@ -4728,6 +4748,7 @@ public class MainActivity extends Activity {
                     runOnUiThread(() -> {if(dialog.isShowing())status.setText("Проблема сети. Повторяем…");});
                 }
             }
+            DeviceCodeAssist.clear(this);
             if(!cancelled.get())runOnUiThread(() -> {if(dialog.isShowing())dialog.dismiss();toast("Срок действия кода GitHub истёк");});
         });
     }
