@@ -1254,12 +1254,38 @@ public class MainActivity extends Activity {
             card.addView(name);
             String sha=run.optString("head_sha","");
             if(sha.length()>9)sha=sha.substring(0,9);
-            TextView detail=text(run.optString("head_branch","")+"  ·  "+sha+
-                    "  ·  "+formatGitHubDate(run.optString("created_at","")),11,false);
+            TextView detail=text(run.optString("head_branch","")+"  ·  "+sha,11,false);
             detail.setTextColor(MUTED);
             detail.setMaxLines(2);
             card.addView(detail);
+            // GitHub's run_started_at is the actual workflow start; created_at is
+            // used only when older API/cached records do not expose it.
+            String startedAt=run.optString("run_started_at","");
+            if(startedAt.isEmpty()||"null".equals(startedAt))
+                startedAt=run.optString("created_at","");
+            TextView startTime=text("Запуск: "+buildTimeOrPending(startedAt),11,false);
+            startTime.setTextColor(MUTED);
+            card.addView(startTime);
             JSONArray artifacts=run.optJSONArray("artifacts");
+            String publishedAt="";
+            if(artifacts!=null)for(int k=0;k<artifacts.length();k++){
+                JSONObject file=artifacts.optJSONObject(k);
+                if(file==null)continue;
+                String published=file.optString("created_at","");
+                if(publishedAt.compareTo(published)<0)publishedAt=published;
+            }
+            String finishLabel;
+            if(!publishedAt.isEmpty())finishLabel=
+                    "Артефакты опубликованы: "+buildTimeOrPending(publishedAt);
+            else if(!"completed".equals(run.optString("status","")))finishLabel=
+                    "Публикация: ожидается";
+            else if(artifacts!=null&&artifacts.length()>0)finishLabel=
+                    "Артефакты готовы · время публикации неизвестно";
+            else finishLabel="Артефакты не опубликованы";
+            TextView finishedTime=text(finishLabel,11,false);
+            finishedTime.setTextColor(ready?GREEN:MUTED);
+            finishedTime.setMaxLines(2);
+            card.addView(finishedTime);
             if(artifacts!=null)for(int k=0;k<artifacts.length();k++){
                 JSONObject artifact=artifacts.optJSONObject(k);
                 if(artifact==null)continue;
@@ -1290,6 +1316,11 @@ public class MainActivity extends Activity {
             p.setMargins(0,0,0,dp(9));
             host.addView(card,p);
         }
+    }
+
+    private String buildTimeOrPending(String iso){
+        if(iso==null||iso.isEmpty()||"null".equals(iso))return "нет данных";
+        return formatGitHubDate(iso);
     }
 
     private void cardBuild(LinearLayout host,View child){

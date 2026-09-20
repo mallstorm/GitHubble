@@ -209,6 +209,8 @@ public final class BuildMonitor {
                 row.put("head_sha",original.optString("head_sha",""));
                 row.put("head_branch",original.optString("head_branch",""));
                 row.put("created_at",original.optString("created_at",""));
+                row.put("run_started_at",original.optString("run_started_at",""));
+                row.put("updated_at",original.optString("updated_at",""));
                 row.put("html_url",original.optString("html_url",""));
                 row.put("artifacts",artifacts);
                 rows.put(row);
