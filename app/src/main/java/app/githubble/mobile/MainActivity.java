@@ -35,6 +35,8 @@ import app.githubble.mobile.network.GitHubApiClient;
 import app.githubble.mobile.network.GitHubGraphQlClient;
 import app.githubble.mobile.security.SecureStore;
 import app.githubble.mobile.ui.HomeScreen;
+import app.githubble.mobile.ui.BottomNavigationBar;
+import app.githubble.mobile.build.BuildRunFilter;
 import app.githubble.mobile.ui.SearchScreen;
 import app.githubble.mobile.tracking.TrackingDatabase;
 import app.githubble.mobile.tracking.TrackingEngine;
@@ -106,6 +108,8 @@ public class MainActivity extends Activity {
     private boolean repositoriesPrivateOnly = false;
     private boolean repositoriesPublicOnly = false;
     private boolean repositoriesGrid = false;
+    private String buildRunFilter = BuildRunFilter.ALL;
+    private int buildVisibleLimit = 12;
     private String repositoriesSort = "updated";
     private AccountOperationsController accountOperations;
     private ProfileController profileController;
@@ -349,9 +353,13 @@ public class MainActivity extends Activity {
         top.addView(bellWrap, new LinearLayout.LayoutParams(dp(50), dp(50)));
         }
 
-        ImageView account = createTopAccountIcon();
-        account.setContentDescription("Личный профиль");
-        account.setOnClickListener(v -> navigate(this::showProfile));
+        ImageView account = "Профиль".equals(title)
+                ? iconButton(R.drawable.ic_settings,"Настройки приложения")
+                : createTopAccountIcon();
+        account.setContentDescription("Профиль".equals(title)
+                ? "Настройки приложения" : "Личный профиль");
+        account.setOnClickListener(v -> navigate(
+                "Профиль".equals(title) ? this::showSettings : this::showProfile));
         LinearLayout.LayoutParams ap = new LinearLayout.LayoutParams(dp(42),dp(42));
         ap.setMargins(dp(4),0,0,0);
         top.addView(account, ap);
@@ -383,33 +391,15 @@ public class MainActivity extends Activity {
         return app.githubble.mobile.R.mipmap.ic_launcher_light;
     }
 
-    private LinearLayout bottomNav(String currentTitle) {
-        LinearLayout nav = new LinearLayout(this);
-        nav.setGravity(Gravity.CENTER);
-        nav.setPadding(dp(8), dp(5), dp(8), dp(3));
-        nav.setBackgroundColor(SURFACE);
-        addNav(nav, R.drawable.ic_home, "Главная", "Главная".equals(currentTitle), () -> openRoot(this::showHome));
-        addNav(nav, R.drawable.ic_search, "Поиск", "Поиск".equals(currentTitle), () -> openRoot(this::showSearch));
-        addNav(nav, R.drawable.ic_repository, "Репозитории", "Репозитории".equals(currentTitle), () -> openRoot(this::showMyRepositories));
-        addNav(nav, R.drawable.ic_bell, "Активность", "Активность".equals(currentTitle), () -> openRoot(this::showNotifications));
-        addNav(nav, R.drawable.ic_settings, "Настройки", "Настройки".equals(currentTitle), () -> openRoot(this::showSettings));
-        return nav;
-    }
-
-    private void addNav(LinearLayout row, int iconRes, String label, boolean active, Runnable action) {
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setGravity(Gravity.CENTER);
-        LinearLayout iconCapsule = new LinearLayout(this);
-        iconCapsule.setGravity(Gravity.CENTER);
-        iconCapsule.setBackground(round(active ? blend(SUBTLE, GREEN, 0.14f) : Color.TRANSPARENT, 18, Color.TRANSPARENT, 0));
-        ImageView i = imageIcon(iconRes, active ? GREEN : MUTED, 20);
-        iconCapsule.addView(i, new LinearLayout.LayoutParams(dp(42), dp(30)));
-        TextView l = text(label, 12, active); l.setGravity(Gravity.CENTER); l.setTextColor(active ? GREEN : MUTED); l.setPadding(0,0,0,0);
-        box.addView(iconCapsule, new LinearLayout.LayoutParams(dp(50), dp(34)));
-        box.addView(l, new LinearLayout.LayoutParams(-1, dp(22)));
-        box.setOnClickListener(v -> action.run());
-        row.addView(box, new LinearLayout.LayoutParams(0, -1, 1));
+    private LinearLayout bottomNav(String title) {
+        return BottomNavigationBar.create(this,title,SURFACE,SUBTLE,GREEN,MUTED,
+                new BottomNavigationBar.Actions() {
+                    @Override public void openHome(){openRoot(MainActivity.this::showHome);}
+                    @Override public void openRepositories(){openRoot(MainActivity.this::showMyRepositories);}
+                    @Override public void openSearch(){openRoot(MainActivity.this::showSearch);}
+                    @Override public void openActivity(){openRoot(MainActivity.this::showNotifications);}
+                    @Override public void openProfile(){openRoot(MainActivity.this::showProfile);}
+                });
     }
 
     private ImageView iconButton(int iconRes, String description) {
@@ -574,7 +564,7 @@ public class MainActivity extends Activity {
             try {
                 JSONArray repos = snapshot.repositories;
                 repositoryCount = repos.length();
-                int max = Math.min(3, repos.length());
+                int max = Math.min(5, repos.length());
                 for (int i = 0; i < max; i++) {
                     JSONObject repo = repos.optJSONObject(i);
                     if (repo == null) continue;
@@ -1149,8 +1139,9 @@ public class MainActivity extends Activity {
     private void showBuildCenter(String focus){
         setCurrentScreen(()->showBuildCenter(focus));
         shell("Центр сборок",false);
-        settingsPanelHeader("Центр сборок GitHub",
-                "Результаты Actions, APK, ZIP и предыдущие версии",R.drawable.ic_repository);
+        TextView buildIntro=text("GitHub Actions · APK, ZIP и история запусков",13,false);
+        buildIntro.setTextColor(MUTED);
+        content.addView(buildIntro);
         if(!isSignedIn()){
             accountRequiredCard("Подключите GitHub, чтобы увидеть приватные сборки и артефакты.");
             return;
@@ -1167,30 +1158,30 @@ public class MainActivity extends Activity {
             });
             content.addView(add,new LinearLayout.LayoutParams(-1,dp(50)));
         }
-        LinearLayout summary=new LinearLayout(this);
-        summary.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout toolbar=new LinearLayout(this);
+        toolbar.setGravity(Gravity.CENTER_VERTICAL);
         TextView count=text("Проектов: "+watched.size(),12,true);
         count.setTextColor(GREEN);
-        summary.addView(count,new LinearLayout.LayoutParams(0,-2,1));
+        toolbar.addView(count,new LinearLayout.LayoutParams(0,-2,1));
         Button choose=button("Настроить");
+        choose.setTextSize(12);
         choose.setOnClickListener(v->navigate(this::showBuildMonitorSettings));
-        summary.addView(choose,new LinearLayout.LayoutParams(dp(121),dp(43)));
-        content.addView(summary,new LinearLayout.LayoutParams(-1,dp(53)));
+        toolbar.addView(choose,new LinearLayout.LayoutParams(dp(102),dp(44)));
+        Button refresh=button("Обновить");
+        refresh.setTextSize(12);
+        refresh.setOnClickListener(v->showBuildCenter(focus));
+        LinearLayout.LayoutParams refreshParams=new LinearLayout.LayoutParams(dp(102),dp(44));
+        refreshParams.setMargins(dp(6),0,0,0);
+        toolbar.addView(refresh,refreshParams);
+        content.addView(toolbar,new LinearLayout.LayoutParams(-1,dp(52)));
         if(watched.isEmpty()){
-            TextView empty=text("Пока нет отслеживаемых проектов. Выберите репозитории в настройках мониторинга. "+
-                    "GitHubble сообщит о новых коммитах и готовых артефактах после первой синхронизации.",12,false);
+            TextView empty=text("Нет отслеживаемых проектов. Выберите репозитории в настройках мониторинга.",12,false);
             empty.setTextColor(MUTED);
             card(empty);
         }
-        LinearLayout state=new LinearLayout(this);
-        state.setGravity(Gravity.CENTER_VERTICAL);
         TextView status=text("",11,false);
         status.setTextColor(MUTED);
-        state.addView(status,new LinearLayout.LayoutParams(0,-2,1));
-        Button refresh=button("Обновить");
-        refresh.setOnClickListener(v->showBuildCenter(focus));
-        state.addView(refresh,new LinearLayout.LayoutParams(dp(111),dp(43)));
-        content.addView(state,new LinearLayout.LayoutParams(-1,dp(54)));
+        content.addView(status,new LinearLayout.LayoutParams(-1,-2));
         LinearLayout rows=new LinearLayout(this);
         rows.setOrientation(LinearLayout.VERTICAL);
         content.addView(rows);
@@ -1227,19 +1218,54 @@ public class MainActivity extends Activity {
             else failed++;
             visible++;
         }
-        TextView counts=text("✓ "+completed+" успешных    ◷ "+working+" выполняются    ⚠ "+failed+" завершились иначе",11,true);
+        TextView counts=text("✓ "+completed+" успешных   ◷ "+working+" в работе   ⚠ "+failed+" прочих",11,true);
         counts.setTextColor(MUTED);
-        counts.setPadding(0,dp(6),0,dp(9));
+        counts.setPadding(0,dp(7),0,dp(6));
         host.addView(counts);
+        HorizontalScrollView filterScroll=new HorizontalScrollView(this);
+        filterScroll.setHorizontalScrollBarEnabled(false);
+        LinearLayout chips=new LinearLayout(this);
+        chips.setGravity(Gravity.CENTER_VERTICAL);
+        final String[] filterIds={BuildRunFilter.ALL,BuildRunFilter.RUNNING,
+                BuildRunFilter.SUCCESS,BuildRunFilter.OTHER};
+        final String[] filterLabels={"Все","В работе","Успех","Прочие"};
+        for(int i=0;i<filterIds.length;i++){
+            final String filterId=filterIds[i];
+            TextView chip=text(filterLabels[i],12,filterId.equals(buildRunFilter));
+            chip.setTextColor(filterId.equals(buildRunFilter)?Color.WHITE:TEXT);
+            chip.setGravity(Gravity.CENTER);
+            chip.setBackground(round(filterId.equals(buildRunFilter)?GREEN:CARD,14,BORDER,1));
+            chip.setOnClickListener(v->{
+                buildRunFilter=filterId;
+                buildVisibleLimit=12;
+                renderBuildRows(host,source,focus);
+            });
+            LinearLayout.LayoutParams chipParams=new LinearLayout.LayoutParams(-2,dp(38));
+            chipParams.setMargins(0,0,dp(6),0);
+            chip.setPadding(dp(12),0,dp(12),0);
+            chips.addView(chip,chipParams);
+        }
+        filterScroll.addView(chips);
+        host.addView(filterScroll,new LinearLayout.LayoutParams(-1,dp(44)));
         if(visible==0){
             TextView empty=text("В доступных запусках пока нет сборок. "+
                     "Проверьте доступ GitHub App: Actions → Read.",12,false);
             empty.setTextColor(MUTED);cardBuild(host,empty);return;
         }
         int shown=0;
-        for(int i=0;i<source.length()&&shown<30;i++){
+        int totalFiltered=0;
+        for(int i=0;i<source.length();i++){
+            JSONObject candidate=source.optJSONObject(i);
+            if(candidate==null||(!focus.isEmpty()
+                    &&!focus.equals(candidate.optString("repository",""))))continue;
+            if(BuildRunFilter.accepts(buildRunFilter,candidate.optString("status",""),
+                    candidate.optString("conclusion","")))totalFiltered++;
+        }
+        for(int i=0;i<source.length()&&shown<buildVisibleLimit;i++){
             JSONObject run=source.optJSONObject(i);
             if(run==null||(!focus.isEmpty()&&!focus.equals(run.optString("repository",""))))continue;
+            if(!BuildRunFilter.accepts(buildRunFilter,run.optString("status",""),
+                    run.optString("conclusion","")))continue;
             shown++;
             String repo=run.optString("repository","");
             long runId=run.optLong("id",0);
@@ -1324,6 +1350,21 @@ public class MainActivity extends Activity {
             LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);
             p.setMargins(0,0,0,dp(9));
             host.addView(card,p);
+        }
+        if(totalFiltered==0&&visible>0){
+            TextView empty=text("Для этого фильтра запусков пока нет.",12,false);
+            empty.setTextColor(MUTED);
+            host.addView(empty);
+        }
+        if(totalFiltered>shown){
+            TextView more=text("Показать ещё · "+(totalFiltered-shown)+" запусков  ›",13,true);
+            more.setTextColor(GREEN);
+            more.setGravity(Gravity.CENTER);
+            more.setOnClickListener(v->{
+                buildVisibleLimit+=12;
+                renderBuildRows(host,source,focus);
+            });
+            host.addView(more,new LinearLayout.LayoutParams(-1,dp(48)));
         }
     }
 
@@ -1472,6 +1513,10 @@ public class MainActivity extends Activity {
                             @Override public void create(){ showCreateRepositoryDialog(); }
                             @Override public void refresh(){ showMyRepositories(true); }
                             @Override public void sort(){ showRepositorySortDialog(); }
+                            @Override public void toggleLayout(boolean grid){
+                                repositoriesGrid=grid;
+                                prefs.edit().putBoolean("repositories_grid",grid).apply();
+                            }
                             @Override public void open(String full){
                                 navigate(() -> showRepository(full));
                             }
@@ -1487,7 +1532,8 @@ public class MainActivity extends Activity {
                                         }).show();
                             }
                         },CARD,TEXT,MUTED,GREEN,BORDER,SUBTLE,
-                        new LinkedHashSet<>(prefs.getStringSet("favorites",new LinkedHashSet<>())));
+                        new LinkedHashSet<>(prefs.getStringSet("favorites",new LinkedHashSet<>())),
+                        repositoriesGrid);
         screen.render(sortedRepositories(cached.repositories),repositorySortLabel(),
                 cached.lastSyncedAt>0?"Синхронизация: "+formatEpoch(cached.lastSyncedAt)
                         :"Синхронизация ещё не выполнялась");
@@ -2031,6 +2077,8 @@ public class MainActivity extends Activity {
         rememberScreen("repository",routeArgs("full",full));
         setCurrentScreen(() -> showRepository(full));
         shell(full,true);
+        final long repoGeneration=screenGeneration.get();
+        final String repoAccount=currentAccountId();
         ProgressBar pb=new ProgressBar(this); content.addView(pb);
         io.execute(()->{
             try{
@@ -2045,6 +2093,9 @@ public class MainActivity extends Activity {
                 prefs.edit().putString("cache_repo_"+full,r.toString()).putString("cache_readme_"+full,readme).putString("cache_repo_updated_"+full,r.optString("updated_at","")).apply();
                 String finalReadme=readme;
                 runOnUiThread(()->{
+                    if(repoGeneration!=screenGeneration.get()
+                            ||!repoAccount.equals(currentAccountId())
+                            ||!full.equals(currentTitle))return;
                     content.removeView(pb);
                     LinearLayout hero=new LinearLayout(this);hero.setOrientation(LinearLayout.VERTICAL);hero.setPadding(dp(16),dp(16),dp(16),dp(16));hero.setBackground(round(CARD,20,BORDER,1));
                     TextView n=text(full,22,true);n.setTextColor(BLUE);hero.addView(n);
@@ -2083,7 +2134,16 @@ public class MainActivity extends Activity {
             }catch(Exception e){
                 String cached=prefs.getString("cache_repo_"+full,"");
                 String cachedReadme=prefs.getString("cache_readme_"+full,"");
-                runOnUiThread(()->{content.removeView(pb); if(!cached.isEmpty()){toast("Офлайн: показана сохранённая версия"); showCachedRepository(full,cached,cachedReadme);} else errorCard("Не удалось открыть репозиторий",e.getMessage());});
+                runOnUiThread(()->{
+                    if(repoGeneration!=screenGeneration.get()
+                            ||!repoAccount.equals(currentAccountId())
+                            ||!full.equals(currentTitle))return;
+                    content.removeView(pb);
+                    if(!cached.isEmpty()){
+                        toast("Офлайн: показана сохранённая версия");
+                        showCachedRepository(full,cached,cachedReadme);
+                    }else errorCard("Не удалось открыть репозиторий",e.getMessage());
+                });
             }
         });
     }
@@ -2984,6 +3044,9 @@ public class MainActivity extends Activity {
 
     private void renderProfilePage(boolean refresh){
         setCurrentScreen(this::showProfile);shell("Профиль",false);
+        settingsActionRow("Настройки приложения",
+                "Темы, уведомления, данные и безопасность",
+                () -> navigate(this::showSettings));
         if(!isSignedIn()){
             LinearLayout guest=new LinearLayout(this);guest.setOrientation(LinearLayout.VERTICAL);guest.setGravity(Gravity.CENTER);
             ImageView avatar=createProfileAvatar(dp(86));guest.addView(avatar,new LinearLayout.LayoutParams(dp(86),dp(86)));

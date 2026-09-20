@@ -10,7 +10,9 @@ import android.text.TextUtils;
 import android.text.TextWatcher;
 import android.view.Gravity;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.EditText;
+import android.widget.GridLayout;
 import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -30,6 +32,7 @@ public final class RepositoriesScreen {
         void create();
         void refresh();
         void sort();
+        void toggleLayout(boolean grid);
         void open(String fullName);
         void menu(JSONObject repository);
     }
@@ -42,13 +45,15 @@ public final class RepositoriesScreen {
     private JSONArray repositories = new JSONArray();
     private String filter = "all";
     private String query = "";
+    private boolean gridMode;
+    private boolean languagesExpanded;
     private LinearLayout listHost, filtersHost;
     private TextView allCount, privateCount, publicCount, savedCount, resultCount, state;
     private EditText search;
 
     public RepositoriesScreen(Activity activity, LinearLayout parent, Actions actions,
                               int card, int textColor, int muted, int green, int border,
-                              int subtle, Set<String> saved) {
+                              int subtle, Set<String> saved, boolean gridMode) {
         this.activity = activity;
         this.parent = parent;
         this.actions = actions;
@@ -59,6 +64,7 @@ public final class RepositoriesScreen {
         this.border = border;
         this.subtle = subtle;
         this.saved = saved;
+        this.gridMode = gridMode;
     }
 
     public void render(JSONArray initial, String sortLabel, String initialStatus) {
@@ -136,6 +142,20 @@ public final class RepositoriesScreen {
         sort.setContentDescription("Сортировать репозитории");
         sort.setOnClickListener(v->actions.sort());
         sorting.addView(sort,new LinearLayout.LayoutParams(-2,dp(42)));
+        TextView layout=label(gridMode?"▤ Плитки":"☰ Список",12,true,green);
+        layout.setGravity(Gravity.CENTER);
+        layout.setContentDescription(gridMode?"Переключить на список":"Переключить на плитки");
+        layout.setBackground(shape(card,12,border,1));
+        LinearLayout.LayoutParams layoutParams=new LinearLayout.LayoutParams(dp(91),dp(42));
+        layoutParams.setMargins(dp(6),0,0,0);
+        sorting.addView(layout,layoutParams);
+        layout.setOnClickListener(v->{
+            gridMode=!gridMode;
+            actions.toggleLayout(gridMode);
+            layout.setText(gridMode?"▤ Плитки":"☰ Список");
+            layout.setContentDescription(gridMode?"Переключить на список":"Переключить на плитки");
+            updateRows();
+        });
         resultCount=label("",11,false,muted);
         resultCount.setGravity(Gravity.END|Gravity.CENTER_VERTICAL);
         resultCount.setSingleLine(true);
@@ -194,23 +214,43 @@ public final class RepositoriesScreen {
         chip("Приватные","private");
         chip("Публичные","public");
         chip("Избранные","saved");
-        chip("Kotlin","kotlin");
-        chip("Java","java");
-        chip("Go","go");
-        chip("C++","c++");
+        chip(languagesExpanded?"Языки ▴":"Языки ▾","langs");
+        if(languagesExpanded||isLanguageFilter()){
+            chip("Kotlin","kotlin");
+            chip("Java","java");
+            chip("Go","go");
+            chip("C++","c++");
+        }
+    }
+    private boolean isLanguageFilter(){
+        return !"all".equals(filter)&&!"recent".equals(filter)
+                &&!"private".equals(filter)&&!"public".equals(filter)&&!"saved".equals(filter);
     }
     private void chip(String title,String value){
-        boolean active=filter.equals(value);
+        boolean active=filter.equals(value)||("langs".equals(value)&&languagesExpanded);
         TextView chip=label(title,12,active,active?Color.WHITE:textColor);
         chip.setGravity(Gravity.CENTER);
         chip.setPadding(dp(12),0,dp(12),0);
         chip.setBackground(shape(active?green:card,17,active?green:border,active?0:1));
-        chip.setOnClickListener(v->{filter=value;makeFilters();updateRows();});
+        chip.setOnClickListener(v->{
+            if("langs".equals(value)){
+                languagesExpanded=!languagesExpanded;
+                makeFilters();
+                return;
+            }
+            filter=value;
+            makeFilters();
+            updateRows();
+        });
         LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-2,dp(36));
         p.setMargins(0,0,dp(6),0);
         filtersHost.addView(chip,p);
     }
 
+    /**
+     * Rendering at most 24 cards per batch avoids a frozen search screen when
+     * an installation exposes hundreds of private repositories.
+     */
     private void updateRows(){
         if(listHost==null)return;
         listHost.removeAllViews();
@@ -228,22 +268,47 @@ public final class RepositoriesScreen {
             if("public".equals(filter)&&repo.optBoolean("private",false))continue;
             if("saved".equals(filter)&&!saved.contains(full))continue;
             if("recent".equals(filter)&&!isRecent(repo))continue;
-            if(!"all".equals(filter)&&!"private".equals(filter)
-                    &&!"public".equals(filter)&&!"recent".equals(filter)
-                    &&!"saved".equals(filter)&&!filter.equalsIgnoreCase(language))continue;
+            if(isLanguageFilter()&&!filter.equalsIgnoreCase(language))continue;
             matching.add(repo);
         }
         resultCount.setText("Найдено: "+matching.size());
         if(matching.isEmpty()){
             TextView empty=label(repositories.length()==0
-                    ?"Репозитории пока не загружены. Потяните вниз или нажмите «Обновить»."
+                    ?"Репозитории пока не загружены. Нажмите «Обновить»."
                     :"По этому запросу репозиториев не найдено.",13,false,muted);
             empty.setPadding(dp(12),dp(20),dp(12),dp(20));
             empty.setBackground(shape(card,14,border,1));
             listHost.addView(empty);
             return;
         }
-        for(JSONObject item:matching)addRepository(item);
+        ViewGroup rows=listHost;
+        if(gridMode){
+            GridLayout grid=new GridLayout(activity);
+            boolean tablet=activity.getResources().getConfiguration().smallestScreenWidthDp>=600
+                    &&activity.getResources().getConfiguration().fontScale<1.5f;
+            grid.setColumnCount(tablet?2:1);
+            listHost.addView(grid,new LinearLayout.LayoutParams(-1,-2));
+            rows=grid;
+        }
+        appendRows(matching,0,rows);
+    }
+
+    private void appendRows(List<JSONObject> matching,int start,ViewGroup target){
+        int end=Math.min(start+24,matching.size());
+        for(int i=start;i<end;i++)addRepository(matching.get(i),target);
+        if(end>=matching.size())return;
+        TextView more=label("Показать ещё "+(matching.size()-end)+" репозиториев  ›",
+                13,true,green);
+        more.setGravity(Gravity.CENTER);
+        more.setBackground(shape(card,13,border,1));
+        more.setContentDescription("Загрузить следующие репозитории");
+        LinearLayout.LayoutParams moreParams=new LinearLayout.LayoutParams(-1,dp(48));
+        moreParams.setMargins(0,dp(4),0,dp(8));
+        listHost.addView(more,moreParams);
+        more.setOnClickListener(v->{
+            listHost.removeView(more);
+            appendRows(matching,end,target);
+        });
     }
 
     private boolean isRecent(JSONObject r){
@@ -254,7 +319,7 @@ public final class RepositoriesScreen {
         }catch(Exception ignored){return false;}
     }
 
-    private void addRepository(JSONObject repo){
+    private void addRepository(JSONObject repo,ViewGroup target){
         String full=repo.optString("full_name","");
         String name=repo.optString("name",full.contains("/")
                 ?full.substring(full.indexOf('/')+1):full);
@@ -323,10 +388,20 @@ public final class RepositoriesScreen {
         updated.setGravity(Gravity.END);
         meta.addView(updated,new LinearLayout.LayoutParams(-2,-2));
         box.addView(meta);
+        box.setContentDescription(full+(privateRepo?", приватный репозиторий":", публичный репозиторий"));
         box.setOnClickListener(v->actions.open(full));
-        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);
-        p.setMargins(0,0,0,dp(8));
-        listHost.addView(box,p);
+        if(target instanceof GridLayout){
+            GridLayout.LayoutParams p=new GridLayout.LayoutParams();
+            p.width=0;
+            p.height=-2;
+            p.columnSpec=GridLayout.spec(GridLayout.UNDEFINED,1f);
+            p.setMargins(dp(3),dp(3),dp(3),dp(6));
+            target.addView(box,p);
+        }else{
+            LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);
+            p.setMargins(0,0,0,dp(8));
+            target.addView(box,p);
+        }
     }
 
     private String relativeUpdated(JSONObject repo){

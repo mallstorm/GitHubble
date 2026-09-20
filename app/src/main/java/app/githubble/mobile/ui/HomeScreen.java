@@ -172,6 +172,8 @@ public final class HomeScreen {
     public void render() {
         renderHero();
         renderStats();
+        section("Мои репозитории", "Все проекты", actions::openRepositories);
+        renderRecentRepositories();
         section("Быстрый доступ", "Все разделы", actions::openAllSections);
         renderQuickAccess();
         section("Недавняя активность", "Все события", actions::openActivity);
@@ -410,6 +412,59 @@ public final class HomeScreen {
         View line = new View(activity);
         line.setBackgroundColor(palette.border);
         row.addView(line,new LinearLayout.LayoutParams(dp(1),dp(36)));
+    }
+
+    /** Real account-scoped RepositoryStore snapshots, never decorative shortcuts. */
+    private void renderRecentRepositories() {
+        LinearLayout panel=new LinearLayout(activity);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setBackground(round(palette.card,16,palette.border,1));
+        panel.setPadding(dp(10),dp(5),dp(10),dp(5));
+        if(!signedIn){
+            emptyRow(panel,"Войдите через GitHub, чтобы увидеть свои проекты.");
+        }else if(data.recentRepositories.isEmpty()){
+            emptyRow(panel,data.repositories==0
+                    ?"Доступных репозиториев пока нет. Проверьте установку GitHub App."
+                    :"Репозитории синхронизируются. Нажмите для обновления.");
+        }else{
+            for(int i=0;i<Math.min(5,data.recentRepositories.size());i++){
+                RepoPreview repo=data.recentRepositories.get(i);
+                if(repo.fullName==null||repo.fullName.isEmpty())continue;
+                if(i>0){
+                    View line=new View(activity);
+                    line.setBackgroundColor(palette.border);
+                    panel.addView(line,new LinearLayout.LayoutParams(-1,dp(1)));
+                }
+                LinearLayout row=new LinearLayout(activity);
+                row.setGravity(Gravity.CENTER_VERTICAL);
+                ImageView icon=imageIcon(R.drawable.ic_repository,palette.green);
+                row.addView(icon,new LinearLayout.LayoutParams(dp(30),dp(30)));
+                LinearLayout info=new LinearLayout(activity);
+                info.setOrientation(LinearLayout.VERTICAL);
+                info.setPadding(dp(8),0,dp(4),0);
+                TextView name=text(repo.fullName,13,true);
+                name.setSingleLine(true);
+                name.setEllipsize(TextUtils.TruncateAt.END);
+                info.addView(name);
+                String detail=repo.description==null?"":repo.description.trim();
+                if(detail.isEmpty())detail=repo.updated;
+                TextView subtitle=text(detail==null?"":detail,10,false);
+                subtitle.setTextColor(palette.muted);
+                subtitle.setSingleLine(true);
+                subtitle.setEllipsize(TextUtils.TruncateAt.END);
+                info.addView(subtitle);
+                row.addView(info,new LinearLayout.LayoutParams(0,-2,1));
+                TextView arrow=text("›",19,false);
+                arrow.setTextColor(palette.green);
+                row.addView(arrow,new LinearLayout.LayoutParams(dp(19),dp(38)));
+                row.setContentDescription("Открыть репозиторий "+repo.fullName);
+                row.setOnClickListener(v->actions.openRepository(repo.fullName));
+                panel.addView(row,new LinearLayout.LayoutParams(-1,dp(54)));
+            }
+        }
+        LinearLayout.LayoutParams layout=new LinearLayout.LayoutParams(-1,-2);
+        layout.setMargins(0,0,0,dp(7));
+        content.addView(panel,layout);
     }
 
     private void renderQuickAccess() {

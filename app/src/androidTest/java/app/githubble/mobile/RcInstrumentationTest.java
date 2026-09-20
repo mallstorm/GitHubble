@@ -5,6 +5,8 @@ import android.content.Context;
 import android.os.Bundle;
 import app.githubble.mobile.build.BuildAutoDownloadPolicy;
 import app.githubble.mobile.build.BuildMonitor;
+import app.githubble.mobile.build.BuildRunFilter;
+import app.githubble.mobile.ui.BottomNavigationBar;
 import app.githubble.mobile.controller.AccountOperationsController;
 import app.githubble.mobile.auth.DeviceCodeAssist;
 import app.githubble.mobile.database.SchemaMigrationRegistry;
@@ -53,6 +55,7 @@ public final class RcInstrumentationTest extends Instrumentation {
             testRepositoryImportPathSafety();
             testBuildAutoDownloadPolicy();
             testRc41StabilizationPolicies();
+            testRc42UiNavigation();
             result.putString("result", "PASS: RC instrumentation suite");
             finish(0, result);
         } catch (Throwable error) {
@@ -121,6 +124,22 @@ public final class RcInstrumentationTest extends Instrumentation {
         yes(AccountOperationsController.inventoryIsPartial(6,6,0,true,false));
         yes(AccountOperationsController.inventoryIsPartial(6,6,0,false,true));
         no(AccountOperationsController.inventoryIsPartial(6,6,0,false,false));
+    }
+
+    /** RC4.2: root tabs, status filters and pagination boundary checks. */
+    private static void testRc42UiNavigation() {
+        eq(5,BottomNavigationBar.DESTINATIONS.length);
+        yes(BottomNavigationBar.isRoot("Репозитории"));
+        yes(BottomNavigationBar.isRoot("Профиль"));
+        no(BottomNavigationBar.isRoot("Настройки"));
+        no(BottomNavigationBar.isRoot("Центр сборок"));
+        yes(BuildRunFilter.accepts(BuildRunFilter.ALL,"queued",""));
+        yes(BuildRunFilter.accepts(BuildRunFilter.RUNNING,"in_progress",""));
+        no(BuildRunFilter.accepts(BuildRunFilter.RUNNING,"completed","success"));
+        yes(BuildRunFilter.accepts(BuildRunFilter.SUCCESS,"completed","success"));
+        no(BuildRunFilter.accepts(BuildRunFilter.SUCCESS,"completed","failure"));
+        yes(BuildRunFilter.accepts(BuildRunFilter.OTHER,"completed","cancelled"));
+        no(BuildRunFilter.accepts(BuildRunFilter.OTHER,"in_progress",""));
     }
 
     private static void testDeviceCodeNormalization() {

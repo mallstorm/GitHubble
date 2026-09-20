@@ -1,8 +1,8 @@
 # Статус сборки GitHubble
 
-Текущая версия: `1.0.0-rc4.1` (`versionCode 46`).
+Текущая версия: `1.0.0-rc4.2` (`versionCode 47`).
 
-Проверки GitHub Actions для push в main, pull request в main и ручного запуска:
+RC4.2 добавляет инструментальные проверки контракта корневых вкладок и фильтров Actions.\n\nПроверки GitHub Actions для push в main, pull request в main и ручного запуска:
 
 - unit tests;
 - Android Lint для release;

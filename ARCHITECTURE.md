@@ -1,12 +1,12 @@
 # Архитектура GitHubble
 
-Текущая линия: `1.0.0-rc4.1`.
+Текущая линия: `1.0.0-rc4.2`.
 
 GitHubble — нативное Android-приложение с Java-ядром и отдельными feature-контроллерами вокруг центрального UI слоя. Основная рабочая реализация находится в `app/src/main`.
 
 ## Основные компоненты
 
-- `MainActivity.java` — основной UI и навигационная оболочка приложения;
+- `MainActivity.java` — основная оболочка и переходы между feature-экранами;\n- `ui/BottomNavigationBar.java` — отдельный единый набор пяти корневых вкладок и обработчиков переходов;\n- `ui/HomeScreen.java` / `ui/RepositoriesScreen.java` — нативные карточки реальных репозиториев, поиск, фильтры и порционная отрисовка;\n- `build/BuildRunFilter.java` — типизированные фильтры статусов запусков GitHub Actions;
 - `GitHubApiClient.java` / `GitHubGraphQlClient.java` — централизованный доступ к GitHub REST/GraphQL;
 - `OAuthManager.java` + `SecureStore.java` — GitHub Device Flow и Keystore-backed хранение токена;
 - `RepositoryController.java` — чтение и базовые операции с репозиториями;
