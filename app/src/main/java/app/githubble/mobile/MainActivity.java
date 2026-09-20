@@ -3288,42 +3288,210 @@ public class MainActivity extends Activity {
 
     private void showSettings(){
         rememberScreen("settings",null);
-        setCurrentScreen(this::showSettings);shell("Настройки",false);
-        sectionTitle("Аккаунт",null);
-        String login=getProfileLogin();settingsActionRow("Личный профиль",isSignedIn()?(login.isEmpty()?"GitHub подключён":"@"+login):"Не подключён",() -> navigate(this::showProfile));
-        settingsRow("Защита токена",isSignedIn()?"Android Keystore":"Нет активного сеанса");
-        settingsActionRow("GitHub Billing и Actions",isSignedIn()?"Минуты, место и безопасная очистка":"Требуется вход",() -> navigate(this::showAccountCenter));
-        settingsActionRow("Приватные репозитории","Доступ GiHubble",this::openPrivateRepositoryAccess);
-        sectionTitle("Интерфейс",null);
-        settingsRow("Язык интерфейса","Русский");
-        settingsActionRow("Оформление и иконка",themeDisplayName(),this::showThemeChooser);
+        setCurrentScreen(this::showSettings);
+        shell("Настройки",false);
+        settingsDashboardHeader();
+        settingsCategoryCard("Аккаунт и доступ",
+                "Профиль, GitHub App, приватные репозитории",
+                R.drawable.ic_profile, 0xFF25994F,
+                () -> navigate(this::showSettingsAccount));
+        settingsCategoryCard("Интерфейс",
+                "Темы, язык, перевод содержимого",
+                R.drawable.ic_tools, 0xFF8654D3,
+                () -> navigate(this::showSettingsInterface));
+        settingsCategoryCard("Уведомления",
+                "Наблюдение, события и фоновые проверки",
+                R.drawable.ic_bell, 0xFF387DE2,
+                () -> navigate(this::showSettingsNotifications));
+        settingsCategoryCard("Данные и синхронизация",
+                "Кэш, офлайн-очередь, резервные копии",
+                R.drawable.ic_repository, 0xFF179B9C,
+                () -> navigate(this::showSettingsData));
+        settingsCategoryCard("Безопасность",
+                "Защита токена, данные и выход из аккаунта",
+                R.drawable.ic_lock, 0xFFE18C32,
+                () -> navigate(this::showSettingsSecurity));
+        settingsCategoryCard("О приложении",
+                "Версия, диагностика, сведения о сборке",
+                R.drawable.ic_settings, 0xFF657A88,
+                () -> navigate(this::showSettingsAbout));
+    }
+
+    private void settingsDashboardHeader(){
+        LinearLayout hero=new LinearLayout(this);
+        hero.setGravity(Gravity.CENTER_VERTICAL);
+        hero.setPadding(dp(12),dp(12),dp(12),dp(12));
+        hero.setBackground(round(SUBTLE,18,BORDER,1));
+        ImageView icon=imageIcon(R.drawable.ic_settings, Color.WHITE, 11);
+        icon.setBackground(round(GREEN,13,0,0));
+        hero.addView(icon,new LinearLayout.LayoutParams(dp(48),dp(48)));
+        LinearLayout title=new LinearLayout(this);
+        title.setOrientation(LinearLayout.VERTICAL);
+        title.setPadding(dp(11),0,dp(4),0);
+        TextView name=text("Настройки GitHubble",18,true);
+        name.setPadding(0,0,0,0);
+        name.setSingleLine(true);
+        name.setEllipsize(TextUtils.TruncateAt.END);
+        title.addView(name);
+        TextView caption=text("Управление приложением и GitHub",11,false);
+        caption.setTextColor(MUTED);
+        caption.setPadding(0,dp(3),0,0);
+        caption.setMaxLines(2);
+        title.addView(caption);
+        hero.addView(title,new LinearLayout.LayoutParams(0,-2,1));
+        LinearLayout.LayoutParams hp=new LinearLayout.LayoutParams(-1,-2);
+        hp.setMargins(0,0,0,dp(12));
+        content.addView(hero,hp);
+        TextView state=text(isSignedIn()?
+                (getProfileLogin().isEmpty()?"GitHub подключён":"Подключён: @"+getProfileLogin()):
+                "Гостевой режим · аккаунт не подключён",11,false);
+        state.setTextColor(GREEN);
+        state.setPadding(dp(3),0,0,dp(9));
+        state.setMaxLines(2);
+        content.addView(state);
+    }
+
+    private void settingsCategoryCard(String title,String subtitle,int iconResource,int accent,Runnable action){
+        LinearLayout row=new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(11),dp(11),dp(9),dp(11));
+        row.setBackground(round(CARD,15,BORDER,1));
+
+        ImageView pictogram=imageIcon(iconResource,Color.WHITE,10);
+        pictogram.setBackground(round(accent,11,0,0));
+        pictogram.setContentDescription(title);
+        row.addView(pictogram,new LinearLayout.LayoutParams(dp(45),dp(45)));
+
+        LinearLayout labels=new LinearLayout(this);
+        labels.setOrientation(LinearLayout.VERTICAL);
+        labels.setPadding(dp(11),0,dp(3),0);
+        TextView heading=text(title,15,true);
+        heading.setPadding(0,0,0,0);
+        heading.setSingleLine(true);
+        heading.setEllipsize(TextUtils.TruncateAt.END);
+        labels.addView(heading,new LinearLayout.LayoutParams(-1,-2));
+        TextView detail=text(subtitle,11,false);
+        detail.setTextColor(MUTED);
+        detail.setPadding(0,dp(3),0,0);
+        detail.setMaxLines(2);
+        detail.setEllipsize(TextUtils.TruncateAt.END);
+        labels.addView(detail,new LinearLayout.LayoutParams(-1,-2));
+        row.addView(labels,new LinearLayout.LayoutParams(0,-2,1));
+        TextView arrow=text("›",26,false);
+        arrow.setTextColor(MUTED);
+        arrow.setGravity(Gravity.CENTER);
+        row.addView(arrow,new LinearLayout.LayoutParams(dp(20),dp(42)));
+        row.setContentDescription(title+". "+subtitle);
+        row.setOnClickListener(v->action.run());
+        LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,-2);
+        params.setMargins(0,0,0,dp(9));
+        content.addView(row,params);
+    }
+
+    private void settingsSubheader(String title,String subtitle,int icon){
+        heroBanner(title,subtitle,icon);
+    }
+
+    private void showSettingsAccount(){
+        setCurrentScreen(this::showSettingsAccount);
+        shell("Аккаунт и доступ",false);
+        settingsSubheader("Аккаунт и GitHub","Подключение и разрешения",R.drawable.ic_profile);
+        String login=getProfileLogin();
+        settingsActionRow("Личный профиль",isSignedIn()?
+                (login.isEmpty()?"GitHub подключён":"@"+login):"Не подключён",
+                () -> navigate(this::showProfile));
+        settingsActionRow("GitHub App","Подключение, тариф и Actions",
+                () -> navigate(this::showAccountCenter));
+        settingsActionRow("Приватные репозитории","Разрешения и синхронизация",
+                this::openPrivateRepositoryAccess);
+        if(isSignedIn())settingsActionRow("Отключить аккаунт","Удалить локальный сеанс",
+                this::confirmSignOut);
+    }
+
+    private void showSettingsInterface(){
+        setCurrentScreen(this::showSettingsInterface);
+        shell("Интерфейс",false);
+        settingsSubheader("Внешний вид","Оформление и перевод содержимого",R.drawable.ic_tools);
+        settingsActionRow("Тема оформления",themeDisplayName(),this::showThemeChooser);
+        settingsRow("Язык интерфейса","Русский · другие языки пока не поддерживаются");
         sectionTitle("Перевод",null);
-        settingsActionRow("Перевод страниц","Защищённый режим",this::showTranslationInfo);
+        settingsActionRow("Как работает перевод","Защита кода и Markdown",this::showTranslationInfo);
         settingsActionRow("Провайдер перевода",translatorDisplayName(),this::configureTranslatorSettings);
-        settingsToggleRow("Автоперевод", "Переводить иностранный контент при открытии", "translator_auto", false);
+        settingsToggleRow("Автоперевод","Переводить иностранный контент при открытии",
+                "translator_auto",false);
         settingsRow("Кэш переводов",translationCache.count()+" документов");
-        sectionTitle("Данные",null);
+    }
+
+    private void showSettingsNotifications(){
+        setCurrentScreen(this::showSettingsNotifications);
+        shell("Уведомления",false);
+        settingsSubheader("События и наблюдение","Настройки реальных фоновых проверок",R.drawable.ic_bell);
+        settingsActionRow("Наблюдаемые разработчики",
+                trackingDb.statistics().optInt("developers",0)+" разработчиков",
+                () -> navigate(this::showTracking));
+        settingsActionRow("Фоновые проверки",
+                "Интервал и типы уведомлений",() -> navigate(this::showTrackingSettings));
+        settingsActionRow("Диагностика фона","JobScheduler и ограничения системы",
+                this::showTrackingDiagnostics);
+        settingsActionRow("Открыть активность","События доступных источников GitHub",
+                () -> navigate(this::showNotifications));
+        TextView hint=text("Отдельное управление push-уведомлениями Issues и PR пока не реализовано. "+
+                "Настройки выше относятся к отслеживанию разработчиков и репозиториев.",11,false);
+        hint.setTextColor(MUTED);
+        card(hint);
+    }
+
+    private void showSettingsData(){
+        setCurrentScreen(this::showSettingsData);
+        shell("Данные и синхронизация",false);
+        settingsSubheader("Локальные данные","Кэш, офлайн и резервные копии",R.drawable.ic_repository);
         settingsActionRow("Офлайн-кэш",cacheSizeText(),this::showCacheDialog);
-        settingsRow("Единый кэш сущностей",entityCache.count()+" объектов");
-        int pending=features.offlineQueue.count(OfflineActionQueue.PENDING),conflicts=features.offlineQueue.count(OfflineActionQueue.CONFLICT),failed=features.offlineQueue.count(OfflineActionQueue.FAILED);
-        settingsActionRow("Офлайн-очередь",pending+" ожидают · "+conflicts+" конфликтов · "+failed+" ошибок",() -> navigate(this::showOfflineQueue));
-        settingsActionRow("Резервная копия","Избранное, наблюдение и настройки",() -> navigate(this::showPortableBackup));
-        settingsActionRow("Экспорт диагностики","ZIP без токенов и ключей",this::exportDiagnostics);
-        settingsActionRow("Конфиденциальность и данные","Экспорт и полное удаление",() -> navigate(this::showPrivacyAndData));
-        settingsRow("Лимит GitHub API",api.getRemaining()<0?"Ещё не определён":String.valueOf(api.getRemaining()));
-        sectionTitle("Наблюдение",null);
-        JSONObject trackingStats=trackingDb.statistics();
-        settingsActionRow("Разработчики",String.valueOf(trackingStats.optInt("developers",0)),() -> navigate(this::showTracking));
-        settingsActionRow("Фоновая проверка","каждые "+prefs.getInt("tracking_interval_hours",6)+" ч",() -> navigate(this::showTrackingSettings));
-        settingsActionRow("Диагностика фона","JobScheduler и MIUI",this::showTrackingDiagnostics);
-        settingsRow("Новых событий",String.valueOf(trackingStats.optInt("unread",0)));
-        sectionTitle("Приложение",null);
+        int pending=features.offlineQueue.count(OfflineActionQueue.PENDING);
+        int conflicts=features.offlineQueue.count(OfflineActionQueue.CONFLICT);
+        int failed=features.offlineQueue.count(OfflineActionQueue.FAILED);
+        settingsActionRow("Офлайн-очередь",
+                pending+" ожидают · "+conflicts+" конфликтов · "+failed+" ошибок",
+                () -> navigate(this::showOfflineQueue));
+        settingsActionRow("Резервная копия","Избранное, наблюдение и настройки",
+                () -> navigate(this::showPortableBackup));
+        settingsActionRow("Фоновые проверки","Интервал синхронизации наблюдения",
+                () -> navigate(this::showTrackingSettings));
+        settingsRow("Кэш объектов GitHub",entityCache.count()+" объектов");
+        settingsRow("Остаток GitHub API",
+                api.getRemaining()<0?"Не определён":String.valueOf(api.getRemaining()));
+    }
+
+    private void showSettingsSecurity(){
+        setCurrentScreen(this::showSettingsSecurity);
+        shell("Безопасность",false);
+        settingsSubheader("Защита данных","Сеанс GitHub и локальная конфиденциальность",R.drawable.ic_lock);
+        settingsRow("Защита токена",isSignedIn()?"Android Keystore":"Нет активного сеанса");
+        settingsActionRow("Конфиденциальность и данные",
+                "Экспорт и удаление локальных данных",() -> navigate(this::showPrivacyAndData));
+        settingsActionRow("Разрешения GitHub App","Проверка доступа",
+                this::openPrivateRepositoryAccess);
+        if(isSignedIn())settingsActionRow("Выйти из GitHub","Завершить локальный сеанс",
+                this::confirmSignOut);
+        TextView hint=text("PIN-код и биометрическая блокировка самого приложения пока не реализованы. "+
+                "Шифрование токена не заменяет блокировку входа в GitHubble.",11,false);
+        hint.setTextColor(MUTED);
+        card(hint);
+    }
+
+    private void showSettingsAbout(){
+        setCurrentScreen(this::showSettingsAbout);
+        shell("О приложении",false);
+        settingsSubheader("GitHubble "+BuildConfig.VERSION_NAME,
+                "Нативный Android-клиент GitHub",R.drawable.ic_settings);
         settingsRow("Версия",BuildConfig.VERSION_NAME);
+        settingsRow("Канал",BuildConfig.RC_CHANNEL);
         settingsRow("GitHub App","GiHubble");
-        settingsActionRow("Состояние Release Candidate","RC3.7 · Repository Sync",() -> navigate(this::showReleaseCandidateStatus));
-        if(isSignedIn()){
-            Button out=button("Выйти из GitHub");out.setOnClickListener(v->confirmSignOut());LinearLayout.LayoutParams op=new LinearLayout.LayoutParams(-1,dp(52));op.setMargins(0,dp(6),0,dp(6));content.addView(out,op);
-        }
+        settingsActionRow("Сведения о сборке","Release Candidate и состояние приложения",
+                () -> navigate(this::showReleaseCandidateStatus));
+        settingsActionRow("Экспорт диагностики","ZIP без OAuth-токена и API-ключей",
+                this::exportDiagnostics);
+        settingsActionRow("Диагностика фоновых задач","JobScheduler и MIUI",
+                this::showTrackingDiagnostics);
     }
 
     private void showOfflineQueue(){
