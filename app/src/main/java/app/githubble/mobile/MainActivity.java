@@ -84,6 +84,7 @@ import app.githubble.mobile.search.SearchMode;
 import app.githubble.mobile.search.SearchFilters;
 import app.githubble.mobile.search.AdvancedSearchPlanner;
 import app.githubble.mobile.repository.RepositoryStore;
+import app.githubble.mobile.activity.RepositoryActivityFeed;
 
 public class MainActivity extends Activity {
     private LinearLayout content;
@@ -808,24 +809,62 @@ public class MainActivity extends Activity {
         final long generation=screenGeneration.get();
         final String account=currentAccountId();
         List<JSONObject> cached=readCachedActivity(account);
+        RepositoryStore.Snapshot initialRepos=repositoryStore.read(account);
         app.githubble.mobile.ui.ActivityScreen screen =
                 new app.githubble.mobile.ui.ActivityScreen(this,content,activityActions(),
                         CARD,TEXT,MUTED,GREEN,BORDER,SUBTLE,"dark".equals(activeTheme));
-        screen.render(cached,"Обновляем ленту GitHub…");
+        screen.render(cached,"Загружаем коммиты и изменения. Private-репозитории проверяются через GitHub API…");
+        screen.setRankedRepositories(RepositoryActivityFeed.rank(initialRepos.repositories,
+                cached,prefs,account));
         io.execute(()->{
             try{
-                List<JSONObject> loaded=loadSupportedActivityFeed();
+                RepositoryStore.Snapshot repositories=repositoryStore.read(account);
+                String repositoryWarning="";
+                if(repositories.lastSyncedAt==0L
+                        ||System.currentTimeMillis()-repositories.lastSyncedAt>120000L){
+                    try{
+                        RepositoryAccessController.SyncResult synced=repositoryAccess.sync(true);
+                        if(!account.equals(currentAccountId()))return;
+                        repositories=repositoryStore.saveSuccess(account,synced.repositories);
+                        repositoryWarning=synced.warning;
+                    }catch(Exception syncError){
+                        repositoryWarning="Список проектов обновить не удалось; используем сохранённый. "
+                                +syncError.getMessage();
+                    }
+                }
+                RepositoryActivityFeed.CommitResult commits=
+                        RepositoryActivityFeed.loadCommits(api,repositories.repositories,prefs,account);
+                List<JSONObject> related=new ArrayList<>();
+                String relatedWarning="";
+                try{
+                    related=loadSupportedActivityFeed();
+                }catch(Exception relatedError){
+                    relatedWarning="Задачи/PR/публичные события не загрузились: "
+                            +relatedError.getMessage();
+                }
+                List<JSONObject> loaded=mergeActivityEvents(commits.events,related);
+                if(!account.equals(currentAccountId()))return;
                 JSONArray cache=new JSONArray();
                 for(JSONObject event:loaded)cache.put(event);
                 prefs.edit().putString("activity_feed_cache_"+account,cache.toString())
+                        .putLong("activity_feed_refresh_"+account,System.currentTimeMillis())
                         .putLong("activity_last_seen_epoch",System.currentTimeMillis())
                         .putInt("activity_new_count",0).apply();
+                List<JSONObject> ranking=RepositoryActivityFeed.rank(
+                        repositories.repositories,loaded,prefs,account);
+                String coverage=commits.coverageLabel();
+                if(!relatedWarning.isEmpty())coverage+=". "+relatedWarning;
+                if(!repositoryWarning.isEmpty())coverage+=". "+repositoryWarning;
+                if(repositories.repositories.length()==0)
+                    coverage+=". Список репозиториев пуст: проверьте установку и Contents: Read у GitHub App.";
+                final String finalCoverage=coverage;
                 runOnUiThread(()->{
                     if(generation!=screenGeneration.get()||
                             !account.equals(currentAccountId())||
                             !"Активность".equals(currentTitle))return;
+                    screen.setRankedRepositories(ranking);
                     screen.setFeed(loaded);
-                    screen.setStatus("Доступные события GitHub · не системный Inbox уведомлений");
+                    screen.setStatus(finalCoverage);
                 });
             }catch(Exception error){
                 runOnUiThread(()->{
@@ -834,7 +873,8 @@ public class MainActivity extends Activity {
                             !"Активность".equals(currentTitle))return;
                     screen.setStatus(cached.isEmpty()
                             ?"Не удалось загрузить события: "+error.getMessage()
-                            :"Сеть недоступна. Показаны последние сохранённые события.");
+                            :"Новые события временно недоступны. Показана сохранённая лента: "
+                                +error.getMessage());
                 });
             }
         });
@@ -848,6 +888,11 @@ public class MainActivity extends Activity {
                 String eventType=event.optString("event_type","");
                 int number=event.optInt("number",0);
                 if(!repo.contains("/"))return;
+                String sha=event.optString("sha","");
+                if("Commit".equals(kind)&&sha.matches("[0-9a-fA-F]{40}")){
+                    openWeb("https://github.com/"+repo+"/commit/"+sha);
+                    return;
+                }
                 if(("Issue".equals(kind)||"IssuesEvent".equals(eventType))&&number>0)
                     navigate(()->showIssueDetail(repo,number));
                 else if(("PullRequest".equals(kind)||eventType.startsWith("PullRequest"))&&number>0)
@@ -861,6 +906,10 @@ public class MainActivity extends Activity {
                 openWeb("https://github.com/notifications");
             }
             @Override public void openBuilds(){navigate(MainActivity.this::showBuildCenter);}
+            @Override public void openRepository(String repository){
+                if(repository!=null&&repository.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+"))
+                    navigate(()->showRepository(repository));
+            }
         };
     }
 
@@ -869,12 +918,42 @@ public class MainActivity extends Activity {
         if(account==null||account.isEmpty())return cached;
         try{
             JSONArray data=new JSONArray(prefs.getString("activity_feed_cache_"+account,"[]"));
-            for(int i=0;i<Math.min(60,data.length());i++){
+            for(int i=0;i<Math.min(RepositoryActivityFeed.MAX_TIMELINE,data.length());i++){
                 JSONObject event=data.optJSONObject(i);
                 if(event!=null)cached.add(event);
             }
         }catch(Exception ignored){}
         return cached;
+    }
+
+    /**
+     * Real, authenticated commits are merged with issues/PR and public GitHub
+     * events. PushEvent is omitted for repos whose actual individual commits
+     * were retrieved, preventing duplicate, summary-only cards.
+     */
+    private List<JSONObject> mergeActivityEvents(List<JSONObject> commits,
+                                                  List<JSONObject> other){
+        List<JSONObject> combined=new ArrayList<>(commits);
+        Set<String> repositoriesWithCommits=new LinkedHashSet<>();
+        for(JSONObject item:commits)repositoriesWithCommits.add(item.optString("repo",""));
+        for(JSONObject item:other){
+            if("PushEvent".equals(item.optString("event_type",""))
+                    &&repositoriesWithCommits.contains(item.optString("repo","")))continue;
+            combined.add(item);
+        }
+        combined.sort((a,b)->Long.compare(
+                RepositoryActivityFeed.epoch(b.optString("updated_at","")),
+                RepositoryActivityFeed.epoch(a.optString("updated_at",""))));
+        List<JSONObject> output=new ArrayList<>();
+        Set<String> seen=new LinkedHashSet<>();
+        for(JSONObject item:combined){
+            String id=item.optString("event_id","");
+            if(id.isEmpty())id=item.optString("repo","")+"|"+item.optString("kind","")
+                    +"|"+item.optString("updated_at","")+"|"+item.optString("title","");
+            if(seen.add(id))output.add(item);
+            if(output.size()>=RepositoryActivityFeed.MAX_TIMELINE)break;
+        }
+        return output;
     }
 
     private List<JSONObject> loadSupportedActivityFeed() throws Exception {
@@ -1163,10 +1242,6 @@ public class MainActivity extends Activity {
         TextView count=text("Проектов: "+watched.size(),12,true);
         count.setTextColor(GREEN);
         toolbar.addView(count,new LinearLayout.LayoutParams(0,-2,1));
-        Button choose=button("Настроить");
-        choose.setTextSize(12);
-        choose.setOnClickListener(v->navigate(this::showBuildMonitorSettings));
-        toolbar.addView(choose,new LinearLayout.LayoutParams(dp(102),dp(44)));
         Button refresh=button("Обновить");
         refresh.setTextSize(12);
         refresh.setOnClickListener(v->showBuildCenter(focus));
@@ -2074,6 +2149,9 @@ public class MainActivity extends Activity {
     private TextView pill(String s){TextView t=text(s,12,true);t.setTextColor(MUTED);t.setGravity(Gravity.CENTER);t.setBackground(round(SUBTLE,12,Color.TRANSPARENT,0));LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-2,dp(30));p.setMargins(0,0,dp(8),0);t.setLayoutParams(p);return t;}
 
     private void showRepository(String full){
+        if(isSignedIn()&&full.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+"))
+            RepositoryActivityFeed.noteVisit(prefs,currentAccountId(),full,
+                    System.currentTimeMillis());
         rememberScreen("repository",routeArgs("full",full));
         setCurrentScreen(() -> showRepository(full));
         shell(full,true);
@@ -4533,7 +4611,7 @@ public class MainActivity extends Activity {
         io.execute(()->{try{DiagnosticsExporter.Result result=DiagnosticsExporter.export(this,prefs,entityCache,translationCache,trackingDb,api);runOnUiThread(()->{progress.dismiss();new AlertDialog.Builder(this).setTitle("Диагностика экспортирована").setMessage(result.displayName+" сохранён в Downloads/GitHubble. Токены, API-ключи, пароли и signing key не включены.").setPositiveButton("Поделиться",(d,w)->{try{Intent share=new Intent(Intent.ACTION_SEND);share.setType("application/zip");share.putExtra(Intent.EXTRA_STREAM,result.uri);share.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);startActivity(Intent.createChooser(share,"Отправить диагностику"));}catch(Exception e){toast("Файл сохранён в Downloads/GitHubble");}}).setNegativeButton("Закрыть",null).show();});}catch(Exception e){runOnUiThread(()->{progress.dismiss();errorDialog("Не удалось экспортировать диагностику",e.getMessage());});}});
     }
 
-    private void confirmSignOut(){new AlertDialog.Builder(this).setTitle("Выйти из GitHub?").setMessage("Токен, приватный кэш и отложенные действия этого аккаунта будут удалены. Локальное избранное останется.").setPositiveButton("Выйти",(d,w)->{String account=currentAccountId();repositoryStore.clear(account);prefs.edit().remove("home_recent_activity_" + account).apply();features.offlineQueue.clearAccount(api.accountScope());api.clearSessionCaches();oauth.signOut();prefs.edit().remove("github_profile_json").remove("github_avatar_url").remove("home_open_issues").remove("home_open_prs").remove("home_dashboard_last_refresh").remove("repository_access_settings_url").putInt("activity_new_count",0).apply();File avatar=new File(getFilesDir(),"github_avatar.png");if(avatar.isFile())avatar.delete();openRoot(this::showSettings);}).setNegativeButton("Отмена",null).show();}
+    private void confirmSignOut(){new AlertDialog.Builder(this).setTitle("Выйти из GitHub?").setMessage("Токен, приватный кэш и отложенные действия этого аккаунта будут удалены. Локальное избранное останется.").setPositiveButton("Выйти",(d,w)->{String account=currentAccountId();repositoryStore.clear(account);RepositoryActivityFeed.clearVisits(prefs,account);prefs.edit().remove("home_recent_activity_" + account).remove("activity_feed_cache_"+account).remove("activity_feed_refresh_"+account).apply();features.offlineQueue.clearAccount(api.accountScope());api.clearSessionCaches();oauth.signOut();prefs.edit().remove("github_profile_json").remove("github_avatar_url").remove("home_open_issues").remove("home_open_prs").remove("home_dashboard_last_refresh").remove("repository_access_settings_url").putInt("activity_new_count",0).apply();File avatar=new File(getFilesDir(),"github_avatar.png");if(avatar.isFile())avatar.delete();openRoot(this::showSettings);}).setNegativeButton("Отмена",null).show();}
 
     private void migrateSecureSettings(){
         String legacy=prefs.getString("translator_endpoint","");

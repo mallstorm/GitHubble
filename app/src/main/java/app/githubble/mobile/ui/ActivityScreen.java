@@ -28,6 +28,7 @@ public final class ActivityScreen {
         void refresh();
         void openGitHubNotifications();
         void openBuilds();
+        void openRepository(String repository);
     }
 
     private final Activity activity;
@@ -36,12 +37,16 @@ public final class ActivityScreen {
     private final int card, textColor, muted, green, border, subtle;
     private final boolean dark;
     private LinearLayout feedHost;
+    private LinearLayout rankingHost;
     private LinearLayout filterHost;
     private LinearLayout statsHost;
     private TextView status;
     private String selected="Все";
     private List<JSONObject> feed = new ArrayList<>();
-    private static final String[] FILTERS={"Все","Репозитории","PR","Issues","Обсуждения","Сборки"};
+    private List<JSONObject> rankedRepositories = new ArrayList<>();
+    private int visibleRanked=6;
+    private int visibleEvents=40;
+    private static final String[] FILTERS={"Все","Коммиты","Репозитории","PR","Issues","Обсуждения","Сборки"};
 
     public ActivityScreen(Activity activity, LinearLayout content, Actions actions,
                           int card,int textColor,int muted,int green,int border,int subtle,boolean dark) {
@@ -68,7 +73,7 @@ public final class ActivityScreen {
         LinearLayout titleBlock=vertical();
         titleBlock.setPadding(dp(11),0,0,0);
         TextView title=label("Активность GitHub",19,true,textColor);
-        TextView subtitle=label("События проектов, задач и Pull Requests",11,false,muted);
+        TextView subtitle=label("Коммиты, изменения и проекты — включая доступные private",11,false,muted);
         subtitle.setMaxLines(2);
         subtitle.setEllipsize(TextUtils.TruncateAt.END);
         titleBlock.addView(title);
@@ -90,8 +95,17 @@ public final class ActivityScreen {
 
         statsHost=vertical();
         add(statsHost,0,dp(9));
-        status=label(initialStatus,10,false,muted);
-        status.setSingleLine(true);
+        TextView rankedTitle=label("Репозитории по последней активности",16,true,textColor);
+        add(rankedTitle,0,dp(7));
+        TextView rankedHint=label("Последний push, событие или открытие в GitHubble. Не по дате создания.",10,false,muted);
+        rankedHint.setMaxLines(2);
+        add(rankedHint,0,dp(7));
+        rankingHost=vertical();
+        add(rankingHost,0,dp(9));
+        TextView timelineTitle=label("История изменений и коммитов",16,true,textColor);
+        add(timelineTitle,0,dp(7));
+        status=label(initialStatus,11,false,muted);
+        status.setMaxLines(4);
         status.setEllipsize(TextUtils.TruncateAt.END);
         status.setOnClickListener(v->actions.refresh());
         add(status,dp(20),dp(3));
@@ -106,8 +120,66 @@ public final class ActivityScreen {
 
     public void setFeed(List<JSONObject> fresh){
         this.feed=fresh==null?new ArrayList<>():new ArrayList<>(fresh);
+        visibleEvents=40;
         drawStats();
         drawTimeline();
+    }
+
+    public void setRankedRepositories(List<JSONObject> ranked){
+        rankedRepositories=ranked==null?new ArrayList<>():new ArrayList<>(ranked);
+        visibleRanked=6;
+        drawRanking();
+    }
+
+    private void drawRanking(){
+        if(rankingHost==null)return;
+        rankingHost.removeAllViews();
+        if(rankedRepositories.isEmpty()){
+            TextView empty=label("Пока нет синхронизированных репозиториев. Обновите ленту или проверьте доступ GitHub App.",12,false,muted);
+            empty.setPadding(dp(11),dp(12),dp(11),dp(12));
+            empty.setBackground(round(card,14,border,1));
+            rankingHost.addView(empty);
+            return;
+        }
+        int max=Math.min(visibleRanked,rankedRepositories.size());
+        for(int i=0;i<max;i++){
+            JSONObject entry=rankedRepositories.get(i);
+            String repo=entry.optString("repo","");
+            if(repo.isEmpty())continue;
+            LinearLayout row=horizontal(Gravity.CENTER_VERTICAL);
+            row.setPadding(dp(10),dp(9),dp(8),dp(9));
+            row.setBackground(round(i==0?mix(card,green,dark?.17f:.075f):card,14,border,1));
+            TextView rank=label(Integer.toString(i+1),15,true,i<3?green:muted);
+            rank.setGravity(Gravity.CENTER);
+            row.addView(rank,new LinearLayout.LayoutParams(dp(24),dp(40)));
+            LinearLayout body=vertical();
+            body.setPadding(dp(8),0,dp(2),0);
+            TextView name=label(repo+(entry.optBoolean("private",false)?" · Private":""),13,true,textColor);
+            name.setMaxLines(2);
+            name.setEllipsize(TextUtils.TruncateAt.END);
+            body.addView(name);
+            String reason=entry.optString("reason","Активность");
+            TextView details=label(reason+" · "+relativeTime(entry.optString("updated_at","")),10,false,muted);
+            details.setMaxLines(2);
+            body.addView(details);
+            row.addView(body,new LinearLayout.LayoutParams(0,-2,1));
+            TextView arrow=label("›",23,false,green);
+            row.addView(arrow,new LinearLayout.LayoutParams(dp(20),dp(42)));
+            row.setContentDescription("Репозиторий номер "+(i+1)+": "+repo+", "+reason);
+            row.setOnClickListener(v->actions.openRepository(repo));
+            LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(-1,-2);
+            rp.setMargins(0,0,0,dp(5));
+            rankingHost.addView(row,rp);
+        }
+        if(visibleRanked<rankedRepositories.size()){
+            TextView more=label("Показать ещё репозитории · "+(rankedRepositories.size()-max)+"  ›",12,true,green);
+            more.setGravity(Gravity.CENTER);
+            more.setOnClickListener(v->{
+                visibleRanked+=12;
+                drawRanking();
+            });
+            rankingHost.addView(more,new LinearLayout.LayoutParams(-1,dp(46)));
+        }
     }
 
     private void buildFilters(){
@@ -121,6 +193,7 @@ public final class ActivityScreen {
             chip.setOnClickListener(v->{
                 if("Сборки".equals(filter)){actions.openBuilds();return;}
                 selected=filter;
+                visibleEvents=40;
                 buildFilters();
                 drawTimeline();
             });
@@ -196,7 +269,9 @@ public final class ActivityScreen {
         }
         LocalDate today=LocalDate.now(), yesterday=today.minusDays(1);
         String previous="";
+        int shown=0;
         for(JSONObject event:matching){
+            if(shown++>=visibleEvents)break;
             LocalDate date=localDay(event);
             String group=date.equals(LocalDate.MIN)?"Без даты":date.equals(today)?"Сегодня":date.equals(yesterday)?"Вчера":
                     date.getYear()==today.getYear()?"Ранее · "+date.format(DateTimeFormatter.ofPattern("d MMMM",new Locale("ru"))):
@@ -209,6 +284,16 @@ public final class ActivityScreen {
                 feedHost.addView(heading,headingP);
             }
             addEvent(event);
+        }
+        if(matching.size()>visibleEvents){
+            TextView more=label("Показать ещё "+(matching.size()-visibleEvents)+" событий  ›",13,true,green);
+            more.setGravity(Gravity.CENTER);
+            more.setBackground(round(card,13,border,1));
+            more.setOnClickListener(v->{
+                visibleEvents+=40;
+                drawTimeline();
+            });
+            feedHost.addView(more,new LinearLayout.LayoutParams(-1,dp(49)));
         }
     }
 
@@ -227,7 +312,7 @@ public final class ActivityScreen {
         if("Issue".equals(kind)||"IssuesEvent".equals(type)||"IssueCommentEvent".equals(type))return "Issues";
         if(type.contains("Discussion"))return "Обсуждения";
         if("ReleaseEvent".equals(type))return "Релизы";
-        if("PushEvent".equals(type))return "Коммиты";
+        if("Commit".equals(kind)||"CommitEvent".equals(type)||"PushEvent".equals(type))return "Коммиты";
         return "Репозитории";
     }
 
@@ -257,20 +342,32 @@ public final class ActivityScreen {
         project.setEllipsize(TextUtils.TruncateAt.END);
         description.addView(project);
         String text=event.optString("title","Событие GitHub");
+        if("Коммиты".equals(kind)){
+            String lower=text.toLowerCase(Locale.ROOT);
+            if(lower.startsWith("feat(")||lower.startsWith("feat:"))
+                text="Реализовано · "+text;
+            else if(lower.startsWith("fix(")||lower.startsWith("fix:"))
+                text="Исправлено · "+text;
+        }
         int number=event.optInt("number",0);
         if(number>0&&!text.contains("#"+number))text+="#"+number;
         TextView title=label(text,11,false,textColor);
-        title.setMaxLines(2);
+        title.setMaxLines("Коммиты".equals(kind)?4:2);
         title.setEllipsize(TextUtils.TruncateAt.END);
         description.addView(title);
         String details=event.optString("summary","");
         if(!details.isEmpty()){
             TextView summary=label(details,10,false,muted);
-            summary.setSingleLine(true);
+            summary.setMaxLines("Коммиты".equals(kind)?3:1);
             summary.setEllipsize(TextUtils.TruncateAt.END);
             description.addView(summary);
         }
         String date=relativeTime(event.optString("updated_at",""));
+        if("Коммиты".equals(kind)&&event.optString("sha","").length()>=8){
+            String author=event.optString("author","");
+            date=event.optString("sha","").substring(0,8)
+                    +(author.isEmpty()?"":" · "+author)+" · "+date;
+        }
         TextView age=label(date,10,false,muted);
         description.addView(age);
         tile.addView(description,new LinearLayout.LayoutParams(0,-2,1));

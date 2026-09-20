@@ -5,6 +5,7 @@ import android.content.Context;
 import android.os.Bundle;
 import app.githubble.mobile.build.BuildAutoDownloadPolicy;
 import app.githubble.mobile.build.BuildMonitor;
+import app.githubble.mobile.activity.RepositoryActivityFeed;
 import app.githubble.mobile.build.BuildRunFilter;
 import app.githubble.mobile.ui.BottomNavigationBar;
 import app.githubble.mobile.controller.AccountOperationsController;
@@ -56,6 +57,8 @@ public final class RcInstrumentationTest extends Instrumentation {
             testBuildAutoDownloadPolicy();
             testRc41StabilizationPolicies();
             testRc42UiNavigation();
+            testRepositoryActivityRanking(context);
+            testPrivateCommitCard();
             result.putString("result", "PASS: RC instrumentation suite");
             finish(0, result);
         } catch (Throwable error) {
@@ -140,6 +143,63 @@ public final class RcInstrumentationTest extends Instrumentation {
         no(BuildRunFilter.accepts(BuildRunFilter.SUCCESS,"completed","failure"));
         yes(BuildRunFilter.accepts(BuildRunFilter.OTHER,"completed","cancelled"));
         no(BuildRunFilter.accepts(BuildRunFilter.OTHER,"in_progress",""));
+    }
+
+    /** Inactive new projects must fall behind repositories with newer real work. */
+    private static void testRepositoryActivityRanking(Context context) throws Exception {
+        org.json.JSONArray repositories=new org.json.JSONArray()
+            .put(new JSONObject().put("full_name","owner/new-idle")
+                .put("created_at","2026-09-17T10:00:00Z")
+                .put("pushed_at","2026-09-17T10:00:00Z"))
+            .put(new JSONObject().put("full_name","owner/active")
+                .put("created_at","2026-01-01T10:00:00Z")
+                .put("pushed_at","2026-09-20T22:00:00Z"))
+            .put(new JSONObject().put("full_name","owner/older")
+                .put("created_at","2026-01-01T10:00:00Z")
+                .put("pushed_at","2026-09-15T10:00:00Z"));
+        android.content.SharedPreferences testPrefs=context.getSharedPreferences(
+                "rc42_activity_ranking_test",Context.MODE_PRIVATE);
+        testPrefs.edit().clear().commit();
+        java.util.List<JSONObject> ranked=RepositoryActivityFeed.rank(
+                repositories,new java.util.ArrayList<>(),testPrefs,"test-account");
+        eq("owner/active",ranked.get(0).optString("repo"));
+        eq("owner/new-idle",ranked.get(1).optString("repo"));
+        RepositoryActivityFeed.noteVisit(testPrefs,"test-account","owner/older",
+                RepositoryActivityFeed.epoch("2026-09-21T00:15:00Z"));
+        ranked=RepositoryActivityFeed.rank(repositories,new java.util.ArrayList<>(),
+                testPrefs,"test-account");
+        eq("owner/older",ranked.get(0).optString("repo"));
+        java.util.List<JSONObject> events=new java.util.ArrayList<>();
+        events.add(new JSONObject().put("repo","owner/active")
+                .put("updated_at","2026-09-21T00:30:00Z")
+                .put("title","fix: permissions"));
+        ranked=RepositoryActivityFeed.rank(repositories,events,testPrefs,"test-account");
+        eq("owner/active",ranked.get(0).optString("repo"));
+        RepositoryActivityFeed.clearVisits(testPrefs,"test-account");
+        no(testPrefs.contains(RepositoryActivityFeed.visitKey("test-account","owner/older")));
+        testPrefs.edit().clear().commit();
+    }
+
+    /** Actual message, SHA, author and timestamp must survive private commit parsing. */
+    private static void testPrivateCommitCard() throws Exception {
+        String sha="0123456789abcdef0123456789abcdef01234567";
+        JSONObject commit=new JSONObject()
+            .put("sha",sha)
+            .put("author",new JSONObject().put("login","developer"))
+            .put("commit",new JSONObject()
+                .put("message","feat(rc4.2): repository activity\n\nAdds live history")
+                .put("committer",new JSONObject().put("date","2026-09-20T21:47:00Z")));
+        JSONObject event=RepositoryActivityFeed.parseCommit("owner/private-repo",commit);
+        yes(event!=null);
+        eq("Commit",event.optString("kind"));
+        eq("feat(rc4.2): repository activity",event.optString("title"));
+        eq("Adds live history",event.optString("summary"));
+        eq(sha,event.optString("sha"));
+        eq("developer",event.optString("author"));
+        eq("2026-09-20T21:47:00Z",event.optString("updated_at"));
+        eq("https://github.com/owner/private-repo/commit/"+sha,event.optString("commit_url"));
+        yes(RepositoryActivityFeed.parseCommit("owner/private-repo",
+                new JSONObject().put("sha","bad"))==null);
     }
 
     private static void testDeviceCodeNormalization() {
