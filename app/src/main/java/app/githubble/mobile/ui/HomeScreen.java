@@ -144,6 +144,7 @@ public final class HomeScreen {
     private final LinearLayout content;
     private final Palette palette;
     private final boolean signedIn;
+    private final boolean spaciousCards;
     private final Actions actions;
     private final DashboardData data;
     private final int blue = Color.rgb(44, 125, 225);
@@ -160,6 +161,8 @@ public final class HomeScreen {
         this.content = content;
         this.palette = palette;
         this.signedIn = signedIn;
+        this.spaciousCards = "spacious".equals(activity.getSharedPreferences("githubble",Activity.MODE_PRIVATE)
+                .getString("ui_card_density","compact"));
         this.actions = actions;
         this.data = data == null
                 ? new DashboardData(-1,-1,-1,-1,0,0,0,Collections.emptyList(),
@@ -493,7 +496,7 @@ public final class HomeScreen {
         box.addView(subtitle, subtitleLp);
         box.setOnClickListener(v -> item.action.run());
         GridLayout.LayoutParams p = new GridLayout.LayoutParams();
-        p.width=0;p.height=dp(77);
+        p.width=0;p.height=dp(spaciousCards ? 94 : 77);
         p.columnSpec=GridLayout.spec(GridLayout.UNDEFINED,1f);
         p.setMargins(dp(2),dp(2),dp(2),dp(2));
         grid.addView(box,p);
@@ -569,7 +572,7 @@ public final class HomeScreen {
                 "JetBrains/kotlin", false);
         recommendation(row, "GitHub", "Open Source", R.drawable.ic_github_mark, slate,
                 "github/gitignore", false);
-        content.addView(row, new LinearLayout.LayoutParams(-1, dp(88)));
+        content.addView(row, new LinearLayout.LayoutParams(-1, dp(spaciousCards ? 108 : 88)));
     }
 
     private String formatStars(long value) {

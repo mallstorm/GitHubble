@@ -6,6 +6,11 @@ import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.text.InputType;
+import android.text.TextUtils;
+import android.widget.ImageView;
+import java.time.LocalDate;
+import org.json.JSONArray;
+import org.json.JSONObject;
 import android.view.Gravity;
 import android.view.View;
 import android.view.inputmethod.EditorInfo;
@@ -39,6 +44,8 @@ public final class SearchScreen {
     private EditText query;
     private TextView smartToggle;
     private TextView subtitle;
+    private LinearLayout savedBlock;
+    private static final String SAVED_KEY="saved_searches_v1";
     private TextView filterSummary;
     private boolean smartEnabled;
     private SearchMode mode;
@@ -59,68 +66,175 @@ public final class SearchScreen {
     }
 
     public void render() {
-        content.addView(text("Что ищем?", 24, true));
-        subtitle = text("", 14, false);
-        subtitle.setTextColor(palette.muted);
-        content.addView(subtitle);
-
-        FrameLayout searchBox = new FrameLayout(activity);
-        searchBox.setBackground(round(palette.card, 16, palette.border, 1));
-
-        query = new EditText(activity);
-        query.setHintTextColor(palette.muted);
-        query.setTextColor(palette.text);
-        query.setSingleLine(true);
-        query.setTextSize(16);
-        query.setPadding(dp(16), 0, dp(82), 0);
-        query.setBackgroundColor(Color.TRANSPARENT);
+        FrameLayout searchBox=new FrameLayout(activity);
+        searchBox.setBackground(round(palette.card,15,palette.border,1));
+        ImageView lens=new ImageView(activity);lens.setImageResource(R.drawable.ic_search);
+        lens.setColorFilter(palette.muted);
+        FrameLayout.LayoutParams lensP=new FrameLayout.LayoutParams(dp(21),dp(21),Gravity.START|Gravity.CENTER_VERTICAL);
+        lensP.setMargins(dp(11),0,0,0);searchBox.addView(lens,lensP);
+        query=new EditText(activity);query.setHintTextColor(palette.muted);
+        query.setTextColor(palette.text);query.setSingleLine(true);query.setTextSize(14);
+        query.setPadding(dp(39),0,dp(10),0);query.setBackgroundColor(Color.TRANSPARENT);
         query.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
-        query.setContentDescription("Поисковый запрос GitHub");
-        searchBox.addView(query, new FrameLayout.LayoutParams(-1, -1));
-
-        smartToggle = new TextView(activity);
-        smartToggle.setTextSize(12);
-        smartToggle.setTypeface(null, android.graphics.Typeface.BOLD);
-        smartToggle.setGravity(Gravity.CENTER);
-        smartToggle.setPadding(dp(6), 0, dp(6), 0);
-        smartToggle.setMinWidth(dp(64));
-        smartToggle.setOnClickListener(v -> setSmartEnabled(!smartEnabled));
-        FrameLayout.LayoutParams smartParams = new FrameLayout.LayoutParams(dp(68), dp(42), Gravity.END | Gravity.CENTER_VERTICAL);
-        smartParams.setMargins(0, 0, dp(7), 0);
-        searchBox.addView(smartToggle, smartParams);
-
-        LinearLayout.LayoutParams queryParams = new LinearLayout.LayoutParams(-1, dp(56));
-        queryParams.setMargins(0, dp(18), 0, dp(10));
-        content.addView(searchBox, queryParams);
-
-        renderModeSelector();
-        renderFilterRow();
-
-        Button go = new Button(activity);
-        go.setText("Искать на GitHub");
-        go.setAllCaps(false);
-        go.setTextSize(14);
-        go.setTextColor(Color.WHITE);
-        go.setBackground(round(palette.green, 14, palette.green, 0));
-        go.setContentDescription("Искать на GitHub");
-        go.setMinHeight(dp(48));
-        go.setOnClickListener(v -> submit());
-        query.setOnEditorActionListener((v, actionId, event) -> {
-            if (actionId == EditorInfo.IME_ACTION_SEARCH) { submit(); return true; }
-            return false;
+        query.setContentDescription("Поиск GitHub");
+        searchBox.addView(query,new FrameLayout.LayoutParams(-1,-1));
+        LinearLayout.LayoutParams qP=new LinearLayout.LayoutParams(-1,dp(52));
+        qP.setMargins(0,dp(5),0,dp(8));content.addView(searchBox,qP);
+        renderModeSelector();renderFilterRow();
+        Button go=new Button(activity);go.setText("⌕  Найти на GitHub");
+        go.setAllCaps(false);go.setTextSize(14);go.setTextColor(Color.WHITE);
+        go.setBackground(round(palette.green,13,0,0));go.setOnClickListener(v->submit());
+        content.addView(go,new LinearLayout.LayoutParams(-1,dp(48)));
+        query.setOnEditorActionListener((v,id,event)->{
+            if(id==EditorInfo.IME_ACTION_SEARCH){submit();return true;}return false;
         });
-        content.addView(go, new LinearLayout.LayoutParams(-1, dp(50)));
-
-        applyModeVisuals();
-        applySmartVisuals();
+        applyModeVisuals();applySmartVisuals();
         renderRecentSearches();
+        section("Быстрые фильтры","Все фильтры",this::showFilterDialog);
+        quickFilters();
+        section("Популярные направления","Все",()->
+            actions.searchAdvanced("stars:>1000",false,SearchMode.REPOSITORIES,new SearchFilters()));
+        LinearLayout popular=new LinearLayout(activity);popular.setOrientation(LinearLayout.VERTICAL);
+        popular.setBackground(round(palette.card,14,palette.border,1));
+        direction(popular,"Android","Мобильные приложения и библиотеки",
+                R.drawable.ic_android,"topic:android",false);
+        direction(popular,"Kotlin","JVM- и Android-проекты",
+                R.drawable.ic_kotlin_brand,"language:kotlin",true);
+        direction(popular,"Open Source","Популярные открытые проекты",
+                R.drawable.ic_star,"stars:>10000",true);
+        direction(popular,"Новые проекты","Созданы за последние 30 дней",
+                R.drawable.ic_history,"created:>="+LocalDate.now().minusDays(30),true);
+        content.addView(popular,new LinearLayout.LayoutParams(-1,-2));
+        section("Сохранённые поиски","Сохранить текущий",this::saveQuery);
+        savedBlock=new LinearLayout(activity);savedBlock.setOrientation(LinearLayout.VERTICAL);
+        content.addView(savedBlock);drawSaved();
+    }
 
-        TextView quickTitle = text("Популярные направления", 20, true);
-        content.addView(quickTitle, new LinearLayout.LayoutParams(-1, dp(48)));
-        addDirection("Android", "Мобильные приложения и библиотеки", "android", false);
-        addDirection("Kotlin", "Современные JVM- и Android-проекты", "language:kotlin", false);
-        addDirection("Open Source", "Популярные открытые проекты", "stars:>10000", false);
-        addDirection("Новые проекты", "Недавно созданные репозитории", "created:>2026-01-01", false);
+    private void section(String title,String link,Runnable action){
+        LinearLayout line=new LinearLayout(activity);line.setGravity(Gravity.CENTER_VERTICAL);
+        TextView heading=text(title,17,true);heading.setSingleLine(true);
+        heading.setEllipsize(TextUtils.TruncateAt.END);heading.setPadding(0,0,0,0);
+        line.addView(heading,new LinearLayout.LayoutParams(0,-2,1));
+        TextView right=text(link+" ›",11,true);right.setTextColor(palette.green);
+        right.setGravity(Gravity.CENTER_VERTICAL|Gravity.END);
+        right.setOnClickListener(v->action.run());line.addView(right);
+        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,dp(41));
+        p.setMargins(0,dp(9),0,dp(3));content.addView(line,p);
+    }
+
+    private void quickFilters(){
+        LinearLayout line=new LinearLayout(activity);
+        String[] names={"Android","Kotlin","Приватные","За 30 дней"};
+        String[] details={"Мобильные","JVM","С доступом","Обновлены"};
+        String[] terms={"topic:android","language:kotlin","is:private",
+                "pushed:>="+LocalDate.now().minusDays(30)};
+        int[] icons={R.drawable.ic_android,R.drawable.ic_kotlin_brand,R.drawable.ic_lock,R.drawable.ic_history};
+        for(int i=0;i<4;i++){
+            final String term=terms[i];
+            LinearLayout tile=new LinearLayout(activity);tile.setOrientation(LinearLayout.VERTICAL);
+            tile.setPadding(dp(6),dp(6),dp(3),dp(4));
+            tile.setBackground(round(palette.card,11,palette.border,1));
+            ImageView art=new ImageView(activity);art.setImageResource(icons[i]);
+            if(i!=1)art.setColorFilter(palette.green);
+            LinearLayout.LayoutParams artP=new LinearLayout.LayoutParams(dp(23),dp(23));
+            artP.setMargins(dp(3),0,0,dp(4));tile.addView(art,artP);
+            TextView name=text(names[i],10,true);name.setPadding(0,0,0,0);
+            name.setSingleLine(true);name.setEllipsize(TextUtils.TruncateAt.END);tile.addView(name);
+            TextView desc=text(details[i],9,false);desc.setPadding(0,0,0,0);
+            desc.setTextColor(palette.muted);desc.setSingleLine(true);
+            desc.setEllipsize(TextUtils.TruncateAt.END);tile.addView(desc);
+            tile.setOnClickListener(v->actions.searchAdvanced(term,false,
+                    SearchMode.REPOSITORIES,new SearchFilters()));
+            LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(78),1);
+            p.setMargins(i==0?0:dp(2),0,i==3?0:dp(2),0);line.addView(tile,p);
+        }
+        content.addView(line);
+    }
+
+    private void direction(LinearLayout container,String title,String sub,int image,String term,boolean divider){
+        if(divider){View v=new View(activity);v.setBackgroundColor(palette.border);
+            LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,dp(1));
+            lp.setMargins(dp(10),0,dp(10),0);container.addView(v,lp);}
+        LinearLayout row=new LinearLayout(activity);row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(8),dp(6),dp(7),dp(6));
+        ImageView art=new ImageView(activity);art.setImageResource(image);
+        if(image!=R.drawable.ic_kotlin_brand)art.setColorFilter(palette.green);
+        art.setPadding(dp(10),dp(10),dp(10),dp(10));
+        art.setBackground(round(palette.subtle,10,0,0));
+        row.addView(art,new LinearLayout.LayoutParams(dp(42),dp(42)));
+        LinearLayout labels=new LinearLayout(activity);labels.setOrientation(LinearLayout.VERTICAL);
+        labels.setPadding(dp(9),0,0,0);
+        TextView name=text(title,13,true);name.setPadding(0,0,0,0);
+        TextView detail=text(sub,11,false);detail.setPadding(0,0,0,0);
+        detail.setTextColor(palette.muted);detail.setSingleLine(true);
+        detail.setEllipsize(TextUtils.TruncateAt.END);
+        labels.addView(name);labels.addView(detail);
+        row.addView(labels,new LinearLayout.LayoutParams(0,-2,1));
+        TextView arrow=text("›",22,false);arrow.setTextColor(palette.muted);
+        arrow.setGravity(Gravity.CENTER);row.addView(arrow,new LinearLayout.LayoutParams(dp(20),dp(38)));
+        row.setOnClickListener(v->actions.searchAdvanced(term,false,
+                SearchMode.REPOSITORIES,new SearchFilters()));
+        container.addView(row,new LinearLayout.LayoutParams(-1,dp(58)));
+    }
+
+    private JSONArray saved(){
+        try{return new JSONArray(prefs.getString(SAVED_KEY,"[]"));}
+        catch(Exception ignored){return new JSONArray();}
+    }
+    private void saveQuery(){
+        String value=query.getText().toString().trim();
+        if(value.isEmpty()){Toast.makeText(activity,"Введите запрос для сохранения",Toast.LENGTH_SHORT).show();return;}
+        JSONArray old=saved(),next=new JSONArray();
+        try{
+            next.put(new JSONObject().put("q",value).put("mode",mode.name()).put("smart",smartEnabled));
+            for(int i=0;i<old.length()&&next.length()<8;i++){
+                JSONObject item=old.optJSONObject(i);
+                if(item!=null&&!value.equalsIgnoreCase(item.optString("q","")))next.put(item);
+            }
+            prefs.edit().putString(SAVED_KEY,next.toString()).apply();drawSaved();
+        }catch(Exception ignored){}
+    }
+    private void drawSaved(){
+        if(savedBlock==null)return;
+        savedBlock.removeAllViews();
+        JSONArray entries=saved();
+        if(entries.length()==0){
+            TextView empty=text("Пока нет сохранённых запросов. Введите запрос и нажмите «Сохранить текущий».",11,false);
+            empty.setTextColor(palette.muted);empty.setPadding(dp(10),dp(10),dp(10),dp(10));
+            empty.setBackground(round(palette.card,12,palette.border,1));savedBlock.addView(empty);return;
+        }
+        LinearLayout group=new LinearLayout(activity);group.setOrientation(LinearLayout.VERTICAL);
+        group.setBackground(round(palette.card,13,palette.border,1));
+        for(int i=0;i<Math.min(5,entries.length());i++){
+            JSONObject item=entries.optJSONObject(i);if(item==null)continue;
+            final int idx=i;final String term=item.optString("q","");
+            if(i>0){View divider=new View(activity);divider.setBackgroundColor(palette.border);
+                group.addView(divider,new LinearLayout.LayoutParams(-1,dp(1)));}
+            LinearLayout row=new LinearLayout(activity);row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(dp(11),0,dp(8),0);
+            ImageView mark=new ImageView(activity);mark.setImageResource(R.drawable.ic_star);
+            mark.setColorFilter(palette.green);
+            row.addView(mark,new LinearLayout.LayoutParams(dp(21),dp(21)));
+            TextView label=text(term,12,true);label.setSingleLine(true);
+            label.setEllipsize(TextUtils.TruncateAt.END);
+            row.addView(label,new LinearLayout.LayoutParams(0,-2,1));
+            TextView del=text("×",22,true);del.setTextColor(palette.muted);
+            del.setGravity(Gravity.CENTER);del.setContentDescription("Удалить сохранённый запрос "+term);
+            del.setOnClickListener(v->{
+                JSONArray updated=new JSONArray(),before=saved();
+                for(int j=0;j<before.length();j++)if(j!=idx)updated.put(before.optJSONObject(j));
+                prefs.edit().putString(SAVED_KEY,updated.toString()).apply();drawSaved();
+            });
+            row.addView(del,new LinearLayout.LayoutParams(dp(32),dp(43)));
+            row.setOnClickListener(v->{
+                SearchMode savedMode=SearchMode.REPOSITORIES;
+                try{savedMode=SearchMode.valueOf(item.optString("mode","REPOSITORIES"));}
+                catch(Exception ignored){}
+                actions.searchAdvanced(term,item.optBoolean("smart",false),savedMode,new SearchFilters());
+            });
+            group.addView(row,new LinearLayout.LayoutParams(-1,dp(48)));
+        }
+        savedBlock.addView(group);
     }
 
     private void renderModeSelector() {
@@ -144,23 +258,19 @@ public final class SearchScreen {
     }
 
     private void renderFilterRow() {
-        LinearLayout row = new LinearLayout(activity);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        filterSummary = text("", 11, false);
-        filterSummary.setTextColor(palette.muted);
-        filterSummary.setMaxLines(2);
-        row.addView(filterSummary, new LinearLayout.LayoutParams(0, dp(42), 1f));
-        Button filtersButton = new Button(activity);
-        filtersButton.setText("Фильтры");
-        filtersButton.setAllCaps(false);
-        filtersButton.setTextSize(12);
-        filtersButton.setMinWidth(0);
-        filtersButton.setMinimumWidth(0);
-        filtersButton.setOnClickListener(v -> showFilterDialog());
-        row.addView(filtersButton, new LinearLayout.LayoutParams(dp(100), dp(42)));
-        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, dp(46));
-        p.setMargins(0, 0, 0, dp(8));
-        content.addView(row, p);
+        LinearLayout row=new LinearLayout(activity);row.setGravity(Gravity.CENTER_VERTICAL);
+        TextView button=text("⚙ Фильтры",12,true);
+        button.setGravity(Gravity.CENTER);button.setBackground(round(palette.card,12,palette.border,1));
+        button.setOnClickListener(v->showFilterDialog());
+        row.addView(button,new LinearLayout.LayoutParams(dp(102),dp(40)));
+        filterSummary=text("",10,false);filterSummary.setTextColor(palette.muted);
+        filterSummary.setSingleLine(true);filterSummary.setEllipsize(TextUtils.TruncateAt.END);
+        row.addView(filterSummary,new LinearLayout.LayoutParams(0,-2,1));
+        smartToggle=text("",11,true);smartToggle.setGravity(Gravity.CENTER);
+        smartToggle.setOnClickListener(v->setSmartEnabled(!smartEnabled));
+        row.addView(smartToggle,new LinearLayout.LayoutParams(dp(101),dp(40)));
+        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,dp(42));
+        p.setMargins(0,0,0,dp(8));content.addView(row,p);
     }
 
     private void submit() {
@@ -195,7 +305,7 @@ public final class SearchScreen {
 
     private void applySmartVisuals() {
         if (smartToggle == null || query == null) return;
-        smartToggle.setText("RU ✦");
+        smartToggle.setText(smartEnabled ? "RU · Вкл ✓" : "RU · Выкл");
         if (smartEnabled) {
             smartToggle.setTextColor(Color.WHITE);
             smartToggle.setBackground(round(palette.green, 12, palette.green, 0));

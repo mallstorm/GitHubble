@@ -288,7 +288,7 @@ public class MainActivity extends Activity {
             top.addView(back, new LinearLayout.LayoutParams(dp(46), dp(46)));
         }
 
-        if ("Главная".equals(title) || "Репозитории".equals(title) || "Активность".equals(title)) {
+        if ("Главная".equals(title) || "Репозитории".equals(title) || "Активность".equals(title) || "Поиск".equals(title)) {
             ImageView homeBrand = new ImageView(this);
             homeBrand.setImageResource(R.drawable.ic_home_rocket);
             homeBrand.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
@@ -314,7 +314,7 @@ public class MainActivity extends Activity {
             top.addView(search);
         }
 
-        if (!"Репозитории".equals(title) && !"Активность".equals(title)) {
+        if (!"Репозитории".equals(title) && !"Активность".equals(title) && !"Поиск".equals(title) && !title.equals("Настройки") && !title.equals("Интерфейс") && !title.equals("Уведомления") && !title.equals("Аккаунт и доступ") && !title.equals("Данные и синхронизация") && !title.equals("Безопасность") && !title.equals("О приложении")) {
         FrameLayout bellWrap = new FrameLayout(this);
         ImageView bell = iconButton(R.drawable.ic_bell, "Уведомления");
         bell.setOnClickListener(v -> navigate(this::showNotifications));
@@ -773,11 +773,7 @@ public class MainActivity extends Activity {
                 navigate(() -> searchAdvanced(query, smart, mode, filters));
             }
         }).render();
-        Button developer = button("Найти разработчика");
-        developer.setOnClickListener(v -> showAddDeveloperDialog(false));
-        LinearLayout.LayoutParams developerParams = new LinearLayout.LayoutParams(-1, dp(50));
-        developerParams.setMargins(0, dp(10), 0, 0);
-        content.addView(developer, developerParams);
+
     }
 
     private void addChip(GridLayout g,String label,Runnable r){ TextView v=text(label,14,true);v.setTextColor(BLUE);v.setGravity(Gravity.CENTER);v.setBackground(round(CARD,14,BORDER,1));v.setOnClickListener(x->navigate(r));GridLayout.LayoutParams p=new GridLayout.LayoutParams();p.width=0;p.height=dp(48);p.columnSpec=GridLayout.spec(GridLayout.UNDEFINED,1f);p.setMargins(dp(4),dp(4),dp(4),dp(4));g.addView(v,p); }
@@ -3012,6 +3008,7 @@ public class MainActivity extends Activity {
 
     private void showTrackingSettings(){
         setCurrentScreen(this::showTrackingSettings);shell("Настройки наблюдения",false);
+        settingsPanelHeader("Настройки наблюдения","Интервал, события и ограничения GitHub API",R.drawable.ic_bell);
         sectionTitle("Фоновая проверка",null);
         settingsActionRow("Интервал",prefs.getInt("tracking_interval_hours",6)+" ч",this::showTrackingIntervalChooser);
         settingsRow("Последняя проверка",formatEpoch(prefs.getLong("tracking_last_global_check",0L)));
@@ -3105,7 +3102,7 @@ public class MainActivity extends Activity {
     private void showAccountCenter(){
         setCurrentScreen(this::showAccountCenter);
         shell("Аккаунт GitHub",false);
-        heroBanner("Billing и Actions","Тариф, минуты, место и очистка GitHub Actions",R.drawable.ic_settings);
+        settingsPanelHeader("Billing и Actions","Тариф, минуты, место и очистка GitHub Actions",R.drawable.ic_settings);
         if(!isSignedIn()){accountRequiredCard("Подключите GitHub, чтобы загрузить данные аккаунта и Actions.");return;}
         ProgressBar pb=new ProgressBar(this);content.addView(pb);
         io.execute(()->{
@@ -3390,8 +3387,79 @@ public class MainActivity extends Activity {
     }
 
     private void settingsSubheader(String title,String subtitle,int icon){
-        heroBanner(title,subtitle,icon);
+        settingsPanelHeader(title,subtitle,icon);
     }
+
+    private void settingsPanelHeader(String title,String subtitle,int icon){
+        LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(12),dp(12),dp(12),dp(12));
+        row.setBackground(round(SUBTLE,17,BORDER,1));
+        ImageView art=imageIcon(icon,Color.WHITE,10);
+        art.setBackground(round(GREEN,12,0,0));
+        row.addView(art,new LinearLayout.LayoutParams(dp(44),dp(44)));
+        LinearLayout labels=new LinearLayout(this);labels.setOrientation(LinearLayout.VERTICAL);
+        labels.setPadding(dp(11),0,0,0);
+        TextView name=text(title,17,true);name.setPadding(0,0,0,0);
+        name.setMaxLines(2);name.setEllipsize(TextUtils.TruncateAt.END);
+        labels.addView(name);
+        TextView sub=text(subtitle,11,false);sub.setPadding(0,dp(3),0,0);
+        sub.setTextColor(MUTED);sub.setMaxLines(2);
+        labels.addView(sub);
+        row.addView(labels,new LinearLayout.LayoutParams(0,-2,1));
+        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);
+        p.setMargins(0,0,0,dp(12));content.addView(row,p);
+    }
+
+    private boolean isSettingsDetail(){
+        return "Аккаунт и доступ".equals(currentTitle)||"Интерфейс".equals(currentTitle)
+            ||"Уведомления".equals(currentTitle)||"Данные и синхронизация".equals(currentTitle)
+            ||"Безопасность".equals(currentTitle)||"О приложении".equals(currentTitle)
+            ||"Настройки наблюдения".equals(currentTitle)||"Оформление".equals(currentTitle)||"Размер карточек".equals(currentTitle)
+            ||"Конфиденциальность и данные".equals(currentTitle)||"Резервная копия".equals(currentTitle);
+    }
+
+    private void nestedSettingsRow(String title,String detail,int icon,int accent,Runnable click){
+        LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(11),dp(10),dp(9),dp(10));
+        row.setBackground(round(CARD,15,BORDER,1));
+        ImageView art=imageIcon(icon,Color.WHITE,10);
+        art.setBackground(round(accent,10,0,0));
+        row.addView(art,new LinearLayout.LayoutParams(dp(40),dp(40)));
+        LinearLayout labels=new LinearLayout(this);labels.setOrientation(LinearLayout.VERTICAL);
+        labels.setPadding(dp(10),0,dp(5),0);
+        TextView name=text(title,14,true);name.setPadding(0,0,0,0);
+        name.setSingleLine(true);name.setEllipsize(TextUtils.TruncateAt.END);
+        labels.addView(name);
+        TextView value=text(detail,11,false);value.setPadding(0,dp(3),0,0);
+        value.setTextColor(MUTED);value.setMaxLines(2);
+        value.setEllipsize(TextUtils.TruncateAt.END);
+        labels.addView(value);
+        row.addView(labels,new LinearLayout.LayoutParams(0,-2,1));
+        if(click!=null){
+            TextView arrow=text("›",25,false);arrow.setTextColor(MUTED);
+            arrow.setGravity(Gravity.CENTER);
+            row.addView(arrow,new LinearLayout.LayoutParams(dp(20),dp(40)));
+            row.setOnClickListener(v->click.run());
+        }
+        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);
+        p.setMargins(0,0,0,dp(8));content.addView(row,p);
+    }
+
+    private int settingsIcon(String name){
+        String label=name.toLowerCase(Locale.ROOT);
+        if(label.contains("тема")||label.contains("язык")||label.contains("перевод"))
+            return R.drawable.ic_tools;
+        if(label.contains("уведом")||label.contains("фон")||label.contains("наблюд"))
+            return R.drawable.ic_bell;
+        if(label.contains("кэш")||label.contains("синхр")||label.contains("офлайн")||label.contains("копи"))
+            return R.drawable.ic_repository;
+        if(label.contains("доступ")||label.contains("конфид")||label.contains("токен")||label.contains("выйти"))
+            return R.drawable.ic_lock;
+        if(label.contains("верси")||label.contains("сборк")||label.contains("диагност"))
+            return R.drawable.ic_settings;
+        return R.drawable.ic_profile;
+    }
+
 
     private void showSettingsAccount(){
         setCurrentScreen(this::showSettingsAccount);
@@ -3413,7 +3481,8 @@ public class MainActivity extends Activity {
         setCurrentScreen(this::showSettingsInterface);
         shell("Интерфейс",false);
         settingsSubheader("Внешний вид","Оформление и перевод содержимого",R.drawable.ic_tools);
-        settingsActionRow("Тема оформления",themeDisplayName(),this::showThemeChooser);
+        settingsActionRow("Тема оформления",themeDisplayName(),() -> navigate(this::showThemeChooser));
+        settingsActionRow("Размер карточек", "spacious".equals(prefs.getString("ui_card_density","compact")) ? "Свободный" : "Компактный", () -> navigate(this::showCardSizeChooser));
         settingsRow("Язык интерфейса","Русский · другие языки пока не поддерживаются");
         sectionTitle("Перевод",null);
         settingsActionRow("Как работает перевод","Защита кода и Markdown",this::showTranslationInfo);
@@ -3496,7 +3565,7 @@ public class MainActivity extends Activity {
     }
 
     private void showOfflineQueue(){
-        rememberScreen("offline_queue",null);setCurrentScreen(this::showOfflineQueue);shell("Офлайн-очередь",true);heroBanner("Отложенные изменения","Безопасный повтор после восстановления сети",R.drawable.ic_history);
+        rememberScreen("offline_queue",null);setCurrentScreen(this::showOfflineQueue);shell("Офлайн-очередь",false);settingsPanelHeader("Отложенные изменения","Безопасный повтор после восстановления сети",R.drawable.ic_history);
         List<OfflineActionQueue.Action> actions=features.offlineQueue.listAll();int pending=features.offlineQueue.count(OfflineActionQueue.PENDING),conflicts=features.offlineQueue.count(OfflineActionQueue.CONFLICT),failed=features.offlineQueue.count(OfflineActionQueue.FAILED);featureState.pendingOfflineActions=pending;featureState.conflicts=conflicts;
         LinearLayout summary=new LinearLayout(this);summary.setOrientation(LinearLayout.VERTICAL);summary.addView(text("Ожидают: "+pending+" · Конфликты: "+conflicts+" · Ошибки: "+failed,15,true));TextView note=text("Токены в очереди не сохраняются. Перед повторной записью GitHubble сравнивает версию объекта на GitHub.",11,false);note.setTextColor(MUTED);summary.addView(note);card(summary);
         Button send=button("Отправить готовые сейчас");send.setEnabled(!actions.isEmpty()&&features.offlineDispatcher.isOnline());send.setOnClickListener(v->processOfflineQueueNow());content.addView(send,new LinearLayout.LayoutParams(-1,dp(50)));
@@ -3525,7 +3594,7 @@ public class MainActivity extends Activity {
     private String prettyJson(String value){try{return new JSONObject(value).toString(2);}catch(Exception e){try{return new JSONArray(value).toString(2);}catch(Exception ignored){return value==null?"":value;}}}
 
     private void showPortableBackup(){
-        rememberScreen("portable_backup",null);setCurrentScreen(this::showPortableBackup);shell("Резервная копия",true);heroBanner("Перенос локальных данных","Без токена GitHub и API-ключей",R.drawable.ic_star);
+        rememberScreen("portable_backup",null);setCurrentScreen(this::showPortableBackup);shell("Резервная копия",false);settingsPanelHeader("Резервная копия","Перенос данных без токенов и API-ключей",R.drawable.ic_star);
         TextView details=text("Экспорт включает избранные репозитории, список наблюдаемых разработчиков и пользовательские настройки. OAuth-токен, ключ переводчика, профильный кэш и ключ подписи не экспортируются.",13,false);details.setTextColor(MUTED);card(details);
         Button export=button("Экспортировать JSON");export.setOnClickListener(v->startPortableExport());content.addView(export,new LinearLayout.LayoutParams(-1,dp(50)));
         Button importButton=button("Импортировать JSON");importButton.setOnClickListener(v->startPortableImport());LinearLayout.LayoutParams ip=new LinearLayout.LayoutParams(-1,dp(50));ip.setMargins(0,dp(8),0,0);content.addView(importButton,ip);
@@ -3546,13 +3615,41 @@ public class MainActivity extends Activity {
     }
 
     private void settingsRow(String title,String value){settingsActionRow(title,value,null);}
-    private void settingsActionRow(String title,String value,Runnable action){LinearLayout r=new LinearLayout(this);r.setGravity(Gravity.CENTER_VERTICAL);TextView t=text(title,15,true);r.addView(t,new LinearLayout.LayoutParams(0,dp(50),1));TextView v=text(value,13,false);v.setTextColor(MUTED);v.setGravity(Gravity.END);v.setMaxLines(2);r.addView(v,new LinearLayout.LayoutParams(dp(172),-2));if(action!=null){TextView arrow=text("›",24,false);arrow.setTextColor(MUTED);arrow.setGravity(Gravity.CENTER);r.addView(arrow,new LinearLayout.LayoutParams(dp(24),dp(50)));r.setOnClickListener(x->action.run());}card(r);}
+    private void settingsActionRow(String title,String value,Runnable action){
+        if(isSettingsDetail()){
+            nestedSettingsRow(title,value,settingsIcon(title),GREEN,action);
+            return;
+        }
+        LinearLayout r=new LinearLayout(this);r.setGravity(Gravity.CENTER_VERTICAL);TextView t=text(title,15,true);r.addView(t,new LinearLayout.LayoutParams(0,dp(50),1));TextView v=text(value,13,false);v.setTextColor(MUTED);v.setGravity(Gravity.END);v.setMaxLines(2);r.addView(v,new LinearLayout.LayoutParams(dp(172),-2));if(action!=null){TextView arrow=text("›",24,false);arrow.setTextColor(MUTED);arrow.setGravity(Gravity.CENTER);r.addView(arrow,new LinearLayout.LayoutParams(dp(24),dp(50)));r.setOnClickListener(x->action.run());}card(r);}
 
-    private void settingsToggleRow(String title,String subtitle,String key,boolean defaultValue){LinearLayout r=new LinearLayout(this);r.setGravity(Gravity.CENTER_VERTICAL);LinearLayout labels=new LinearLayout(this);labels.setOrientation(LinearLayout.VERTICAL);TextView t=text(title,15,true);t.setPadding(0,0,0,0);labels.addView(t);TextView sub=text(subtitle,11,false);sub.setTextColor(MUTED);sub.setPadding(0,dp(2),0,0);labels.addView(sub);r.addView(labels,new LinearLayout.LayoutParams(0,-2,1));Switch toggle=new Switch(this);toggle.setChecked(prefs.getBoolean(key,defaultValue));toggle.setOnCheckedChangeListener((buttonView,isChecked)->prefs.edit().putBoolean(key,isChecked).apply());r.addView(toggle);card(r);}
+    private void settingsToggleRow(String title,String subtitle,String key,boolean defaultValue){
+        if(isSettingsDetail()){
+            LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(dp(11),dp(11),dp(11),dp(11));
+            row.setBackground(round(CARD,15,BORDER,1));
+            ImageView art=imageIcon(settingsIcon(title),Color.WHITE,10);
+            art.setBackground(round(GREEN,10,0,0));
+            row.addView(art,new LinearLayout.LayoutParams(dp(40),dp(40)));
+            LinearLayout labels=new LinearLayout(this);labels.setOrientation(LinearLayout.VERTICAL);
+            labels.setPadding(dp(10),0,dp(4),0);
+            TextView name=text(title,14,true);name.setPadding(0,0,0,0);labels.addView(name);
+            TextView description=text(subtitle,11,false);description.setTextColor(MUTED);
+            description.setPadding(0,dp(3),0,0);description.setMaxLines(2);
+            labels.addView(description);
+            row.addView(labels,new LinearLayout.LayoutParams(0,-2,1));
+            Switch toggle=new Switch(this);
+            toggle.setChecked(prefs.getBoolean(key,defaultValue));
+            toggle.setOnCheckedChangeListener((v,on)->prefs.edit().putBoolean(key,on).apply());
+            row.addView(toggle);
+            LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);
+            p.setMargins(0,0,0,dp(8));content.addView(row,p);
+            return;
+        }
+        LinearLayout r=new LinearLayout(this);r.setGravity(Gravity.CENTER_VERTICAL);LinearLayout labels=new LinearLayout(this);labels.setOrientation(LinearLayout.VERTICAL);TextView t=text(title,15,true);t.setPadding(0,0,0,0);labels.addView(t);TextView sub=text(subtitle,11,false);sub.setTextColor(MUTED);sub.setPadding(0,dp(2),0,0);labels.addView(sub);r.addView(labels,new LinearLayout.LayoutParams(0,-2,1));Switch toggle=new Switch(this);toggle.setChecked(prefs.getBoolean(key,defaultValue));toggle.setOnCheckedChangeListener((buttonView,isChecked)->prefs.edit().putBoolean(key,isChecked).apply());r.addView(toggle);card(r);}
 
     private void showPrivacyAndData(){
         rememberScreen("privacy_data",null);setCurrentScreen(this::showPrivacyAndData);shell("Конфиденциальность и данные",false);
-        heroBanner("Ваши данные","GitHubble хранит данные локально и не получает пароль GitHub",R.drawable.ic_settings);
+        settingsPanelHeader("Ваши данные","Локальные данные и конфиденциальность",R.drawable.ic_lock);
         LinearLayout summary=new LinearLayout(this);summary.setOrientation(LinearLayout.VERTICAL);
         addProfileDetail(summary,"OAuth-токен",isSignedIn()?"Зашифрован Android Keystore":"Не сохранён");
         addProfileDetail(summary,"Кэш GitHub",entityCache.count()+" объектов");
@@ -3653,11 +3750,38 @@ public class MainActivity extends Activity {
     private String themeDisplayName(){ return "beige".equals(activeTheme)?"Бежевая":"dark".equals(activeTheme)?"Тёмная":"Светлая"; }
 
     private void showThemeChooser(){
-        String[] names={"Светлая · белая и ярко-зелёная","Бежевая · тёплая и зелёная","Тёмная · графитовая и зелёная"};
-        int checked="beige".equals(activeTheme)?1:"dark".equals(activeTheme)?2:0;
-        new AlertDialog.Builder(this).setTitle("Оформление GitHubble").setSingleChoiceItems(names,checked,(d,which)->{
-            String theme=which==1?"beige":which==2?"dark":"light"; prefs.edit().putString("theme",theme).apply(); switchLauncherIcon(theme); d.dismiss(); applyTheme(); showSettings();
-        }).setNegativeButton("Отмена",null).show();
+        setCurrentScreen(this::showThemeChooser);shell("Оформление",false);
+        settingsPanelHeader("Тема оформления","Выберите цветовую схему GitHubble",R.drawable.ic_tools);
+        String[] ids={"light","beige","dark"};
+        String[] titles={"Светлая","Бежевая","Тёмная"};
+        String[] descriptions={"Белая и зелёная","Тёплая, бежевая и зелёная","Графитовая и зелёная"};
+        for(int i=0;i<ids.length;i++){
+            final String theme=ids[i];
+            nestedSettingsRow(titles[i]+(theme.equals(activeTheme)?"  ✓":""),
+                    descriptions[i],R.drawable.ic_tools,theme.equals(activeTheme)?GREEN:0xFF7D6E9F,()->{
+                        prefs.edit().putString("theme",theme).apply();
+                        switchLauncherIcon(theme);
+                        applyTheme();
+                        showThemeChooser();
+                    });
+        }
+    }
+
+    private void showCardSizeChooser(){
+        setCurrentScreen(this::showCardSizeChooser);shell("Размер карточек",false);
+        settingsPanelHeader("Размер карточек",
+                "Влияет на плитки и рекомендации главной страницы",R.drawable.ic_tools);
+        String density=prefs.getString("ui_card_density","compact");
+        nestedSettingsRow("Компактный"+("compact".equals(density)?"  ✓":""),
+                "Больше информации на одном экране",R.drawable.ic_repository,GREEN,()->{
+                    prefs.edit().putString("ui_card_density","compact").apply();showCardSizeChooser();
+                });
+        nestedSettingsRow("Свободный"+("spacious".equals(density)?"  ✓":""),
+                "Увеличенные плитки и карточки рекомендаций",R.drawable.ic_repository,GREEN,()->{
+                    prefs.edit().putString("ui_card_density","spacious").apply();showCardSizeChooser();
+                });
+        TextView hint=text("Изменение применяется при следующем открытии главной страницы.",11,false);
+        hint.setTextColor(MUTED);card(hint);
     }
 
     private ComponentName launcherAliasComponent(String suffix){
