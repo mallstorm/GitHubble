@@ -122,6 +122,12 @@ public final class BuildMonitor {
         return "githubble-build-"+login.trim().toLowerCase(Locale.ROOT)+"-"+repo;
     }
 
+    /** PR checks are visible in Actions history but are not installable updates. */
+    public static boolean isReviewCheck(String workflowEvent){
+        return "pull_request".equals(workflowEvent)
+                || "pull_request_target".equals(workflowEvent);
+    }
+
     private static boolean canNotify(Context context){
         if(!prefs(context).getBoolean("build_notifications",true))return false;
         if(Build.VERSION.SDK_INT>=33&&context.checkSelfPermission(
@@ -205,6 +211,7 @@ public final class BuildMonitor {
                 if(id<=0)continue;
                 String status=original.optString("status","");
                 String conclusion=original.optString("conclusion","");
+                String workflowEvent=original.optString("event","");
                 JSONArray artifacts=new JSONArray();
                 // GitHub publishes artifacts after a run; inspect its latest completed runs.
                 if("completed".equals(status)&&i<8){
@@ -233,6 +240,7 @@ public final class BuildMonitor {
                 row.put("status",status);
                 row.put("conclusion",conclusion);
                 row.put("head_sha",original.optString("head_sha",""));
+                row.put("event",workflowEvent);
                 row.put("head_branch",original.optString("head_branch",""));
                 row.put("created_at",original.optString("created_at",""));
                 row.put("run_started_at",original.optString("run_started_at",""));
@@ -243,7 +251,7 @@ public final class BuildMonitor {
                 String marker=status+":"+conclusion+":"+artifactIds(artifacts);
                 String key=Long.toString(id);
                 now.put(key,marker);
-                if(initialized&&emitNotifications){
+                if(initialized&&emitNotifications&&!isReviewCheck(workflowEvent)){
                     String old=previous.optString(key,"");
                     if(!marker.equals(old)){
                         boolean ready=artifacts.length()>0&&
@@ -267,9 +275,16 @@ public final class BuildMonitor {
                 notification(context,newestChangedRun,newestChangedReady);
                 changes++;
             }
-            // Monitoring retains ALL runs; auto-download has a separate, per-repo
-            // baseline and considers only the newest successful run on this scan.
-            autoDownloadLatest(context,repo,rows,prefix);
+            // Keep PR checks in history while selecting automatic downloads ONLY
+            // from real build runs. A successful PR check has no installable APK
+            // and must not hide the latest main-branch release.
+            JSONArray installableRuns=new JSONArray();
+            for(int i=0;i<rows.length();i++){
+                JSONObject candidate=rows.optJSONObject(i);
+                if(candidate!=null&&!isReviewCheck(candidate.optString("event","")))
+                    installableRuns.put(candidate);
+            }
+            autoDownloadLatest(context,repo,installableRuns,prefix);
             prefs(context).edit().putString(rowsKey,rows.toString())
                     .putString(stateKey,now.toString()).remove(prefix+"error_"+repo)
                     .putLong(prefix+"last_check",System.currentTimeMillis()).apply();

@@ -1,7 +1,9 @@
-name: GitHubble Android CI and Release
+name: GitHubble Android checks and release
 
-# Only a completed batch on main starts an automatic APK build.
-# Backup and working branches must not create installable intermediates.
+# Pull requests run compilation, lint and emulator tests, but publish NO APKs.
+# A completed, reviewed PR is squash-merged into main. Only that push
+# publishes the installable APK and source archive. Working/backup branches
+# never publish installable intermediate builds.
 on:
   workflow_dispatch:
   push:
@@ -9,13 +11,14 @@ on:
   pull_request:
     branches: [main]
 
-# If main advances during an already-running build, keep only the newest run.
+# Only the newest attempt for the same PR or branch is retained.
 concurrency:
   group: githubble-android-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   build:
+    name: Android checks
     runs-on: ubuntu-latest
     timeout-minutes: 35
     env:
@@ -116,6 +119,7 @@ jobs:
           echo "Signed release not produced: configure the persistent GitHub release-signing secrets." > dist/SIGNING_INFO.txt
 
       - name: Export APKs and exact main source tree
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         shell: bash
         run: |
           set -euo pipefail
@@ -129,6 +133,7 @@ jobs:
           printf '%s\n' "$(git rev-parse HEAD)" > dist/SOURCE_COMMIT.txt
 
       - uses: actions/upload-artifact@v4
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         with:
           name: githubble-${{ steps.version.outputs.name }}-${{ github.sha }}
           path: dist/*

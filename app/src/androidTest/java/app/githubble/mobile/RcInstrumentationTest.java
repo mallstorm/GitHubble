@@ -56,6 +56,7 @@ public final class RcInstrumentationTest extends Instrumentation {
             testRepositoryImportPathSafety();
             testBuildAutoDownloadPolicy();
             testRc41StabilizationPolicies();
+            testPrOnlyChecksNotRelease();
             testRc42UiNavigation();
             testRepositoryActivityRanking(context);
             testPrivateCommitCard();
@@ -200,6 +201,14 @@ public final class RcInstrumentationTest extends Instrumentation {
         eq("https://github.com/owner/private-repo/commit/"+sha,event.optString("commit_url"));
         yes(RepositoryActivityFeed.parseCommit("owner/private-repo",
                 new JSONObject().put("sha","bad"))==null);
+    }
+
+    /** A review CI run must not produce an installable-build notification. */
+    private static void testPrOnlyChecksNotRelease() {
+        yes(BuildMonitor.isReviewCheck("pull_request"));
+        yes(BuildMonitor.isReviewCheck("pull_request_target"));
+        no(BuildMonitor.isReviewCheck("push"));
+        no(BuildMonitor.isReviewCheck("workflow_dispatch"));
     }
 
     private static void testDeviceCodeNormalization() {
