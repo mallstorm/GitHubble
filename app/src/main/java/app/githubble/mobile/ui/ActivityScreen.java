@@ -27,6 +27,7 @@ public final class ActivityScreen {
         void openEvent(JSONObject event);
         void refresh();
         void openGitHubNotifications();
+        void openBuilds();
     }
 
     private final Activity activity;
@@ -40,7 +41,7 @@ public final class ActivityScreen {
     private TextView status;
     private String selected="Все";
     private List<JSONObject> feed = new ArrayList<>();
-    private static final String[] FILTERS={"Все","Репозитории","PR","Issues","Обсуждения"};
+    private static final String[] FILTERS={"Все","Репозитории","PR","Issues","Обсуждения","Сборки"};
 
     public ActivityScreen(Activity activity, LinearLayout content, Actions actions,
                           int card,int textColor,int muted,int green,int border,int subtle,boolean dark) {
@@ -118,6 +119,7 @@ public final class ActivityScreen {
             chip.setPadding(dp(12),0,dp(12),0);
             chip.setBackground(round(active?green:card,14,active?green:border,active?0:1));
             chip.setOnClickListener(v->{
+                if("Сборки".equals(filter)){actions.openBuilds();return;}
                 selected=filter;
                 buildFilters();
                 drawTimeline();

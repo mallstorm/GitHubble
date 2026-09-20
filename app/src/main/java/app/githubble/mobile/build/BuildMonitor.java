@@ -215,6 +215,9 @@ public final class BuildMonitor {
                 String marker=status+":"+conclusion+":"+artifactIds(artifacts);
                 String key=Long.toString(id);
                 now.put(key,marker);
+                if(emitNotifications&&"completed".equals(status)&&artifacts.length()>0&&
+                        prefs(context).getBoolean("build_auto_apk",false))
+                    archiveNewApks(context,repo,artifacts,prefix);
                 if(initialized&&emitNotifications){
                     String old=previous.optString(key,"");
                     if(!marker.equals(old)){
@@ -226,6 +229,7 @@ public final class BuildMonitor {
                         if(ready||justFinished||(old.isEmpty()&&!"completed".equals(status))){
                             notification(context,row,ready);
                             changes++;
+
                         }
                     }
                 }
@@ -235,6 +239,27 @@ public final class BuildMonitor {
                     .putLong(prefix+"last_check",System.currentTimeMillis()).apply();
         }
         return changes;
+    }
+    private static void archiveNewApks(Context context,String repo,JSONArray artifacts,String prefix){
+        for(int i=0;i<artifacts.length();i++){
+            JSONObject artifact=artifacts.optJSONObject(i);
+            if(artifact==null)continue;
+            String name=artifact.optString("name","").toLowerCase(Locale.ROOT);
+            if(!(name.contains("apk")||name.contains("android")||name.contains("githubble")))continue;
+            long id=artifact.optLong("id",0L);
+            long size=artifact.optLong("size_in_bytes",0L);
+            if(id<=0||size<=0||size>150L*1024L*1024L)continue;
+            String key=prefix+"auto_artifact_"+id;
+            if(prefs(context).getBoolean(key,false))continue;
+            try{
+                BuildArtifactDownloads.enqueue(context,repo,artifact,true);
+                prefs(context).edit().putBoolean(key,true).apply();
+            }catch(Exception failure){
+                prefs(context).edit().putString(prefix+"auto_error",
+                        failure.getMessage()==null?"Ошибка автоматической загрузки":
+                        failure.getMessage()).apply();
+            }
+        }
     }
     private static JSONArray oldArtifacts(Context context,String key,long runId){
         try{

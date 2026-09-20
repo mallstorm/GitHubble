@@ -861,6 +861,7 @@ public class MainActivity extends Activity {
             @Override public void openGitHubNotifications(){
                 openWeb("https://github.com/notifications");
             }
+            @Override public void openBuilds(){navigate(MainActivity.this::showBuildCenter);}
         };
     }
 
@@ -1331,7 +1332,11 @@ public class MainActivity extends Activity {
         settingsActionRow("Добавить по имени","В формате владелец/репозиторий",
                 this::addBuildRepository);
         settingsToggleRow("Уведомления о сборках",
-                "Готовность артефактов и ошибки Actions","build_notifications",true);
+                "Новые запуски, результаты Actions и готовые артефакты",
+                "build_notifications",true);
+        settingsToggleRow("Автосохранение APK · только Wi-Fi",
+                "Скачивать новые Android-артефакты до 150 МБ в Загрузки/GitHubble",
+                "build_auto_apk",false);
         settingsActionRow("Центр сборок","Посмотреть запуски и скачать APK",
                 ()->navigate(this::showBuildCenter));
         TextView hint=text("Первое сканирование создаёт исходную точку: старые сборки не вызывают "+
@@ -4003,7 +4008,7 @@ public class MainActivity extends Activity {
         return "Аккаунт и доступ".equals(currentTitle)||"Интерфейс".equals(currentTitle)
             ||"Уведомления".equals(currentTitle)||"Данные и синхронизация".equals(currentTitle)
             ||"Безопасность".equals(currentTitle)||"О приложении".equals(currentTitle)
-            ||"Настройки наблюдения".equals(currentTitle)||"Оформление".equals(currentTitle)||"Размер карточек".equals(currentTitle)
+            ||"Настройки наблюдения".equals(currentTitle)||"Мониторинг сборок".equals(currentTitle)||"Оформление".equals(currentTitle)||"Размер карточек".equals(currentTitle)
             ||"Конфиденциальность и данные".equals(currentTitle)||"Резервная копия".equals(currentTitle);
     }
 

@@ -1,6 +1,7 @@
 package app.githubble.mobile.build;
 
 import android.app.DownloadManager;
+import android.net.ConnectivityManager;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.net.Uri;
@@ -20,9 +21,21 @@ public final class BuildArtifactDownloads {
         return cleaned.isEmpty()?"artifact":cleaned;
     }
     public static long enqueue(Context context,String repo,JSONObject artifact)throws Exception {
+        return enqueue(context,repo,artifact,false);
+    }
+    public static long enqueue(Context context,String repo,JSONObject artifact,
+                               boolean automatic)throws Exception {
         long id=artifact.optLong("id",0);
         if(id<=0||repo==null||!repo.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+"))
             throw new IllegalArgumentException("Некорректный артефакт GitHub");
+        if(automatic){
+            ConnectivityManager connectivity=(ConnectivityManager)context.getSystemService(
+                    Context.CONNECTIVITY_SERVICE);
+            if(connectivity==null||connectivity.getActiveNetworkInfo()==null||
+                    !connectivity.getActiveNetworkInfo().isConnected()||
+                    connectivity.isActiveNetworkMetered())
+                throw new IllegalStateException("Автосохранение ожидает Wi-Fi или другую безлимитную сеть");
+        }
         if(artifact.optBoolean("expired",false))throw new IllegalStateException(
                 "Срок хранения артефакта истёк");
         String token=new SecureStore(context).get("github_token");
@@ -60,7 +73,7 @@ public final class BuildArtifactDownloads {
         request.setMimeType("application/zip");
         request.setNotificationVisibility(
                 DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
-        request.setAllowedOverMetered(true);
+        request.setAllowedOverMetered(!automatic);
         request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS,
                 "GitHubble/"+local);
         DownloadManager dm=(DownloadManager)context.getSystemService(Context.DOWNLOAD_SERVICE);
