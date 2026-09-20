@@ -95,6 +95,7 @@ public class MainActivity extends Activity {
     private RepositoryAccessController repositoryAccess;
     private RepositoryStore repositoryStore;
     private boolean repositoriesPrivateOnly = false;
+    private boolean repositoriesPublicOnly = false;
     private AccountOperationsController accountOperations;
     private ProfileController profileController;
     private TranslationController translationController;
@@ -355,7 +356,6 @@ public class MainActivity extends Activity {
         addNav(nav, R.drawable.ic_repository, "Репозитории", "Репозитории".equals(currentTitle), () -> openRoot(this::showMyRepositories));
         addNav(nav, R.drawable.ic_search, "Поиск", "Поиск".equals(currentTitle), () -> openRoot(this::showSearch));
         addNav(nav, R.drawable.ic_bell, "Активность", "Активность".equals(currentTitle), () -> openRoot(this::showNotifications));
-        addNav(nav, R.drawable.ic_profile, "Профиль", "Профиль".equals(currentTitle), () -> openRoot(this::showProfile));
         return nav;
     }
 
@@ -938,7 +938,6 @@ public class MainActivity extends Activity {
     private void showMyRepositories(boolean forceNetwork){
         setCurrentScreen(this::showMyRepositories);
         shell("Репозитории",true);
-        heroBanner("Мои репозитории","Синхронизация через установку GitHub App GiHubble",R.drawable.ic_repository);
         if(!isSignedIn()){
             accountRequiredCard("Войдите, чтобы увидеть доступные вашему аккаунту репозитории.");
             return;
@@ -947,32 +946,39 @@ public class MainActivity extends Activity {
         final String accountId=currentAccountId();
         repositoryStore.migrateLegacy(accountId);
 
+        sectionTitle("Мои репозитории",null);
         LinearLayout visibilityFilters = new LinearLayout(this);
         Button allRepositories=button("Все");
         Button privateRepositories=button("Приватные");
-        allRepositories.setEnabled(repositoriesPrivateOnly);
+        Button publicRepositories=button("Публичные");
+        allRepositories.setEnabled(repositoriesPrivateOnly || repositoriesPublicOnly);
         privateRepositories.setEnabled(!repositoriesPrivateOnly);
-        allRepositories.setOnClickListener(v->{repositoriesPrivateOnly=false;showMyRepositories(false);});
-        privateRepositories.setOnClickListener(v->{repositoriesPrivateOnly=true;showMyRepositories(false);});
+        publicRepositories.setEnabled(!repositoriesPublicOnly);
+        allRepositories.setOnClickListener(v->{repositoriesPrivateOnly=false;repositoriesPublicOnly=false;showMyRepositories(false);});
+        privateRepositories.setOnClickListener(v->{repositoriesPrivateOnly=true;repositoriesPublicOnly=false;showMyRepositories(false);});
+        publicRepositories.setOnClickListener(v->{repositoriesPrivateOnly=false;repositoriesPublicOnly=true;showMyRepositories(false);});
         visibilityFilters.addView(allRepositories,new LinearLayout.LayoutParams(0,dp(46),1));
-        LinearLayout.LayoutParams fp=new LinearLayout.LayoutParams(0,dp(46),1);fp.setMargins(dp(8),0,0,0);
+        LinearLayout.LayoutParams fp=new LinearLayout.LayoutParams(0,dp(46),1);fp.setMargins(dp(6),0,0,0);
         visibilityFilters.addView(privateRepositories,fp);
+        LinearLayout.LayoutParams pp=new LinearLayout.LayoutParams(0,dp(46),1);pp.setMargins(dp(6),0,0,0);
+        visibilityFilters.addView(publicRepositories,pp);
         content.addView(visibilityFilters);
 
-        Button refresh=button(forceNetwork?"Обновление…":"Обновить репозитории");
-        refresh.setEnabled(!forceNetwork);
-        refresh.setOnClickListener(v->showMyRepositories(true));
-        content.addView(refresh,new LinearLayout.LayoutParams(-1,dp(50)));
+        LinearLayout tools=new LinearLayout(this);
+        Button refresh=button(forceNetwork?"Обновление…":"Обновить");
+        refresh.setEnabled(!forceNetwork); refresh.setOnClickListener(v->showMyRepositories(true));
+        tools.addView(refresh,new LinearLayout.LayoutParams(0,dp(48),1));
+        Button create=button("Создать"); create.setOnClickListener(v->showCreateRepositoryDialog());
+        LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(0,dp(48),1);cp.setMargins(dp(6),0,0,0);
+        tools.addView(create,cp); content.addView(tools);
 
-        Button create=button("Создать репозиторий");
-        create.setOnClickListener(v->showCreateRepositoryDialog());
-        LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,dp(50));cp.setMargins(0,dp(7),0,0);
-        content.addView(create,cp);
-
-        Button privateAccess=button("Настроить доступ GiHubble");
-        privateAccess.setOnClickListener(v->openPrivateRepositoryAccess());
-        LinearLayout.LayoutParams pap=new LinearLayout.LayoutParams(-1,dp(50));pap.setMargins(0,dp(7),0,0);
-        content.addView(privateAccess,pap);
+        RepositoryStore.Snapshot saved=repositoryStore.read(accountId);
+        if(saved.hasData()){
+            sectionTitle("Доступные · "+saved.repositories.length(),null);
+            renderRepositoryItems(saved.repositories);
+            TextView status=text("Последняя синхронизация: "+formatEpoch(saved.lastSyncedAt),11,false);
+            status.setTextColor(MUTED);status.setGravity(Gravity.CENTER);status.setPadding(0,0,0,dp(8));content.addView(status);
+        }
 
         ProgressBar pb=new ProgressBar(this);
         content.addView(pb);
@@ -987,10 +993,15 @@ public class MainActivity extends Activity {
                 runOnUiThread(() -> {
                     if(generation!=screenGeneration.get() || !accountId.equals(currentAccountId()))return;
                     content.removeView(pb);
-                    renderRepositoryAccessSummary(result);
-                    sectionTitle("Доступные репозитории · "+snapshot.repositories.length(),null);
-                    if(snapshot.invalid>0) errorCard("Некорректные карточки", "GitHub вернул "+snapshot.invalid+" записей без full_name; они не скрыты бесследно и отмечены в диагностике.");
-                    renderRepositoryItems(snapshot.repositories);
+                    if(!saved.hasData()){
+                        sectionTitle("Доступные · "+snapshot.repositories.length(),null);
+                        renderRepositoryItems(snapshot.repositories);
+                    } else if(snapshot.repositories.length()!=saved.repositories.length()){
+                        showMyRepositories(false);
+                        return;
+                    }
+                    if(snapshot.invalid>0) errorCard("Часть данных GitHub не распознана", "В диагностике отмечено "+snapshot.invalid+" записей без имени.");
+                    if(!result.hasInstallations() && snapshot.repositories.length()==0) repositoryAccessHelp();
                 });
             }catch(Exception e){
                 RepositoryStore.Snapshot snapshot=repositoryStore.saveError(accountId,e);
@@ -1006,6 +1017,13 @@ public class MainActivity extends Activity {
                 });
             }
         });
+    }
+
+    private void repositoryAccessHelp(){
+        TextView note=text("Доступных репозиториев пока нет. Проверьте установку GiHubble и доступ к нужным private-репозиториям.",13,false);
+        note.setTextColor(MUTED);card(note);
+        Button access=button("Настроить доступ");access.setOnClickListener(v->openPrivateRepositoryAccess());
+        content.addView(access,new LinearLayout.LayoutParams(-1,dp(48)));
     }
 
     private void renderRepositoryAccessSummary(RepositoryAccessController.SyncResult result){
@@ -1066,10 +1084,10 @@ public class MainActivity extends Activity {
         int shown=0;
         for(int i=0;i<repos.length();i++){
             JSONObject repository=repos.optJSONObject(i);
-            if(repository==null || (repositoriesPrivateOnly && !repository.optBoolean("private",false)))continue;
+            if(repository==null || (repositoriesPrivateOnly && !repository.optBoolean("private",false)) || (repositoriesPublicOnly && repository.optBoolean("private",false)))continue;
             try{addRepoCard(repository);shown++;}catch(Exception error){TextView invalid=text("Не удалось показать карточку: "+repository.optString("full_name","без имени"),12,false);invalid.setTextColor(MUTED);card(invalid);}
         }
-        if(shown==0)card(text(repositoriesPrivateOnly?"Приватные репозитории не найдены среди доступных GiHubble проектов. Проверьте разрешения GitHub App.":"Репозитории не найдены или приложение GiHubble не установлено для нужных репозиториев.",14,false));
+        if(shown==0)card(text(repositoriesPrivateOnly?"Приватные репозитории не найдены среди доступных проектов.":repositoriesPublicOnly?"Публичные репозитории не найдены среди доступных проектов.":"Репозитории не найдены.",14,false));
     }
 
     private void showOrganizations(){showOrganizationsPage(1,true);}
@@ -2432,12 +2450,36 @@ public class MainActivity extends Activity {
         String bio=cleanNullable(profile.optString("bio",""));if(!bio.isEmpty()){TextView b=text(bio,14,false);b.setGravity(Gravity.CENTER);b.setTextColor(MUTED);b.setPadding(dp(8),dp(8),dp(8),0);hero.addView(b);}card(hero);
         if(!bio.isEmpty()&&LanguageDetector.needsRussianTranslation(bio))addTranslatableMarkdownCard("profile-bio:"+login,bio,profile.optString("updated_at",""));
 
+        RepositoryStore.Snapshot repositorySnapshot=repositoryStore.read(currentAccountId());
+        int accessible=repositorySnapshot.hasData()?repositorySnapshot.repositories.length():profile.optInt("public_repos",0);
+        int privateCount=0;
+        for(int i=0;i<repositorySnapshot.repositories.length();i++){
+            JSONObject repository=repositorySnapshot.repositories.optJSONObject(i);
+            if(repository!=null && repository.optBoolean("private",false))privateCount++;
+        }
+        int publicCount=repositorySnapshot.hasData()?Math.max(0,accessible-privateCount):profile.optInt("public_repos",0);
         GridLayout stats=new GridLayout(this);stats.setColumnCount(adaptiveColumns(4));
-        addProfileStat(stats,String.valueOf(profile.optInt("public_repos",0)),"Репозитории",this::showMyRepositories);
+        addProfileStat(stats,String.valueOf(accessible),"Доступные",this::showMyRepositories);
+        addProfileStat(stats,String.valueOf(privateCount),"Приватные",() -> {repositoriesPrivateOnly=true;repositoriesPublicOnly=false;showMyRepositories(false);});
+        addProfileStat(stats,String.valueOf(publicCount),"Публичные",() -> {repositoriesPrivateOnly=false;repositoriesPublicOnly=true;showMyRepositories(false);});
         addProfileStat(stats,String.valueOf(profile.optInt("followers",0)),"Подписчики",() -> showPeopleList("Подписчики","https://api.github.com/user/followers"));
-        addProfileStat(stats,String.valueOf(profile.optInt("following",0)),"Подписки",() -> showPeopleList("Подписки","https://api.github.com/user/following"));
-        addProfileStat(stats,String.valueOf(profile.optInt("public_gists",0)),"Gists",() -> openWeb("https://gist.github.com/"+login));
         content.addView(stats,new LinearLayout.LayoutParams(-1,-2));
+
+        if(repositorySnapshot.hasData()){
+            sectionTitle("Ваши репозитории", "Все");
+            int previewCount=Math.min(3,repositorySnapshot.repositories.length());
+            for(int i=0;i<previewCount;i++){
+                JSONObject repository=repositorySnapshot.repositories.optJSONObject(i);
+                if(repository==null)continue;
+                try{addRepoCard(repository);}catch(Exception ignored){}
+            }
+            Button all=button("Открыть все репозитории · "+accessible);
+            all.setOnClickListener(v->navigate(this::showMyRepositories));
+            content.addView(all,new LinearLayout.LayoutParams(-1,dp(48)));
+        } else {
+            TextView syncing=text("Список репозиториев появится здесь после первой синхронизации.",12,false);
+            syncing.setTextColor(MUTED);syncing.setGravity(Gravity.CENTER);syncing.setPadding(0,dp(10),0,dp(8));content.addView(syncing);
+        }
 
         LinearLayout details=new LinearLayout(this);details.setOrientation(LinearLayout.VERTICAL);
         addProfileDetail(details,"Компания",cleanNullable(profile.optString("company","")));
@@ -2446,8 +2488,9 @@ public class MainActivity extends Activity {
         addProfileDetail(details,"Сайт",cleanNullable(profile.optString("blog","")));
         addProfileDetail(details,"На GitHub с",formatGitHubDate(profile.optString("created_at","")));
         addProfileDetail(details,"Обновлён",formatGitHubDate(profile.optString("updated_at","")));
-        card(details);
+        if(details.getChildCount()>0){sectionTitle("О профиле",null);card(details);}
 
+        sectionTitle("Управление аккаунтом",null);
         GridLayout actions=new GridLayout(this);actions.setColumnCount(adaptiveColumns(2));
         addAction(actions,"Репозитории",() -> navigate(this::showMyRepositories));
         addAction(actions,"Организации",() -> navigate(this::showOrganizations));
@@ -2472,7 +2515,18 @@ public class MainActivity extends Activity {
 
     private void refreshProfileData(boolean userInitiated){
         if(!isSignedIn()||!profileRefreshInFlight.compareAndSet(false,true))return;
-        io.execute(() -> {try{JSONObject user=profileController.current();cacheGitHubProfile(user);downloadAvatar(user.optString("avatar_url",""));runOnUiThread(() -> {profileRefreshInFlight.set(false);if(userInitiated)toast("Профиль обновлён");if("Профиль".equals(currentTitle))renderProfilePage(false);else if(currentScreen!=null)currentScreen.run();});}catch(Exception e){runOnUiThread(() -> {profileRefreshInFlight.set(false);if(userInitiated)toast("Не удалось обновить профиль: "+e.getMessage());});}});
+        io.execute(() -> {try{
+            JSONObject user=profileController.current();
+            cacheGitHubProfile(user);
+            downloadAvatar(user.optString("avatar_url",""));
+            try{
+                RepositoryAccessController.SyncResult result=repositoryAccess.sync(false);
+                repositoryStore.saveSuccess(currentAccountId(),result.repositories);
+            }catch(Exception ignored){
+                // The profile remains useful when repository access is temporarily unavailable.
+            }
+            runOnUiThread(() -> {profileRefreshInFlight.set(false);if(userInitiated)toast("Профиль и репозитории обновлены");if("Профиль".equals(currentTitle))renderProfilePage(false);else if(currentScreen!=null)currentScreen.run();});
+        }catch(Exception e){runOnUiThread(() -> {profileRefreshInFlight.set(false);if(userInitiated)toast("Не удалось обновить профиль: "+e.getMessage());});}});
     }
 
     private void cacheGitHubProfile(JSONObject user){prefs.edit().putString("github_profile_json",user.toString()).putString("github_avatar_url",user.optString("avatar_url","")).apply();secureStore.put("github_login",user.optString("login",""));secureStore.put("github_name",cleanNullable(user.optString("name","")));}
