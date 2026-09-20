@@ -4,6 +4,9 @@ import android.app.Activity;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.text.TextUtils;
+import android.os.Handler;
+import android.os.Looper;
+import android.view.MotionEvent;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.FrameLayout;
@@ -38,6 +41,7 @@ public final class HomeScreen {
         void openActivity();
         void openExplore();
         void openAllSections();
+        boolean toggleRecommendedFavorite(String fullName);
         void openActivityItem(String repo, String kind, int number);
         void refreshDashboard();
     }
@@ -70,6 +74,17 @@ public final class HomeScreen {
         }
     }
 
+    public static final class RecommendationPreview {
+        public final String fullName;
+        public final long stars;
+        public final boolean favorite;
+        public RecommendationPreview(String fullName, long stars, boolean favorite) {
+            this.fullName = fullName;
+            this.stars = stars;
+            this.favorite = favorite;
+        }
+    }
+
     public static final class DashboardData {
         public final int issues;
         public final int pullRequests;
@@ -82,10 +97,12 @@ public final class HomeScreen {
         public final List<ActivityPreview> recentActivity;
         public final String login;
         public final long syncedAt;
+        public final List<RecommendationPreview> recommendations;
         public DashboardData(int issues, int pullRequests, int repositories, int notifications,
                              int trackedDevelopers, int trackedRepositories, int trackingUnread,
                              List<RepoPreview> recentRepositories, List<ActivityPreview> recentActivity,
-                             String login, long syncedAt) {
+                             String login, long syncedAt,
+                             List<RecommendationPreview> recommendations) {
             this.issues = issues;
             this.pullRequests = pullRequests;
             this.repositories = repositories;
@@ -97,6 +114,11 @@ public final class HomeScreen {
             this.recentActivity = recentActivity == null ? Collections.emptyList() : recentActivity;
             this.login = login == null ? "" : login;
             this.syncedAt = syncedAt;
+            this.recommendations = recommendations == null ? Collections.emptyList() : recommendations;
+        }
+        public RecommendationPreview recommendation(String fullName) {
+            for (RecommendationPreview item : recommendations) if (item.fullName.equals(fullName)) return item;
+            return new RecommendationPreview(fullName, -1L, false);
         }
     }
 
@@ -141,7 +163,7 @@ public final class HomeScreen {
         this.actions = actions;
         this.data = data == null
                 ? new DashboardData(-1,-1,-1,-1,0,0,0,Collections.emptyList(),
-                                    Collections.emptyList(),"",0) : data;
+                                    Collections.emptyList(),"",0,Collections.emptyList()) : data;
     }
 
     public void render() {
@@ -197,10 +219,6 @@ public final class HomeScreen {
         brandText.addView(tagline);
         header.addView(brandText, new LinearLayout.LayoutParams(0, -2, 1));
 
-        FrameLayout search = headerAction(R.drawable.ic_search, "Поиск");
-        search.setOnClickListener(v -> actions.openSearch());
-        header.addView(search, new LinearLayout.LayoutParams(dp(38), dp(48)));
-
         FrameLayout bell = headerAction(R.drawable.ic_bell, "Уведомления");
         if (signedIn && data.notifications > 0) {
             TextView badge = text(data.notifications > 99 ? "99+" : String.valueOf(data.notifications), 9, true);
@@ -224,41 +242,32 @@ public final class HomeScreen {
         FrameLayout.LayoutParams headerLp = new FrameLayout.LayoutParams(-1, dp(56), Gravity.TOP);
         hero.addView(header, headerLp);
 
-        TextView status = text(syncText(), 10, true);
-        status.setTextColor(0xFF176C39);
-        status.setPadding(dp(8), dp(4), dp(8), dp(4));
-        status.setGravity(Gravity.CENTER);
-        status.setBackground(round(0xF7FFFFFF, 13, 0, 0));
-        status.setOnClickListener(v -> { if (!signedIn) actions.openProfile(); else actions.refreshDashboard(); });
-        FrameLayout.LayoutParams statusP = new FrameLayout.LayoutParams(-2, dp(30), Gravity.END | Gravity.TOP);
-        statusP.setMargins(0, dp(62), dp(10), 0);
-        hero.addView(status, statusP);
-
         TextView greeting = text(daypart() + (signedIn && !data.login.isEmpty()
-                ? ",\n" + data.login + "!" : "!"), 20, true);
+                ? ",\n" + data.login + "!" : "!"), 17, true);
         greeting.setTextColor(Color.WHITE);
         greeting.setMaxLines(2);
         greeting.setEllipsize(TextUtils.TruncateAt.END);
         FrameLayout.LayoutParams greetingLp = new FrameLayout.LayoutParams(-1, -2, Gravity.TOP);
-        greetingLp.setMargins(dp(16), dp(103), dp(143), 0);
+        greetingLp.setMargins(dp(16), dp(54), dp(114), 0);
         hero.addView(greeting, greetingLp);
 
         TextView subtitle = text("Развивайте свои идеи.\nКод. Проекты. Сообщество.", 11, false);
         subtitle.setTextColor(Color.WHITE);
         subtitle.setMaxLines(2);
         FrameLayout.LayoutParams subtitleLp = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM);
-        subtitleLp.setMargins(dp(16), 0, dp(140), dp(12));
+        subtitleLp.setMargins(dp(16), 0, dp(129), dp(13));
         hero.addView(subtitle, subtitleLp);
 
         TextView quote = text("«Большие проекты\nначинаются с одной идеи»", 9, false);
         quote.setTextColor(Color.WHITE);
         quote.setPadding(dp(7), dp(7), dp(7), dp(7));
         quote.setBackground(round(0xB523383B, 10, 0x55FFFFFF, 1));
-        FrameLayout.LayoutParams quoteLp = new FrameLayout.LayoutParams(dp(130), -2, Gravity.END | Gravity.BOTTOM);
-        quoteLp.setMargins(0, 0, dp(9), dp(11));
+        FrameLayout.LayoutParams quoteLp = new FrameLayout.LayoutParams(dp(112), -2, Gravity.END | Gravity.BOTTOM);
+        quoteLp.setMargins(0, 0, dp(8), dp(13));
         hero.addView(quote, quoteLp);
 
-        LinearLayout.LayoutParams heroLp = new LinearLayout.LayoutParams(-1, dp(215));
+        installHeroCarousel(hero, landscape);
+        LinearLayout.LayoutParams heroLp = new LinearLayout.LayoutParams(-1, dp(145));
         heroLp.setMargins(0, 0, 0, dp(7));
         content.addView(hero, heroLp);
     }
@@ -273,20 +282,94 @@ public final class HomeScreen {
         return target;
     }
 
+
+    private static int retainedBannerIndex = 0;
+    private static final int[] HERO_IMAGES = {
+            R.drawable.home_hero, R.drawable.home_hero_mist,
+            R.drawable.home_hero_night, R.drawable.home_hero_golden
+    };
+
+    private void installHeroCarousel(FrameLayout hero, ImageView landscape) {
+        LinearLayout dots = new LinearLayout(activity);
+        dots.setGravity(Gravity.CENTER);
+        FrameLayout.LayoutParams dotParams = new FrameLayout.LayoutParams(-2, dp(7),
+                Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+        dotParams.setMargins(0, 0, 0, dp(3));
+        hero.addView(dots, dotParams);
+        final int[] selected = {retainedBannerIndex % HERO_IMAGES.length};
+        final Runnable updateDots = () -> {
+            dots.removeAllViews();
+            for (int i = 0; i < HERO_IMAGES.length; i++) {
+                View dot = new View(activity);
+                dot.setBackground(round(i == selected[0] ? 0xFF53D96B : 0x99FFFFFF, 6, 0, 0));
+                LinearLayout.LayoutParams dotP = new LinearLayout.LayoutParams(
+                        dp(i == selected[0] ? 17 : 5), dp(4));
+                dotP.setMargins(dp(2), 0, dp(2), 0);
+                dots.addView(dot, dotP);
+            }
+        };
+        landscape.setImageResource(HERO_IMAGES[selected[0]]);
+        updateDots.run();
+        final Runnable[] change = new Runnable[1];
+        final Handler handler = new Handler(Looper.getMainLooper());
+        final Runnable[] tick = new Runnable[1];
+        change[0] = () -> {
+            retainedBannerIndex = selected[0];
+            landscape.animate().cancel();
+            landscape.setAlpha(0.55f);
+            landscape.setImageResource(HERO_IMAGES[selected[0]]);
+            landscape.animate().alpha(1f).setDuration(330).start();
+            updateDots.run();
+        };
+        tick[0] = () -> {
+            if (!hero.isAttachedToWindow() || hero.getWindowVisibility() != View.VISIBLE) return;
+            if (activity.hasWindowFocus()) {
+                selected[0] = (selected[0] + 1) % HERO_IMAGES.length;
+                change[0].run();
+            }
+            handler.postDelayed(tick[0], 8000L);
+        };
+        hero.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
+            @Override public void onViewAttachedToWindow(View v) {
+                handler.removeCallbacks(tick[0]);
+                handler.postDelayed(tick[0], 8000L);
+            }
+            @Override public void onViewDetachedFromWindow(View v) {
+                handler.removeCallbacks(tick[0]);
+                landscape.animate().cancel();
+            }
+        });
+        final float[] x = {0}, y = {0};
+        hero.setOnTouchListener((view, event) -> {
+            if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
+                x[0] = event.getX(); y[0] = event.getY();
+                return true;
+            }
+            if (event.getActionMasked() == MotionEvent.ACTION_UP) {
+                float dx = event.getX() - x[0];
+                float dy = event.getY() - y[0];
+                if (Math.abs(dx) > dp(35) && Math.abs(dx) > Math.abs(dy)) {
+                    selected[0] = (selected[0] + (dx < 0 ? 1 : HERO_IMAGES.length - 1))
+                            % HERO_IMAGES.length;
+                    change[0].run();
+                    handler.removeCallbacks(tick[0]);
+                    handler.postDelayed(tick[0], 8000L);
+                    return true;
+                }
+                view.performClick();
+                return true;
+            }
+            return event.getActionMasked() == MotionEvent.ACTION_MOVE;
+        });
+        hero.setContentDescription("Карусель изображений GitHubble. Проведите влево или вправо.");
+    }
+
     private String daypart() {
         int h = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
         if (h < 5) return "Доброй ночи";
         if (h < 12) return "Доброе утро";
         if (h < 18) return "Добрый день";
         return "Добрый вечер";
-    }
-
-    private String syncText() {
-        if (!signedIn) return "Войти в GitHub ›";
-        if (data.syncedAt == 0L) return "◌ Обновление";
-        if (System.currentTimeMillis() - data.syncedAt < 15L * 60L * 1000L)
-            return "✓ Синхронизировано ›";
-        return "↻ Обновить ›";
     }
 
     private void renderStats() {
@@ -487,50 +570,90 @@ public final class HomeScreen {
 
     private void renderRecommendations() {
         LinearLayout row = new LinearLayout(activity);
-        recommendation(row,"android","Android-проекты",R.drawable.ic_android,palette.green,
-                "android/architecture-samples",true);
-        recommendation(row,"kotlin","Язык Kotlin",R.drawable.ic_kotlin_brand,violet,
-                "JetBrains/kotlin",false);
-        recommendation(row,"github","Open Source",R.drawable.ic_github_mark,slate,
-                "github/gitignore",false);
-        content.addView(row,new LinearLayout.LayoutParams(-1,dp(74)));
+        recommendation(row, "Android", "Android-проекты", R.drawable.ic_android, palette.green,
+                "android/architecture-samples", true);
+        recommendation(row, "Kotlin", "Язык Kotlin", R.drawable.ic_kotlin_brand, violet,
+                "JetBrains/kotlin", false);
+        recommendation(row, "GitHub", "Open Source", R.drawable.ic_github_mark, slate,
+                "github/gitignore", false);
+        content.addView(row, new LinearLayout.LayoutParams(-1, dp(106)));
     }
 
-    private void recommendation(LinearLayout row,String title,String subtitle,int icon,int accent,
-                                String repo,boolean first) {
+    private String formatStars(long value) {
+        if (value < 0) return "—";
+        if (value < 1000) return Long.toString(value);
+        double amount = value >= 1000000 ? value / 1000000d : value / 1000d;
+        String unit = value >= 1000000 ? " млн" : " тыс.";
+        if (amount >= 100 || amount == Math.floor(amount)) {
+            return String.format(java.util.Locale.forLanguageTag("ru"), "%.0f%s", amount, unit);
+        }
+        return String.format(java.util.Locale.forLanguageTag("ru"), "%.1f%s", amount, unit);
+    }
+
+    private void recommendation(LinearLayout row, String name, String subtitle, int icon,
+                                int accent, String repo, boolean first) {
+        RecommendationPreview info = data.recommendation(repo);
         LinearLayout card = new LinearLayout(activity);
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(dp(6),dp(7),dp(5),dp(5));
-        card.setBackground(round(palette.card,12,palette.border,1));
+        card.setPadding(dp(6), dp(7), dp(6), dp(6));
+        card.setBackground(round(palette.card, 12, palette.border, 1));
+        card.setOnClickListener(v -> actions.openRepository(repo));
+
         LinearLayout top = new LinearLayout(activity);
         top.setGravity(Gravity.CENTER_VERTICAL);
-        ImageView art=imageIcon(icon,Color.WHITE);
-        if ("kotlin".equals(title)) art.clearColorFilter(); // Preserve Kotlin's official multicolor mark.
-        art.setPadding(dp(5),dp(5),dp(5),dp(5));
-        art.setBackground(round("kotlin".equals(title) ? 0xFF17243C : accent,9,0,0));
-        art.setContentDescription("kotlin".equals(title) ? "Логотип Kotlin"
-                : "android".equals(title) ? "Логотип Android" : "Логотип GitHub");
-        top.addView(art,new LinearLayout.LayoutParams(dp(31),dp(31)));
+        ImageView art = imageIcon(icon, Color.WHITE);
+        if ("Kotlin".equals(name)) art.clearColorFilter();
+        art.setPadding(dp(5), dp(5), dp(5), dp(5));
+        art.setBackground(round("Kotlin".equals(name) ? 0xFF17243C : accent, 9, 0, 0));
+        art.setContentDescription("Логотип " + name);
+        top.addView(art, new LinearLayout.LayoutParams(dp(30), dp(30)));
         LinearLayout names = new LinearLayout(activity);
-        names.setPadding(dp(4),0,0,0);
         names.setOrientation(LinearLayout.VERTICAL);
-        TextView name=text(title,10,true);
-        name.setPadding(0,0,0,0);name.setSingleLine();name.setEllipsize(TextUtils.TruncateAt.END);
-        TextView desc=text(subtitle,8,false);
-        desc.setTextColor(palette.muted);desc.setPadding(0,0,0,0);
-        desc.setSingleLine();desc.setEllipsize(TextUtils.TruncateAt.END);
-        names.addView(name);names.addView(desc);
-        top.addView(names,new LinearLayout.LayoutParams(0,-2,1));
+        names.setPadding(dp(4), 0, 0, 0);
+        TextView title = text(name, 10, true);
+        title.setSingleLine(); title.setEllipsize(TextUtils.TruncateAt.END);
+        TextView description = text(subtitle, 8, false);
+        description.setTextColor(palette.muted);
+        description.setSingleLine(); description.setEllipsize(TextUtils.TruncateAt.END);
+        names.addView(title);
+        names.addView(description);
+        top.addView(names, new LinearLayout.LayoutParams(0, -2, 1));
         card.addView(top);
-        TextView button=text("Открыть ›",9,true);
-        button.setTextColor(palette.green);
-        button.setGravity(Gravity.END);
-        button.setPadding(0,dp(7),dp(2),0);
-        card.addView(button);
-        card.setOnClickListener(v->actions.openRepository(repo));
-        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0,-1,1);
-        p.setMargins(first?0:dp(3),0,dp(3),0);
-        row.addView(card,p);
+
+        LinearLayout spacer = new LinearLayout(activity);
+        card.addView(spacer, new LinearLayout.LayoutParams(-1, 0, 1));
+        LinearLayout bottom = new LinearLayout(activity);
+        bottom.setGravity(Gravity.CENTER_VERTICAL);
+        ImageView star = imageIcon(R.drawable.ic_star, amber);
+        bottom.addView(star, new LinearLayout.LayoutParams(dp(14), dp(14)));
+        TextView count = text(formatStars(info.stars), 9, true);
+        count.setTextColor(palette.text);
+        count.setSingleLine();
+        count.setEllipsize(TextUtils.TruncateAt.END);
+        count.setPadding(dp(2), 0, 0, 0);
+        bottom.addView(count, new LinearLayout.LayoutParams(0, -2, 1));
+
+        TextView favorite = text(info.favorite ? "✓" : "+", 18, true);
+        favorite.setGravity(Gravity.CENTER);
+        favorite.setTextColor(palette.green);
+        favorite.setContentDescription(info.favorite ? "Удалить из избранного: " + repo
+                : "Добавить в избранное: " + repo);
+        favorite.setBackground(round(info.favorite
+                ? blend(palette.card, palette.green, 0.16f) : palette.card,
+                18, palette.green, 1));
+        favorite.setOnClickListener(v -> {
+            boolean saved = actions.toggleRecommendedFavorite(repo);
+            favorite.setText(saved ? "✓" : "+");
+            favorite.setContentDescription(saved ? "Удалить из избранного: " + repo
+                    : "Добавить в избранное: " + repo);
+            favorite.setBackground(round(saved ? blend(palette.card, palette.green, 0.16f)
+                    : palette.card, 18, palette.green, 1));
+        });
+        bottom.addView(favorite, new LinearLayout.LayoutParams(dp(30), dp(30)));
+        card.addView(bottom);
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, -1, 1);
+        p.setMargins(first ? 0 : dp(3), 0, dp(3), 0);
+        row.addView(card, p);
     }
 
     private void section(String title,String action,Runnable open) {

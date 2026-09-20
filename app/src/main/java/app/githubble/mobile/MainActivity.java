@@ -117,6 +117,10 @@ public class MainActivity extends Activity {
     private final AtomicBoolean profileRefreshInFlight = new AtomicBoolean(false);
     private final AtomicBoolean notificationRefreshInFlight = new AtomicBoolean(false);
     private final AtomicBoolean homeDashboardRefreshInFlight = new AtomicBoolean(false);
+    private final AtomicBoolean homeRecommendationsRefreshInFlight = new AtomicBoolean(false);
+    private static final String[] HOME_RECOMMENDED_REPOS = {
+            "android/architecture-samples", "JetBrains/kotlin", "github/gitignore"
+    };
     private final AtomicBoolean trackingCheckInFlight = new AtomicBoolean(false);
     private final java.util.concurrent.atomic.AtomicLong screenGeneration = new java.util.concurrent.atomic.AtomicLong();
     private final Handler copilotPollHandler = new Handler(Looper.getMainLooper());
@@ -474,6 +478,7 @@ public class MainActivity extends Activity {
         shell("Главная", true);
         boolean signedIn = isSignedIn();
         if(signedIn) refreshHomeDashboard();
+        refreshHomeRecommendations();
         HomeScreen.Palette palette = new HomeScreen.Palette(
                 BG, CARD, SUBTLE, TEXT, MUTED, GREEN, BORDER, tileColors, "dark".equals(activeTheme));
         HomeScreen.Actions actions = new HomeScreen.Actions() {
@@ -489,6 +494,14 @@ public class MainActivity extends Activity {
             @Override public void openTracking() { navigate(MainActivity.this::showTracking); }
             @Override public void openProfile() { navigate(MainActivity.this::showProfile); }
             @Override public void openSearch() { showQuickSearchDialog(); }
+            @Override public boolean toggleRecommendedFavorite(String repo) {
+                Set<String> current = new LinkedHashSet<>(prefs.getStringSet("favorites", new LinkedHashSet<>()));
+                boolean saved;
+                if (current.contains(repo)) { current.remove(repo); saved = false; }
+                else { current.add(repo); saved = true; }
+                prefs.edit().putStringSet("favorites", current).apply();
+                return saved;
+            }
             @Override public void openNotifications() { navigate(MainActivity.this::showNotifications); }
             @Override public ImageView profileAvatar() { return createTopAccountIcon(); }
             @Override public void openAccountCenter() { navigate(signedIn ? MainActivity.this::showAccountCenter : MainActivity.this::showProfile); }
@@ -570,11 +583,46 @@ public class MainActivity extends Activity {
                 }
             } catch (Exception ignored) {}
         }
+        List<HomeScreen.RecommendationPreview> recommended = new ArrayList<>();
+        Set<String> favorites = prefs.getStringSet("favorites", new LinkedHashSet<>());
+        for (String repo : HOME_RECOMMENDED_REPOS) {
+            recommended.add(new HomeScreen.RecommendationPreview(repo,
+                    prefs.getLong("home_rec_stars_" + repo.replace('/', '_'), -1L),
+                    favorites.contains(repo)));
+        }
         JSONObject trackingStats = trackingDb.statistics();
         return new HomeScreen.DashboardData(issues, pullRequests, repositoryCount, notifications,
                 trackingStats.optInt("developers",0), trackingStats.optInt("repositories",0),
                 trackingStats.optInt("unread",0), recent, activityPreview,
-                isSignedIn() ? getProfileLogin() : "", snapshot.lastSyncedAt);
+                isSignedIn() ? getProfileLogin() : "", snapshot.lastSyncedAt, recommended);
+    }
+
+    private void refreshHomeRecommendations() {
+        long lastSuccess = prefs.getLong("home_recs_refresh_at", 0L);
+        if (System.currentTimeMillis() - lastSuccess < 6L * 60L * 60L * 1000L) return;
+        if (!homeRecommendationsRefreshInFlight.compareAndSet(false, true)) return;
+        io.execute(() -> {
+            boolean updated = false;
+            SharedPreferences.Editor editor = prefs.edit();
+            for (String repo : HOME_RECOMMENDED_REPOS) {
+                try {
+                    JSONObject data = getJson("https://api.github.com/repos/" + repo);
+                    if (!data.has("stargazers_count") || data.isNull("stargazers_count")) continue;
+                    long stars = data.optLong("stargazers_count", -1L);
+                    if (stars < 0L) continue;
+                    editor.putLong("home_rec_stars_" + repo.replace('/', '_'), stars);
+                    updated = true;
+                } catch (Exception ignored) {
+                    // The last verified star count remains visible when the API is offline.
+                }
+            }
+            editor.putLong("home_recs_refresh_at", System.currentTimeMillis()
+                    - (updated ? 0L : 5L * 60L * 60L * 1000L)).apply();
+            homeRecommendationsRefreshInFlight.set(false);
+            if (updated) runOnUiThread(() -> {
+                if ("Главная".equals(currentTitle)) showHome();
+            });
+        });
     }
 
     private void refreshHomeDashboard() {
