@@ -4559,7 +4559,7 @@ public class MainActivity extends Activity {
         codeParams.setMargins(dp(8),dp(12),dp(8),dp(12));
         box.addView(code,codeParams);
 
-        TextView hint=text("1. Код целиком скопирован. На странице GitHub удерживайте первое поле и выберите «Вставить».\n2. Во вкладке Chrome код останется на нижней панели.\n3. Кнопка «Авто» экспериментально распределяет символы по полям, если вы разрешите службу Android.",12,false);
+        TextView hint=text("Код целиком скопирован. На странице GitHub удерживайте первое поле и выберите «Вставить». Если вставка недоступна, воспользуйтесь кнопкой «Скопировать код» в этом окне. Автозаполнение через Android можно включить отдельно.",12,false);
         hint.setTextColor(MUTED);
         hint.setGravity(Gravity.CENTER);
         hint.setPadding(dp(2),dp(2),dp(2),dp(2));
@@ -4707,10 +4707,9 @@ public class MainActivity extends Activity {
 
     private void openOfficialGitHubLogin(String verificationUri){
         try{
-            String code=DeviceCodeAssist.currentCode(this);
-            boolean customTab=GitHubCustomTabs.openDeviceLogin(this,Uri.parse(verificationUri),
-                GREEN,"dark".equals(activeTheme),code);
-            if(!customTab)toast("В этом браузере нижняя панель кода недоступна. Код уже скопирован; используйте обычную вставку.");
+            boolean customTab=GitHubCustomTabs.open(this,Uri.parse(verificationUri),
+                GREEN,"dark".equals(activeTheme));
+            if(!customTab)toast("Открыта официальная страница GitHub в браузере. Код скопирован; используйте обычную вставку.");
         }catch(Exception e){toast("Не удалось открыть подтверждение GitHub: "+e.getMessage());}
     }
 
