@@ -38,6 +38,9 @@ import app.githubble.mobile.ui.SearchScreen;
 import app.githubble.mobile.tracking.TrackingDatabase;
 import app.githubble.mobile.tracking.TrackingEngine;
 import app.githubble.mobile.tracking.TrackingJobService;
+import app.githubble.mobile.build.BuildMonitor;
+import app.githubble.mobile.build.BuildMonitorJobService;
+import app.githubble.mobile.build.BuildArtifactDownloads;
 import app.githubble.mobile.tracking.TrackingNotificationHelper;
 import app.githubble.mobile.web.GitHubCustomTabs;
 import app.githubble.mobile.translation.LanguageDetector;
@@ -182,6 +185,8 @@ public class MainActivity extends Activity {
         featureState.collapseDiffContext=prefs.getBoolean("diff_collapse_context",featureState.collapseDiffContext);
         screenState.restore(b);
         TrackingNotificationHelper.createChannel(this);
+        BuildMonitor.createChannel(this);
+        BuildMonitorJobService.reschedule(this);
         CopilotNotificationHelper.createChannel(this);
         if (prefs.getBoolean("copilot_monitor_enabled", false)) CopilotTaskMonitorJobService.schedule(this, prefs.getInt("copilot_monitor_interval_minutes", 60));
         if (!trackingDb.getDevelopers(true).isEmpty()) TrackingJobService.schedule(this, prefs.getInt("tracking_interval_hours", 6));
@@ -221,6 +226,7 @@ public class MainActivity extends Activity {
     @Override protected void onResume() {
         super.onResume();
         if (prefs == null) return;
+        BuildMonitorJobService.checkSoon(this);
         if (features != null && features.offlineDispatcher.isOnline()) io.execute(() -> { try { OfflineActionQueue.ProcessResult r=features.offlineQueue.processReady(api); if(r.completed>0||r.conflicts>0) runOnUiThread(() -> toast("Офлайн-очередь: отправлено "+r.completed+", конфликтов "+r.conflicts)); } catch (Exception ignored) {} });
         if (prefs.getBoolean(PREF_AUTH_JUST_COMPLETED, false)) {
             prefs.edit().putBoolean(PREF_AUTH_JUST_COMPLETED, false).apply();
@@ -1128,6 +1134,279 @@ public class MainActivity extends Activity {
 
     private String repoFromApiUrl(String url){String marker="/repos/";int i=url.indexOf(marker);return i>=0?url.substring(i+marker.length()):"";}
 
+
+    private void showBuildCenter(){showBuildCenter("");}
+    private void showBuildCenter(String focus){
+        setCurrentScreen(()->showBuildCenter(focus));
+        shell("Центр сборок",false);
+        settingsPanelHeader("Центр сборок GitHub",
+                "Результаты Actions, APK, ZIP и предыдущие версии",R.drawable.ic_repository);
+        if(!isSignedIn()){
+            accountRequiredCard("Подключите GitHub, чтобы увидеть приватные сборки и артефакты.");
+            return;
+        }
+        final String account=BuildMonitor.account(this);
+        final long generation=screenGeneration.get();
+        Set<String> watched=BuildMonitor.watched(this);
+        if(!focus.isEmpty()&&!watched.contains(focus)){
+            Button add=button("+  Отслеживать "+focus);
+            add.setOnClickListener(v->{
+                BuildMonitor.setWatched(this,focus,true);
+                requestNotificationPermissionIfNeeded();
+                showBuildCenter(focus);
+            });
+            content.addView(add,new LinearLayout.LayoutParams(-1,dp(50)));
+        }
+        LinearLayout summary=new LinearLayout(this);
+        summary.setGravity(Gravity.CENTER_VERTICAL);
+        TextView count=text("Проектов: "+watched.size(),12,true);
+        count.setTextColor(GREEN);
+        summary.addView(count,new LinearLayout.LayoutParams(0,-2,1));
+        Button choose=button("Настроить");
+        choose.setOnClickListener(v->navigate(this::showBuildMonitorSettings));
+        summary.addView(choose,new LinearLayout.LayoutParams(dp(121),dp(43)));
+        content.addView(summary,new LinearLayout.LayoutParams(-1,dp(53)));
+        if(watched.isEmpty()){
+            TextView empty=text("Пока нет отслеживаемых проектов. Выберите репозитории в настройках мониторинга. "+
+                    "GitHubble сообщит о новых коммитах и готовых артефактах после первой синхронизации.",12,false);
+            empty.setTextColor(MUTED);
+            card(empty);
+        }
+        LinearLayout state=new LinearLayout(this);
+        state.setGravity(Gravity.CENTER_VERTICAL);
+        TextView status=text("",11,false);
+        status.setTextColor(MUTED);
+        state.addView(status,new LinearLayout.LayoutParams(0,-2,1));
+        Button refresh=button("Обновить");
+        refresh.setOnClickListener(v->showBuildCenter(focus));
+        state.addView(refresh,new LinearLayout.LayoutParams(dp(111),dp(43)));
+        content.addView(state,new LinearLayout.LayoutParams(-1,dp(54)));
+        LinearLayout rows=new LinearLayout(this);
+        rows.setOrientation(LinearLayout.VERTICAL);
+        content.addView(rows);
+        renderBuildRows(rows,BuildMonitor.recent(this),focus);
+        if(watched.isEmpty())return;
+        status.setText("Проверяем GitHub Actions…");
+        io.execute(()->{
+            try{
+                BuildMonitor.scan(getApplicationContext(),false);
+                runOnUiThread(()->{
+                    if(generation!=screenGeneration.get()||
+                            !account.equals(BuildMonitor.account(this)))return;
+                    status.setText("Синхронизировано с GitHub · "+watched.size()+" проектов");
+                    renderBuildRows(rows,BuildMonitor.recent(this),focus);
+                });
+            }catch(Exception error){
+                runOnUiThread(()->{
+                    if(generation!=screenGeneration.get())return;
+                    status.setText("Не удалось обновить: "+error.getMessage());
+                });
+            }
+        });
+    }
+
+    private void renderBuildRows(LinearLayout host,JSONArray source,String focus){
+        host.removeAllViews();
+        int completed=0,working=0,failed=0,visible=0;
+        for(int i=0;i<source.length();i++){
+            JSONObject run=source.optJSONObject(i);
+            if(run==null||(!focus.isEmpty()&&!focus.equals(run.optString("repository",""))))continue;
+            String status=run.optString("status","");
+            if(!"completed".equals(status))working++;
+            else if("success".equals(run.optString("conclusion","")))completed++;
+            else failed++;
+            visible++;
+        }
+        TextView counts=text("✓ "+completed+" успешных    ◷ "+working+" выполняются    ⚠ "+failed+" завершились иначе",11,true);
+        counts.setTextColor(MUTED);
+        counts.setPadding(0,dp(6),0,dp(9));
+        host.addView(counts);
+        if(visible==0){
+            TextView empty=text("В доступных запусках пока нет сборок. "+
+                    "Проверьте доступ GitHub App: Actions → Read.",12,false);
+            empty.setTextColor(MUTED);cardBuild(host,empty);return;
+        }
+        int shown=0;
+        for(int i=0;i<source.length()&&shown<30;i++){
+            JSONObject run=source.optJSONObject(i);
+            if(run==null||(!focus.isEmpty()&&!focus.equals(run.optString("repository",""))))continue;
+            shown++;
+            String repo=run.optString("repository","");
+            long runId=run.optLong("id",0);
+            boolean ready=run.optJSONArray("artifacts")!=null&&
+                    run.optJSONArray("artifacts").length()>0;
+            String state=!"completed".equals(run.optString("status",""))?
+                    "◷ Выполняется":"success".equals(run.optString("conclusion",""))?
+                    (ready?"✓ Артефакты готовы":"✓ Сборка успешна"):
+                    "⚠ "+run.optString("conclusion","Завершена");
+            LinearLayout card=new LinearLayout(this);
+            card.setOrientation(LinearLayout.VERTICAL);
+            card.setPadding(dp(12),dp(10),dp(12),dp(10));
+            card.setBackground(round(CARD,15,BORDER,1));
+            TextView badge=text(state,12,true);
+            badge.setTextColor(ready?GREEN:"completed".equals(run.optString("status",""))?
+                    Color.rgb(200,78,76):BLUE);
+            card.addView(badge);
+            TextView name=text(repo+" · "+run.optString("name","GitHub Actions"),14,true);
+            name.setMaxLines(2);
+            name.setEllipsize(TextUtils.TruncateAt.END);
+            card.addView(name);
+            String sha=run.optString("head_sha","");
+            if(sha.length()>9)sha=sha.substring(0,9);
+            TextView detail=text(run.optString("head_branch","")+"  ·  "+sha+
+                    "  ·  "+formatGitHubDate(run.optString("created_at","")),11,false);
+            detail.setTextColor(MUTED);
+            detail.setMaxLines(2);
+            card.addView(detail);
+            JSONArray artifacts=run.optJSONArray("artifacts");
+            if(artifacts!=null)for(int k=0;k<artifacts.length();k++){
+                JSONObject artifact=artifacts.optJSONObject(k);
+                if(artifact==null)continue;
+                long size=artifact.optLong("size_in_bytes",0);
+                LinearLayout row=new LinearLayout(this);
+                row.setGravity(Gravity.CENTER_VERTICAL);
+                row.setPadding(0,dp(5),0,0);
+                ImageView icon=imageIcon(R.drawable.ic_repository,GREEN,5);
+                row.addView(icon,new LinearLayout.LayoutParams(dp(27),dp(27)));
+                TextView label=text(artifact.optString("name","Артефакт")+
+                        " · "+formatAccountBytes(size),11,true);
+                label.setSingleLine(true);label.setEllipsize(TextUtils.TruncateAt.END);
+                row.addView(label,new LinearLayout.LayoutParams(0,-2,1));
+                TextView download=text("↓ ZIP",12,true);
+                download.setTextColor(GREEN);
+                download.setGravity(Gravity.CENTER);
+                download.setContentDescription("Скачать "+artifact.optString("name","артефакт"));
+                download.setOnClickListener(v->startArtifactDownload(repo,artifact));
+                row.addView(download,new LinearLayout.LayoutParams(dp(61),dp(42)));
+                card.addView(row);
+            }
+            TextView open=text("Открыть запуск GitHub  ›",11,true);
+            open.setTextColor(GREEN);
+            open.setOnClickListener(v->openWeb(run.optString("html_url",
+                    "https://github.com/"+repo+"/actions/runs/"+runId)));
+            card.addView(open);
+            LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);
+            p.setMargins(0,0,0,dp(9));
+            host.addView(card,p);
+        }
+    }
+
+    private void cardBuild(LinearLayout host,View child){
+        LinearLayout wrap=new LinearLayout(this);
+        wrap.setPadding(dp(11),dp(10),dp(11),dp(10));
+        wrap.setBackground(round(CARD,15,BORDER,1));
+        wrap.addView(child);
+        host.addView(wrap);
+    }
+
+    private void startArtifactDownload(String repo,JSONObject artifact){
+        if(artifact.optBoolean("expired",false)){toast("Срок хранения артефакта истёк");return;}
+        io.execute(()->{
+            try{
+                long id=BuildArtifactDownloads.enqueue(getApplicationContext(),repo,artifact);
+                runOnUiThread(()->toast("Загрузка началась: №"+id+
+                        ". Архив — в Загрузках/GitHubble"));
+            }catch(Exception error){
+                runOnUiThread(()->errorDialog("Не удалось скачать артефакт",
+                        error.getMessage()));
+            }
+        });
+    }
+
+    private void showBuildMonitorSettings(){
+        setCurrentScreen(this::showBuildMonitorSettings);
+        shell("Мониторинг сборок",false);
+        settingsPanelHeader("Мониторинг GitHub Actions",
+                "Выбирайте проекты, получайте уведомления и сохраняйте старые APK",
+                R.drawable.ic_repository);
+        if(!isSignedIn()){
+            accountRequiredCard("Подключите GitHub для мониторинга сборок.");return;
+        }
+        Set<String> repos=BuildMonitor.watched(this);
+        settingsRow("Отслеживаемые проекты",repos.size()+" из 30");
+        settingsRow("Проверки в фоне","Android JobScheduler · примерно раз в 15 минут");
+        settingsRow("Системные уведомления","Нужен доступ к уведомлениям Android");
+        settingsActionRow("Выбрать репозитории","Из доступных вашему аккаунту",
+                this::chooseBuildRepositories);
+        settingsActionRow("Добавить по имени","В формате владелец/репозиторий",
+                this::addBuildRepository);
+        settingsToggleRow("Уведомления о сборках",
+                "Готовность артефактов и ошибки Actions","build_notifications",true);
+        settingsActionRow("Центр сборок","Посмотреть запуски и скачать APK",
+                ()->navigate(this::showBuildCenter));
+        TextView hint=text("Первое сканирование создаёт исходную точку: старые сборки не вызывают "+
+                "лавину уведомлений. Последующие изменения отслеживаются. "+
+                "Фоновые проверки Android могут задерживаться; мгновенные FCM-push "+
+                "требуют отдельного серверного подключения.",11,false);
+        hint.setTextColor(MUTED);card(hint);
+        if(!repos.isEmpty()){
+            sectionTitle("Отслеживаемые",null);
+            for(String full:repos){
+                settingsActionRow(full,"Нажмите, чтобы открыть сборки",
+                        ()->navigate(()->showBuildCenter(full)));
+            }
+        }
+    }
+
+    private void addBuildRepository(){
+        EditText field=new EditText(this);
+        field.setSingleLine(true);
+        field.setHint("mallstorm/GitHubble");
+        new AlertDialog.Builder(this).setTitle("Добавить репозиторий")
+                .setView(field)
+                .setPositiveButton("Следить",(dialog,which)->{
+                    String full=field.getText().toString().trim();
+                    if(!full.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")){
+                        toast("Нужен формат владелец/репозиторий");return;
+                    }
+                    if(BuildMonitor.watched(this).size()>=30){
+                        toast("Можно отслеживать до 30 репозиториев");return;
+                    }
+                    BuildMonitor.setWatched(this,full,true);
+                    requestNotificationPermissionIfNeeded();
+                    showBuildMonitorSettings();
+                }).setNegativeButton("Отмена",null).show();
+    }
+
+    private void chooseBuildRepositories(){
+        RepositoryStore.Snapshot snapshot=repositoryStore.read(currentAccountId());
+        List<String> values=new ArrayList<>();
+        for(int i=0;i<snapshot.repositories.length();i++){
+            JSONObject repo=snapshot.repositories.optJSONObject(i);
+            if(repo!=null){
+                String full=repo.optString("full_name","");
+                if(full.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")&&!values.contains(full))
+                    values.add(full);
+            }
+        }
+        if(values.isEmpty()){
+            new AlertDialog.Builder(this).setTitle("Нет синхронизированных репозиториев")
+                    .setMessage("Сначала обновите список репозиториев или добавьте проект по имени.")
+                    .setPositiveButton("Обновить", (d,w)->navigate(()->showMyRepositories(true)))
+                    .setNegativeButton("Отмена",null).show();
+            return;
+        }
+        String[] names=values.toArray(new String[0]);
+        Set<String> chosen=new LinkedHashSet<>(BuildMonitor.watched(this));
+        boolean[] checked=new boolean[names.length];
+        for(int i=0;i<names.length;i++)checked[i]=chosen.contains(names[i]);
+        new AlertDialog.Builder(this).setTitle("Мониторинг проектов · до 30")
+                .setMultiChoiceItems(names,checked,(dialog,index,on)->{
+                    if(on&&chosen.size()>=30&&!chosen.contains(names[index])){
+                        ((AlertDialog)dialog).getListView().setItemChecked(index,false);
+                        toast("Ограничение: 30 проектов");
+                    }else if(on)chosen.add(names[index]);
+                    else chosen.remove(names[index]);
+                }).setPositiveButton("Сохранить",(dialog,which)->{
+                    Set<String> before=BuildMonitor.watched(this);
+                    for(String old:before)if(!chosen.contains(old))BuildMonitor.setWatched(this,old,false);
+                    for(String selected:chosen)if(!before.contains(selected))
+                        BuildMonitor.setWatched(this,selected,true);
+                    requestNotificationPermissionIfNeeded();
+                    showBuildMonitorSettings();
+                }).setNegativeButton("Отмена",null).show();
+    }
+
     private void showMyRepositories(){showMyRepositories(false);}
 
     private void showMyRepositories(boolean forceNetwork){
@@ -1168,6 +1447,12 @@ public class MainActivity extends Activity {
                         :"Синхронизация ещё не выполнялась");
         if(cached.status==RepositoryStore.Status.ERROR || cached.status==RepositoryStore.Status.STALE)
             screen.setStatus("Последняя синхронизация завершилась ошибкой. Сохранённые данные доступны.");
+        Button buildCenter=button("◈  Центр сборок · APK и артефакты");
+        buildCenter.setContentDescription("Открыть центр сборок GitHub Actions");
+        buildCenter.setOnClickListener(v->navigate(this::showBuildCenter));
+        LinearLayout.LayoutParams buildsP=new LinearLayout.LayoutParams(-1,dp(48));
+        buildsP.setMargins(0,0,0,dp(10));
+        content.addView(buildCenter,0,buildsP);
         final boolean needsNetwork=forceNetwork || cached.lastSyncedAt==0L
                 || System.currentTimeMillis()-cached.lastSyncedAt>120000L;
         if(!needsNetwork)return;
@@ -1720,6 +2005,9 @@ public class MainActivity extends Activity {
                     TextView de=text(desc,15,false);de.setTextColor(MUTED);hero.addView(de);
                     LinearLayout ms=new LinearLayout(this);ms.setPadding(0,dp(12),0,0);ms.addView(pill("★ "+stars));ms.addView(pill("Forks "+forks));ms.addView(pill("Issues "+issues));hero.addView(ms);
                     LinearLayout tech=new LinearLayout(this);tech.setPadding(0,dp(8),0,0);tech.addView(pill(language));tech.addView(pill("Лицензия "+license));tech.addView(pill("Ветка "+branch));hero.addView(tech);card(hero);
+                    Button buildShortcut=button("◈  Сборки и артефакты");
+                    buildShortcut.setOnClickListener(v->navigate(()->showBuildCenter(full)));
+                    content.addView(buildShortcut,new LinearLayout.LayoutParams(-1,dp(48)));
                     GridLayout tabs=new GridLayout(this);tabs.setColumnCount(adaptiveColumns(3));
                     addAction(tabs,"Обзор",()->navigate(() -> showRepository(full)));
                     addAction(tabs,"Файлы",()->navigate(() -> showRepositoryFiles(full,branch,"")));
@@ -3800,6 +4088,12 @@ public class MainActivity extends Activity {
         settingsActionRow("Наблюдаемые разработчики",
                 trackingDb.statistics().optInt("developers",0)+" разработчиков",
                 () -> navigate(this::showTracking));
+        settingsActionRow("Мониторинг сборок GitHub",
+                "APK, ZIP, завершение Actions и уведомления",
+                () -> navigate(this::showBuildMonitorSettings));
+        settingsActionRow("Центр сборок",
+                "Последние запуски и доступные артефакты",
+                () -> navigate(this::showBuildCenter));
         settingsActionRow("Фоновые проверки",
                 "Интервал и типы уведомлений",() -> navigate(this::showTrackingSettings));
         settingsActionRow("Диагностика фона","JobScheduler и ограничения системы",
@@ -3816,6 +4110,12 @@ public class MainActivity extends Activity {
         setCurrentScreen(this::showSettingsData);
         shell("Данные и синхронизация",false);
         settingsSubheader("Локальные данные","Кэш, офлайн и резервные копии",R.drawable.ic_repository);
+        settingsActionRow("Центр сборок и артефакты",
+                "Сборки, APK, скачивание и локальный архив",
+                () -> navigate(this::showBuildCenter));
+        settingsActionRow("Мониторинг сборок",
+                "Выбор проектов, фоновые проверки и уведомления",
+                () -> navigate(this::showBuildMonitorSettings));
         settingsActionRow("Офлайн-кэш",cacheSizeText(),this::showCacheDialog);
         int pending=features.offlineQueue.count(OfflineActionQueue.PENDING);
         int conflicts=features.offlineQueue.count(OfflineActionQueue.CONFLICT);
@@ -4417,6 +4717,11 @@ public class MainActivity extends Activity {
     }
 
     private void handleIntent(Intent i){
+        if(i != null && BuildMonitor.OPEN_ACTION.equals(i.getAction())){
+            i.setAction(null);
+            openRoot(this::showBuildCenter);
+            return;
+        }
         if(i != null && "app.githubble.mobile.OPEN_TRACKING".equals(i.getAction())) {
             i.setAction(null);
             openRoot(this::showTracking);
