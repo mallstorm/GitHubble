@@ -9,6 +9,7 @@ import app.githubble.mobile.activity.RepositoryActivityFeed;
 import app.githubble.mobile.build.BuildRunFilter;
 import app.githubble.mobile.ui.BottomNavigationBar;
 import app.githubble.mobile.controller.AccountOperationsController;
+import app.githubble.mobile.controller.CommitDetailController;
 import app.githubble.mobile.auth.DeviceCodeAssist;
 import app.githubble.mobile.database.SchemaMigrationRegistry;
 import app.githubble.mobile.controller.CopilotAgentController;
@@ -60,6 +61,7 @@ public final class RcInstrumentationTest extends Instrumentation {
             testRc42UiNavigation();
             testRepositoryActivityRanking(context);
             testPrivateCommitCard();
+            testNativeCommitDetail();
             result.putString("result", "PASS: RC instrumentation suite");
             finish(0, result);
         } catch (Throwable error) {
@@ -201,6 +203,35 @@ public final class RcInstrumentationTest extends Instrumentation {
         eq("https://github.com/owner/private-repo/commit/"+sha,event.optString("commit_url"));
         yes(RepositoryActivityFeed.parseCommit("owner/private-repo",
                 new JSONObject().put("sha","bad"))==null);
+    }
+
+    /** Commit metadata and per-file patch are rendered without a browser. */
+    private static void testNativeCommitDetail() throws Exception {
+        String sha="0123456789abcdef0123456789abcdef01234567";
+        yes(CommitDetailController.validRepository("mallstorm/GitHubble"));
+        yes(CommitDetailController.validSha(sha));
+        no(CommitDetailController.validSha("not-a-commit"));
+        no(CommitDetailController.validRepository("../private"));
+        no(CommitDetailController.validRepository("owner/repo?tab=actions"));
+        org.json.JSONArray files=new org.json.JSONArray();
+        java.util.Set<String> seen=new java.util.LinkedHashSet<>();
+        JSONObject file=new JSONObject()
+                .put("filename",".github/workflows/android.yml")
+                .put("status","modified").put("additions",9).put("deletions",4)
+                .put("patch","@@ -1,2 +1,2 @@\n-old\n+new\n kept");
+        org.json.JSONArray page=new org.json.JSONArray().put(file)
+                .put(new JSONObject().put("filename","app/src/main/java/Example.java")
+                        .put("status","added").put("patch","@@ -0,0 +1 @@\n+code"));
+        CommitDetailController.appendUnique(files,page,seen);
+        CommitDetailController.appendUnique(files,page,seen);
+        eq(2,files.length());
+        eq(9,files.optJSONObject(0).optInt("additions"));
+        eq(4,files.optJSONObject(0).optInt("deletions"));
+        eq("modified",files.optJSONObject(0).optString("status"));
+        DiffModel diff=DiffModel.parse(files.optJSONObject(0).optString("patch"));
+        eq(2,diff.changedLines());
+        eq(DiffModel.Kind.DELETE,diff.lines.get(1).kind);
+        eq(DiffModel.Kind.ADD,diff.lines.get(2).kind);
     }
 
     /** A review CI run must not produce an installable-build notification. */

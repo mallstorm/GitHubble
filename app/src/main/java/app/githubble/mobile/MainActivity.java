@@ -54,6 +54,8 @@ import app.githubble.mobile.diagnostics.TrackingDiagnostics;
 import app.githubble.mobile.diagnostics.DiagnosticsExporter;
 import app.githubble.mobile.cache.EntityCache;
 import app.githubble.mobile.controller.RepositoryController;
+import app.githubble.mobile.controller.CommitDetailController;
+import app.githubble.mobile.ui.CommitDetailScreen;
 import app.githubble.mobile.controller.RepositoryAccessController;
 import app.githubble.mobile.controller.AccountOperationsController;
 import app.githubble.mobile.controller.RepositoryImportController;
@@ -889,8 +891,8 @@ public class MainActivity extends Activity {
                 int number=event.optInt("number",0);
                 if(!repo.contains("/"))return;
                 String sha=event.optString("sha","");
-                if("Commit".equals(kind)&&sha.matches("[0-9a-fA-F]{40}")){
-                    openWeb("https://github.com/"+repo+"/commit/"+sha);
+                if("Commit".equals(kind)&&CommitDetailController.validSha(sha)){
+                    navigate(()->showCommitDetail(repo,sha));
                     return;
                 }
                 if(("Issue".equals(kind)||"IssuesEvent".equals(eventType))&&number>0)
@@ -2768,7 +2770,9 @@ public class MainActivity extends Activity {
     private void showPullCommits(String full,int number){showPullCommitsPage(full,number,1,true);}
     private void showPullCommitsPage(String full,int number,int page,boolean first){
         if(first){setCurrentScreen(()->showPullCommits(full,number));shell("Коммиты PR",true);heroBanner(full,"Pull Request #"+number,R.drawable.ic_pull_request);}ProgressBar pb=new ProgressBar(this);content.addView(pb);
-        io.execute(()->{try{JSONArray commits=getArray("https://api.github.com/repos/"+full+"/pulls/"+number+"/commits?per_page=50&page="+page);runOnUiThread(()->{content.removeView(pb);if(first)sectionTitle("Коммиты",null);for(int i=0;i<commits.length();i++){JSONObject item=commits.optJSONObject(i);if(item==null)continue;JSONObject commit=item.optJSONObject("commit");JSONObject author=commit==null?null:commit.optJSONObject("author");LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.VERTICAL);String message=commit==null?"Коммит":commit.optString("message","Коммит");row.addView(text(firstLine(message),14,true));String sha=item.optString("sha","");TextView meta=text(sha.substring(0,Math.min(7,sha.length()))+(author==null?"":" · "+author.optString("name",""))+" · "+formatGitHubDate(author==null?"":author.optString("date","")),11,false);meta.setTextColor(MUTED);row.addView(meta);String url=item.optString("html_url","");if(!url.isEmpty())row.setOnClickListener(v->openWeb(url));card(row);}if(commits.length()==50)addLoadMoreButton("Показать ещё коммиты",()->showPullCommitsPage(full,number,page+1,false));});}catch(Exception e){runOnUiThread(()->{content.removeView(pb);errorCard("Не удалось загрузить коммиты",e.getMessage());});}});
+        io.execute(()->{try{JSONArray commits=getArray("https://api.github.com/repos/"+full+"/pulls/"+number+"/commits?per_page=50&page="+page);runOnUiThread(()->{content.removeView(pb);if(first)sectionTitle("Коммиты",null);for(int i=0;i<commits.length();i++){JSONObject item=commits.optJSONObject(i);if(item==null)continue;JSONObject commit=item.optJSONObject("commit");JSONObject author=commit==null?null:commit.optJSONObject("author");LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.VERTICAL);String message=commit==null?"Коммит":commit.optString("message","Коммит");row.addView(text(firstLine(message),14,true));String sha=item.optString("sha","");TextView meta=text(sha.substring(0,Math.min(7,sha.length()))+(author==null?"":" · "+author.optString("name",""))+" · "+formatGitHubDate(author==null?"":author.optString("date","")),11,false);meta.setTextColor(MUTED);row.addView(meta);if(CommitDetailController.validSha(sha))
+                            row.setOnClickListener(v->navigate(()->showCommitDetail(full,sha)));
+                        card(row);}if(commits.length()==50)addLoadMoreButton("Показать ещё коммиты",()->showPullCommitsPage(full,number,page+1,false));});}catch(Exception e){runOnUiThread(()->{content.removeView(pb);errorCard("Не удалось загрузить коммиты",e.getMessage());});}});
     }
 
     private void showPullFiles(String full,int number){showPullFilesPage(full,number,1,true);}
@@ -4104,6 +4108,69 @@ public class MainActivity extends Activity {
         });
     }
 
+    /**
+     * GitHub commit details, changed files and per-file unified diffs remain in
+     * native GitHubble UI. The official web link is an optional fallback only.
+     */
+    private void showCommitDetail(String full,String sha){
+        if(!CommitDetailController.validRepository(full)
+                ||!CommitDetailController.validSha(sha)){
+            errorDialog("Некорректный коммит","Проверьте адрес репозитория и SHA.");
+            return;
+        }
+        rememberScreen("commit",routeArgs("full",full,"sha",sha));
+        setCurrentScreen(()->showCommitDetail(full,sha));
+        shell("Коммит",false);
+        final long generation=screenGeneration.get();
+        final String account=currentAccountId();
+        final LinearLayout destination=content;
+        heroBanner(full,"Коммит "+shortSha(sha)+" · встроенный просмотр",R.drawable.ic_repository);
+        ProgressBar loading=new ProgressBar(this);
+        destination.addView(loading);
+        io.execute(()->{
+            try{
+                CommitDetailController.Detail detail=new CommitDetailController(api).load(full,sha);
+                runOnUiThread(()->{
+                    if(generation!=screenGeneration.get()||destination!=content
+                            ||!account.equals(currentAccountId()))return;
+                    destination.removeView(loading);
+                    CommitDetailScreen screen=new CommitDetailScreen(this,destination,
+                            new CommitDetailScreen.Actions(){
+                                @Override public void openRepository(String name){
+                                    navigate(()->showRepository(name));
+                                }
+                                @Override public void openParent(String parentSha){
+                                    navigate(()->showCommitDetail(full,parentSha));
+                                }
+                                @Override public void openExternalCommit(String name,String commit){
+                                    openWeb("https://github.com/"+name+"/commit/"+commit);
+                                }
+                                @Override public void openRemoteFile(JSONObject file){
+                                    String url=file.optString("raw_url","");
+                                    if(!url.startsWith("https://"))return;
+                                    String name=file.optString("filename","Файл");
+                                    navigate(()->showRemotePreview(name,url,
+                                            file.optString("blob_url","")));
+                                }
+                            },CARD,TEXT,MUTED,GREEN,BORDER);
+                    screen.render(full,sha,detail);
+                });
+            }catch(Exception error){
+                runOnUiThread(()->{
+                    if(generation!=screenGeneration.get()||destination!=content
+                            ||!account.equals(currentAccountId()))return;
+                    destination.removeView(loading);
+                    errorCard("Не удалось получить данные коммита",
+                            error.getMessage()==null?"Проверьте доступ к GitHub и соединение."
+                                    :error.getMessage());
+                    Button retry=compactButton("Повторить");
+                    retry.setOnClickListener(v->showCommitDetail(full,sha));
+                    destination.addView(retry,new LinearLayout.LayoutParams(-1,dp(48)));
+                });
+            }
+        });
+    }
+
     private void showRepositoryCommits(String full,String branch){
         setCurrentScreen(()->showRepositoryCommits(full,branch));
         shell("Коммиты",true);
@@ -4121,7 +4188,9 @@ public class MainActivity extends Activity {
                         LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.VERTICAL);
                         String message=commit==null?"Коммит":commit.optString("message","Коммит");row.addView(text(firstLine(message),14,true));
                         String sha=item.optString("sha","");TextView meta=text(shortSha(sha)+(author==null?"":" · "+author.optString("name",""))+" · "+formatGitHubDate(author==null?"":author.optString("date","")),11,false);meta.setTextColor(MUTED);row.addView(meta);
-                        String url=item.optString("html_url","");if(!url.isEmpty())row.setOnClickListener(v->openWeb(url));card(row);
+                        if(CommitDetailController.validSha(sha))
+                            row.setOnClickListener(v->navigate(()->showCommitDetail(full,sha)));
+                        card(row);
                     }
                 });
             }catch(Exception e){runOnUiThread(()->{content.removeView(pb);errorCard("Не удалось загрузить коммиты",e.getMessage());});}
@@ -5094,6 +5163,7 @@ public class MainActivity extends Activity {
             case "repo_releases": showRepoReleases(a.optString("full")); break;
             case "issue": showIssueDetail(a.optString("full"),a.optInt("number")); break;
             case "pull": showPullDetail(a.optString("full"),a.optInt("number")); break;
+            case "commit": showCommitDetail(a.optString("full"),a.optString("sha")); break;
             case "pull_checks": restorePullChecks(a.optString("full"),a.optInt("number")); break;
             case "repository_admin": restoreRepositoryAdmin(a.optString("full")); break;
             case "copilot_repo": showCopilotRepository(a.optString("full")); break;
