@@ -5,5 +5,5 @@
     android:accessibilityFeedbackType="feedbackGeneric"
     android:notificationTimeout="200"
     android:canRetrieveWindowContent="true"
-    android:flags="flagReportViewIds"
+    android:accessibilityFlags="flagReportViewIds"
     android:packageNames="com.android.chrome,com.chrome.beta,com.chrome.dev,com.chrome.canary" />
