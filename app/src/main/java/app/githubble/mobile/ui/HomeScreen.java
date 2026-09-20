@@ -30,6 +30,9 @@ public final class HomeScreen {
         void openHistory();
         void openTracking();
         void openProfile();
+        void openSearch();
+        void openNotifications();
+        ImageView profileAvatar();
         void openAccountCenter();
         void openRepository(String fullName);
         void openActivity();
@@ -153,64 +156,121 @@ public final class HomeScreen {
     }
 
     private void renderHero() {
+        // All home header controls and the welcome message belong to ONE banner.
         FrameLayout hero = new FrameLayout(activity);
-        hero.setBackground(round(palette.dark ? 0xFF263A37 : 0xFF173C34, 17, palette.border, 0));
+        hero.setBackground(round(palette.dark ? 0xFF263A37 : 0xFF173C34, 18, palette.border, 0));
         hero.setClipToOutline(true);
 
         ImageView landscape = new ImageView(activity);
         landscape.setImageResource(R.drawable.home_hero);
         landscape.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        hero.addView(landscape, new FrameLayout.LayoutParams(-1,-1));
+        hero.addView(landscape, new FrameLayout.LayoutParams(-1, -1));
 
         View scrim = new View(activity);
         scrim.setBackground(new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
-                new int[]{0xC70A2328,0x8A122B31,0x39102429}));
-        hero.addView(scrim, new FrameLayout.LayoutParams(-1,-1));
+                new int[]{0xEA0C2126, 0xB7153030, 0x7B102A2E}));
+        hero.addView(scrim, new FrameLayout.LayoutParams(-1, -1));
 
-        TextView greeting = text((daypart() + (signedIn && !data.login.isEmpty()
-                ? ",\n" + data.login + "!" : "!")), 21, true);
-        greeting.setTextColor(Color.WHITE);
-        greeting.setMaxLines(3);
-        greeting.setPadding(0,0,0,0);
-        FrameLayout.LayoutParams greetingP = new FrameLayout.LayoutParams(
-                -1, -2, Gravity.START | Gravity.TOP);
-        greetingP.setMargins(dp(16),dp(24),dp(155),0);
-        hero.addView(greeting,greetingP);
+        LinearLayout header = new LinearLayout(activity);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        header.setPadding(dp(11), dp(5), dp(8), dp(5));
 
-        TextView subtitle = text("Развивайте свои идеи.\nКод. Проекты. Сообщество.", 11, false);
-        subtitle.setTextColor(Color.WHITE);
-        subtitle.setPadding(0,0,0,0);
-        subtitle.setMaxLines(2);
-        FrameLayout.LayoutParams subtitleP = new FrameLayout.LayoutParams(
-                -1, -2, Gravity.START | Gravity.BOTTOM);
-        subtitleP.setMargins(dp(16),0,dp(154),dp(13));
-        hero.addView(subtitle,subtitleP);
+        ImageView brand = new ImageView(activity);
+        brand.setImageResource(R.drawable.ic_home_rocket);
+        brand.setBackground(round(0xEEFFFFFF, 13, 0, 0));
+        brand.setPadding(dp(5), dp(5), dp(5), dp(5));
+        brand.setContentDescription("GitHubble");
+        header.addView(brand, new LinearLayout.LayoutParams(dp(36), dp(36)));
+
+        LinearLayout brandText = new LinearLayout(activity);
+        brandText.setOrientation(LinearLayout.VERTICAL);
+        brandText.setPadding(dp(7), 0, 0, 0);
+        TextView logo = text("GitHubble", 19, true);
+        logo.setSingleLine();
+        logo.setEllipsize(TextUtils.TruncateAt.END);
+        logo.setTextColor(Color.WHITE);
+        TextView tagline = text("Ваш GitHub всегда рядом", 9, false);
+        tagline.setTextColor(0xF0FFFFFF);
+        tagline.setSingleLine();
+        tagline.setEllipsize(TextUtils.TruncateAt.END);
+        brandText.addView(logo);
+        brandText.addView(tagline);
+        header.addView(brandText, new LinearLayout.LayoutParams(0, -2, 1));
+
+        FrameLayout search = headerAction(R.drawable.ic_search, "Поиск");
+        search.setOnClickListener(v -> actions.openSearch());
+        header.addView(search, new LinearLayout.LayoutParams(dp(38), dp(48)));
+
+        FrameLayout bell = headerAction(R.drawable.ic_bell, "Уведомления");
+        if (signedIn && data.notifications > 0) {
+            TextView badge = text(data.notifications > 99 ? "99+" : String.valueOf(data.notifications), 9, true);
+            badge.setTextColor(Color.WHITE);
+            badge.setGravity(Gravity.CENTER);
+            badge.setBackground(round(0xFFE34B59, 10, 0, 0));
+            FrameLayout.LayoutParams badgeLp = new FrameLayout.LayoutParams(
+                    data.notifications > 9 ? dp(25) : dp(19), dp(19), Gravity.END | Gravity.TOP);
+            bell.addView(badge, badgeLp);
+        }
+        bell.setOnClickListener(v -> actions.openNotifications());
+        header.addView(bell, new LinearLayout.LayoutParams(dp(38), dp(48)));
+
+        ImageView account = actions.profileAvatar();
+        account.setContentDescription("Профиль GitHub");
+        account.setOnClickListener(v -> actions.openProfile());
+        LinearLayout.LayoutParams avatarLp = new LinearLayout.LayoutParams(dp(40), dp(40));
+        avatarLp.setMargins(dp(2), 0, 0, 0);
+        header.addView(account, avatarLp);
+
+        FrameLayout.LayoutParams headerLp = new FrameLayout.LayoutParams(-1, dp(56), Gravity.TOP);
+        hero.addView(header, headerLp);
 
         TextView status = text(syncText(), 10, true);
         status.setTextColor(0xFF176C39);
-        status.setPadding(dp(8),dp(5),dp(8),dp(5));
+        status.setPadding(dp(8), dp(4), dp(8), dp(4));
         status.setGravity(Gravity.CENTER);
-        status.setBackground(round(0xF4FFFFFF,13,0,0));
-        FrameLayout.LayoutParams statusP = new FrameLayout.LayoutParams(
-                -2, dp(29), Gravity.END | Gravity.TOP);
-        statusP.setMargins(0,dp(9),dp(10),0);
-        hero.addView(status,statusP);
+        status.setBackground(round(0xF7FFFFFF, 13, 0, 0));
         status.setOnClickListener(v -> { if (!signedIn) actions.openProfile(); else actions.refreshDashboard(); });
+        FrameLayout.LayoutParams statusP = new FrameLayout.LayoutParams(-2, dp(30), Gravity.END | Gravity.TOP);
+        statusP.setMargins(0, dp(62), dp(10), 0);
+        hero.addView(status, statusP);
 
-        // A short quote on the right, like the approved reference.
+        TextView greeting = text(daypart() + (signedIn && !data.login.isEmpty()
+                ? ",\n" + data.login + "!" : "!"), 20, true);
+        greeting.setTextColor(Color.WHITE);
+        greeting.setMaxLines(2);
+        greeting.setEllipsize(TextUtils.TruncateAt.END);
+        FrameLayout.LayoutParams greetingLp = new FrameLayout.LayoutParams(-1, -2, Gravity.TOP);
+        greetingLp.setMargins(dp(16), dp(103), dp(143), 0);
+        hero.addView(greeting, greetingLp);
+
+        TextView subtitle = text("Развивайте свои идеи.\nКод. Проекты. Сообщество.", 11, false);
+        subtitle.setTextColor(Color.WHITE);
+        subtitle.setMaxLines(2);
+        FrameLayout.LayoutParams subtitleLp = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM);
+        subtitleLp.setMargins(dp(16), 0, dp(140), dp(12));
+        hero.addView(subtitle, subtitleLp);
+
         TextView quote = text("«Большие проекты\nначинаются с одной идеи»", 9, false);
         quote.setTextColor(Color.WHITE);
-        quote.setPadding(dp(7),dp(6),dp(7),dp(6));
-        quote.setGravity(Gravity.CENTER_VERTICAL);
-        quote.setBackground(round(0xAA253B3B,10,0x44FFFFFF,1));
-        FrameLayout.LayoutParams quoteP = new FrameLayout.LayoutParams(
-                dp(142), -2, Gravity.END | Gravity.BOTTOM);
-        quoteP.setMargins(0,0,dp(10),dp(11));
-        hero.addView(quote,quoteP);
+        quote.setPadding(dp(7), dp(7), dp(7), dp(7));
+        quote.setBackground(round(0xB523383B, 10, 0x55FFFFFF, 1));
+        FrameLayout.LayoutParams quoteLp = new FrameLayout.LayoutParams(dp(130), -2, Gravity.END | Gravity.BOTTOM);
+        quoteLp.setMargins(0, 0, dp(9), dp(11));
+        hero.addView(quote, quoteLp);
 
-        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1,dp(110));
-        p.setMargins(0,0,0,dp(7));
-        content.addView(hero,p);
+        LinearLayout.LayoutParams heroLp = new LinearLayout.LayoutParams(-1, dp(215));
+        heroLp.setMargins(0, 0, 0, dp(7));
+        content.addView(hero, heroLp);
+    }
+
+    private FrameLayout headerAction(int drawable, String description) {
+        FrameLayout target = new FrameLayout(activity);
+        target.setContentDescription(description);
+        ImageView icon = imageIcon(drawable, Color.WHITE);
+        icon.setContentDescription(description);
+        FrameLayout.LayoutParams iconLp = new FrameLayout.LayoutParams(dp(23), dp(23), Gravity.CENTER);
+        target.addView(icon, iconLp);
+        return target;
     }
 
     private String daypart() {
@@ -284,17 +344,17 @@ public final class HomeScreen {
         groups.setGravity(Gravity.TOP);
         addGroup(groups,"Разработка и код",
                 new Tile[]{
-                    new Tile("Репозитории","Мои проекты",R.drawable.tile_repository,palette.green,actions::openRepositories),
-                    new Tile("Pull Requests","Проверка кода",R.drawable.tile_pull_request,blue,actions::openPullRequests),
-                    new Tile("Релизы","Версии и сборки",R.drawable.tile_release,orange,actions::openReleases),
-                    new Tile("Проекты","Планирование",R.drawable.tile_projects,violet,actions::openProjects)
+                    new Tile("Репозитории","Мои проекты",R.drawable.ic_repository,palette.green,actions::openRepositories),
+                    new Tile("Pull Requests","Проверка кода",R.drawable.ic_pull_request,blue,actions::openPullRequests),
+                    new Tile("Релизы","Версии и сборки",R.drawable.ic_release,orange,actions::openReleases),
+                    new Tile("Проекты","Планирование",R.drawable.ic_projects,violet,actions::openProjects)
                 },palette.green,true);
         addGroup(groups,"Сообщество и управление",
                 new Tile[]{
-                    new Tile("Issues","Задачи и баги",R.drawable.tile_issue,red,actions::openIssues),
-                    new Tile("Обсуждения","Идеи и общение",R.drawable.tile_discussion,violet,actions::openDiscussions),
-                    new Tile("Организации","Команды и доступ",R.drawable.tile_organization,teal,actions::openOrganizations),
-                    new Tile("Избранное","Сохранённые",R.drawable.tile_star,amber,actions::openFavorites)
+                    new Tile("Issues","Задачи и баги",R.drawable.ic_issue,red,actions::openIssues),
+                    new Tile("Обсуждения","Идеи и общение",R.drawable.ic_discussion,violet,actions::openDiscussions),
+                    new Tile("Организации","Команды и доступ",R.drawable.ic_organization,teal,actions::openOrganizations),
+                    new Tile("Избранное","Сохранённые",R.drawable.ic_star,amber,actions::openFavorites)
                 },blue,false);
         LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1,-2);
         p.setMargins(0,0,0,dp(5));
@@ -338,10 +398,12 @@ public final class HomeScreen {
         box.setGravity(Gravity.TOP);
         box.setPadding(dp(5),dp(5),dp(4),dp(3));
         box.setBackground(round(palette.card,10,palette.border,1));
-        ImageView icon = new ImageView(activity);
-        icon.setImageResource(item.icon);
-        icon.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
-        box.addView(icon,new LinearLayout.LayoutParams(dp(31),dp(31)));
+        // Always draw a visible icon: vector tinted white on its own branded color badge.
+        ImageView icon = imageIcon(item.icon, Color.WHITE);
+        icon.setBackground(round(item.accent, 10, 0, 0));
+        icon.setPadding(dp(6), dp(6), dp(6), dp(6));
+        icon.setContentDescription(item.title);
+        box.addView(icon,new LinearLayout.LayoutParams(dp(34),dp(34)));
         TextView title = text(item.title,10,true);
         title.setPadding(0,dp(2),0,0);
         title.setSingleLine();
@@ -394,12 +456,12 @@ public final class HomeScreen {
         LinearLayout row = new LinearLayout(activity);
         row.setGravity(Gravity.CENTER_VERTICAL);
         int accent = "Issue".equals(event.kind)?red:"PullRequest".equals(event.kind)?blue:palette.green;
-        int iconRes = "Issue".equals(event.kind)?R.drawable.tile_issue
-                :"PullRequest".equals(event.kind)?R.drawable.tile_pull_request:R.drawable.tile_repository;
-        ImageView icon = new ImageView(activity);
-        icon.setImageResource(iconRes);
-        icon.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
-        row.addView(icon,new LinearLayout.LayoutParams(dp(33),dp(33)));
+        int iconRes = "Issue".equals(event.kind) ? R.drawable.ic_issue
+                : "PullRequest".equals(event.kind) ? R.drawable.ic_pull_request : R.drawable.ic_repository;
+        ImageView icon = imageIcon(iconRes, Color.WHITE);
+        icon.setBackground(round(accent, 9, 0, 0));
+        icon.setPadding(dp(7), dp(7), dp(7), dp(7));
+        row.addView(icon,new LinearLayout.LayoutParams(dp(35),dp(35)));
         LinearLayout info = new LinearLayout(activity);
         info.setOrientation(LinearLayout.VERTICAL);
         info.setPadding(dp(7),0,dp(3),0);
@@ -427,9 +489,9 @@ public final class HomeScreen {
         LinearLayout row = new LinearLayout(activity);
         recommendation(row,"android","Android-проекты",R.drawable.ic_android,palette.green,
                 "android/architecture-samples",true);
-        recommendation(row,"kotlin","Язык Kotlin",R.drawable.ic_kotlin,violet,
+        recommendation(row,"kotlin","Язык Kotlin",R.drawable.ic_kotlin_brand,violet,
                 "JetBrains/kotlin",false);
-        recommendation(row,"github","Open Source",R.drawable.ic_repository,slate,
+        recommendation(row,"github","Open Source",R.drawable.ic_github_mark,slate,
                 "github/gitignore",false);
         content.addView(row,new LinearLayout.LayoutParams(-1,dp(74)));
     }
@@ -442,10 +504,13 @@ public final class HomeScreen {
         card.setBackground(round(palette.card,12,palette.border,1));
         LinearLayout top = new LinearLayout(activity);
         top.setGravity(Gravity.CENTER_VERTICAL);
-        ImageView art=imageIcon(icon,accent);
-        art.setPadding(dp(6),dp(6),dp(6),dp(6));
-        art.setBackground(round(blend(palette.card,accent,0.12f),9,0,0));
-        top.addView(art,new LinearLayout.LayoutParams(dp(26),dp(26)));
+        ImageView art=imageIcon(icon,Color.WHITE);
+        if ("kotlin".equals(title)) art.clearColorFilter(); // Preserve Kotlin's official multicolor mark.
+        art.setPadding(dp(5),dp(5),dp(5),dp(5));
+        art.setBackground(round("kotlin".equals(title) ? 0xFF17243C : accent,9,0,0));
+        art.setContentDescription("kotlin".equals(title) ? "Логотип Kotlin"
+                : "android".equals(title) ? "Логотип Android" : "Логотип GitHub");
+        top.addView(art,new LinearLayout.LayoutParams(dp(31),dp(31)));
         LinearLayout names = new LinearLayout(activity);
         names.setPadding(dp(4),0,0,0);
         names.setOrientation(LinearLayout.VERTICAL);

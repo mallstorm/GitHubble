@@ -271,6 +271,7 @@ public class MainActivity extends Activity {
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(BG);
 
+        if (!"Главная".equals(title)) {
         LinearLayout top = new LinearLayout(this);
         top.setGravity(Gravity.CENTER_VERTICAL);
         top.setPadding(dp("Главная".equals(title) ? 12 : 20), dp(8), dp(10), dp(8));
@@ -333,10 +334,11 @@ public class MainActivity extends Activity {
         ap.setMargins(dp(4),0,0,0);
         top.addView(account, ap);
         root.addView(top, new LinearLayout.LayoutParams(-1, dp(isLargeText()?76:64)));
+        }
 
         content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
-        content.setPadding(dp(12), dp(10), dp(12), dp(18));
+        content.setPadding(dp(12), "Главная".equals(title) ? 0 : dp(10), dp(12), dp(18));
         currentScroll = new ScrollView(this);
         currentScroll.setFillViewport(true);
         currentScroll.addView(content);
@@ -486,6 +488,9 @@ public class MainActivity extends Activity {
             @Override public void openHistory() { navigate(signedIn ? MainActivity.this::showAccountActivity : MainActivity.this::showProfile); }
             @Override public void openTracking() { navigate(MainActivity.this::showTracking); }
             @Override public void openProfile() { navigate(MainActivity.this::showProfile); }
+            @Override public void openSearch() { showQuickSearchDialog(); }
+            @Override public void openNotifications() { navigate(MainActivity.this::showNotifications); }
+            @Override public ImageView profileAvatar() { return createTopAccountIcon(); }
             @Override public void openAccountCenter() { navigate(signedIn ? MainActivity.this::showAccountCenter : MainActivity.this::showProfile); }
             @Override public void openRepository(String fullName) { navigate(() -> showRepository(fullName)); }
             @Override public void openActivity() { navigate(MainActivity.this::showNotifications); }
