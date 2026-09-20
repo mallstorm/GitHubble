@@ -7,6 +7,11 @@ import app.githubble.mobile.util.PaginationState;
 
 /** Dependency-free on-device regression runner for authentication and pagination. */
 public final class AuthPaginationInstrumentationTest extends Instrumentation {
+    @Override public void onCreate(Bundle arguments) {
+        super.onCreate(arguments);
+        start();
+    }
+
     @Override public void onStart() {
         super.onStart();
         Bundle result = new Bundle();
