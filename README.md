@@ -4,15 +4,15 @@
 
 ## Текущая версия
 
-- Version: `1.0.0-rc4.0`
-- versionCode: `45`
+- Version: `1.0.0-rc4.1`
+- versionCode: `46`
 - applicationId: `app.githubble.mobile`
 - minSdk: `28`
 - targetSdk / compileSdk: `36`
 - Java source/target: `17`
 - основная ветка разработки: `main`
 
-RC4.0 объединяет синхронизацию Home и списка репозиториев, изолирует приватные данные и очередь по аккаунту, исправляет lifecycle OAuth и усиливает release CI.
+RC4.1 сохраняет исправления RC4.0 и стабилизирует уведомления о сборках: одна автоматическая сборка после пакетного коммита в main, уведомления по одному слоту на репозиторий. Быстрый Billing отделён от длительной инвентаризации Actions; сканирование запускается отдельно с прогрессом и отменой.
 
 ## Основные возможности
 
@@ -126,3 +126,8 @@ GitHub Actions запускает unit tests, release lint, debug/release compil
 - `OAUTH_SETUP.md` и `GITHUB_APP_CLIENT.md` — Device Flow / GitHub App;
 - `COPILOT_INTEGRATION.md` — интеграция Copilot Cloud Agent;
 - `release/` — актуальные release, privacy и permission документы.
+
+
+## RC4.1 — стабилизация
+
+Подробности: [RC4.1_STABILIZATION.md](RC4.1_STABILIZATION.md). Уведомления не заменяют настоящие серверные push, а инвентаризация хранилища не равна официальной квоте GitHub. Рабочие и резервные ветки не запускают автоматическую публикацию APK.

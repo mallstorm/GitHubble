@@ -117,6 +117,11 @@ public final class BuildMonitor {
         channel.setDescription("Новые коммиты, результаты GitHub Actions и готовые APK/ZIP");
         nm.createNotificationChannel(channel);
     }
+    /** Stable per-account/repository notification slot; independent of workflow run ID. */
+    public static String notificationTag(String login,String repo){
+        return "githubble-build-"+login.trim().toLowerCase(Locale.ROOT)+"-"+repo;
+    }
+
     private static boolean canNotify(Context context){
         if(!prefs(context).getBoolean("build_notifications",true))return false;
         if(Build.VERSION.SDK_INT>=33&&context.checkSelfPermission(
@@ -139,7 +144,10 @@ public final class BuildMonitor {
         String detail=label+" · "+run.optString("head_sha","");
         Intent open=new Intent(context,MainActivity.class).setAction(OPEN_ACTION)
                 .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP|Intent.FLAG_ACTIVITY_SINGLE_TOP);
-        int id=(int)(run.optLong("id",0L)&0x7fffffffL);
+        // One Android notification slot per watched repository, not per commit.
+        // A later run replaces an earlier notification instead of flooding the tray.
+        String notificationTag=notificationTag(account(context),repo);
+        int id=repo.hashCode()&0x7fffffff;
         PendingIntent pi=PendingIntent.getActivity(context,id,open,
                 PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
         Notification.Builder n=Build.VERSION.SDK_INT>=26?
@@ -150,7 +158,7 @@ public final class BuildMonitor {
                 .setContentIntent(pi).setAutoCancel(true)
                 .setCategory(Notification.CATEGORY_STATUS);
         if(Build.VERSION.SDK_INT<26)n.setPriority(Notification.PRIORITY_DEFAULT);
-        nm.notify(id,n.build());
+        nm.notify(notificationTag,1,n.build());
     }
 
     /** The initial snapshot is a baseline, not a flood of notifications for historical runs. */
@@ -188,6 +196,8 @@ public final class BuildMonitor {
             catch(Exception ignored){previous=new JSONObject();}
             JSONObject now=new JSONObject();
             JSONArray rows=new JSONArray();
+            JSONObject newestChangedRun=null;
+            boolean newestChangedReady=false;
             for(int i=0;i<response.length();i++){
                 JSONObject original=response.optJSONObject(i);
                 if(original==null)continue;
@@ -242,12 +252,20 @@ public final class BuildMonitor {
                         boolean justFinished="completed".equals(status)&&
                                 (old.isEmpty()||!old.startsWith("completed:"));
                         if(ready||justFinished||(old.isEmpty()&&!"completed".equals(status))){
-                            notification(context,row,ready);
-                            changes++;
-
+                            // GitHub returns newest runs first. Notify only the newest
+                            // changed run per repository and scan, even if 15 commits
+                            // reached the server between two periodic checks.
+                            if(newestChangedRun==null){
+                                newestChangedRun=row;
+                                newestChangedReady=ready;
+                            }
                         }
                     }
                 }
+            }
+            if(newestChangedRun!=null){
+                notification(context,newestChangedRun,newestChangedReady);
+                changes++;
             }
             // Monitoring retains ALL runs; auto-download has a separate, per-repo
             // baseline and considers only the newest successful run on this scan.

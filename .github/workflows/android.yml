@@ -1,9 +1,18 @@
 name: GitHubble Android CI and Release
 
+# Only a completed batch on main starts an automatic APK build.
+# Backup and working branches must not create installable intermediates.
 on:
   workflow_dispatch:
   push:
+    branches: [main]
   pull_request:
+    branches: [main]
+
+# If main advances during an already-running build, keep only the newest run.
+concurrency:
+  group: githubble-android-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:

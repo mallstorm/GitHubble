@@ -86,6 +86,10 @@ import app.githubble.mobile.repository.RepositoryStore;
 public class MainActivity extends Activity {
     private LinearLayout content;
     private final ExecutorService io = Executors.newFixedThreadPool(4);
+    // Long-running storage inventory must not occupy the interactive API pool.
+    private final ExecutorService inventoryIo = Executors.newSingleThreadExecutor();
+    private java.util.concurrent.Future<?> accountInventoryFuture;
+    private AtomicBoolean accountInventoryCancelled = new AtomicBoolean(true);
     private SharedPreferences prefs;
     private SecureStore secureStore;
     private GitHubApiClient api;
@@ -277,6 +281,10 @@ public class MainActivity extends Activity {
     }
 
     private void shell(String title, boolean showSearchAction) {
+        // Discard old account-inventory callbacks on ANY screen transition.
+        accountInventoryCancelled.set(true);
+        if(accountInventoryFuture!=null&&!accountInventoryFuture.isDone())
+            accountInventoryFuture.cancel(true);
         screenGeneration.incrementAndGet();
         currentTitle = title;
         LinearLayout root = new LinearLayout(this);
@@ -3726,63 +3734,175 @@ public class MainActivity extends Activity {
         }catch(Exception e){openWeb(url);}
     }
 
+    private boolean accountViewIsCurrent(long generation,String accountId) {
+        return !isFinishing() && !isDestroyed()
+                && generation==screenGeneration.get()
+                && isSignedIn() && accountId.equals(currentAccountId());
+    }
+
     private void showAccountCenter(){
         setCurrentScreen(this::showAccountCenter);
         shell("Аккаунт GitHub",false);
-        settingsPanelHeader("Billing и Actions","Тариф, минуты, место и очистка GitHub Actions",R.drawable.ic_settings);
-        if(!isSignedIn()){accountRequiredCard("Подключите GitHub, чтобы загрузить данные аккаунта и Actions.");return;}
-        ProgressBar pb=new ProgressBar(this);content.addView(pb);
+        settingsPanelHeader("Billing и Actions",
+                "Быстрый обзор; сканирование хранилища запускается отдельно",R.drawable.ic_settings);
+        if(!isSignedIn()){
+            accountRequiredCard("Подключите GitHub, чтобы загрузить данные аккаунта и Actions.");
+            return;
+        }
+        final long generation=screenGeneration.get();
+        final String accountId=currentAccountId();
+
+        sectionTitle("GitHub Actions · использование",null);
+        TextView billingText=text("Загружаем официальный отчёт Billing…",13,false);
+        billingText.setTextColor(MUTED);
+        card(billingText);
+        Button refreshBilling=button("Обновить Billing");
+        refreshBilling.setOnClickListener(v->{
+            api.invalidatePrefix("https://api.github.com/users/");
+            showAccountCenter();
+        });
+        content.addView(refreshBilling,new LinearLayout.LayoutParams(-1,dp(48)));
+
+        sectionTitle("Хранилище Actions","Инвентаризация не является официальным остатком квоты");
+        TextView inventoryStatus=text("Хранилище ещё не проверено. Нажмите «Сканировать», чтобы получить данные о доступных репозиториях.",12,false);
+        inventoryStatus.setTextColor(MUTED);
+        card(inventoryStatus);
+        ProgressBar inventoryProgress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);
+        inventoryProgress.setMax(100);
+        inventoryProgress.setProgress(0);
+        inventoryProgress.setVisibility(View.GONE);
+        content.addView(inventoryProgress,new LinearLayout.LayoutParams(-1,dp(7)));
+        LinearLayout inventoryActions=new LinearLayout(this);
+        Button scan=button("Сканировать хранилище");
+        Button cancel=button("Остановить");
+        cancel.setEnabled(false);
+        inventoryActions.addView(scan,new LinearLayout.LayoutParams(0,dp(48),2));
+        LinearLayout.LayoutParams cancelParams=new LinearLayout.LayoutParams(0,dp(48),1);
+        cancelParams.setMargins(dp(7),0,0,0);
+        inventoryActions.addView(cancel,cancelParams);
+        content.addView(inventoryActions,new LinearLayout.LayoutParams(-1,-2));
+        LinearLayout inventoryRows=new LinearLayout(this);
+        inventoryRows.setOrientation(LinearLayout.VERTICAL);
+        content.addView(inventoryRows);
+        scan.setOnClickListener(v->startAccountInventory(generation,accountId,
+                inventoryStatus,inventoryProgress,inventoryRows,scan,cancel));
+        cancel.setOnClickListener(v->{
+            accountInventoryCancelled.set(true);
+            if(accountInventoryFuture!=null)accountInventoryFuture.cancel(true);
+            inventoryStatus.setText("Сканирование остановлено. Неполный результат не считается общим объёмом хранилища.");
+            inventoryProgress.setVisibility(View.GONE);
+            scan.setEnabled(true);
+            cancel.setEnabled(false);
+        });
+
+        sectionTitle("Оплата GitHub",null);
+        TextView payment=text("Карта, PayPal и подтверждение платежа вводятся только на официальной странице GitHub. GitHubble не получает и не хранит платёжные реквизиты.",12,false);
+        payment.setTextColor(MUTED);
+        card(payment);
+        Button billing=button("Открыть Billing & payment");
+        billing.setOnClickListener(v->openSecureGitHubPage(AccountOperationsController.BILLING_PAGE));
+        content.addView(billing,new LinearLayout.LayoutParams(-1,dp(52)));
+
+        sectionTitle("Доступ",null);
+        settingsActionRow("Приватные репозитории",
+                "Выбрать репозитории для GiHubble",this::openPrivateRepositoryAccess);
+        TextView perms=text("Просмотр данных требует разрешений GitHub App и доступа к биллингу соответствующего владельца. Недоступный результат не приравнивается к нулю.",11,false);
+        perms.setTextColor(MUTED);
+        card(perms);
+
         io.execute(()->{
             try{
-                AccountOperationsController.BillingSnapshot snapshot=accountOperations.loadBillingSnapshot();
+                AccountOperationsController.BillingSnapshot result=accountOperations.loadBillingOverview();
                 runOnUiThread(()->{
-                    content.removeView(pb);
-                    sectionTitle("GitHub Actions · использование",null);
-                    settingsRow("Аккаунт",snapshot.login.isEmpty()?"—":"@"+snapshot.login);
-                    settingsRow("Тариф",snapshot.planName.isEmpty()?"Не определён":snapshot.planName);
-                    settingsRow("Период учёта (UTC)",snapshot.billingPeriod);
-                    String minutes=snapshot.billingApiAvailable
-                        ?String.format(Locale.ROOT,"%.2f мин",snapshot.minutesUsed)
-                        :"Недоступно — см. предупреждение ниже";
-                    settingsRow("Actions: учтённое использование",minutes);
-                    settingsRow("Минут включено в тариф*",snapshot.minutesLimit<0?"Не определено":String.valueOf(snapshot.minutesLimit));
-                    TextView quotaNote=text("* Лимит — справочное значение стандартного тарифа, а не подтверждённый остаток. Billing API показывает использование за период; учёт зависит от типа раннера, владельца репозитория и тарифных условий.",11,false);
-                    quotaNote.setTextColor(MUTED);card(quotaNote);
-                    sectionTitle("Инвентаризация хранилища (не биллинг)",null);
-                    settingsRow("Найдено Actions artifacts",formatAccountBytes(snapshot.artifactStorageBytes));
-                    settingsRow("Найдено Actions cache",formatAccountBytes(snapshot.cacheStorageBytes));
-                    TextView storageNote=text("Это сумма найденных объектов в проверенных репозиториях, а не глобальная квота или остаток хранилища GitHub. Точный остаток см. в GitHub Billing.",11,false);storageNote.setTextColor(MUTED);card(storageNote);
-                    settingsRow("Приватных репозиториев",String.valueOf(snapshot.privateRepositories));
-                    settingsRow("Проверено репозиториев",String.valueOf(snapshot.repositoriesScanned));
-                    if(snapshot.repositoryScanTruncated){
-                        TextView cut=text("Для защиты лимита GitHub API этот экран сканирует до 100 ваших репозиториев за один проход.",11,false);cut.setTextColor(MUTED);card(cut);
-                    }
-                    if(!snapshot.billingWarning.isEmpty()){
-                        TextView warning=text(snapshot.billingWarning,12,false);warning.setTextColor(MUTED);card(warning);
-                    }
-
-                    Button refreshBilling=button("Обновить квоту и хранилище");refreshBilling.setOnClickListener(v->{api.invalidatePrefix("https://api.github.com/users/");api.invalidatePrefix("https://api.github.com/user/repos");showAccountCenter();});content.addView(refreshBilling,new LinearLayout.LayoutParams(-1,dp(50)));
-                    sectionTitle("Хранилище Actions","Нажмите репозиторий для очистки");
-                    int rendered=0;
-                    for(AccountOperationsController.RepositoryUsage usage:snapshot.repositories){
-                        if(usage.totalBytes()<=0&&!usage.actionsAccessible)continue;
-                        String detail="artifact "+formatAccountBytes(usage.artifactBytes)+" · cache "+formatAccountBytes(usage.cacheBytes)+(usage.isPrivate?" · private":"");
-                        settingsActionRow(usage.fullName,detail,()->navigate(()->showActionsCleanup(usage.fullName)));
-                        rendered++;
-                    }
-                    if(rendered==0){
-                        TextView empty=text("Активных артефактов и Actions cache не найдено либо у GiHubble нет permission Actions: read.",12,false);empty.setTextColor(MUTED);card(empty);
-                    }
-
-                    sectionTitle("Оплата GitHub",null);
-                    TextView payment=text("Карта, PayPal и подтверждение платежа вводятся только на официальной странице GitHub. GitHubble не получает и не хранит платёжные реквизиты.",12,false);payment.setTextColor(MUTED);card(payment);
-                    Button billing=button("Открыть Billing & payment");billing.setOnClickListener(v->openSecureGitHubPage(AccountOperationsController.BILLING_PAGE));content.addView(billing,new LinearLayout.LayoutParams(-1,dp(52)));
-
-                    sectionTitle("Доступ",null);
-                    settingsActionRow("Приватные репозитории","Выбрать репозитории для GiHubble",this::openPrivateRepositoryAccess);
-                    TextView perms=text("Для этого центра нужны: Metadata: read для репозиториев, Actions: read/write для просмотра и очистки, Account permission Plan: read для Billing API.",11,false);perms.setTextColor(MUTED);card(perms);
+                    if(!accountViewIsCurrent(generation,accountId))return;
+                    StringBuilder details=new StringBuilder();
+                    details.append("Аккаунт: @").append(result.login.isEmpty()?"не определён":result.login)
+                            .append("\nТариф: ").append(result.planName.isEmpty()?"не определён":result.planName)
+                            .append("\nПериод: ").append(result.billingPeriod).append(" UTC")
+                            .append("\nActions: ");
+                    if(result.billingApiAvailable){
+                        details.append(String.format(Locale.ROOT,"%.2f мин",result.minutesUsed));
+                    }else details.append("официальное использование недоступно");
+                    details.append("\nМинут по стандартному тарифу (справочно): ")
+                            .append(result.minutesLimit<0?"не определено":result.minutesLimit);
+                    details.append("\nОстаток минут: не подтверждён GitHub Billing API.");
+                    if(!result.billingWarning.isEmpty())
+                        details.append("\n").append(result.billingWarning);
+                    billingText.setText(details.toString());
                 });
-            }catch(Exception e){runOnUiThread(()->{content.removeView(pb);errorCard("Не удалось загрузить данные аккаунта",e.getMessage());});}
+            }catch(Exception error){
+                runOnUiThread(()->{
+                    if(accountViewIsCurrent(generation,accountId))
+                        billingText.setText("Billing недоступен: "+error.getMessage());
+                });
+            }
+        });
+    }
+
+    private void startAccountInventory(long generation,String accountId,
+                                       TextView status,ProgressBar progress,LinearLayout rows,
+                                       Button scan,Button cancel){
+        if(!accountViewIsCurrent(generation,accountId))return;
+        accountInventoryCancelled.set(true);
+        if(accountInventoryFuture!=null)accountInventoryFuture.cancel(true);
+        final AtomicBoolean stopped=new AtomicBoolean(false);
+        accountInventoryCancelled=stopped;
+        rows.removeAllViews();
+        status.setText("Получаем список доступных репозиториев…");
+        progress.setProgress(0);
+        progress.setVisibility(View.VISIBLE);
+        scan.setEnabled(false);
+        cancel.setEnabled(true);
+        accountInventoryFuture=inventoryIo.submit(()->{
+            try{
+                AccountOperationsController.StorageInventory result=
+                        accountOperations.loadStorageInventory((done,total)->runOnUiThread(()->{
+                            if(accountViewIsCurrent(generation,accountId)&&!stopped.get()){
+                                status.setText("Проверено репозиториев: "+done+" из "+total);
+                                progress.setProgress(total==0?0:Math.min(100,(int)((long)done*100/total)));
+                            }
+                        }),()->stopped.get()||Thread.currentThread().isInterrupted()
+                                ||generation!=screenGeneration.get()
+                                ||!accountId.equals(currentAccountId()));
+                runOnUiThread(()->{
+                    if(!accountViewIsCurrent(generation,accountId)||stopped.get())return;
+                    progress.setVisibility(View.GONE);
+                    scan.setEnabled(true);
+                    cancel.setEnabled(false);
+                    String state=result.isPartial()?"ЧАСТИЧНЫЕ ДАННЫЕ":"Проверенные данные";
+                    status.setText(state+" · "+result.scanned+" из "+result.total
+                            +" репозиториев; без доступа: "+result.inaccessible
+                            +"\nНайдено artifacts: "+formatAccountBytes(result.artifactBytes)
+                            +"; Actions cache: "+formatAccountBytes(result.cacheBytes)
+                            +"\nЭто сумма найденных объектов, а не остаток квоты GitHub."
+                            +(result.truncated?"\nСканирование ограничено 100 репозиториями.":""));
+                    if(result.repositories.isEmpty()){
+                        TextView note=text("Доступные данные хранилища не найдены. Проверьте разрешение Actions: Read.",12,false);
+                        note.setTextColor(MUTED);
+                        rows.addView(note);
+                    }
+                    for(AccountOperationsController.RepositoryUsage usage:result.repositories){
+                        if(usage.totalBytes()<=0&&usage.actionsAccessible)continue;
+                        Button open=button(usage.fullName+" · "
+                                +(usage.actionsAccessible?formatAccountBytes(usage.totalBytes()):"нет доступа"));
+                        open.setAllCaps(false);
+                        open.setEnabled(usage.actionsAccessible);
+                        open.setOnClickListener(v->navigate(()->showActionsCleanup(usage.fullName)));
+                        LinearLayout.LayoutParams rowParams=new LinearLayout.LayoutParams(-1,dp(49));
+                        rowParams.setMargins(0,dp(5),0,0);
+                        rows.addView(open,rowParams);
+                    }
+                });
+            }catch(Exception error){
+                runOnUiThread(()->{
+                    if(!accountViewIsCurrent(generation,accountId)||stopped.get())return;
+                    progress.setVisibility(View.GONE);
+                    scan.setEnabled(true);
+                    cancel.setEnabled(false);
+                    status.setText("Инвентаризация не завершилась: "+error.getMessage()
+                            +"\nОбъём хранилища неизвестен; данные Billing загружаются независимо.");
+                });
+            }
         });
     }
 
@@ -4849,6 +4969,9 @@ public class MainActivity extends Activity {
 
     @Override protected void onDestroy(){
         stopCopilotForegroundPolling();
+        accountInventoryCancelled.set(true);
+        if(accountInventoryFuture!=null)accountInventoryFuture.cancel(true);
+        inventoryIo.shutdownNow();
         io.shutdownNow();
         try{if(translationCache!=null)translationCache.close();}catch(Exception ignored){}
         try{if(trackingDb!=null)trackingDb.close();}catch(Exception ignored){}

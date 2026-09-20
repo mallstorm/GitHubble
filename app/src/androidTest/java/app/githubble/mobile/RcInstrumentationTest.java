@@ -4,6 +4,8 @@ import android.app.Instrumentation;
 import android.content.Context;
 import android.os.Bundle;
 import app.githubble.mobile.build.BuildAutoDownloadPolicy;
+import app.githubble.mobile.build.BuildMonitor;
+import app.githubble.mobile.controller.AccountOperationsController;
 import app.githubble.mobile.auth.DeviceCodeAssist;
 import app.githubble.mobile.database.SchemaMigrationRegistry;
 import app.githubble.mobile.controller.CopilotAgentController;
@@ -50,6 +52,7 @@ public final class RcInstrumentationTest extends Instrumentation {
             testAdvancedSearchModes();
             testRepositoryImportPathSafety();
             testBuildAutoDownloadPolicy();
+            testRc41StabilizationPolicies();
             result.putString("result", "PASS: RC instrumentation suite");
             finish(0, result);
         } catch (Throwable error) {
@@ -104,6 +107,20 @@ public final class RcInstrumentationTest extends Instrumentation {
         JSONObject expired=run(108,"completed","success","app-apk",1080);
         expired.getJSONArray("artifacts").getJSONObject(0).put("expired",true);
         yes(BuildAutoDownloadPolicy.bestApkArtifact(expired.getJSONArray("artifacts"))==null);
+    }
+
+    /** RC4.1: aggregated notification slots and explicit partial inventory states. */
+    private static void testRc41StabilizationPolicies() {
+        String repo="mallstorm/GitHubble";
+        eq(BuildMonitor.notificationTag("Mallstorm",repo),
+                BuildMonitor.notificationTag("mallstorm",repo));
+        no(BuildMonitor.notificationTag("mallstorm",repo).equals(
+                BuildMonitor.notificationTag("mallstorm","mallstorm/Other")));
+        yes(AccountOperationsController.inventoryIsPartial(3,6,0,false,false));
+        yes(AccountOperationsController.inventoryIsPartial(6,6,1,false,false));
+        yes(AccountOperationsController.inventoryIsPartial(6,6,0,true,false));
+        yes(AccountOperationsController.inventoryIsPartial(6,6,0,false,true));
+        no(AccountOperationsController.inventoryIsPartial(6,6,0,false,false));
     }
 
     private static void testDeviceCodeNormalization() {

@@ -1,8 +1,8 @@
 # Статус сборки GitHubble
 
-Текущая версия: `1.0.0-rc4.0` (`versionCode 45`).
+Текущая версия: `1.0.0-rc4.1` (`versionCode 46`).
 
-Проверки GitHub Actions для каждого push и pull request:
+Проверки GitHub Actions для push в main, pull request в main и ручного запуска:
 
 - unit tests;
 - Android Lint для release;
@@ -10,7 +10,7 @@
 - on-device regression suite на Android emulator API 35;
 - экспорт точного source archive и SHA-256.
 
-Подписанный APK публикуется только из `main`. Workflow требует постоянный PKCS12
+Подписанный APK публикуется только из `main`. Concurrency отменяет устаревшие запуски одной ветки, когда в неё отправлен более свежий коммит. Workflow требует постоянный PKCS12
 keystore и пароли из GitHub Actions Secrets; временный сертификат больше не
 создаётся, поэтому несовместимое обновление приложения не может быть выпущено
 случайно.

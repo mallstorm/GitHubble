@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.LinkedHashSet;
 import java.util.Set;
+import java.util.function.BooleanSupplier;
 
 /**
  * Account-level GitHub operations: billing usage, Actions storage cleanup and
@@ -98,6 +99,49 @@ public final class AccountOperationsController {
         }
     }
 
+    /**
+     * Separates the fast billing API from the optional, potentially long
+     * repository-by-repository inventory. Partial or unavailable data is never
+     * presented as a confirmed account-wide zero.
+     */
+    public static final class StorageInventory {
+        public final List<RepositoryUsage> repositories;
+        public final long artifactBytes;
+        public final long cacheBytes;
+        public final int privateRepositories;
+        public final int scanned;
+        public final int total;
+        public final int inaccessible;
+        public final boolean cancelled;
+        public final boolean truncated;
+        StorageInventory(List<RepositoryUsage> repositories, long artifactBytes, long cacheBytes,
+                         int privateRepositories, int scanned, int total, int inaccessible,
+                         boolean cancelled, boolean truncated) {
+            this.repositories = Collections.unmodifiableList(new ArrayList<>(repositories));
+            this.artifactBytes = artifactBytes;
+            this.cacheBytes = cacheBytes;
+            this.privateRepositories = privateRepositories;
+            this.scanned = scanned;
+            this.total = total;
+            this.inaccessible = inaccessible;
+            this.cancelled = cancelled;
+            this.truncated = truncated;
+        }
+        public boolean isPartial() {
+            return inventoryIsPartial(scanned,total,inaccessible,cancelled,truncated);
+        }
+    }
+
+    /** Deterministic coverage indicator, independent of reported byte sums. */
+    public static boolean inventoryIsPartial(int scanned,int total,int inaccessible,
+                                             boolean cancelled,boolean truncated) {
+        return cancelled || truncated || scanned < total || inaccessible > 0;
+    }
+
+    public interface InventoryProgress {
+        void onProgress(int completed, int total);
+    }
+
     public static final class CleanupItem {
         public static final String ARTIFACT = "artifact";
         public static final String CACHE = "cache";
@@ -150,7 +194,7 @@ public final class AccountOperationsController {
         this.api = api;
     }
 
-    public BillingSnapshot loadBillingSnapshot() throws Exception {
+    public BillingSnapshot loadBillingOverview() throws Exception {
         JSONObject user = api.getJson("https://api.github.com/user");
         String login = user.optString("login", "");
         JSONObject plan = user.optJSONObject("plan");
@@ -198,35 +242,70 @@ public final class AccountOperationsController {
             }
         }
 
-        JSONArray owned;
-        try {
-            owned = loadOwnedRepositories();
-        } catch (Exception e) {
-            owned = new JSONArray();
-            String msg = "Инвентаризация репозиториев недоступна: " + e.getMessage();
-            billingWarning = billingWarning.isEmpty() ? msg : billingWarning + "\n" + msg;
-        }
+        // No repository enumeration in the first screen-paint path.
+        return new BillingSnapshot(login, planName, minutesUsed, minutesLimit,
+                billingPeriod, 0L, 0L, storageLimit, 0, 0, false,
+                billingAvailable, billingWarning, Collections.emptyList());
+    }
+
+    public StorageInventory loadStorageInventory(InventoryProgress progress,
+                                                  BooleanSupplier cancelled) throws Exception {
+        JSONArray owned = loadOwnedRepositories();
         List<RepositoryUsage> usages = new ArrayList<>();
         long artifactStorage = 0L;
         long cacheStorage = 0L;
-        int privateCount = 0;
-        int scanCount = Math.min(owned.length(), MAX_REPOSITORIES_TO_SCAN);
-        for (int i = 0; i < scanCount; i++) {
+        int privateCount = 0, inaccessible = 0, scanned = 0;
+        int limit = Math.min(owned.length(), MAX_REPOSITORIES_TO_SCAN);
+        boolean stopped = false;
+        for (int i = 0; i < limit; i++) {
+            if (cancelled != null && cancelled.getAsBoolean()) {
+                stopped = true;
+                break;
+            }
             JSONObject repo = owned.optJSONObject(i);
             if (repo == null) continue;
             String full = repo.optString("full_name", "");
+            if (full.isEmpty()) continue;
             boolean isPrivate = repo.optBoolean("private", false);
             if (isPrivate) privateCount++;
-            if (full.isEmpty()) continue;
             RepositoryUsage usage = scanRepositoryUsage(full, isPrivate);
             usages.add(usage);
+            if (!usage.actionsAccessible) inaccessible++;
             artifactStorage += usage.artifactBytes;
             cacheStorage += usage.cacheBytes;
+            scanned++;
+            if (progress != null) progress.onProgress(scanned, owned.length());
         }
+        if (cancelled != null && cancelled.getAsBoolean()) stopped = true;
         usages.sort(Comparator.comparingLong(RepositoryUsage::totalBytes).reversed());
+        return new StorageInventory(usages, artifactStorage, cacheStorage,
+                privateCount, scanned, owned.length(), inaccessible,
+                stopped, owned.length() > limit);
+    }
 
-        return new BillingSnapshot(login, planName, minutesUsed, minutesLimit, billingPeriod, artifactStorage, cacheStorage, storageLimit,
-                privateCount, scanCount, owned.length() > scanCount, billingAvailable, billingWarning, usages);
+    /** Compatibility for callers that explicitly need both stages. */
+    public BillingSnapshot loadBillingSnapshot() throws Exception {
+        BillingSnapshot overview = loadBillingOverview();
+        StorageInventory inventory;
+        try {
+            inventory = loadStorageInventory(null, () -> false);
+        } catch (Exception error) {
+            return new BillingSnapshot(overview.login, overview.planName,
+                    overview.minutesUsed, overview.minutesLimit, overview.billingPeriod,
+                    0L, 0L, overview.storageLimitBytes, 0, 0, true,
+                    overview.billingApiAvailable, overview.billingWarning + "\n"
+                        + "Инвентаризация недоступна: " + error.getMessage(),
+                    Collections.emptyList());
+        }
+        String warning = overview.billingWarning;
+        if (inventory.isPartial()) warning += "\nИнвентаризация неполная: "
+                + inventory.scanned + " из " + inventory.total
+                + ", без доступа: " + inventory.inaccessible;
+        return new BillingSnapshot(overview.login, overview.planName,
+                overview.minutesUsed, overview.minutesLimit, overview.billingPeriod,
+                inventory.artifactBytes, inventory.cacheBytes, overview.storageLimitBytes,
+                inventory.privateRepositories, inventory.scanned, inventory.isPartial(),
+                overview.billingApiAvailable, warning, inventory.repositories);
     }
 
     public List<CleanupItem> loadCleanupItems(String repository) throws Exception {
