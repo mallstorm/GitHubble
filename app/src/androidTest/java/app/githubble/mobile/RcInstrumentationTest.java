@@ -24,6 +24,11 @@ import org.json.JSONObject;
 
 /** Dependency-free RC instrumentation suite for API 28/33/36 device matrix. */
 public final class RcInstrumentationTest extends Instrumentation {
+    @Override public void onCreate(Bundle arguments) {
+        super.onCreate(arguments);
+        start();
+    }
+
     @Override public void onStart() {
         super.onStart();
         Bundle result = new Bundle();
