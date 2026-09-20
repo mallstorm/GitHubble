@@ -96,6 +96,8 @@ public class MainActivity extends Activity {
     private RepositoryStore repositoryStore;
     private boolean repositoriesPrivateOnly = false;
     private boolean repositoriesPublicOnly = false;
+    private boolean repositoriesGrid = false;
+    private String repositoriesSort = "updated";
     private AccountOperationsController accountOperations;
     private ProfileController profileController;
     private TranslationController translationController;
@@ -149,6 +151,8 @@ public class MainActivity extends Activity {
                     this::goBack);
         }
         prefs = getSharedPreferences("githubble", MODE_PRIVATE);
+        repositoriesGrid = prefs.getBoolean("repositories_grid", false);
+        repositoriesSort = prefs.getString("repositories_sort", "updated");
         secureStore = new SecureStore(this);
         entityCache = new EntityCache(this);
         api = new GitHubApiClient(secureStore, entityCache);
@@ -473,6 +477,7 @@ public class MainActivity extends Activity {
             @Override public void openHistory() { navigate(signedIn ? MainActivity.this::showAccountActivity : MainActivity.this::showProfile); }
             @Override public void openTracking() { navigate(MainActivity.this::showTracking); }
             @Override public void openProfile() { navigate(MainActivity.this::showProfile); }
+            @Override public void openAccountCenter() { navigate(signedIn ? MainActivity.this::showAccountCenter : MainActivity.this::showProfile); }
             @Override public void openRepository(String fullName) { navigate(() -> showRepository(fullName)); }
         };
         new HomeScreen(this, content, palette, signedIn, getString(R.string.stabilization_build), actions, getHomeDashboardData()).render();
@@ -964,6 +969,15 @@ public class MainActivity extends Activity {
         visibilityFilters.addView(publicRepositories,pp);
         content.addView(visibilityFilters);
 
+        LinearLayout presentationTools=new LinearLayout(this);
+        Button sort=compactButton("Сортировка: "+repositorySortLabel());
+        sort.setOnClickListener(v->showRepositorySortDialog());
+        presentationTools.addView(sort,new LinearLayout.LayoutParams(0,dp(44),1));
+        Button layout=compactButton(repositoriesGrid?"Вид: плитка":"Вид: список");
+        layout.setOnClickListener(v->{repositoriesGrid=!repositoriesGrid;prefs.edit().putBoolean("repositories_grid",repositoriesGrid).apply();showMyRepositories(false);});
+        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(44),1);lp.setMargins(dp(6),0,0,0);
+        presentationTools.addView(layout,lp);content.addView(presentationTools);
+
         LinearLayout tools=new LinearLayout(this);
         Button refresh=button(forceNetwork?"Обновление…":"Обновить");
         refresh.setEnabled(!forceNetwork); refresh.setOnClickListener(v->showMyRepositories(true));
@@ -975,7 +989,7 @@ public class MainActivity extends Activity {
         RepositoryStore.Snapshot saved=repositoryStore.read(accountId);
         if(saved.hasData()){
             sectionTitle("Доступные · "+saved.repositories.length(),null);
-            renderRepositoryItems(saved.repositories);
+            renderRepositoryItems(sortedRepositories(saved.repositories));
             TextView status=text("Последняя синхронизация: "+formatEpoch(saved.lastSyncedAt),11,false);
             status.setTextColor(MUTED);status.setGravity(Gravity.CENTER);status.setPadding(0,0,0,dp(8));content.addView(status);
         }
@@ -995,7 +1009,7 @@ public class MainActivity extends Activity {
                     content.removeView(pb);
                     if(!saved.hasData()){
                         sectionTitle("Доступные · "+snapshot.repositories.length(),null);
-                        renderRepositoryItems(snapshot.repositories);
+                        renderRepositoryItems(sortedRepositories(snapshot.repositories));
                     } else if(snapshot.repositories.length()!=saved.repositories.length()){
                         showMyRepositories(false);
                         return;
@@ -1010,7 +1024,7 @@ public class MainActivity extends Activity {
                     content.removeView(pb);
                     if(snapshot.hasData()){
                         errorCard("Синхронизация GitHub не удалась","Показан последний сохранённый список от "+formatEpoch(snapshot.lastSyncedAt)+". "+e.getMessage());
-                        renderRepositoryItems(snapshot.repositories);
+                        renderRepositoryItems(sortedRepositories(snapshot.repositories));
                     }else{
                         errorCard("Не удалось синхронизировать GitHub",e.getMessage());
                     }
@@ -1024,6 +1038,35 @@ public class MainActivity extends Activity {
         note.setTextColor(MUTED);card(note);
         Button access=button("Настроить доступ");access.setOnClickListener(v->openPrivateRepositoryAccess());
         content.addView(access,new LinearLayout.LayoutParams(-1,dp(48)));
+    }
+
+    private String repositorySortLabel(){
+        if("name".equals(repositoriesSort))return "название";
+        if("stars".equals(repositoriesSort))return "звёзды";
+        return "обновление";
+    }
+
+    private void showRepositorySortDialog(){
+        final String[] values={"updated","name","stars"};
+        final String[] labels={"Недавно обновлённые","По названию","По звёздам"};
+        int checked=0;for(int i=0;i<values.length;i++)if(values[i].equals(repositoriesSort))checked=i;
+        new AlertDialog.Builder(this).setTitle("Сортировка репозиториев")
+                .setSingleChoiceItems(labels,checked,(dialog,which)->{
+                    repositoriesSort=values[which];
+                    prefs.edit().putString("repositories_sort",repositoriesSort).apply();
+                    dialog.dismiss();showMyRepositories(false);
+                }).setNegativeButton("Отмена",null).show();
+    }
+
+    private JSONArray sortedRepositories(JSONArray source){
+        List<JSONObject> entries=new ArrayList<>();
+        for(int i=0;i<source.length();i++){JSONObject repository=source.optJSONObject(i);if(repository!=null)entries.add(repository);}
+        Collections.sort(entries,(left,right)->{
+            if("name".equals(repositoriesSort))return left.optString("full_name","").compareToIgnoreCase(right.optString("full_name", ""));
+            if("stars".equals(repositoriesSort))return Integer.compare(right.optInt("stargazers_count",0),left.optInt("stargazers_count",0));
+            return right.optString("updated_at",right.optString("pushed_at","")).compareTo(left.optString("updated_at",left.optString("pushed_at", "")));
+        });
+        JSONArray sorted=new JSONArray();for(JSONObject repository:entries)sorted.put(repository);return sorted;
     }
 
     private void renderRepositoryAccessSummary(RepositoryAccessController.SyncResult result){
@@ -1081,13 +1124,20 @@ public class MainActivity extends Activity {
 
     private void renderRepositoryArray(String expectedTitle,ProgressBar pb,JSONArray repos){if(!expectedTitle.equals(currentTitle))return;content.removeView(pb);sectionTitle("Доступно: "+repos.length(),null);renderRepositoryItems(repos);}
     private void renderRepositoryItems(JSONArray repos){
-        int shown=0;
+        List<JSONObject> shownRepositories=new ArrayList<>();
         for(int i=0;i<repos.length();i++){
             JSONObject repository=repos.optJSONObject(i);
             if(repository==null || (repositoriesPrivateOnly && !repository.optBoolean("private",false)) || (repositoriesPublicOnly && repository.optBoolean("private",false)))continue;
-            try{addRepoCard(repository);shown++;}catch(Exception error){TextView invalid=text("Не удалось показать карточку: "+repository.optString("full_name","без имени"),12,false);invalid.setTextColor(MUTED);card(invalid);}
+            shownRepositories.add(repository);
         }
-        if(shown==0)card(text(repositoriesPrivateOnly?"Приватные репозитории не найдены среди доступных проектов.":repositoriesPublicOnly?"Публичные репозитории не найдены среди доступных проектов.":"Репозитории не найдены.",14,false));
+        if(shownRepositories.isEmpty()){card(text(repositoriesPrivateOnly?"Приватные репозитории не найдены среди доступных проектов.":repositoriesPublicOnly?"Публичные репозитории не найдены среди доступных проектов.":"Репозитории не найдены.",14,false));return;}
+        if(repositoriesGrid){
+            GridLayout grid=new GridLayout(this);grid.setColumnCount(adaptiveColumns(2));
+            for(JSONObject repository:shownRepositories)try{addRepoTile(grid,repository);}catch(Exception error){/* Invalid items are reported by sync diagnostics. */}
+            content.addView(grid,new LinearLayout.LayoutParams(-1,-2));
+        }else for(JSONObject repository:shownRepositories){
+            try{addRepoCard(repository);}catch(Exception error){TextView invalid=text("Не удалось показать карточку: "+repository.optString("full_name","без имени"),12,false);invalid.setTextColor(MUTED);card(invalid);}
+        }
     }
 
     private void showOrganizations(){showOrganizationsPage(1,true);}
@@ -1461,6 +1511,20 @@ public class MainActivity extends Activity {
         TextView body=text(desc,14,false);body.setTextColor(MUTED);box.addView(body);
         LinearLayout meta=new LinearLayout(this);meta.setPadding(0,dp(10),0,0);meta.addView(pill("★ "+stars));meta.addView(pill(lang));if(smartMatches>1)meta.addView(pill("RU ✦ ×"+smartMatches));box.addView(meta);
         box.setOnClickListener(v->navigate(() -> showRepository(full))); card(box);
+    }
+
+    private void addRepoTile(GridLayout grid,JSONObject repository)throws Exception{
+        String full=repository.getString("full_name");
+        String shortName=full.contains("/")?full.substring(full.indexOf('/')+1):full;
+        LinearLayout tile=new LinearLayout(this);tile.setOrientation(LinearLayout.VERTICAL);tile.setPadding(dp(12),dp(12),dp(12),dp(10));
+        tile.setBackground(round(CARD,17,BORDER,1));tile.setElevation(dp(1));
+        TextView access=text(repository.optBoolean("private",false)?"PRIVATE":"PUBLIC",10,true);access.setTextColor(repository.optBoolean("private",false)?GREEN:MUTED);access.setPadding(0,0,0,0);tile.addView(access);
+        TextView name=text(shortName,16,true);name.setTextColor(BLUE);name.setMaxLines(2);name.setPadding(0,dp(4),0,0);tile.addView(name);
+        TextView owner=text(full.contains("/")?full.substring(0,full.indexOf('/')):"",11,false);owner.setTextColor(MUTED);owner.setPadding(0,0,0,0);tile.addView(owner);
+        TextView description=text(repository.optString("description","Без описания"),11,false);description.setTextColor(MUTED);description.setMaxLines(2);description.setPadding(0,dp(7),0,0);tile.addView(description,new LinearLayout.LayoutParams(-1,0,1));
+        TextView meta=text("★ "+repository.optInt("stargazers_count",0)+" · "+repository.optString("language","—"),11,true);meta.setTextColor(MUTED);meta.setPadding(0,dp(6),0,0);tile.addView(meta);
+        tile.setOnClickListener(v->navigate(()->showRepository(full)));
+        GridLayout.LayoutParams p=new GridLayout.LayoutParams();p.width=0;p.height=dp(162);p.columnSpec=GridLayout.spec(GridLayout.UNDEFINED,1f);p.setMargins(dp(4),dp(4),dp(4),dp(4));grid.addView(tile,p);
     }
 
     private TextView pill(String s){TextView t=text(s,12,true);t.setTextColor(MUTED);t.setGravity(Gravity.CENTER);t.setBackground(round(SUBTLE,12,Color.TRANSPARENT,0));LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-2,dp(30));p.setMargins(0,0,dp(8),0);t.setLayoutParams(p);return t;}
@@ -2492,6 +2556,7 @@ public class MainActivity extends Activity {
 
         sectionTitle("Управление аккаунтом",null);
         GridLayout actions=new GridLayout(this);actions.setColumnCount(adaptiveColumns(2));
+        addAction(actions,"Аккаунт и Billing",() -> navigate(this::showAccountCenter));
         addAction(actions,"Репозитории",() -> navigate(this::showMyRepositories));
         addAction(actions,"Организации",() -> navigate(this::showOrganizations));
         addAction(actions,"История",() -> navigate(this::showAccountActivity));
