@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="github_device_code_accessibility_label">GitHubble — код GitHub</string>
+    <string name="github_device_code_accessibility_description">Необязательная служба: только после вашего нажатия «Авто» пытается однократно ввести восемь символов Device Flow на странице GitHub в Chrome. Требует широкого системного разрешения специальных возможностей. Не читает пароли или токены, не подтверждает вход и отключаема в настройках Android.</string>
+</resources>
