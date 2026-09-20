@@ -4,6 +4,7 @@ import android.app.Instrumentation;
 import android.content.Context;
 import android.os.Bundle;
 import app.githubble.mobile.build.BuildAutoDownloadPolicy;
+import app.githubble.mobile.auth.DeviceCodeAssist;
 import app.githubble.mobile.database.SchemaMigrationRegistry;
 import app.githubble.mobile.controller.CopilotAgentController;
 import app.githubble.mobile.controller.CopilotPermissionReport;
@@ -36,6 +37,7 @@ public final class RcInstrumentationTest extends Instrumentation {
         try {
             Context context = getTargetContext();
             testDeviceCodeNormalization();
+            testDeviceCodeAssist(context);
             testPagination();
             testRotationAndProcessDeathState(context);
             testOfflineQueue(context);
@@ -107,6 +109,22 @@ public final class RcInstrumentationTest extends Instrumentation {
     private static void testDeviceCodeNormalization() {
         eq("85059224", DeviceCodeFormatter.normalize("8505-9224"));
         eq("AB12CD34", DeviceCodeFormatter.normalize("ab12 cd34"));
+    }
+
+    private static void testDeviceCodeAssist(Context context) {
+        DeviceCodeAssist.begin(context, "ab12-CD34", System.currentTimeMillis()+90_000L);
+        eq("AB12CD34", DeviceCodeAssist.currentCode(context));
+        no(DeviceCodeAssist.isArmed(context));
+        yes(DeviceCodeAssist.arm(context));
+        yes(DeviceCodeAssist.isArmed(context));
+        DeviceCodeAssist.disarm(context);
+        no(DeviceCodeAssist.isArmed(context));
+        DeviceCodeAssist.clear(context);
+        eq("", DeviceCodeAssist.currentCode(context));
+        // Expired codes must never be copied or used for autofill.
+        DeviceCodeAssist.begin(context, "AB12-CD34", System.currentTimeMillis()-1);
+        eq("", DeviceCodeAssist.currentCode(context));
+        no(DeviceCodeAssist.arm(context));
     }
 
     private static void testPagination() {
