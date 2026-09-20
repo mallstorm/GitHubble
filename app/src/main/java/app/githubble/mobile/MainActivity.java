@@ -288,7 +288,7 @@ public class MainActivity extends Activity {
             top.addView(back, new LinearLayout.LayoutParams(dp(46), dp(46)));
         }
 
-        if ("Главная".equals(title) || "Репозитории".equals(title) || "Активность".equals(title) || "Поиск".equals(title)) {
+        if ("Главная".equals(title) || "Репозитории".equals(title) || "Активность".equals(title) || "Поиск".equals(title) || "Профиль".equals(title)) {
             ImageView homeBrand = new ImageView(this);
             homeBrand.setImageResource(R.drawable.ic_home_rocket);
             homeBrand.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
@@ -314,7 +314,7 @@ public class MainActivity extends Activity {
             top.addView(search);
         }
 
-        if (!"Репозитории".equals(title) && !"Активность".equals(title) && !"Поиск".equals(title) && !title.equals("Настройки") && !title.equals("Интерфейс") && !title.equals("Уведомления") && !title.equals("Аккаунт и доступ") && !title.equals("Данные и синхронизация") && !title.equals("Безопасность") && !title.equals("О приложении")) {
+        if (!"Репозитории".equals(title) && !"Активность".equals(title) && !"Поиск".equals(title) && !"Профиль".equals(title) && !title.equals("Настройки") && !title.equals("Интерфейс") && !title.equals("Уведомления") && !title.equals("Аккаунт и доступ") && !title.equals("Данные и синхронизация") && !title.equals("Безопасность") && !title.equals("О приложении")) {
         FrameLayout bellWrap = new FrameLayout(this);
         ImageView bell = iconButton(R.drawable.ic_bell, "Уведомления");
         bell.setOnClickListener(v -> navigate(this::showNotifications));
@@ -2672,68 +2672,369 @@ public class MainActivity extends Activity {
     }
 
     private void renderProfileContent(JSONObject profile){
-        String login=profile.optString("login",secureStore.get("github_login"));
-        String displayName=profile.optString("name","");if(displayName.isEmpty()||"null".equals(displayName))displayName=login;
-        LinearLayout hero=new LinearLayout(this);hero.setOrientation(LinearLayout.VERTICAL);hero.setGravity(Gravity.CENTER);hero.setPadding(dp(8),dp(4),dp(8),dp(4));
-        ImageView avatar=createProfileAvatar(dp(96));hero.addView(avatar,new LinearLayout.LayoutParams(dp(96),dp(96)));
-        TextView name=text(displayName,23,true);name.setGravity(Gravity.CENTER);name.setPadding(0,dp(10),0,0);hero.addView(name);
-        TextView handle=text("@"+login,14,true);handle.setTextColor(GREEN);handle.setGravity(Gravity.CENTER);hero.addView(handle);
-        String bio=cleanNullable(profile.optString("bio",""));if(!bio.isEmpty()){TextView b=text(bio,14,false);b.setGravity(Gravity.CENTER);b.setTextColor(MUTED);b.setPadding(dp(8),dp(8),dp(8),0);hero.addView(b);}card(hero);
-        if(!bio.isEmpty()&&LanguageDetector.needsRussianTranslation(bio))addTranslatableMarkdownCard("profile-bio:"+login,bio,profile.optString("updated_at",""));
+        final String login=profile.optString("login",getProfileLogin());
+        String displayName=cleanNullable(profile.optString("name",""));
+        if(displayName.isEmpty())displayName=login;
+        final String profileUrl=profile.optString("html_url","https://github.com/"+login);
 
-        RepositoryStore.Snapshot repositorySnapshot=repositoryStore.read(currentAccountId());
-        int accessible=repositorySnapshot.hasData()?repositorySnapshot.repositories.length():profile.optInt("public_repos",0);
-        int privateCount=0;
-        for(int i=0;i<repositorySnapshot.repositories.length();i++){
-            JSONObject repository=repositorySnapshot.repositories.optJSONObject(i);
-            if(repository!=null && repository.optBoolean("private",false))privateCount++;
+        // Profile hero: the actual cached GitHub avatar and profile fields, never mockup numbers.
+        LinearLayout hero=new LinearLayout(this);
+        hero.setOrientation(LinearLayout.VERTICAL);
+        hero.setPadding(dp(13),dp(13),dp(13),dp(13));
+        hero.setBackground(round(blend(CARD,GREEN,0.065f),17,BORDER,1));
+        LinearLayout identity=new LinearLayout(this);
+        identity.setGravity(Gravity.CENTER_VERTICAL);
+        ImageView avatar=createProfileAvatar(dp(78));
+        identity.addView(avatar,new LinearLayout.LayoutParams(dp(78),dp(78)));
+        LinearLayout labels=new LinearLayout(this);
+        labels.setOrientation(LinearLayout.VERTICAL);
+        labels.setPadding(dp(10),0,dp(3),0);
+        TextView name=text(displayName,20,true);
+        name.setPadding(0,0,0,0);
+        name.setSingleLine(true);
+        name.setEllipsize(TextUtils.TruncateAt.END);
+        labels.addView(name);
+        TextView handle=text("@"+login,13,true);
+        handle.setTextColor(GREEN);
+        handle.setPadding(0,dp(2),0,0);
+        handle.setSingleLine(true);
+        handle.setEllipsize(TextUtils.TruncateAt.END);
+        labels.addView(handle);
+        identity.addView(labels,new LinearLayout.LayoutParams(0,-2,1));
+        TextView edit=text("✎",20,true);
+        edit.setTextColor(GREEN);
+        edit.setContentDescription("Редактировать профиль GitHub");
+        edit.setGravity(Gravity.CENTER);
+        edit.setBackground(round(blend(CARD,GREEN,0.12f),15,0,0));
+        edit.setOnClickListener(v->openWeb("https://github.com/settings/profile"));
+        identity.addView(edit,new LinearLayout.LayoutParams(dp(42),dp(42)));
+        hero.addView(identity);
+
+        String location=cleanNullable(profile.optString("location",""));
+        String website=cleanNullable(profile.optString("blog",""));
+        if(!location.isEmpty()||!website.isEmpty()){
+            TextView info=text((location.isEmpty()?"":"⌖ "+location)
+                    +(website.isEmpty()?"":(location.isEmpty()?"":"   ·   ")+"↗ "+website),11,false);
+            info.setTextColor(MUTED);
+            info.setMaxLines(2);
+            info.setEllipsize(TextUtils.TruncateAt.END);
+            info.setPadding(dp(1),dp(9),0,0);
+            info.setOnClickListener(v->openWeb(profileUrl));
+            hero.addView(info);
         }
-        int publicCount=repositorySnapshot.hasData()?Math.max(0,accessible-privateCount):profile.optInt("public_repos",0);
-        GridLayout stats=new GridLayout(this);stats.setColumnCount(adaptiveColumns(4));
-        addProfileStat(stats,String.valueOf(accessible),"Доступные",this::showMyRepositories);
-        addProfileStat(stats,String.valueOf(privateCount),"Приватные",() -> {repositoriesPrivateOnly=true;repositoriesPublicOnly=false;showMyRepositories(false);});
-        addProfileStat(stats,String.valueOf(publicCount),"Публичные",() -> {repositoriesPrivateOnly=false;repositoriesPublicOnly=true;showMyRepositories(false);});
-        addProfileStat(stats,String.valueOf(profile.optInt("followers",0)),"Подписчики",() -> showPeopleList("Подписчики","https://api.github.com/user/followers"));
-        content.addView(stats,new LinearLayout.LayoutParams(-1,-2));
+        String bio=cleanNullable(profile.optString("bio",""));
+        if(!bio.isEmpty()){
+            TextView description=text(bio,12,false);
+            description.setTextColor(MUTED);
+            description.setPadding(dp(1),dp(8),dp(1),0);
+            description.setMaxLines(4);
+            description.setEllipsize(TextUtils.TruncateAt.END);
+            hero.addView(description);
+        }
+        LinearLayout.LayoutParams heroP=new LinearLayout.LayoutParams(-1,-2);
+        heroP.setMargins(0,0,0,dp(11));
+        content.addView(hero,heroP);
 
-        if(repositorySnapshot.hasData()){
-            sectionTitle("Ваши репозитории", "Все");
-            int previewCount=Math.min(3,repositorySnapshot.repositories.length());
-            for(int i=0;i<previewCount;i++){
-                JSONObject repository=repositorySnapshot.repositories.optJSONObject(i);
-                if(repository==null)continue;
-                try{addRepoCard(repository);}catch(Exception ignored){}
+        RepositoryStore.Snapshot snapshot=repositoryStore.read(currentAccountId());
+        final int repoCount=snapshot.hasData()?snapshot.repositories.length():
+                Math.max(0,profile.optInt("public_repos",0));
+        GridLayout stats=new GridLayout(this);
+        stats.setColumnCount(4);
+        profileStat(stats,R.drawable.ic_repository,Integer.toString(repoCount),"Репозитории",GREEN,
+                ()->navigate(this::showMyRepositories));
+        profileStat(stats,R.drawable.ic_organization,Integer.toString(profile.optInt("followers",0)),
+                "Подписчики",0xFF347EE0,
+                ()->navigate(()->showPeopleList("Подписчики","https://api.github.com/user/followers")));
+        profileStat(stats,R.drawable.ic_profile,Integer.toString(profile.optInt("following",0)),
+                "Подписки",0xFF8555CD,
+                ()->navigate(()->showPeopleList("Подписки","https://api.github.com/user/following")));
+        profileStat(stats,R.drawable.ic_projects,Integer.toString(profile.optInt("public_gists",0)),
+                "Gists",0xFFE47B2F,()->openWeb("https://gist.github.com/"+login));
+        LinearLayout.LayoutParams statsP=new LinearLayout.LayoutParams(-1,-2);
+        statsP.setMargins(0,0,0,dp(7));
+        content.addView(stats,statsP);
+
+        profileSection("Быстрые действия","Все действия",()->{
+            new AlertDialog.Builder(this).setTitle("Действия с аккаунтом").setItems(
+                new String[]{"Мои репозитории","Организации","История","Открыть GitHub",
+                        "Настройки","Обновить профиль"},
+                (dialog,which)->{
+                    switch(which){
+                        case 0: navigate(this::showMyRepositories);break;
+                        case 1: navigate(this::showOrganizations);break;
+                        case 2: navigate(this::showAccountActivity);break;
+                        case 3: openWeb(profileUrl);break;
+                        case 4: navigate(this::showSettings);break;
+                        case 5: refreshProfileData(true);break;
+                        default:break;
+                    }
+                }).show();
+        });
+        GridLayout quick=new GridLayout(this);
+        quick.setColumnCount(2);
+        profileAction(quick,R.drawable.ic_repository,"Мои репозитории","Ваши проекты",GREEN,
+                ()->navigate(this::showMyRepositories));
+        profileAction(quick,R.drawable.ic_organization,"Организации","Команды и доступ",0xFF3098A0,
+                ()->navigate(this::showOrganizations));
+        profileAction(quick,R.drawable.ic_history,"История","Недавняя активность",0xFFF08430,
+                ()->navigate(this::showAccountActivity));
+        profileAction(quick,R.drawable.ic_tools,"Открыть GitHub","Профиль в браузере",0xFF8252D3,
+                ()->openWeb(profileUrl));
+        content.addView(quick,new LinearLayout.LayoutParams(-1,-2));
+
+        profileSection("Закреплённые репозитории","Изменить",()->profileChoosePinned(snapshot));
+        Set<String> pins=new LinkedHashSet<>(prefs.getStringSet(
+                profilePinsKey(),new LinkedHashSet<>()));
+        int shown=0;
+        if(snapshot.hasData()){
+            for(String full:pins){
+                for(int i=0;i<snapshot.repositories.length();i++){
+                    JSONObject repo=snapshot.repositories.optJSONObject(i);
+                    if(repo!=null&&full.equals(repo.optString("full_name",""))){
+                        profilePinnedRepo(repo);
+                        shown++;
+                        break;
+                    }
+                }
+                if(shown>=3)break;
             }
-            Button all=button("Открыть все репозитории · "+accessible);
-            all.setOnClickListener(v->navigate(this::showMyRepositories));
-            content.addView(all,new LinearLayout.LayoutParams(-1,dp(48)));
-        } else {
-            TextView syncing=text("Список репозиториев появится здесь после первой синхронизации.",12,false);
-            syncing.setTextColor(MUTED);syncing.setGravity(Gravity.CENTER);syncing.setPadding(0,dp(10),0,dp(8));content.addView(syncing);
         }
+        if(shown==0){
+            TextView empty=text(snapshot.hasData()
+                    ?"Закрепите до трёх репозиториев для быстрого доступа из профиля."
+                    :"Список появится после синхронизации репозиториев.",12,false);
+            empty.setTextColor(MUTED);
+            empty.setPadding(dp(12),dp(13),dp(12),dp(13));
+            empty.setBackground(round(CARD,14,BORDER,1));
+            empty.setOnClickListener(v->profileChoosePinned(snapshot));
+            content.addView(empty);
+        }
+        profileSection("Аккаунт и безопасность",null,null);
+        GridLayout security=new GridLayout(this);
+        security.setColumnCount(2);
+        profileSecurityTile(security,R.drawable.ic_lock,"Сеанс активен",
+                "Управление аккаунтом",GREEN,()->navigate(this::showSettingsAccount));
+        profileSecurityTile(security,R.drawable.ic_settings,"Токен защищён",
+                "Android Keystore",0xFF347EE0,()->navigate(this::showSettingsSecurity));
+        content.addView(security,new LinearLayout.LayoutParams(-1,-2));
+    }
 
-        LinearLayout details=new LinearLayout(this);details.setOrientation(LinearLayout.VERTICAL);
-        addProfileDetail(details,"Компания",cleanNullable(profile.optString("company","")));
-        addProfileDetail(details,"Местоположение",cleanNullable(profile.optString("location","")));
-        addProfileDetail(details,"Email",cleanNullable(profile.optString("email","")));
-        addProfileDetail(details,"Сайт",cleanNullable(profile.optString("blog","")));
-        addProfileDetail(details,"На GitHub с",formatGitHubDate(profile.optString("created_at","")));
-        addProfileDetail(details,"Обновлён",formatGitHubDate(profile.optString("updated_at","")));
-        if(details.getChildCount()>0){sectionTitle("О профиле",null);card(details);}
+    private void profileSection(String title,String actionLabel,Runnable onAction){
+        LinearLayout row=new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        TextView heading=text(title,17,true);
+        heading.setPadding(0,0,0,0);
+        heading.setSingleLine(true);
+        heading.setEllipsize(TextUtils.TruncateAt.END);
+        row.addView(heading,new LinearLayout.LayoutParams(0,-2,1));
+        if(actionLabel!=null&&onAction!=null){
+            TextView action=text(actionLabel+" ›",11,true);
+            action.setTextColor(GREEN);
+            action.setGravity(Gravity.CENTER_VERTICAL|Gravity.END);
+            action.setOnClickListener(v->onAction.run());
+            row.addView(action);
+        }
+        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,dp(49));
+        p.setMargins(0,dp(5),0,0);
+        content.addView(row,p);
+    }
 
-        sectionTitle("Управление аккаунтом",null);
-        GridLayout actions=new GridLayout(this);actions.setColumnCount(adaptiveColumns(2));
-        addAction(actions,"Аккаунт и Billing",() -> navigate(this::showAccountCenter));
-        addAction(actions,"Репозитории",() -> navigate(this::showMyRepositories));
-        addAction(actions,"Организации",() -> navigate(this::showOrganizations));
-        addAction(actions,"История",() -> navigate(this::showAccountActivity));
-        addAction(actions,"Открыть GitHub",() -> openWeb(profile.optString("html_url","https://github.com/"+login)));
-        content.addView(actions);
+    private void profileStat(GridLayout target,int icon,String value,String label,int tint,Runnable action){
+        LinearLayout tile=new LinearLayout(this);
+        tile.setOrientation(LinearLayout.VERTICAL);
+        tile.setGravity(Gravity.CENTER);
+        tile.setPadding(dp(2),dp(8),dp(2),dp(7));
+        tile.setBackground(round(CARD,13,BORDER,1));
+        ImageView art=imageIcon(icon,tint,2);
+        tile.addView(art,new LinearLayout.LayoutParams(dp(22),dp(22)));
+        TextView amount=text(value,17,true);
+        amount.setGravity(Gravity.CENTER);
+        amount.setPadding(0,dp(5),0,0);
+        tile.addView(amount);
+        TextView caption=text(label,10,false);
+        caption.setTextColor(MUTED);
+        caption.setSingleLine(true);
+        caption.setGravity(Gravity.CENTER);
+        caption.setEllipsize(TextUtils.TruncateAt.END);
+        caption.setPadding(0,dp(2),0,0);
+        tile.addView(caption);
+        tile.setOnClickListener(v->action.run());
+        GridLayout.LayoutParams p=new GridLayout.LayoutParams();
+        p.width=0;
+        p.height=dp(87);
+        p.columnSpec=GridLayout.spec(GridLayout.UNDEFINED,1f);
+        p.setMargins(dp(2),0,dp(2),0);
+        target.addView(tile,p);
+    }
 
-        LinearLayout sync=new LinearLayout(this);
-        Button refresh=button("Обновить профиль");refresh.setOnClickListener(v->refreshProfileData(true));sync.addView(refresh,new LinearLayout.LayoutParams(0,dp(50),1));
-        Button settings=button("Настройки");settings.setOnClickListener(v->navigate(this::showSettings));LinearLayout.LayoutParams sp=new LinearLayout.LayoutParams(0,dp(50),1);sp.setMargins(dp(7),0,0,0);sync.addView(settings,sp);content.addView(sync);
-        TextView secure=text("Сеанс GiHubble активен · токен зашифрован Android Keystore",11,false);secure.setTextColor(MUTED);secure.setGravity(Gravity.CENTER);secure.setPadding(0,dp(10),0,dp(4));content.addView(secure);
+    private void profileAction(GridLayout grid,int icon,String title,String subtitle,int accent,Runnable action){
+        LinearLayout tile=new LinearLayout(this);
+        tile.setGravity(Gravity.CENTER_VERTICAL);
+        tile.setPadding(dp(9),dp(10),dp(7),dp(10));
+        tile.setBackground(round(CARD,14,BORDER,1));
+        ImageView image=imageIcon(icon,Color.WHITE,9);
+        image.setBackground(round(accent,11,0,0));
+        tile.addView(image,new LinearLayout.LayoutParams(dp(38),dp(38)));
+        LinearLayout labels=new LinearLayout(this);
+        labels.setOrientation(LinearLayout.VERTICAL);
+        labels.setPadding(dp(7),0,0,0);
+        TextView heading=text(title,12,true);
+        heading.setPadding(0,0,0,0);
+        heading.setMaxLines(2);
+        heading.setEllipsize(TextUtils.TruncateAt.END);
+        labels.addView(heading);
+        TextView sub=text(subtitle,10,false);
+        sub.setPadding(0,dp(2),0,0);
+        sub.setTextColor(MUTED);
+        sub.setMaxLines(2);
+        sub.setEllipsize(TextUtils.TruncateAt.END);
+        labels.addView(sub);
+        tile.addView(labels,new LinearLayout.LayoutParams(0,-2,1));
+        tile.setOnClickListener(v->action.run());
+        GridLayout.LayoutParams p=new GridLayout.LayoutParams();
+        p.width=0;
+        p.height=dp(80);
+        p.columnSpec=GridLayout.spec(GridLayout.UNDEFINED,1f);
+        p.setMargins(dp(2),dp(2),dp(2),dp(2));
+        grid.addView(tile,p);
+    }
+
+    private String profilePinsKey(){
+        return "profile_pins_"+currentAccountId();
+    }
+
+    private void profileChoosePinned(RepositoryStore.Snapshot snapshot){
+        if(!snapshot.hasData()||snapshot.repositories.length()==0){
+            new AlertDialog.Builder(this).setTitle("Закреплённые репозитории")
+                    .setMessage("Сначала синхронизируйте репозитории GitHub.")
+                    .setPositiveButton("Открыть репозитории",(d,w)->navigate(this::showMyRepositories))
+                    .setNegativeButton("Закрыть",null).show();
+            return;
+        }
+        List<String> values=new ArrayList<>();
+        for(int i=0;i<snapshot.repositories.length();i++){
+            JSONObject repo=snapshot.repositories.optJSONObject(i);
+            if(repo==null)continue;
+            String full=repo.optString("full_name","");
+            if(!full.isEmpty()&&!values.contains(full))values.add(full);
+        }
+        String[] names=values.toArray(new String[0]);
+        Set<String> chosen=new LinkedHashSet<>(prefs.getStringSet(
+                profilePinsKey(),new LinkedHashSet<>()));
+        boolean[] checked=new boolean[names.length];
+        for(int i=0;i<names.length;i++)checked[i]=chosen.contains(names[i]);
+        AlertDialog dialog=new AlertDialog.Builder(this)
+                .setTitle("Закрепить до трёх репозиториев")
+                .setMultiChoiceItems(names,checked,(d,index,on)->{
+                    if(on&&chosen.size()>=3&&!chosen.contains(names[index])){
+                        ((AlertDialog)d).getListView().setItemChecked(index,false);
+                        toast("Можно закрепить не более трёх репозиториев");
+                    }else if(on)chosen.add(names[index]);
+                    else chosen.remove(names[index]);
+                })
+                .setPositiveButton("Сохранить",(d,w)->{
+                    prefs.edit().putStringSet(profilePinsKey(),new LinkedHashSet<>(chosen)).apply();
+                    renderProfilePage(false);
+                })
+                .setNegativeButton("Отмена",null).create();
+        dialog.show();
+    }
+
+    private void profilePinnedRepo(JSONObject repo){
+        final String full=repo.optString("full_name","");
+        if(full.isEmpty())return;
+        LinearLayout box=new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(11),dp(10),dp(9),dp(9));
+        box.setBackground(round(CARD,14,BORDER,1));
+        LinearLayout first=new LinearLayout(this);
+        first.setGravity(Gravity.CENTER_VERTICAL);
+        ImageView icon=imageIcon(R.drawable.ic_repository,Color.WHITE,10);
+        icon.setBackground(round(GREEN,11,0,0));
+        first.addView(icon,new LinearLayout.LayoutParams(dp(42),dp(42)));
+        LinearLayout words=new LinearLayout(this);
+        words.setOrientation(LinearLayout.VERTICAL);
+        words.setPadding(dp(9),0,dp(5),0);
+        TextView title=text(repo.optString("name",full),14,true);
+        title.setSingleLine(true);
+        title.setEllipsize(TextUtils.TruncateAt.END);
+        title.setPadding(0,0,0,0);
+        words.addView(title);
+        TextView description=text(cleanNullable(repo.optString("description","")),11,false);
+        description.setMaxLines(2);
+        description.setTextColor(MUTED);
+        description.setEllipsize(TextUtils.TruncateAt.END);
+        description.setPadding(0,dp(2),0,0);
+        words.addView(description);
+        first.addView(words,new LinearLayout.LayoutParams(0,-2,1));
+        TextView pin=text("●",12,true);
+        pin.setTextColor(GREEN);
+        pin.setContentDescription("Закреплённый репозиторий");
+        pin.setGravity(Gravity.CENTER);
+        first.addView(pin,new LinearLayout.LayoutParams(dp(20),dp(35)));
+        TextView menu=text("⋮",21,true);
+        menu.setTextColor(MUTED);
+        menu.setGravity(Gravity.CENTER);
+        menu.setContentDescription("Действия с репозиторием "+full);
+        menu.setOnClickListener(v->new AlertDialog.Builder(this).setTitle(full)
+                .setItems(new String[]{"Открыть","Открепить"},(dialog,index)->{
+                    if(index==0)navigate(()->showRepository(full));
+                    else{
+                        Set<String> pins=new LinkedHashSet<>(prefs.getStringSet(
+                                profilePinsKey(),new LinkedHashSet<>()));
+                        pins.remove(full);
+                        prefs.edit().putStringSet(profilePinsKey(),pins).apply();
+                        renderProfilePage(false);
+                    }
+                }).show());
+        first.addView(menu,new LinearLayout.LayoutParams(dp(25),dp(40)));
+        box.addView(first);
+        TextView meta=text(cleanNullable(repo.optString("language","—"))+
+                "    ★ "+repo.optInt("stargazers_count",0)+
+                "    ⑂ "+repo.optInt("forks_count",0)+
+                "    · "+formatGitHubDate(repo.optString("updated_at","")),10,false);
+        meta.setTextColor(MUTED);
+        meta.setSingleLine(true);
+        meta.setEllipsize(TextUtils.TruncateAt.END);
+        meta.setPadding(dp(1),dp(9),0,0);
+        box.addView(meta);
+        box.setOnClickListener(v->navigate(()->showRepository(full)));
+        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);
+        p.setMargins(0,0,0,dp(8));
+        content.addView(box,p);
+    }
+
+    private void profileSecurityTile(GridLayout grid,int icon,String title,String subtitle,
+                                     int accent,Runnable action){
+        LinearLayout row=new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(8),dp(9),dp(6),dp(9));
+        row.setBackground(round(blend(CARD,accent,0.04f),13,BORDER,1));
+        ImageView art=imageIcon(icon,accent,4);
+        art.setBackground(round(blend(CARD,accent,0.11f),9,0,0));
+        row.addView(art,new LinearLayout.LayoutParams(dp(33),dp(33)));
+        LinearLayout labels=new LinearLayout(this);
+        labels.setOrientation(LinearLayout.VERTICAL);
+        labels.setPadding(dp(6),0,0,0);
+        TextView name=text(title,11,true);
+        name.setPadding(0,0,0,0);
+        name.setMaxLines(2);
+        name.setEllipsize(TextUtils.TruncateAt.END);
+        labels.addView(name);
+        TextView detail=text(subtitle,9,false);
+        detail.setPadding(0,dp(2),0,0);
+        detail.setTextColor(MUTED);
+        detail.setMaxLines(2);
+        detail.setEllipsize(TextUtils.TruncateAt.END);
+        labels.addView(detail);
+        row.addView(labels,new LinearLayout.LayoutParams(0,-2,1));
+        row.setOnClickListener(v->action.run());
+        GridLayout.LayoutParams p=new GridLayout.LayoutParams();
+        p.width=0;
+        p.height=dp(69);
+        p.columnSpec=GridLayout.spec(GridLayout.UNDEFINED,1f);
+        p.setMargins(dp(2),dp(2),dp(2),dp(2));
+        grid.addView(row,p);
     }
 
     private void addProfileStat(GridLayout grid,String value,String label,Runnable action){
