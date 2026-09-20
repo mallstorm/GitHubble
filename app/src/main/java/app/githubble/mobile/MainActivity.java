@@ -287,7 +287,7 @@ public class MainActivity extends Activity {
             top.addView(back, new LinearLayout.LayoutParams(dp(46), dp(46)));
         }
 
-        if ("Главная".equals(title) || "Репозитории".equals(title)) {
+        if ("Главная".equals(title) || "Репозитории".equals(title) || "Активность".equals(title)) {
             ImageView homeBrand = new ImageView(this);
             homeBrand.setImageResource(R.drawable.ic_home_rocket);
             homeBrand.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
@@ -300,7 +300,7 @@ public class MainActivity extends Activity {
         titles.setGravity(Gravity.CENTER_VERTICAL);
         TextView logo = text("GitHubble", 20, true);
         logo.setPadding(0, 0, 0, 0);
-        TextView page = text(("Главная".equals(title) || "Репозитории".equals(title)) ? "Ваш GitHub всегда рядом" : title, 13, false);
+        TextView page = text(("Главная".equals(title) || "Репозитории".equals(title) || "Активность".equals(title)) ? "Ваш GitHub всегда рядом" : title, 13, false);
         page.setTextColor(MUTED);
         page.setPadding(0, 0, 0, 0);
         titles.addView(logo);
@@ -313,7 +313,7 @@ public class MainActivity extends Activity {
             top.addView(search);
         }
 
-        if (!"Репозитории".equals(title)) {
+        if (!"Репозитории".equals(title) && !"Активность".equals(title)) {
         FrameLayout bellWrap = new FrameLayout(this);
         ImageView bell = iconButton(R.drawable.ic_bell, "Уведомления");
         bell.setOnClickListener(v -> navigate(this::showNotifications));
@@ -793,77 +793,85 @@ public class MainActivity extends Activity {
     }
     private void showNotifications(){
         setCurrentScreen(this::showNotifications);
-        shell(getString(R.string.nav_activity),false);
-        heroBanner("Активность GitHub", "Issues, Pull Requests и события вашего аккаунта", R.drawable.ic_bell);
+        shell("Активность",false);
         if(!isSignedIn()){
-            TextView note=text(getString(R.string.no_real_notifications),13,false); note.setTextColor(MUTED); card(note);
-            Button b=button(getString(R.string.login_github));b.setOnClickListener(v->navigate(this::showProfile));content.addView(b,new LinearLayout.LayoutParams(-1,dp(50)));
+            app.githubble.mobile.ui.ActivityScreen guest =
+                    new app.githubble.mobile.ui.ActivityScreen(this,content,
+                            activityActions(),CARD,TEXT,MUTED,GREEN,BORDER,SUBTLE,
+                            "dark".equals(activeTheme));
+            guest.render(new ArrayList<>(),"Подключите GitHub, чтобы видеть события аккаунта.");
+            accountRequiredCard("Войдите в GitHub, чтобы загрузить задачи, Pull Requests и публичную активность.");
             return;
         }
-
-        TextView compatibility=text("GiHubble использует токен GitHub App. Такой токен не допускается к системному Notifications Inbox API, поэтому здесь формируется честная лента из доступных задач, Pull Requests и событий аккаунта.",12,false);
-        compatibility.setTextColor(MUTED);
-        card(compatibility);
-
-        LinearLayout actions=new LinearLayout(this);
-        Button refresh=button("Обновить");
-        refresh.setOnClickListener(v->showNotifications());
-        Button github=button("Открыть GitHub");
-        github.setOnClickListener(v->openWeb("https://github.com/notifications"));
-        actions.addView(refresh,new LinearLayout.LayoutParams(0,dp(48),1));
-        LinearLayout.LayoutParams gp=new LinearLayout.LayoutParams(0,dp(48),1);gp.setMargins(dp(7),0,0,0);actions.addView(github,gp);
-        content.addView(actions);
-
-        JSONObject trackingStats = trackingDb.statistics();
-        int watched = trackingStats.optInt("developers", 0);
-        int trackingUnread = trackingStats.optInt("unread", 0);
-        LinearLayout trackingCard = new LinearLayout(this);
-        trackingCard.setOrientation(LinearLayout.VERTICAL);
-        trackingCard.addView(text("Наблюдение за разработчиками", 16, true));
-        TextView trackingMeta = text(watched == 0
-                ? "Добавьте разработчика, чтобы получать новые репозитории и релизы"
-                : "Отслеживается: " + watched + " · новых событий: " + trackingUnread, 12, false);
-        trackingMeta.setTextColor(MUTED);
-        trackingCard.addView(trackingMeta);
-        trackingCard.setOnClickListener(v -> navigate(this::showTracking));
-        card(trackingCard);
-
-        LinearLayout copilotCard = new LinearLayout(this);
-        copilotCard.setOrientation(LinearLayout.VERTICAL);
-        copilotCard.addView(text("Copilot Cloud Agent", 16, true));
-        int copilotCount = prefs.getInt("copilot_task_count", -1);
-        int copilotActive = prefs.getInt("copilot_active_count", 0);
-        String copilotSummary = copilotCount < 0
-                ? "Задачи агента, ветки и созданные Pull Requests"
-                : "Задач: " + copilotCount + " · активных: " + copilotActive;
-        TextView copilotMeta = text(copilotSummary, 12, false);
-        copilotMeta.setTextColor(MUTED);
-        copilotCard.addView(copilotMeta);
-        copilotCard.setOnClickListener(v -> navigate(this::showCopilotTasks));
-        card(copilotCard);
-
-        ProgressBar pb=new ProgressBar(this);content.addView(pb);
-        io.execute(() -> {
+        final long generation=screenGeneration.get();
+        final String account=currentAccountId();
+        List<JSONObject> cached=readCachedActivity(account);
+        app.githubble.mobile.ui.ActivityScreen screen =
+                new app.githubble.mobile.ui.ActivityScreen(this,content,activityActions(),
+                        CARD,TEXT,MUTED,GREEN,BORDER,SUBTLE,"dark".equals(activeTheme));
+        screen.render(cached,"Обновляем ленту GitHub…");
+        io.execute(()->{
             try{
-                List<JSONObject> feed = loadSupportedActivityFeed();
-                long previousSeen = prefs.getLong("activity_last_seen_epoch", 0L);
-                int fresh = 0;
-                for(JSONObject item : feed) if(parseIsoEpoch(item.optString("updated_at","")) > previousSeen) fresh++;
-                long now = System.currentTimeMillis();
-                prefs.edit().putInt("activity_new_count",fresh).putLong("activity_last_seen_epoch",now).apply();
-                runOnUiThread(() -> {
-                    if(!getString(R.string.nav_activity).equals(currentTitle))return;
-                    content.removeView(pb);
-                    prefs.edit().putInt("activity_new_count",0).apply();
-                    sectionTitle(feed.isEmpty()?"Новых событий не найдено":"События: "+feed.size(),null);
-                    if(feed.isEmpty()){
-                        TextView empty=text("GitHub не вернул доступных событий. Лента заполнится после обновлений Issues, Pull Requests или публичной активности аккаунта.",13,false);
-                        empty.setTextColor(MUTED);card(empty);return;
-                    }
-                    for(JSONObject item:feed) renderSupportedActivityCard(item);
+                List<JSONObject> loaded=loadSupportedActivityFeed();
+                JSONArray cache=new JSONArray();
+                for(JSONObject event:loaded)cache.put(event);
+                prefs.edit().putString("activity_feed_cache_"+account,cache.toString())
+                        .putLong("activity_last_seen_epoch",System.currentTimeMillis())
+                        .putInt("activity_new_count",0).apply();
+                runOnUiThread(()->{
+                    if(generation!=screenGeneration.get()||
+                            !account.equals(currentAccountId())||
+                            !"Активность".equals(currentTitle))return;
+                    screen.setFeed(loaded);
+                    screen.setStatus("Доступные события GitHub · не системный Inbox уведомлений");
                 });
-            }catch(Exception e){runOnUiThread(() -> {if(getString(R.string.nav_activity).equals(currentTitle)){content.removeView(pb);errorCard("Не удалось загрузить активность",e.getMessage());}});}
+            }catch(Exception error){
+                runOnUiThread(()->{
+                    if(generation!=screenGeneration.get()||
+                            !account.equals(currentAccountId())||
+                            !"Активность".equals(currentTitle))return;
+                    screen.setStatus(cached.isEmpty()
+                            ?"Не удалось загрузить события: "+error.getMessage()
+                            :"Сеть недоступна. Показаны последние сохранённые события.");
+                });
+            }
         });
+    }
+
+    private app.githubble.mobile.ui.ActivityScreen.Actions activityActions(){
+        return new app.githubble.mobile.ui.ActivityScreen.Actions(){
+            @Override public void openEvent(JSONObject event){
+                String repo=event.optString("repo","");
+                String kind=event.optString("kind","Event");
+                String eventType=event.optString("event_type","");
+                int number=event.optInt("number",0);
+                if(!repo.contains("/"))return;
+                if(("Issue".equals(kind)||"IssuesEvent".equals(eventType))&&number>0)
+                    navigate(()->showIssueDetail(repo,number));
+                else if(("PullRequest".equals(kind)||eventType.startsWith("PullRequest"))&&number>0)
+                    navigate(()->showPullDetail(repo,number));
+                else if(eventType.contains("Discussion")&&number>0)
+                    navigate(()->showDiscussionDetail(repo,number));
+                else navigate(()->showRepository(repo));
+            }
+            @Override public void refresh(){showNotifications();}
+            @Override public void openGitHubNotifications(){
+                openWeb("https://github.com/notifications");
+            }
+        };
+    }
+
+    private List<JSONObject> readCachedActivity(String account){
+        List<JSONObject> cached=new ArrayList<>();
+        if(account==null||account.isEmpty())return cached;
+        try{
+            JSONArray data=new JSONArray(prefs.getString("activity_feed_cache_"+account,"[]"));
+            for(int i=0;i<Math.min(60,data.length());i++){
+                JSONObject event=data.optJSONObject(i);
+                if(event!=null)cached.add(event);
+            }
+        }catch(Exception ignored){}
+        return cached;
     }
 
     private List<JSONObject> loadSupportedActivityFeed() throws Exception {
@@ -898,23 +906,89 @@ public class MainActivity extends Activity {
                 }
             }catch(Exception e){if(firstError==null)firstError=e;}
             try{
-                JSONArray events=getArray("https://api.github.com/users/"+URLEncoder.encode(login,"UTF-8")+"/events?per_page=35");
+                // /users/{login}/events contains public events only, not a private Inbox.
+                JSONArray events=getArray("https://api.github.com/users/"+
+                        URLEncoder.encode(login,"UTF-8")+"/events?per_page=35");
                 for(int i=0;i<events.length();i++){
-                    JSONObject source=events.optJSONObject(i);if(source==null)continue;
-                    JSONObject repo=source.optJSONObject("repo");
+                    JSONObject source=events.optJSONObject(i);
+                    if(source==null)continue;
+                    JSONObject repository=source.optJSONObject("repo");
+                    JSONObject payload=source.optJSONObject("payload");
+                    String type=source.optString("type","Event");
                     JSONObject item=new JSONObject();
-                    item.put("kind","Event");item.put("event_type",source.optString("type","Event"));
-                    item.put("title",eventTypeLabel(source.optString("type","")));
-                    item.put("repo",repo==null?"":repo.optString("name",""));
+                    item.put("kind","Event");
+                    item.put("event_type",type);
+                    item.put("title",eventTypeLabel(type));
+                    item.put("repo",repository==null?"":repository.optString("name",""));
                     item.put("updated_at",source.optString("created_at",""));
+                    item.put("event_id",source.optString("id",""));
+                    if(payload!=null){
+                        String action=payload.optString("action","");
+                        JSONObject subject;
+                        if("PushEvent".equals(type)){
+                            item.put("kind","Commit");
+                            String branch=payload.optString("ref","").replace("refs/heads/","");
+                            item.put("title",branch.isEmpty()?"Отправлен коммит":
+                                    "Новый коммит в ветке "+branch);
+                            JSONArray commits=payload.optJSONArray("commits");
+                            if(commits!=null&&commits.length()>0){
+                                JSONObject commit=commits.optJSONObject(0);
+                                if(commit!=null)item.put("summary",commit.optString("message",""));
+                            }
+                        }else if("ReleaseEvent".equals(type)){
+                            item.put("kind","Release");
+                            subject=payload.optJSONObject("release");
+                            if(subject!=null)item.put("title","Опубликован релиз "+
+                                    subject.optString("tag_name",""));
+                            item.put("summary",action);
+                        }else if("IssuesEvent".equals(type)||"IssueCommentEvent".equals(type)){
+                            subject=payload.optJSONObject("issue");
+                            if(subject!=null){
+                                item.put("kind",subject.has("pull_request")?"PullRequest":"Issue");
+                                item.put("number",subject.optInt("number",0));
+                                item.put("title",("closed".equals(action)?"Закрыта задача":
+                                        "opened".equals(action)?"Открыта задача":
+                                        "IssueCommentEvent".equals(type)?"Новый комментарий":"Обновлена задача")
+                                        +" #"+subject.optInt("number",0));
+                                item.put("summary",subject.optString("title",""));
+                            }
+                        }else if(type.startsWith("PullRequest")){
+                            item.put("kind","PullRequest");
+                            subject=payload.optJSONObject("pull_request");
+                            if(subject!=null){
+                                item.put("number",subject.optInt("number",payload.optInt("number",0)));
+                                item.put("title",("closed".equals(action)?"Закрыт Pull Request":
+                                        "opened".equals(action)?"Открыт Pull Request":
+                                        "Обновлён Pull Request")+" #"+item.optInt("number"));
+                                item.put("summary",subject.optString("title",""));
+                            }
+                        }else if(type.contains("Discussion")){
+                            item.put("kind","Discussion");
+                            subject=payload.optJSONObject("discussion");
+                            if(subject!=null){
+                                item.put("number",subject.optInt("number",0));
+                                item.put("summary",subject.optString("title",""));
+                            }
+                        }
+                    }
                     feed.add(item);
                 }
             }catch(Exception e){if(firstError==null)firstError=e;}
         }
         if(feed.isEmpty()&&firstError!=null)throw firstError;
         feed.sort((a,b)->Long.compare(parseIsoEpoch(b.optString("updated_at","")),parseIsoEpoch(a.optString("updated_at",""))));
-        if(feed.size()>60)return new ArrayList<>(feed.subList(0,60));
-        return feed;
+        List<JSONObject> unique=new ArrayList<>();
+        Set<String> seenEvents=new LinkedHashSet<>();
+        for(JSONObject item:feed){
+            String id=item.optString("event_id","");
+            String key=id.isEmpty()?
+                    item.optString("kind","")+"|"+item.optString("repo","")+"|"+
+                    item.optInt("number",0)+"|"+item.optString("updated_at",""):
+                    "github-event:"+id;
+            if(seenEvents.add(key))unique.add(item);
+            if(unique.size()>=60)break;
+        }
+        return unique;
     }
 
     private void renderSupportedActivityCard(JSONObject item){
