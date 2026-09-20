@@ -273,7 +273,7 @@ public class MainActivity extends Activity {
 
         LinearLayout top = new LinearLayout(this);
         top.setGravity(Gravity.CENTER_VERTICAL);
-        top.setPadding(dp(20), dp(8), dp(10), dp(8));
+        top.setPadding(dp("Главная".equals(title) ? 12 : 20), dp(8), dp(10), dp(8));
         top.setBackgroundColor(SURFACE);
 
         if (!backStack.isEmpty()) {
@@ -282,12 +282,20 @@ public class MainActivity extends Activity {
             top.addView(back, new LinearLayout.LayoutParams(dp(46), dp(46)));
         }
 
+        if ("Главная".equals(title)) {
+            ImageView homeBrand = new ImageView(this);
+            homeBrand.setImageResource(R.drawable.ic_home_rocket);
+            homeBrand.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+            LinearLayout.LayoutParams brandParams = new LinearLayout.LayoutParams(dp(32), dp(32));
+            brandParams.setMargins(0, 0, dp(8), 0);
+            top.addView(homeBrand, brandParams);
+        }
         LinearLayout titles = new LinearLayout(this);
         titles.setOrientation(LinearLayout.VERTICAL);
         titles.setGravity(Gravity.CENTER_VERTICAL);
         TextView logo = text("GitHubble", 20, true);
         logo.setPadding(0, 0, 0, 0);
-        TextView page = text(title, 13, false);
+        TextView page = text("Главная".equals(title) ? "Ваш GitHub всегда рядом" : title, 13, false);
         page.setTextColor(MUTED);
         page.setPadding(0, 0, 0, 0);
         titles.addView(logo);
@@ -357,9 +365,10 @@ public class MainActivity extends Activity {
         nav.setPadding(dp(8), dp(5), dp(8), dp(3));
         nav.setBackgroundColor(SURFACE);
         addNav(nav, R.drawable.ic_home, "Главная", "Главная".equals(currentTitle), () -> openRoot(this::showHome));
-        addNav(nav, R.drawable.ic_repository, "Репозитории", "Репозитории".equals(currentTitle), () -> openRoot(this::showMyRepositories));
         addNav(nav, R.drawable.ic_search, "Поиск", "Поиск".equals(currentTitle), () -> openRoot(this::showSearch));
+        addNav(nav, R.drawable.ic_repository, "Репозитории", "Репозитории".equals(currentTitle), () -> openRoot(this::showMyRepositories));
         addNav(nav, R.drawable.ic_bell, "Активность", "Активность".equals(currentTitle), () -> openRoot(this::showNotifications));
+        addNav(nav, R.drawable.ic_settings, "Настройки", "Настройки".equals(currentTitle), () -> openRoot(this::showSettings));
         return nav;
     }
 
@@ -479,6 +488,18 @@ public class MainActivity extends Activity {
             @Override public void openProfile() { navigate(MainActivity.this::showProfile); }
             @Override public void openAccountCenter() { navigate(signedIn ? MainActivity.this::showAccountCenter : MainActivity.this::showProfile); }
             @Override public void openRepository(String fullName) { navigate(() -> showRepository(fullName)); }
+            @Override public void openActivity() { navigate(MainActivity.this::showNotifications); }
+            @Override public void openExplore() { navigate(MainActivity.this::showExplore); }
+            @Override public void openActivityItem(String repo, String kind, int number) {
+                if ("Issue".equals(kind) && number > 0 && repo.contains("/")) navigate(() -> showIssueDetail(repo, number));
+                else if ("PullRequest".equals(kind) && number > 0 && repo.contains("/")) navigate(() -> showPullDetail(repo, number));
+                else if (repo.contains("/")) navigate(() -> showRepository(repo));
+                else navigate(MainActivity.this::showNotifications);
+            }
+            @Override public void refreshDashboard() {
+                prefs.edit().putLong("home_dashboard_last_refresh", 0L).apply();
+                showHome();
+            }
         };
         new HomeScreen(this, content, palette, signedIn, getString(R.string.stabilization_build), actions, getHomeDashboardData()).render();
     }
@@ -509,10 +530,25 @@ public class MainActivity extends Activity {
                 }
             } catch (Exception ignored) {}
         }
+        List<HomeScreen.ActivityPreview> activityPreview = new ArrayList<>();
+        if (isSignedIn()) {
+            try {
+                JSONArray activity = new JSONArray(prefs.getString("home_recent_activity_" + accountId, "[]"));
+                for (int i = 0; i < Math.min(3, activity.length()); i++) {
+                    JSONObject event = activity.optJSONObject(i);
+                    if (event == null) continue;
+                    activityPreview.add(new HomeScreen.ActivityPreview(
+                            event.optString("repo", ""), event.optString("title", "Событие GitHub"),
+                            formatGitHubDate(event.optString("updated_at", "")),
+                            event.optString("kind", "Event"), event.optInt("number", 0)));
+                }
+            } catch (Exception ignored) {}
+        }
         JSONObject trackingStats = trackingDb.statistics();
         return new HomeScreen.DashboardData(issues, pullRequests, repositoryCount, notifications,
                 trackingStats.optInt("developers",0), trackingStats.optInt("repositories",0),
-                trackingStats.optInt("unread",0), recent);
+                trackingStats.optInt("unread",0), recent, activityPreview,
+                isSignedIn() ? getProfileLogin() : "", snapshot.lastSyncedAt);
     }
 
     private void refreshHomeDashboard() {
@@ -520,6 +556,7 @@ public class MainActivity extends Activity {
         long lastRefresh = prefs.getLong("home_dashboard_last_refresh", 0L);
         if (System.currentTimeMillis() - lastRefresh < 120000L) return;
         if (!homeDashboardRefreshInFlight.compareAndSet(false, true)) return;
+        final String homeAccountId = currentAccountId();
         io.execute(() -> {
             SharedPreferences.Editor editor = prefs.edit();
             try {
@@ -545,12 +582,18 @@ public class MainActivity extends Activity {
                 long seen = prefs.getLong("activity_last_seen_epoch", 0L);
                 List<JSONObject> activity = loadSupportedActivityFeed();
                 int fresh = 0;
-                for (JSONObject item : activity) if (parseIsoEpoch(item.optString("updated_at", "")) > seen) fresh++;
+                JSONArray preview = new JSONArray();
+                for (int i = 0; i < activity.size(); i++) {
+                    JSONObject item = activity.get(i);
+                    if (parseIsoEpoch(item.optString("updated_at", "")) > seen) fresh++;
+                    if (i < 3) preview.put(item);
+                }
+                editor.putString("home_recent_activity_" + homeAccountId, preview.toString());
                 editor.putInt("activity_new_count", fresh);
             } catch (Exception ignored) {}
             editor.putLong("home_dashboard_last_refresh", System.currentTimeMillis()).apply();
             homeDashboardRefreshInFlight.set(false);
-            runOnUiThread(() -> { if ("Главная".equals(currentTitle)) showHome(); });
+            runOnUiThread(() -> { if ("Главная".equals(currentTitle) && homeAccountId.equals(currentAccountId())) showHome(); });
         });
     }
 
@@ -3272,7 +3315,7 @@ public class MainActivity extends Activity {
         io.execute(()->{try{DiagnosticsExporter.Result result=DiagnosticsExporter.export(this,prefs,entityCache,translationCache,trackingDb,api);runOnUiThread(()->{progress.dismiss();new AlertDialog.Builder(this).setTitle("Диагностика экспортирована").setMessage(result.displayName+" сохранён в Downloads/GitHubble. Токены, API-ключи, пароли и signing key не включены.").setPositiveButton("Поделиться",(d,w)->{try{Intent share=new Intent(Intent.ACTION_SEND);share.setType("application/zip");share.putExtra(Intent.EXTRA_STREAM,result.uri);share.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);startActivity(Intent.createChooser(share,"Отправить диагностику"));}catch(Exception e){toast("Файл сохранён в Downloads/GitHubble");}}).setNegativeButton("Закрыть",null).show();});}catch(Exception e){runOnUiThread(()->{progress.dismiss();errorDialog("Не удалось экспортировать диагностику",e.getMessage());});}});
     }
 
-    private void confirmSignOut(){new AlertDialog.Builder(this).setTitle("Выйти из GitHub?").setMessage("Токен, приватный кэш и отложенные действия этого аккаунта будут удалены. Локальное избранное останется.").setPositiveButton("Выйти",(d,w)->{String account=currentAccountId();repositoryStore.clear(account);features.offlineQueue.clearAccount(api.accountScope());api.clearSessionCaches();oauth.signOut();prefs.edit().remove("github_profile_json").remove("github_avatar_url").remove("home_open_issues").remove("home_open_prs").remove("home_dashboard_last_refresh").remove("repository_access_settings_url").putInt("activity_new_count",0).apply();File avatar=new File(getFilesDir(),"github_avatar.png");if(avatar.isFile())avatar.delete();openRoot(this::showSettings);}).setNegativeButton("Отмена",null).show();}
+    private void confirmSignOut(){new AlertDialog.Builder(this).setTitle("Выйти из GitHub?").setMessage("Токен, приватный кэш и отложенные действия этого аккаунта будут удалены. Локальное избранное останется.").setPositiveButton("Выйти",(d,w)->{String account=currentAccountId();repositoryStore.clear(account);prefs.edit().remove("home_recent_activity_" + account).apply();features.offlineQueue.clearAccount(api.accountScope());api.clearSessionCaches();oauth.signOut();prefs.edit().remove("github_profile_json").remove("github_avatar_url").remove("home_open_issues").remove("home_open_prs").remove("home_dashboard_last_refresh").remove("repository_access_settings_url").putInt("activity_new_count",0).apply();File avatar=new File(getFilesDir(),"github_avatar.png");if(avatar.isFile())avatar.delete();openRoot(this::showSettings);}).setNegativeButton("Отмена",null).show();}
 
     private void migrateSecureSettings(){
         String legacy=prefs.getString("translator_endpoint","");
