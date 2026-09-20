@@ -26,6 +26,7 @@ import java.util.Locale;
 public final class CommitDetailScreen {
     public interface Actions {
         void openRepository(String fullName);
+        void openParent(String parentSha);
         void openExternalCommit(String fullName,String sha);
         void openRemoteFile(JSONObject file);
     }
@@ -94,7 +95,13 @@ public final class CommitDetailScreen {
                 JSONObject parent=parents.optJSONObject(i);
                 if(parent!=null)values.append(i==0?"":", ").append(shortSha(parent.optString("sha","")));
             }
-            add(label(values.toString(),11,false,muted),0,8);
+            TextView parentsLabel=label(values.toString()+"  ›",11,true,accent);
+            parentsLabel.setContentDescription("Открыть родительский коммит");
+            JSONObject firstParent=parents.optJSONObject(0);
+            String firstParentSha=firstParent==null?"":firstParent.optString("sha","");
+            if(CommitDetailController.validSha(firstParentSha))
+                parentsLabel.setOnClickListener(v->actions.openParent(firstParentSha));
+            add(parentsLabel,0,8);
         }
         LinearLayout buttons=new LinearLayout(activity);
         TextView repository=action("Репозиторий",()->actions.openRepository(repo));

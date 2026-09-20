@@ -4139,6 +4139,9 @@ public class MainActivity extends Activity {
                                 @Override public void openRepository(String name){
                                     navigate(()->showRepository(name));
                                 }
+                                @Override public void openParent(String parentSha){
+                                    navigate(()->showCommitDetail(full,parentSha));
+                                }
                                 @Override public void openExternalCommit(String name,String commit){
                                     openWeb("https://github.com/"+name+"/commit/"+commit);
                                 }
