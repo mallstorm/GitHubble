@@ -776,7 +776,7 @@ public class MainActivity extends Activity {
         new SearchScreen(this, content, palette, new SearchScreen.Actions() {
             @Override public void search(String query, boolean smart) { navigate(() -> searchRepos(query, smart)); }
             @Override public void searchAdvanced(String query, boolean smart, SearchMode mode, SearchFilters filters) {
-                navigate(() -> searchAdvanced(query, smart, mode, filters));
+                navigate(() -> MainActivity.this.searchAdvanced(query, smart, mode, filters));
             }
         }).render();
 
