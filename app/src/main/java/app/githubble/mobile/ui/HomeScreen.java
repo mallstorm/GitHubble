@@ -33,6 +33,7 @@ public final class HomeScreen {
         void openHistory();
         void openTracking();
         void openProfile();
+        void openAccountCenter();
         void openRepository(String fullName);
     }
 
@@ -123,12 +124,12 @@ public final class HomeScreen {
 
     public void render() {
         renderSummary();
-        sectionTitle("Быстрый доступ", null);
-        renderQuickGrid();
-        sectionTitle("Наблюдение", dashboard.trackingUnread > 0 ? dashboard.trackingUnread + " новых" : "Открыть", actions::openTracking);
-        renderTrackingSummary();
-        sectionTitle("Недавние репозитории", "Все", actions::openRepositories);
+        sectionTitle("Ваши репозитории", "Все", actions::openRepositories);
         renderRecentRepositories();
+        sectionTitle("Работа с GitHub", null);
+        renderWorkspaceGrid();
+        sectionTitle("Входящие", dashboard.trackingUnread > 0 ? dashboard.trackingUnread + " новых" : "Открыть", actions::openTracking);
+        renderTrackingSummary();
 
         TextView build = text(buildLabel, 11, false);
         build.setTextColor(palette.muted);
@@ -145,11 +146,13 @@ public final class HomeScreen {
 
         LinearLayout header = new LinearLayout(activity);
         header.setGravity(Gravity.CENTER_VERTICAL);
-        TextView title = text("Сегодня в GitHubble", 18, true);
+        TextView title = text("Ваш GitHub", 18, true);
         title.setPadding(0, 0, 0, 0);
         header.addView(title, new LinearLayout.LayoutParams(0, dp(30), 1));
 
-        TextView status = text(signedIn ? "Синхронизация" : "Гостевой режим", 12, true);
+        TextView status = text(signedIn
+                ? (dashboard.repositories < 0 ? "Обновление…" : "Синхронизировано")
+                : "Гостевой режим", 12, true);
         status.setTextColor(palette.green);
         status.setGravity(Gravity.CENTER);
         status.setPadding(0, 0, 0, 0);
@@ -177,19 +180,14 @@ public final class HomeScreen {
         content.addView(summary, params);
     }
 
-    private void renderQuickGrid() {
+    private void renderWorkspaceGrid() {
         GridLayout grid = new GridLayout(activity);
         grid.setColumnCount(adaptiveColumns());
         grid.setUseDefaultMargins(false);
-        addTile(grid, R.drawable.tile_issue, "Задачи", palette.tileColors[0], actions::openIssues);
+        addTile(grid, R.drawable.tile_issue, "Issues", palette.tileColors[0], actions::openIssues);
         addTile(grid, R.drawable.tile_pull_request, "Pull Requests", palette.tileColors[1], actions::openPullRequests);
-        addTile(grid, R.drawable.tile_discussion, "Обсуждения", palette.tileColors[2], actions::openDiscussions);
         addTile(grid, R.drawable.tile_repository, "Репозитории", palette.tileColors[4], actions::openRepositories);
-        addTile(grid, R.drawable.tile_organization, "Организации", palette.tileColors[6], actions::openOrganizations);
-        addTile(grid, R.drawable.tile_projects, "Проекты", palette.tileColors[3], actions::openProjects);
-        addTile(grid, R.drawable.tile_release, "Релизы", palette.tileColors[7], actions::openReleases);
-        addTile(grid, R.drawable.tile_star, "Избранное", palette.tileColors[5], actions::openFavorites);
-        addTile(grid, R.drawable.tile_history, "История", Color.rgb(93, 111, 104), actions::openHistory);
+        addTile(grid, R.drawable.ic_settings, "Аккаунт", palette.tileColors[6], actions::openAccountCenter);
         content.addView(grid, new LinearLayout.LayoutParams(-1, -2));
     }
 
