@@ -3,6 +3,7 @@ package app.githubble.mobile;
 import android.app.Instrumentation;
 import android.content.Context;
 import android.os.Bundle;
+import app.githubble.mobile.build.BuildAutoDownloadPolicy;
 import app.githubble.mobile.database.SchemaMigrationRegistry;
 import app.githubble.mobile.controller.CopilotAgentController;
 import app.githubble.mobile.controller.CopilotPermissionReport;
@@ -46,12 +47,61 @@ public final class RcInstrumentationTest extends Instrumentation {
             testSmartSearchRanking();
             testAdvancedSearchModes();
             testRepositoryImportPathSafety();
+            testBuildAutoDownloadPolicy();
             result.putString("result", "PASS: RC instrumentation suite");
             finish(0, result);
         } catch (Throwable error) {
             result.putString("result", "FAIL: " + error.getClass().getSimpleName() + ": " + error.getMessage());
             finish(-1, result);
         }
+    }
+
+    private static JSONObject run(long id,String status,String conclusion,
+                                  String name,long artifactId) throws Exception {
+        org.json.JSONArray artifacts=new org.json.JSONArray();
+        if(name!=null)artifacts.put(new JSONObject().put("id",artifactId)
+                .put("name",name).put("size_in_bytes",6L*1024*1024)
+                .put("expired",false));
+        return new JSONObject().put("id",id).put("status",status)
+                .put("conclusion",conclusion).put("artifacts",artifacts);
+    }
+
+    private static void testBuildAutoDownloadPolicy() throws Exception {
+        org.json.JSONArray history=new org.json.JSONArray()
+                .put(run(104,"completed","failure","app-apk",1040))
+                .put(run(103,"completed","success","app-apk",1030))
+                .put(run(102,"completed","success","app-apk",1020))
+                .put(run(101,"completed","success","app-apk",1010));
+        eq(103L,BuildAutoDownloadPolicy.latestSuccessfulRunId(history));
+        // Opt-in baseline, already queued and failed workflow runs do not trigger old APKs.
+        yes(BuildAutoDownloadPolicy.selectArtifact(history,103L,0L)==null);
+        yes(BuildAutoDownloadPolicy.selectArtifact(history,101L,103L)==null);
+        eq(1030L,BuildAutoDownloadPolicy.selectArtifact(history,101L,0L).optLong("id"));
+        // A newer successful run whose artifacts are still being published blocks
+        // downloading the older successful run.
+        org.json.JSONArray unpublished=new org.json.JSONArray()
+                .put(run(105,"completed","success",null,0))
+                .put(run(103,"completed","success","app-apk",1030));
+        yes(BuildAutoDownloadPolicy.selectArtifact(unpublished,101L,0L)==null);
+        // The same run becomes eligible as soon as GitHub publishes the artifact.
+        unpublished=new org.json.JSONArray()
+                .put(run(105,"completed","success","app-android-apk",1050))
+                .put(run(103,"completed","success","app-apk",1030));
+        eq(1050L,BuildAutoDownloadPolicy.selectArtifact(unpublished,101L,0L).optLong("id"));
+        // A successful non-APK workflow does not accidentally download source-only ZIP.
+        org.json.JSONArray sources=new org.json.JSONArray()
+                .put(run(106,"completed","success","GitHubble-main-sources",1060))
+                .put(run(105,"completed","success","app-apk",1050));
+        yes(BuildAutoDownloadPolicy.selectArtifact(sources,101L,0L)==null);
+        // APK release artifact wins over a mixed GitHubble archive from the SAME run.
+        JSONObject mixed=run(107,"completed","success","githubble-release",1070);
+        mixed.getJSONArray("artifacts").put(new JSONObject().put("id",1071L)
+                .put("name","android-apk").put("size_in_bytes",7000000L));
+        eq(1071L,BuildAutoDownloadPolicy.bestApkArtifact(
+                mixed.getJSONArray("artifacts")).optLong("id"));
+        JSONObject expired=run(108,"completed","success","app-apk",1080);
+        expired.getJSONArray("artifacts").getJSONObject(0).put("expired",true);
+        yes(BuildAutoDownloadPolicy.bestApkArtifact(expired.getJSONArray("artifacts"))==null);
     }
 
     private static void testDeviceCodeNormalization() {

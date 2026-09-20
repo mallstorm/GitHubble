@@ -1365,13 +1365,14 @@ public class MainActivity extends Activity {
         settingsToggleRow("Уведомления о сборках",
                 "Новые запуски, результаты Actions и готовые артефакты",
                 "build_notifications",true);
-        settingsToggleRow("Автосохранение APK · только Wi-Fi",
-                "Скачивать новые Android-артефакты до 150 МБ в Загрузки/GitHubble",
+        settingsToggleRow("Только последняя успешная сборка · Wi-Fi",
+                "Автоскачивание одного APK из новейшей успешной сборки каждого проекта; старые версии — только вручную",
                 "build_auto_apk",false);
         settingsActionRow("Центр сборок","Посмотреть запуски и скачать APK",
                 ()->navigate(this::showBuildCenter));
-        TextView hint=text("Первое сканирование создаёт исходную точку: старые сборки не вызывают "+
-                "лавину уведомлений. Последующие изменения отслеживаются. "+
+        TextView hint=text("Мониторинг всех сборок и уведомления работают отдельно от автоскачивания. "+
+                "При включении автосохранения первая синхронизация устанавливает исходную точку без загрузки прошлых сборок. "+
+                "Последующие изменения отслеживаются. "+
                 "Фоновые проверки Android могут задерживаться; мгновенные FCM-push "+
                 "требуют отдельного серверного подключения.",11,false);
         hint.setTextColor(MUTED);card(hint);
@@ -4276,13 +4277,16 @@ public class MainActivity extends Activity {
             row.addView(labels,new LinearLayout.LayoutParams(0,-2,1));
             Switch toggle=new Switch(this);
             toggle.setChecked(prefs.getBoolean(key,defaultValue));
-            toggle.setOnCheckedChangeListener((v,on)->prefs.edit().putBoolean(key,on).apply());
+            toggle.setOnCheckedChangeListener((v,on)->{
+                if("build_auto_apk".equals(key))BuildMonitor.setAutoDownloadEnabled(this,on);
+                else prefs.edit().putBoolean(key,on).apply();
+            });
             row.addView(toggle);
             LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);
             p.setMargins(0,0,0,dp(8));content.addView(row,p);
             return;
         }
-        LinearLayout r=new LinearLayout(this);r.setGravity(Gravity.CENTER_VERTICAL);LinearLayout labels=new LinearLayout(this);labels.setOrientation(LinearLayout.VERTICAL);TextView t=text(title,15,true);t.setPadding(0,0,0,0);labels.addView(t);TextView sub=text(subtitle,11,false);sub.setTextColor(MUTED);sub.setPadding(0,dp(2),0,0);labels.addView(sub);r.addView(labels,new LinearLayout.LayoutParams(0,-2,1));Switch toggle=new Switch(this);toggle.setChecked(prefs.getBoolean(key,defaultValue));toggle.setOnCheckedChangeListener((buttonView,isChecked)->prefs.edit().putBoolean(key,isChecked).apply());r.addView(toggle);card(r);}
+        LinearLayout r=new LinearLayout(this);r.setGravity(Gravity.CENTER_VERTICAL);LinearLayout labels=new LinearLayout(this);labels.setOrientation(LinearLayout.VERTICAL);TextView t=text(title,15,true);t.setPadding(0,0,0,0);labels.addView(t);TextView sub=text(subtitle,11,false);sub.setTextColor(MUTED);sub.setPadding(0,dp(2),0,0);labels.addView(sub);r.addView(labels,new LinearLayout.LayoutParams(0,-2,1));Switch toggle=new Switch(this);toggle.setChecked(prefs.getBoolean(key,defaultValue));toggle.setOnCheckedChangeListener((buttonView,isChecked)->{if("build_auto_apk".equals(key))BuildMonitor.setAutoDownloadEnabled(this,isChecked);else prefs.edit().putBoolean(key,isChecked).apply();});r.addView(toggle);card(r);}
 
     private void showPrivacyAndData(){
         rememberScreen("privacy_data",null);setCurrentScreen(this::showPrivacyAndData);shell("Конфиденциальность и данные",false);

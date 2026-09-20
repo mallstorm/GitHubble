@@ -43,6 +43,7 @@ public final class BuildDownloadReceiver extends BroadcastReceiver {
         });
     }
     private static void complete(Context context,long id,String raw){
+        // Keep the transfer metadata until its success/failure is known.
         BuildMonitor.prefs(context).edit().remove("build_download_"+id).apply();
         DownloadManager dm=context.getSystemService(DownloadManager.class);
         if(dm==null)return;
@@ -53,9 +54,11 @@ public final class BuildDownloadReceiver extends BroadcastReceiver {
                 if(cursor==null||!cursor.moveToFirst())return;
                 int status=cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS));
                 if(status!=DownloadManager.STATUS_SUCCESSFUL){
+                    BuildMonitor.downloadFinished(context,info,false);
                     notify(context,"Ошибка загрузки артефакта",info.optString("name",""),null,id);
                     return;
                 }
+                BuildMonitor.downloadFinished(context,info,true);
             }
             if(Build.VERSION.SDK_INT<29){
                 notify(context,"Артефакт скачан",info.optString("name","")+

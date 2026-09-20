@@ -25,6 +25,10 @@ public final class BuildArtifactDownloads {
     }
     public static long enqueue(Context context,String repo,JSONObject artifact,
                                boolean automatic)throws Exception {
+        return enqueue(context,repo,artifact,automatic,0L);
+    }
+    public static long enqueue(Context context,String repo,JSONObject artifact,
+                               boolean automatic,long runId)throws Exception {
         long id=artifact.optLong("id",0);
         if(id<=0||repo==null||!repo.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+"))
             throw new IllegalArgumentException("Некорректный артефакт GitHub");
@@ -82,7 +86,9 @@ public final class BuildArtifactDownloads {
         SharedPreferences.Editor edit=BuildMonitor.prefs(context).edit();
         edit.putString("build_download_"+downloadId,
                 new JSONObject().put("repo",repo).put("name",local)
-                        .put("artifact_id",id).toString()).apply();
+                        .put("artifact_id",id).put("automatic",automatic)
+                        .put("run_id",runId).put("account",BuildMonitor.account(context))
+                        .toString()).commit();
         return downloadId;
     }
 }

@@ -2,6 +2,8 @@ package app.githubble.mobile.build;
 
 import android.Manifest;
 import android.app.Notification;
+import android.app.DownloadManager;
+import android.database.Cursor;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
@@ -31,6 +33,7 @@ public final class BuildMonitor {
     public static final String CHANNEL="githubble_build_updates_v1";
     public static final String OPEN_ACTION="app.githubble.mobile.OPEN_BUILDS";
     private BuildMonitor(){}
+    private static final long AUTO_RETRY_DELAY_MS=30L*60L*1000L;
 
     public static SharedPreferences prefs(Context context){
         return context.getSharedPreferences("githubble",Context.MODE_PRIVATE);
@@ -62,12 +65,20 @@ public final class BuildMonitor {
     public static void setWatched(Context context,String full,boolean enabled){
         if(!valid(full)||account(context).isEmpty())return;
         Set<String> updated=watched(context);
+        boolean previouslyWatched=updated.contains(full);
         if(enabled&&updated.size()<30)updated.add(full);
         else if(!enabled)updated.remove(full);
         JSONArray array=new JSONArray();
         for(String repo:updated)array.put(repo);
-        prefs(context).edit().putString(scope(context)+"watched",array.toString())
-                .putBoolean(PREF_ENABLED,!updated.isEmpty()).apply();
+        SharedPreferences.Editor editor=prefs(context).edit()
+                .putString(scope(context)+"watched",array.toString())
+                .putBoolean(PREF_ENABLED,!updated.isEmpty());
+        if(previouslyWatched!=updated.contains(full)){
+            editor.remove(scope(context)+"auto_v2_baseline_"+full)
+                    .remove(scope(context)+"auto_v2_queued_run_"+full)
+                    .remove(scope(context)+"auto_v2_retry_at_"+full);
+        }
+        editor.apply();
         BuildMonitorJobService.reschedule(context);
     }
     public static void clearAccount(Context context){
@@ -143,7 +154,7 @@ public final class BuildMonitor {
     }
 
     /** The initial snapshot is a baseline, not a flood of notifications for historical runs. */
-    public static int scan(Context context,boolean emitNotifications) throws Exception{
+    public static synchronized int scan(Context context,boolean emitNotifications) throws Exception{
         if(account(context).isEmpty())return 0;
         if(!prefs(context).getBoolean(PREF_ENABLED,true))return 0;
         Set<String> repositories=watched(context);
@@ -151,6 +162,11 @@ public final class BuildMonitor {
         GitHubApiClient api=new GitHubApiClient(new SecureStore(context));
         int changes=0;
         String prefix=scope(context);
+        if(!prefs(context).getBoolean(prefix+"auto_v2_migrated",false)){
+            // Stop the old algorithm's unfinished automatic requests on upgrade.
+            cancelAutomaticDownloads(context,true);
+            prefs(context).edit().putBoolean(prefix+"auto_v2_migrated",true).commit();
+        }
         for(String repo:repositories){
             // Explicitly selected repos only. No public GitHub search or guessing account access.
             JSONArray response;
@@ -217,9 +233,6 @@ public final class BuildMonitor {
                 String marker=status+":"+conclusion+":"+artifactIds(artifacts);
                 String key=Long.toString(id);
                 now.put(key,marker);
-                if(emitNotifications&&"completed".equals(status)&&artifacts.length()>0&&
-                        prefs(context).getBoolean("build_auto_apk",false))
-                    archiveNewApks(context,repo,artifacts,prefix);
                 if(initialized&&emitNotifications){
                     String old=previous.optString(key,"");
                     if(!marker.equals(old)){
@@ -236,30 +249,124 @@ public final class BuildMonitor {
                     }
                 }
             }
+            // Monitoring retains ALL runs; auto-download has a separate, per-repo
+            // baseline and considers only the newest successful run on this scan.
+            autoDownloadLatest(context,repo,rows,prefix);
             prefs(context).edit().putString(rowsKey,rows.toString())
                     .putString(stateKey,now.toString()).remove(prefix+"error_"+repo)
                     .putLong(prefix+"last_check",System.currentTimeMillis()).apply();
         }
         return changes;
     }
-    private static void archiveNewApks(Context context,String repo,JSONArray artifacts,String prefix){
-        for(int i=0;i<artifacts.length();i++){
-            JSONObject artifact=artifacts.optJSONObject(i);
-            if(artifact==null)continue;
-            String name=artifact.optString("name","").toLowerCase(Locale.ROOT);
-            if(!(name.contains("apk")||name.contains("android")||name.contains("githubble")))continue;
-            long id=artifact.optLong("id",0L);
-            long size=artifact.optLong("size_in_bytes",0L);
-            if(id<=0||size<=0||size>150L*1024L*1024L)continue;
-            String key=prefix+"auto_artifact_"+id;
-            if(prefs(context).getBoolean(key,false))continue;
-            try{
-                BuildArtifactDownloads.enqueue(context,repo,artifact,true);
-                prefs(context).edit().putBoolean(key,true).apply();
-            }catch(Exception failure){
-                prefs(context).edit().putString(prefix+"auto_error",
-                        failure.getMessage()==null?"Ошибка автоматической загрузки":
-                        failure.getMessage()).apply();
+    /**
+     * Explicit opt-in. Enabling starts a fresh baseline on the NEXT successful
+     * GitHub scan; it never downloads historical artifacts at activation.
+     * Turning it off cancels automatic downloads that have not yet completed.
+     */
+    public static void setAutoDownloadEnabled(Context context,boolean enabled){
+        SharedPreferences p=prefs(context);
+        String prefix=scope(context);
+        SharedPreferences.Editor edit=p.edit().putBoolean("build_auto_apk",enabled);
+        for(String repo:watched(context)){
+            edit.remove(prefix+"auto_v2_baseline_"+repo);
+            edit.remove(prefix+"auto_v2_queued_run_"+repo);
+            edit.remove(prefix+"auto_v2_retry_at_"+repo);
+        }
+        edit.commit();
+        if(!enabled)cancelAutomaticDownloads(context,true);
+    }
+
+    public static void downloadFinished(Context context,JSONObject info,boolean successful){
+        if(!info.optBoolean("automatic",false))return;
+        String repo=info.optString("repo","");
+        String owner=info.optString("account","");
+        long runId=info.optLong("run_id",0L);
+        if(!valid(repo)||owner.isEmpty()||!owner.equals(account(context))||runId<=0)return;
+        SharedPreferences p=prefs(context);
+        String prefix="build_"+owner+"_";
+        String queuedKey=prefix+"auto_v2_queued_run_"+repo;
+        if(!successful&&p.getLong(queuedKey,0L)==runId)
+            p.edit().remove(queuedKey)
+                    .putLong(prefix+"auto_v2_retry_at_"+repo,
+                            System.currentTimeMillis()+AUTO_RETRY_DELAY_MS).apply();
+    }
+
+    private static void autoDownloadLatest(Context context,String repo,JSONArray runs,
+                                           String prefix){
+        SharedPreferences p=prefs(context);
+        if(!p.getBoolean("build_auto_apk",false))return;
+        final String baselineKey=prefix+"auto_v2_baseline_"+repo;
+        long latest=BuildAutoDownloadPolicy.latestSuccessfulRunId(runs);
+        if(!p.contains(baselineKey)){
+            // Migration from the old "download every historical APK" implementation
+            // also lands here. No automatic requests on this first scan.
+            p.edit().putLong(baselineKey,latest).commit();
+            return;
+        }
+        long baseline=p.getLong(baselineKey,0L);
+        final String queuedKey=prefix+"auto_v2_queued_run_"+repo;
+        long queued=p.getLong(queuedKey,0L);
+        JSONObject artifact=BuildAutoDownloadPolicy.selectArtifact(runs,baseline,queued);
+        if(artifact==null || System.currentTimeMillis()<
+                p.getLong(prefix+"auto_v2_retry_at_"+repo,0L))return;
+        // Check again after artifact discovery: disabling downloads must not
+        // be undone by a background scan that started before the user toggled it.
+        if(!p.getBoolean("build_auto_apk",false))return;
+        try{
+            long downloadId=BuildArtifactDownloads.enqueue(
+                    context,repo,artifact,true,latest);
+            p.edit().putLong(queuedKey,latest)
+                    .remove(prefix+"auto_v2_retry_at_"+repo).commit();
+            if(!p.getBoolean("build_auto_apk",false)){
+                DownloadManager dm=context.getSystemService(DownloadManager.class);
+                if(dm!=null)dm.remove(downloadId);
+                p.edit().remove(queuedKey).apply();
+            }
+        }catch(Exception error){
+            p.edit().putString(prefix+"auto_error",
+                    error.getMessage()==null?"Ошибка автосохранения":error.getMessage())
+                    .putLong(prefix+"auto_v2_retry_at_"+repo,
+                            System.currentTimeMillis()+AUTO_RETRY_DELAY_MS).apply();
+        }
+    }
+
+    private static void cancelAutomaticDownloads(Context context,boolean includeLegacy){
+        DownloadManager dm=context.getSystemService(DownloadManager.class);
+        if(dm==null)return;
+        SharedPreferences prefs=prefs(context);
+        String prefix=scope(context);
+        for(java.util.Map.Entry<String,?> entry:prefs.getAll().entrySet()){
+            String key=entry.getKey();
+            if(!key.startsWith("build_download_")||!(entry.getValue() instanceof String))continue;
+            JSONObject info;
+            try{info=new JSONObject((String)entry.getValue());}
+            catch(Exception ignored){continue;}
+            String repo=info.optString("repo","");
+            long artifactId=info.optLong("artifact_id",0L);
+            boolean automatic=info.optBoolean("automatic",false);
+            // Old releases recorded auto-artifact IDs but did not tag the
+            // DownloadManager entry. Cancel only those matching this account.
+            boolean legacy=includeLegacy&&valid(repo)&&artifactId>0
+                    &&prefs.getBoolean(prefix+"auto_artifact_"+artifactId,false);
+            if(!automatic&&!legacy)continue;
+            String owner=info.optString("account","");
+            if(automatic&&!owner.equals(account(context)))continue;
+            if(legacy&&!BuildMonitor.watched(context).contains(repo))continue;
+            long downloadId;
+            try{downloadId=Long.parseLong(key.substring("build_download_".length()));}
+            catch(NumberFormatException ignored){continue;}
+            boolean incomplete=false;
+            try(Cursor row=dm.query(new DownloadManager.Query().setFilterById(downloadId))){
+                if(row!=null&&row.moveToFirst()){
+                    int status=row.getInt(row.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS));
+                    incomplete=status==DownloadManager.STATUS_PENDING||
+                            status==DownloadManager.STATUS_RUNNING||
+                            status==DownloadManager.STATUS_PAUSED;
+                }
+            }catch(Exception ignored){}
+            if(incomplete){
+                dm.remove(downloadId);
+                prefs.edit().remove(key).apply();
             }
         }
     }
