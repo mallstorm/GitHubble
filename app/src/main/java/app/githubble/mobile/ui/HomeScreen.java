@@ -34,6 +34,7 @@ public final class HomeScreen {
         void openRepository(String fullName);
         void openActivity();
         void openExplore();
+        void openAllSections();
         void openActivityItem(String repo, String kind, int number);
         void refreshDashboard();
     }
@@ -143,7 +144,7 @@ public final class HomeScreen {
     public void render() {
         renderHero();
         renderStats();
-        section("Быстрый доступ", "Все разделы", actions::openRepositories);
+        section("Быстрый доступ", "Все разделы", actions::openAllSections);
         renderQuickAccess();
         section("Недавняя активность", "Все события", actions::openActivity);
         renderActivity();

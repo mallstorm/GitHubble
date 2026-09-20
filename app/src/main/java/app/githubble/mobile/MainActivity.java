@@ -490,6 +490,27 @@ public class MainActivity extends Activity {
             @Override public void openRepository(String fullName) { navigate(() -> showRepository(fullName)); }
             @Override public void openActivity() { navigate(MainActivity.this::showNotifications); }
             @Override public void openExplore() { navigate(MainActivity.this::showExplore); }
+            @Override public void openAllSections() {
+                String[] labels = {"Репозитории", "Pull Requests", "Релизы", "Проекты",
+                        "Issues", "Обсуждения", "Организации", "Избранное", "История", "Наблюдение"};
+                new AlertDialog.Builder(MainActivity.this)
+                    .setTitle("Все разделы GitHubble")
+                    .setItems(labels, (dialog, index) -> {
+                        switch (index) {
+                            case 0: openRepositories(); break;
+                            case 1: openPullRequests(); break;
+                            case 2: openReleases(); break;
+                            case 3: openProjects(); break;
+                            case 4: openIssues(); break;
+                            case 5: openDiscussions(); break;
+                            case 6: openOrganizations(); break;
+                            case 7: openFavorites(); break;
+                            case 8: openHistory(); break;
+                            case 9: openTracking(); break;
+                            default: break;
+                        }
+                    }).show();
+            }
             @Override public void openActivityItem(String repo, String kind, int number) {
                 if ("Issue".equals(kind) && number > 0 && repo.contains("/")) navigate(() -> showIssueDetail(repo, number));
                 else if ("PullRequest".equals(kind) && number > 0 && repo.contains("/")) navigate(() -> showPullDetail(repo, number));
