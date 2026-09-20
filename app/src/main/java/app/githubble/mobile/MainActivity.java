@@ -9,6 +9,7 @@ import android.graphics.*;
 import android.graphics.drawable.*;
 import android.net.Uri;
 import android.text.InputType;
+import android.text.TextUtils;
 import android.text.Spannable;
 import android.text.SpannableStringBuilder;
 import android.text.Spanned;
