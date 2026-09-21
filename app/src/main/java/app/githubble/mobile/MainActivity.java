@@ -2157,15 +2157,28 @@ public class MainActivity extends Activity {
             List<JSONArray> batches=new ArrayList<>();
             long reported=0;int failed=0;boolean mayHaveMore=false;Exception lastError=null;
             boolean refreshAttempted=false;
+            boolean userProbeAttempted=false;
+            boolean accountEndpointHealthy=false;
             for(String variant:plan.variants){
                 try{
                     String url=advancedSearchUrl(plan.mode,variant,page);
                     JSONObject root;
                     try{root=getJson(url);}
                     catch(GitHubApiClient.ApiException denied){
-                        // Only refresh an expired session; a CODE-only 401 need not
-                        // mean the account's token is invalid for other GitHub APIs.
-                        if(denied.statusCode!=401||refreshAttempted||oauth.hasUsableToken()
+                        // Verify /user once: search/code may return 401 even
+                        // when this GitHub account remains authenticated.
+                        if(denied.statusCode!=401)throw denied;
+                        if(!userProbeAttempted){
+                            userProbeAttempted=true;
+                            try{
+                                getJson("https://api.github.com/user");
+                                accountEndpointHealthy=true;
+                            }catch(Exception probeError){
+                                // A separate /user 401 marks genuine reauthorization;
+                                // do not convert 403/network errors into sign-out.
+                            }
+                        }
+                        if(accountEndpointHealthy||refreshAttempted||oauth.hasUsableToken()
                                 ||!oauth.canRefresh())throw denied;
                         refreshAttempted=true;
                         if(!oauth.refreshIfNeeded(effectiveGitHubClientId()))throw denied;
@@ -2175,7 +2188,13 @@ public class MainActivity extends Activity {
                     JSONArray items=root.optJSONArray("items");if(items==null)items=new JSONArray();
                     batches.add(items);reported+=Math.max(0,root.optInt("total_count",items.length()));
                     if(items.length()==20)mayHaveMore=true;
-                }catch(Exception e){failed++;lastError=e;}
+                }catch(Exception e){
+                    failed++;lastError=e;
+                    if(plan.mode==SearchMode.CODE
+                            &&e instanceof GitHubApiClient.ApiException
+                            &&((GitHubApiClient.ApiException)e).statusCode==401)
+                        break; // alternate phrases cannot repair missing endpoint access
+                }
             }
             if(batches.isEmpty()){
                 Exception error=lastError==null?new IOException("GitHub не вернул результаты поиска"):lastError;
