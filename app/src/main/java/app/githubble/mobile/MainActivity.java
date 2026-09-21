@@ -5448,28 +5448,9 @@ public class MainActivity extends Activity {
         actions.addView(copy,new LinearLayout.LayoutParams(actionParams));
         box.addView(actions,new LinearLayout.LayoutParams(-1,dp(48)));
 
-        Button autoFill=new Button(this);
-        autoFill.setText("Автозаполнение восьми полей (необязательно)");
-        autoFill.setAllCaps(false);
-        autoFill.setTextSize(12);
-        autoFill.setSingleLine(true);
-        autoFill.setOnClickListener(v -> {
-            if (!DeviceCodeAssist.isAccessibilityEnabled(this)) {
-                new AlertDialog.Builder(this)
-                    .setTitle("Автозаполнение через Android")
-                    .setMessage("Необязательная экспериментальная функция. Android предоставляет включённой службе специальных возможностей широкий доступ к экрану. GitHubble будет пытаться вводить одноразовый код только после вашего нажатия «Авто», в Chrome, при обнаружении страницы Device Flow GitHub с восемью полями.\n\nСлужба не нажимает кнопку подтверждения. Её можно выключить в настройках Android. Чтобы использовать обычную вставку, разрешение не требуется.")
-                    .setPositiveButton("Открыть специальные возможности",(d,w) -> {
-                        try { startActivity(new Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)); }
-                        catch (Exception e) { toast("Не удалось открыть специальные возможности Android"); }
-                    })
-                    .setNegativeButton("Не включать",null).show();
-                return;
-            }
-            if (DeviceCodeAssist.arm(this)) {
-                openOfficialGitHubLogin(session.verificationUri);
-            } else toast("Код истёк. Начните вход заново.");
-        });
-        box.addView(autoFill,new LinearLayout.LayoutParams(-1,dp(48)));
+        TextView manualCodeHint=text("Скопируйте восьмизначный код и вставьте его на официальной странице GitHub.",12,false);
+        manualCodeHint.setTextColor(MUTED);
+        box.addView(manualCodeHint);
 
         copyGitHubDeviceCode(session,false);
         code.setOnClickListener(v -> copyGitHubDeviceCode(session,true));
