@@ -300,6 +300,7 @@ public class MainActivity extends Activity {
     }
 
     private void shell(String title, boolean showSearchAction) {
+        if(voiceRecognizer!=null)cancelVoiceInput();
         // Discard old account-inventory callbacks on ANY screen transition.
         accountInventoryCancelled.set(true);
         if(accountInventoryFuture!=null&&!accountInventoryFuture.isDone())
@@ -5329,8 +5330,28 @@ public class MainActivity extends Activity {
 
     private void startPortableImport(){Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT);intent.addCategory(Intent.CATEGORY_OPENABLE);intent.setType("application/json");startActivityForResult(intent,REQUEST_IMPORT_PORTABLE);}
 
+    @Override public void onRequestPermissionsResult(int requestCode,String[] permissions,int[] grantResults){
+        super.onRequestPermissionsResult(requestCode,permissions,grantResults);
+        if(requestCode==REQUEST_VOICE_AUDIO){
+            if(grantResults.length>0&&grantResults[0]==PackageManager.PERMISSION_GRANTED){
+                if(voiceTarget!=null&&voiceTarget.isAttachedToWindow())beginVoiceInput();
+            }else{
+                finishVoiceInput("Разрешение на микрофон не предоставлено. Можно вводить запрос вручную.");
+            }
+        }
+    }
+
     @Override protected void onActivityResult(int requestCode,int resultCode,Intent data){
-        super.onActivityResult(requestCode,resultCode,data);if(resultCode!=RESULT_OK||data==null||data.getData()==null){if(requestCode==REQUEST_REPOSITORY_FOLDER||requestCode==REQUEST_REPOSITORY_ZIP||requestCode==REQUEST_REPOSITORY_FILE)clearPendingRepositoryImport();return;}Uri uri=data.getData();
+        super.onActivityResult(requestCode,resultCode,data);
+        if(requestCode==REQUEST_LOCAL_AVATAR){
+            String account=pendingAvatarAccount;
+            pendingAvatarAccount="";
+            if(resultCode==RESULT_OK&&data!=null&&data.getData()!=null
+                    &&!account.isEmpty()&&account.equals(currentAccountId()))
+                importLocalAvatar(data.getData(),account);
+            return;
+        }
+        if(resultCode!=RESULT_OK||data==null||data.getData()==null){if(requestCode==REQUEST_REPOSITORY_FOLDER||requestCode==REQUEST_REPOSITORY_ZIP||requestCode==REQUEST_REPOSITORY_FILE)clearPendingRepositoryImport();return;}Uri uri=data.getData();
         if(requestCode==REQUEST_REPOSITORY_FOLDER||requestCode==REQUEST_REPOSITORY_ZIP||requestCode==REQUEST_REPOSITORY_FILE){handleRepositoryImportUri(requestCode,uri);return;}
         if(requestCode==REQUEST_EXPORT_PORTABLE){try(OutputStream out=getContentResolver().openOutputStream(uri)){if(out==null)throw new IOException("Не удалось открыть файл");out.write(pendingPortableExport.getBytes(StandardCharsets.UTF_8));out.flush();pendingPortableExport="";toast("Резервная копия сохранена");}catch(Exception e){errorDialog("Ошибка экспорта",e.getMessage());}}
         else if(requestCode==REQUEST_EXPORT_USER_DATA){try(OutputStream out=getContentResolver().openOutputStream(uri)){if(out==null)throw new IOException("Не удалось открыть файл");out.write(pendingUserDataExport.getBytes(StandardCharsets.UTF_8));out.flush();pendingUserDataExport="";toast("Данные пользователя экспортированы");}catch(Exception e){errorDialog("Ошибка экспорта данных",e.getMessage());}}
@@ -5915,6 +5936,7 @@ public class MainActivity extends Activity {
     }
 
     @Override protected void onDestroy(){
+        cancelVoiceInput();
         stopCopilotForegroundPolling();
         accountInventoryCancelled.set(true);
         if(accountInventoryFuture!=null)accountInventoryFuture.cancel(true);
