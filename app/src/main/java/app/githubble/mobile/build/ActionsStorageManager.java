@@ -79,6 +79,28 @@ public final class ActionsStorageManager {
         api.invalidatePrefix(base(full)+"permissions/");
         return loadRetention(full);
     }
+
+    /** Cache quota is independent of the 500 MB artifacts/Packages allowance. */
+    public int loadCacheStorageLimitGb(String full)throws Exception{
+        return api.getJson(base(full)+"cache/storage-limit").optInt("max_cache_size_gb",-1);
+    }
+    public int setCacheStorageLimitGb(String full,int gb)throws Exception{
+        if(gb<1||gb>10000)throw new IllegalArgumentException("Укажите от 1 до 10000 ГБ");
+        api.put(base(full)+"cache/storage-limit",new JSONObject().put("max_cache_size_gb",gb));
+        api.invalidatePrefix(base(full)+"cache/storage-limit");
+        return loadCacheStorageLimitGb(full);
+    }
+    public int loadCacheRetentionDays(String full)throws Exception{
+        return api.getJson(base(full)+"cache/retention-limit")
+                .optInt("max_cache_retention_days",-1);
+    }
+    public int setCacheRetentionDays(String full,int days)throws Exception{
+        if(days<1||days>400)throw new IllegalArgumentException("Укажите от 1 до 400 дней");
+        api.put(base(full)+"cache/retention-limit",new JSONObject().put("max_cache_retention_days",days));
+        api.invalidatePrefix(base(full)+"cache/retention-limit");
+        return loadCacheRetentionDays(full);
+    }
+
     public Policy loadPolicy(String full){
         String raw=prefs.getString(key(full),"");
         if(raw.isEmpty())return new Policy(3,7,0);
