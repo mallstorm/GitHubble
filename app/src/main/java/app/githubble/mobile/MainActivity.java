@@ -356,22 +356,22 @@ public class MainActivity extends Activity {
         top.addView(bellWrap, new LinearLayout.LayoutParams(dp(50), dp(50)));
         }
 
-        ImageView account = "Профиль".equals(title)
-                ? iconButton(R.drawable.ic_settings,"Настройки приложения")
-                : createTopAccountIcon();
-        account.setContentDescription("Профиль".equals(title)
-                ? "Настройки приложения" : "Личный профиль");
-        account.setOnClickListener(v -> navigate(
-                "Профиль".equals(title) ? this::showSettings : this::showProfile));
-        LinearLayout.LayoutParams ap = new LinearLayout.LayoutParams(dp(42),dp(42));
-        ap.setMargins(dp(4),0,0,0);
-        top.addView(account, ap);
+        // Account avatar opens Profile from every root tab. Profile has no
+        // duplicate gear: Settings live in the fifth bottom navigation tab.
+        if (!"Профиль".equals(title)) {
+            ImageView account = createTopAccountIcon();
+            account.setContentDescription("Личный профиль");
+            account.setOnClickListener(v -> navigate(this::showProfile));
+            LinearLayout.LayoutParams ap = new LinearLayout.LayoutParams(dp(42),dp(42));
+            ap.setMargins(dp(4),0,0,0);
+            top.addView(account, ap);
+        }
         root.addView(top, new LinearLayout.LayoutParams(-1, dp(isLargeText()?76:64)));
         }
 
         content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
-        content.setPadding(dp(12), "Главная".equals(title) ? 0 : dp(10), dp(12), dp(18));
+        content.setPadding(dp(12), ("Главная".equals(title) || "Профиль".equals(title)) ? 0 : dp(10), dp(12), dp(18));
         currentScroll = new ScrollView(this);
         currentScroll.setFillViewport(true);
         currentScroll.addView(content);
@@ -401,7 +401,7 @@ public class MainActivity extends Activity {
                     @Override public void openRepositories(){openRoot(MainActivity.this::showMyRepositories);}
                     @Override public void openSearch(){openRoot(MainActivity.this::showSearch);}
                     @Override public void openActivity(){openRoot(MainActivity.this::showNotifications);}
-                    @Override public void openProfile(){openRoot(MainActivity.this::showProfile);}
+                    @Override public void openSettings(){openRoot(MainActivity.this::showSettings);}
                 });
     }
 
@@ -3347,9 +3347,6 @@ public class MainActivity extends Activity {
 
     private void renderProfilePage(boolean refresh){
         setCurrentScreen(this::showProfile);shell("Профиль",false);
-        settingsActionRow("Настройки приложения",
-                "Темы, уведомления, данные и безопасность",
-                () -> navigate(this::showSettings));
         if(!isSignedIn()){
             LinearLayout guest=new LinearLayout(this);guest.setOrientation(LinearLayout.VERTICAL);guest.setGravity(Gravity.CENTER);
             ImageView avatar=createProfileAvatar(dp(86));guest.addView(avatar,new LinearLayout.LayoutParams(dp(86),dp(86)));
@@ -3371,6 +3368,182 @@ public class MainActivity extends Activity {
         if(refresh)refreshProfileData(false);
     }
 
+
+    /** Native editor for all fields supported by GitHub's PATCH /user endpoint. */
+    private void showNativeProfileEditor(){
+        rememberScreen("profile_editor",null);
+        setCurrentScreen(this::showNativeProfileEditor);
+        shell("Редактирование профиля",false);
+        if(!isSignedIn()){
+            accountRequiredCard("Войдите в GitHub, чтобы редактировать профиль.");return;
+        }
+        final long generation=screenGeneration.get();
+        final String account=currentAccountId();
+        final LinearLayout destination=content;
+        ProgressBar progress=new ProgressBar(this);
+        destination.addView(progress);
+        io.execute(()->{
+            try{
+                // Always read the current GitHub account: cached fields may be stale.
+                JSONObject original=profileController.current();
+                runOnUiThread(()->{
+                    if(generation!=screenGeneration.get()||destination!=content
+                            ||!account.equals(currentAccountId()))return;
+                    destination.removeView(progress);
+                    renderNativeProfileEditor(original,generation,account,destination);
+                });
+            }catch(Exception error){
+                runOnUiThread(()->{
+                    if(generation!=screenGeneration.get()||destination!=content
+                            ||!account.equals(currentAccountId()))return;
+                    destination.removeView(progress);
+                    errorCard("Не удалось загрузить профиль",error.getMessage());
+                    Button retry=compactButton("Повторить загрузку");
+                    retry.setOnClickListener(v->showNativeProfileEditor());
+                    destination.addView(retry,new LinearLayout.LayoutParams(-1,dp(48)));
+                });
+            }
+        });
+    }
+
+    private EditText profileEditInput(String title,String value,String hint,
+                                      int maxLength,boolean multiline,int inputType){
+        TextView label=text(title,13,true);
+        label.setPadding(dp(3),dp(11),dp(3),dp(5));
+        content.addView(label);
+        EditText field=new EditText(this);
+        field.setText(value==null||"null".equalsIgnoreCase(value)? "":value);
+        field.setHint(hint);
+        field.setTextSize(14);
+        field.setTextColor(TEXT);
+        field.setHintTextColor(MUTED);
+        field.setInputType(inputType);
+        field.setSingleLine(!multiline);
+        if(multiline){
+            field.setGravity(Gravity.TOP|Gravity.START);
+            field.setMinLines(3);
+        }
+        field.setFilters(new android.text.InputFilter[]{
+                new android.text.InputFilter.LengthFilter(maxLength)});
+        field.setPadding(dp(13),dp(10),dp(13),dp(10));
+        field.setBackground(round(CARD,12,BORDER,1));
+        content.addView(field,new LinearLayout.LayoutParams(-1,
+                multiline?dp(112):dp(52)));
+        return field;
+    }
+
+    private void renderNativeProfileEditor(JSONObject original,long generation,
+                                           String account,LinearLayout destination){
+        LinearLayout identity=new LinearLayout(this);
+        identity.setGravity(Gravity.CENTER_VERTICAL);
+        identity.setPadding(dp(10),dp(6),dp(10),dp(6));
+        identity.addView(createProfileAvatar(dp(58)),
+                new LinearLayout.LayoutParams(dp(58),dp(58)));
+        TextView login=text("@"+original.optString("login","")+" · GitHub ID "+
+                original.optLong("id",0L),13,true);
+        login.setTextIsSelectable(true);
+        login.setPadding(dp(12),0,0,0);
+        identity.addView(login);
+        card(identity);
+
+        TextView details=text("Изменения сохраняются непосредственно в GitHub. "+
+                "Логин, пароль и фотография не редактируются через этот API. "+
+                "Для сохранения нужен доступ GitHub App: Profile → Write.",12,false);
+        details.setTextColor(MUTED);
+        details.setPadding(dp(3),dp(8),dp(3),dp(3));
+        destination.addView(details);
+
+        EditText name=profileEditInput("Имя",original.optString("name",""),
+                "Как вас зовут",255,false,InputType.TYPE_CLASS_TEXT
+                        |InputType.TYPE_TEXT_FLAG_CAP_WORDS);
+        EditText bio=profileEditInput("О себе",original.optString("bio",""),
+                "Краткое описание профиля (до 160 символов)",160,true,
+                InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_FLAG_MULTI_LINE
+                        |InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+        EditText company=profileEditInput("Компания / организация",
+                original.optString("company",""),"Где вы работаете",255,false,
+                InputType.TYPE_CLASS_TEXT);
+        EditText location=profileEditInput("Местоположение",
+                original.optString("location",""),"Город, страна",255,false,
+                InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_FLAG_CAP_WORDS);
+        EditText website=profileEditInput("Сайт",
+                original.optString("blog",""),"https://example.com",255,false,
+                InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_URI);
+        EditText twitter=profileEditInput("Имя пользователя X / Twitter",
+                original.optString("twitter_username",""),"Без символа @",50,false,
+                InputType.TYPE_CLASS_TEXT);
+        EditText email=profileEditInput("Публичный email",
+                original.optString("email",""),"example@domain.com (необязательно)",
+                255,false,InputType.TYPE_CLASS_TEXT
+                        |InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS);
+        TextView emailNote=text("Это адрес, отображаемый в профиле, а не управление "+
+                "почтовыми адресами входа. GitHub применяет ваши настройки приватности.",11,false);
+        emailNote.setTextColor(MUTED);
+        emailNote.setPadding(dp(3),dp(4),dp(3),dp(7));
+        destination.addView(emailNote);
+
+        Switch hireable=new Switch(this);
+        hireable.setText("Открыт(а) для предложений о работе");
+        hireable.setTextColor(TEXT);
+        hireable.setTextSize(13);
+        hireable.setChecked(original.optBoolean("hireable",false));
+        hireable.setPadding(dp(4),dp(12),dp(4),dp(12));
+        destination.addView(hireable,new LinearLayout.LayoutParams(-1,dp(58)));
+
+        Button save=button("Сохранить в GitHub");
+        LinearLayout.LayoutParams saveParams=new LinearLayout.LayoutParams(-1,dp(53));
+        saveParams.setMargins(0,dp(8),0,dp(7));
+        destination.addView(save,saveParams);
+        save.setOnClickListener(v->{
+            String url=website.getText().toString().trim();
+            String contact=email.getText().toString().trim();
+            if(!url.isEmpty()&&!url.matches("(?i)^https?://\\S+$")){
+                website.setError("Укажите адрес http:// или https://");website.requestFocus();return;
+            }
+            if(!contact.isEmpty()&&!android.util.Patterns.EMAIL_ADDRESS.matcher(contact).matches()){
+                email.setError("Некорректный email");email.requestFocus();return;
+            }
+            String twitterName=twitter.getText().toString().trim();
+            if(twitterName.startsWith("@"))twitterName=twitterName.substring(1);
+            JSONObject draft=new JSONObject();
+            try{
+                draft.put("name",name.getText().toString().trim());
+                draft.put("bio",bio.getText().toString());
+                draft.put("company",company.getText().toString().trim());
+                draft.put("location",location.getText().toString().trim());
+                draft.put("blog",url);
+                draft.put("twitter_username",twitterName);
+                draft.put("email",contact);
+                draft.put("hireable",hireable.isChecked());
+                JSONObject patch=ProfileController.editablePatch(original,draft);
+                if(patch.length()==0){toast("Изменений нет");return;}
+                save.setEnabled(false);
+                io.execute(()->{
+                    try{
+                        JSONObject updated=profileController.updateEditable(patch);
+                        runOnUiThread(()->{
+                            if(generation!=screenGeneration.get()||destination!=content
+                                    ||!account.equals(currentAccountId()))return;
+                            cacheGitHubProfile(updated);
+                            toast("Профиль GitHub обновлён");
+                            navigate(this::showProfile);
+                        });
+                    }catch(Exception error){
+                        runOnUiThread(()->{
+                            if(generation!=screenGeneration.get()||destination!=content
+                                    ||!account.equals(currentAccountId()))return;
+                            save.setEnabled(true);
+                            String message=error.getMessage();
+                            errorDialog("Не удалось сохранить профиль",
+                                    (message==null?"GitHub отклонил запрос.":message)
+                                    +"\n\nПроверьте разрешение Profile: Write для GitHub App.");
+                        });
+                    }
+                });
+            }catch(Exception error){save.setEnabled(true);errorDialog("Ошибка формы",error.getMessage());}
+        });
+    }
+
     private void renderProfileContent(JSONObject profile){
         final String login=profile.optString("login",getProfileLogin());
         String displayName=cleanNullable(profile.optString("name",""));
@@ -3380,7 +3553,7 @@ public class MainActivity extends Activity {
         // Profile hero: the actual cached GitHub avatar and profile fields, never mockup numbers.
         LinearLayout hero=new LinearLayout(this);
         hero.setOrientation(LinearLayout.VERTICAL);
-        hero.setPadding(dp(13),dp(13),dp(13),dp(13));
+        hero.setPadding(dp(12),dp(10),dp(12),dp(10));
         hero.setBackground(round(blend(CARD,GREEN,0.065f),17,BORDER,1));
         LinearLayout identity=new LinearLayout(this);
         identity.setGravity(Gravity.CENTER_VERTICAL);
@@ -3406,7 +3579,7 @@ public class MainActivity extends Activity {
         edit.setContentDescription("Редактировать профиль GitHub");
         edit.setGravity(Gravity.CENTER);
         edit.setBackground(round(blend(CARD,GREEN,0.12f),15,0,0));
-        edit.setOnClickListener(v->openWeb("https://github.com/settings/profile"));
+        edit.setOnClickListener(v->navigate(this::showNativeProfileEditor));
         identity.addView(edit,new LinearLayout.LayoutParams(dp(42),dp(42)));
         hero.addView(identity);
 
@@ -3432,7 +3605,7 @@ public class MainActivity extends Activity {
             hero.addView(description);
         }
         LinearLayout.LayoutParams heroP=new LinearLayout.LayoutParams(-1,-2);
-        heroP.setMargins(0,0,0,dp(11));
+        heroP.setMargins(0,0,0,dp(6));
         content.addView(hero,heroP);
 
         RepositoryStore.Snapshot snapshot=repositoryStore.read(currentAccountId());
@@ -3451,7 +3624,7 @@ public class MainActivity extends Activity {
         profileStat(stats,R.drawable.ic_projects,Integer.toString(profile.optInt("public_gists",0)),
                 "Gists",0xFFE47B2F,()->openWeb("https://gist.github.com/"+login));
         LinearLayout.LayoutParams statsP=new LinearLayout.LayoutParams(-1,-2);
-        statsP.setMargins(0,0,0,dp(7));
+        statsP.setMargins(0,0,0,dp(3));
         content.addView(stats,statsP);
 
         profileSection("Быстрые действия","Все действия",()->{
@@ -3758,7 +3931,7 @@ public class MainActivity extends Activity {
             }catch(Exception ignored){
                 // The profile remains useful when repository access is temporarily unavailable.
             }
-            runOnUiThread(() -> {profileRefreshInFlight.set(false);if(userInitiated)toast("Профиль и репозитории обновлены");if("Профиль".equals(currentTitle))renderProfilePage(false);else if(currentScreen!=null)currentScreen.run();});
+            runOnUiThread(() -> {profileRefreshInFlight.set(false);if(userInitiated)toast("Профиль и репозитории обновлены");if("Профиль".equals(currentTitle))renderProfilePage(false);else if(currentScreen!=null&&!"Редактирование профиля".equals(currentTitle))currentScreen.run();});
         }catch(Exception e){runOnUiThread(() -> {profileRefreshInFlight.set(false);if(userInitiated)toast("Не удалось обновить профиль: "+e.getMessage());});}});
     }
 
@@ -5374,6 +5547,7 @@ public class MainActivity extends Activity {
         switch(route){
             case "search": showSearch(); break;
             case "profile": showProfile(); break;
+            case "profile_editor": showNativeProfileEditor(); break;
             case "settings": showSettings(); break;
             case "privacy_data": showPrivacyAndData(); break;
             case "rc_status": showReleaseCandidateStatus(); break;

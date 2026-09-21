@@ -10,6 +10,7 @@ import app.githubble.mobile.build.BuildRunFilter;
 import app.githubble.mobile.ui.BottomNavigationBar;
 import app.githubble.mobile.controller.AccountOperationsController;
 import app.githubble.mobile.controller.CommitDetailController;
+import app.githubble.mobile.controller.ProfileController;
 import app.githubble.mobile.auth.DeviceCodeAssist;
 import app.githubble.mobile.database.SchemaMigrationRegistry;
 import app.githubble.mobile.controller.CopilotAgentController;
@@ -59,6 +60,7 @@ public final class RcInstrumentationTest extends Instrumentation {
             testRc41StabilizationPolicies();
             testPrOnlyChecksNotRelease();
             testRc42UiNavigation();
+            testRc425ProfileEditing();
             testRepositoryActivityRanking(context);
             testPrivateCommitCard();
             testNativeCommitDetail();
@@ -136,8 +138,9 @@ public final class RcInstrumentationTest extends Instrumentation {
     private static void testRc42UiNavigation() {
         eq(5,BottomNavigationBar.DESTINATIONS.length);
         yes(BottomNavigationBar.isRoot("Репозитории"));
-        yes(BottomNavigationBar.isRoot("Профиль"));
-        no(BottomNavigationBar.isRoot("Настройки"));
+        yes(BottomNavigationBar.isRoot("Настройки"));
+        no(BottomNavigationBar.isRoot("Профиль"));
+        eq("Настройки",BottomNavigationBar.DESTINATIONS[4]);
         no(BottomNavigationBar.isRoot("Центр сборок"));
         yes(BuildRunFilter.accepts(BuildRunFilter.ALL,"queued",""));
         yes(BuildRunFilter.accepts(BuildRunFilter.RUNNING,"in_progress",""));
@@ -146,6 +149,35 @@ public final class RcInstrumentationTest extends Instrumentation {
         no(BuildRunFilter.accepts(BuildRunFilter.SUCCESS,"completed","failure"));
         yes(BuildRunFilter.accepts(BuildRunFilter.OTHER,"completed","cancelled"));
         no(BuildRunFilter.accepts(BuildRunFilter.OTHER,"in_progress",""));
+    }
+
+    /** RC4.2.5: editable fields are correctly filtered; immutable account metadata is never PATCHed. */
+    private static void testRc425ProfileEditing() throws Exception {
+        JSONObject before=new JSONObject()
+                .put("login","developer")
+                .put("id",100)
+                .put("name","Old")
+                .put("bio","")
+                .put("hireable",false)
+                .put("email",JSONObject.NULL)
+                .put("avatar_url","https://avatars.githubusercontent.com/u/100");
+        JSONObject draft=new JSONObject()
+                .put("login","renamed")
+                .put("name","New")
+                .put("bio","New text")
+                .put("hireable",true)
+                .put("email","")
+                .put("avatar_url","https://example.invalid/avatar.png");
+        JSONObject patch=ProfileController.editablePatch(before,draft);
+        eq("New",patch.optString("name"));
+        eq("New text",patch.optString("bio"));
+        yes(patch.optBoolean("hireable",false));
+        no(patch.has("login"));
+        no(patch.has("id"));
+        no(patch.has("avatar_url"));
+        no(patch.has("email"));
+        eq(0,ProfileController.editablePatch(before,new JSONObject()
+                .put("name","Old").put("bio","").put("hireable",false)).length());
     }
 
     /** Inactive new projects must fall behind repositories with newer real work. */
