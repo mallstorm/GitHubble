@@ -5571,9 +5571,8 @@ public class MainActivity extends Activity {
             errorDialog("Хранилище","Некорректное имя репозитория");return;
         }
         setCurrentScreen(()->showActionsStorage(full));
-        shell("Хранилище Actions",false);
-        repoSectionHeader(full,"GitHub Actions","Артефакты и правила хранения",R.drawable.ic_android);
-        addRepositoryActionsTabs(full,1);
+        shell("Настройки Actions",false);
+        repoSectionHeader(full,"Настройки GitHub Actions","Срок хранения · кэш · Billing",R.drawable.ic_settings);
         if(!isSignedIn()){accountRequiredCard("Подключите GitHub для управления Actions.");return;}
         final ActionsStorageManager manager=new ActionsStorageManager(api,prefs);
         final long generation=screenGeneration.get();
@@ -5592,150 +5591,12 @@ public class MainActivity extends Activity {
         limitInput.setText(String.valueOf(policy.softLimitMb));
         TextView warning=text("Срок хранения GitHub действует для новых файлов. Мягкий лимит и правила очистки на телефоне не являются квотой GitHub и не останавливают платное использование.",12,false);
         warning.setTextColor(MUTED);card(warning);
-        sectionTitle("Артефакты","APK/ZIP · скачать или удалить прямо здесь");
-        TextView status=text("Получаем артефакты…",12,false);status.setTextColor(MUTED);card(status);
-        LinearLayout rows=new LinearLayout(this);rows.setOrientation(LinearLayout.VERTICAL);content.addView(rows);
-        LinearLayout tools=new LinearLayout(this);
-        Button refresh=button("↻ Обновить");
-        refresh.setOnClickListener(v->showActionsStorage(full));
-        Button oldCache=button("Кэш Actions");
-        oldCache.setOnClickListener(v->navigate(()->showActionsCleanup(full)));
-        for(Button action:new Button[]{refresh,oldCache}){
-            action.setTextSize(12);action.setTextColor(GREEN);
-            action.setBackground(round(CARD,13,BORDER,1));
-            LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(45),1f);
-            if(action==oldCache)p.setMargins(dp(9),0,0,0);
-            tools.addView(action,p);
-        }
-        LinearLayout.LayoutParams toolsP=new LinearLayout.LayoutParams(-1,dp(45));
-        toolsP.setMargins(0,dp(6),0,dp(12));
-        content.addView(tools,toolsP);
-        io.execute(()->{
-            try{
-                ActionsStorageManager.Page page=manager.listArtifacts(full,30);
-                runOnUiThread(()->{
-                    if(generation!=screenGeneration.get()||host!=content||!account.equals(currentAccountId()))return;
-                    status.setText("Артефакты: "+page.artifacts.size()+" из "+page.totalCount+
-                            " · найдено "+formatAccountBytes(page.visibleBytes)+
-                            (page.incomplete?"\nСписок неполный: просмотр доступен, групповая очистка отключена.":"")+
-                            "\nЭто текущий размер файлов, не официальный расход Billing.");
-                    if(page.artifacts.isEmpty()){
-                        TextView empty=text("В этом проекте пока нет артефактов.",12,false);
-                        empty.setTextColor(MUTED);
-                        rows.addView(empty);
-                    }
-                    for(ActionsStorageManager.Artifact artifact:page.artifacts){
-                        LinearLayout line=new LinearLayout(this);line.setOrientation(LinearLayout.VERTICAL);
-                        line.setPadding(dp(12),dp(12),dp(12),dp(12));
-                        line.addView(text(artifact.name,14,true));
-                        TextView meta=text(formatAccountBytes(artifact.sizeBytes)+" · "+formatGitHubDate(artifact.createdAt)
-                                +(artifact.expiresAt.isEmpty()?"":" · до "+formatGitHubDate(artifact.expiresAt))
-                                +(artifact.expired?" · истёк":""),11,false);
-                        meta.setTextColor(MUTED);line.addView(meta);
-                        LinearLayout buttons=new LinearLayout(this);
-                        buttons.setOrientation(LinearLayout.HORIZONTAL);
-                        buttons.setPadding(0,dp(10),0,0);
-                        Button download=button("↓ Скачать ZIP");
-                        download.setTextSize(12);
-                        download.setPadding(dp(4),0,dp(4),0);
-                        download.setEnabled(!artifact.expired);
-                        download.setOnClickListener(v->{
-                            try{
-                                JSONObject minimal=new JSONObject().put("id",artifact.id)
-                                        .put("name",artifact.name).put("expired",artifact.expired);
-                                startArtifactDownload(full,minimal);
-                            }catch(Exception e){errorDialog("Загрузка артефакта",e.getMessage());}
-                        });
-                        buttons.addView(download,new LinearLayout.LayoutParams(0,dp(45),1f));
-                        Button remove=button("Удалить");
-                        remove.setTextSize(12);
-                        remove.setTextColor(0xFFC34F48);
-                        remove.setBackground(round(CARD,12,0xFFC34F48,1));
-                        remove.setPadding(dp(4),0,dp(4),0);
-                        remove.setOnClickListener(v->new AlertDialog.Builder(this)
-                                .setTitle("Удалить артефакт?")
-                                .setMessage(full+"\n"+artifact.name+"\n"+formatAccountBytes(artifact.sizeBytes)
-                                        +"\nУдаление необратимо. Исходники и Releases не затрагиваются.")
-                                .setNegativeButton("Отмена",null)
-                                .setPositiveButton("Удалить",(dialog,which)->{
-                                    remove.setEnabled(false);
-                                    io.execute(()->{
-                                        try{
-                                            manager.deleteArtifact(full,artifact.id);
-                                            runOnUiThread(()->{
-                                                if(generation==screenGeneration.get()&&host==content){
-                                                    rows.removeView(line);
-                                                    toast("Артефакт удалён");
-                                                }
-                                            });
-                                        }catch(Exception e){
-                                            runOnUiThread(()->{remove.setEnabled(true);errorDialog("Ошибка удаления",e.getMessage());});
-                                        }
-                                    });
-                                }).show());
-                        LinearLayout.LayoutParams removeParams=new LinearLayout.LayoutParams(0,dp(45),1f);
-                        removeParams.setMargins(dp(9),0,0,0);
-                        buttons.addView(remove,removeParams);
-                        line.addView(buttons);
-                        line.setBackground(round(CARD,15,BORDER,1));
-                        LinearLayout.LayoutParams entryParams=new LinearLayout.LayoutParams(-1,-2);
-                        entryParams.setMargins(0,0,0,dp(8));
-                        rows.addView(line,entryParams);
-                    }
-                    Button preview=button("Предпросмотр очистки по правилу");
-                    preview.setTextColor(GREEN);
-                    preview.setBackground(round(CARD,13,GREEN,1));
-                    preview.setEnabled(!page.incomplete&&page.artifacts.size()>0);
-                    preview.setOnClickListener(v->{
-                        try{
-                            ActionsStorageManager.Policy p=new ActionsStorageManager.Policy(
-                                    Integer.parseInt(keepInput.getText().toString().trim()),
-                                    Integer.parseInt(ageInput.getText().toString().trim()),
-                                    Integer.parseInt(limitInput.getText().toString().trim()));
-                            manager.savePolicy(full,p);
-                            List<ActionsStorageManager.Artifact> selected=manager.previewCleanup(page,p);
-                            long sum=0;for(ActionsStorageManager.Artifact item:selected)sum+=item.sizeBytes;
-                            if(selected.isEmpty()){toast("По текущему правилу удалять нечего");return;}
-                            final long bytes=sum;
-                            StringBuilder names=new StringBuilder();
-                            for(int i=0;i<Math.min(8,selected.size());i++)
-                                names.append("\n• ").append(selected.get(i).name);
-                            if(selected.size()>8)names.append("\n… и ещё ").append(selected.size()-8);
-                            new AlertDialog.Builder(this).setTitle("Подтвердить очистку?")
-                                    .setMessage("Репозиторий: "+full+"\nОбъектов: "+selected.size()
-                                            +"\nРазмер: "+formatAccountBytes(bytes)+names
-                                            +"\n\nУдалённые файлы не восстановить. Это не изменит уже начисленную сумму Billing.")
-                                    .setNegativeButton("Отмена",null)
-                                    .setPositiveButton("Удалить",(dialog,which)->{
-                                        preview.setEnabled(false);
-                                        io.execute(()->{
-                                            int done=0,failed=0;String lastError="";
-                                            for(ActionsStorageManager.Artifact item:selected){
-                                                try{manager.deleteArtifact(full,item.id);done++;}
-                                                catch(Exception ex){failed++;lastError=ex.getMessage();}
-                                            }
-                                            final int deleted=done,errors=failed;
-                                            final String explanation=lastError;
-                                            runOnUiThread(()->{
-                                                if(generation!=screenGeneration.get()||host!=content)return;
-                                                new AlertDialog.Builder(this).setTitle("Результат очистки")
-                                                        .setMessage("Удалено: "+deleted+"\nОшибок: "+errors+
-                                                                (explanation.isEmpty()?"":"\n"+explanation))
-                                                        .setPositiveButton("Обновить",(dlg,w)->showActionsStorage(full)).show();
-                                            });
-                                        });
-                                    }).show();
-                        }catch(Exception e){errorDialog("Правило очистки",e.getMessage());}
-                    });
-                    rows.addView(preview,new LinearLayout.LayoutParams(-1,dp(52)));
-                });
-            }catch(Exception e){
-                runOnUiThread(()->{
-                    if(generation!=screenGeneration.get()||host!=content)return;
-                    status.setText("Не удалось получить артефакты: "+e.getMessage());
-                });
-            }
-        });
+        Button back=button("← Сборки и артефакты");
+        back.setTextColor(GREEN);back.setBackground(round(CARD,13,BORDER,1));
+        back.setOnClickListener(v->navigate(()->showUnifiedActions(full,1)));
+        content.addView(back,new LinearLayout.LayoutParams(-1,dp(48)));
+        TextView managerNote=text("На главном экране Actions можно скачать или удалить любой APK/ZIP. Здесь только административные настройки GitHub.",12,false);
+        managerNote.setTextColor(MUTED);card(managerNote);
         sectionTitle("Срок хранения GitHub","Общая настройка репозитория · требует Administration: write");
         TextView retentionStatus=text("Получаем текущую настройку GitHub…",12,false);
         retentionStatus.setTextColor(MUTED);card(retentionStatus);
@@ -5817,6 +5678,65 @@ public class MainActivity extends Activity {
             }catch(Exception e){errorDialog("Правило очистки",e.getMessage());}
         });
         content.addView(save,new LinearLayout.LayoutParams(-1,dp(49)));
+
+        Button preview=button("Предпросмотр очистки по правилу");
+        preview.setTextColor(GREEN);preview.setBackground(round(CARD,13,GREEN,1));
+        preview.setOnClickListener(v->{
+            final ActionsStorageManager.Policy local;
+            try{
+                local=new ActionsStorageManager.Policy(
+                        Integer.parseInt(keepInput.getText().toString().trim()),
+                        Integer.parseInt(ageInput.getText().toString().trim()),
+                        Integer.parseInt(limitInput.getText().toString().trim()));
+                manager.savePolicy(full,local);
+            }catch(Exception error){errorDialog("Правило очистки",error.getMessage());return;}
+            preview.setEnabled(false);
+            io.execute(()->{
+                try{
+                    ActionsStorageManager.Page page=manager.listArtifacts(full,30);
+                    List<ActionsStorageManager.Artifact> items=manager.previewCleanup(page,local);
+                    long total=0;for(ActionsStorageManager.Artifact item:items)total+=item.sizeBytes;
+                    final long totalBytes=total;
+                    runOnUiThread(()->{
+                        if(generation!=screenGeneration.get()||host!=content||!account.equals(currentAccountId()))return;
+                        preview.setEnabled(true);
+                        if(items.isEmpty()){toast("Файлов для очистки нет");return;}
+                        new AlertDialog.Builder(this).setTitle("Удалить по правилу?")
+                                .setMessage("Артефактов: "+items.size()+"\nРазмер: "+
+                                        formatAccountBytes(totalBytes)+"\nЕсли это последний артефакт запуска, история запуска тоже будет удалена из GitHub. Операция необратима.")
+                                .setNegativeButton("Отмена",null)
+                                .setPositiveButton("Удалить",(dlg,w)->{
+                                    preview.setEnabled(false);
+                                    io.execute(()->{
+                                        int deleted=0,failed=0;String lastError="";
+                                        app.githubble.mobile.build.UnifiedActionsController unified=
+                                                new app.githubble.mobile.build.UnifiedActionsController(api);
+                                        for(ActionsStorageManager.Artifact item:items){
+                                            try{
+                                                if(item.runId>0)unified.deleteArtifact(full,item.runId,item.id);
+                                                else manager.deleteArtifact(full,item.id);
+                                                deleted++;
+                                            }catch(Exception e){failed++;lastError=e.getMessage();}
+                                        }
+                                        final int ok=deleted,errors=failed;final String error=lastError;
+                                        runOnUiThread(()->{
+                                            if(generation!=screenGeneration.get()||host!=content||!account.equals(currentAccountId()))return;
+                                            preview.setEnabled(true);
+                                            new AlertDialog.Builder(this).setTitle("Очистка завершена")
+                                                    .setMessage("Удалено: "+ok+"\nОшибок: "+errors+
+                                                            (error.isEmpty()?"":"\n"+error))
+                                                    .setPositiveButton("ОК",null).show();
+                                        });
+                                    });
+                                }).show();
+                    });
+                }catch(Exception error){runOnUiThread(()->{
+                    if(generation!=screenGeneration.get()||host!=content||!account.equals(currentAccountId()))return;
+                    preview.setEnabled(true);errorDialog("Очистка не выполнена",error.getMessage());
+                });}
+            });
+        });
+        content.addView(preview,new LinearLayout.LayoutParams(-1,dp(48)));
 
     }
 
