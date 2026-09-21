@@ -16,23 +16,23 @@ import app.githubble.mobile.R;
 /**
  * RC4.2: one navigation contract for the five root destinations.
  * A root tab never adds itself to the previous tab's back stack.
- * Settings are reachable from the Profile screen, not duplicated as a tab.
+ * Settings occupy the fifth bottom tab; Profile opens from the account avatar.
  */
 public final class BottomNavigationBar {
     public static final String[] DESTINATIONS =
-        {"Главная", "Репозитории", "Поиск", "Активность", "Профиль"};
+        {"Главная", "Репозитории", "Поиск", "Активность", "Настройки"};
 
     public interface Actions {
         void openHome();
         void openRepositories();
         void openSearch();
         void openActivity();
-        void openProfile();
+        void openSettings();
     }
 
     private static final int[] ICONS = {
         R.drawable.ic_home, R.drawable.ic_repository, R.drawable.ic_search,
-        R.drawable.ic_bell, R.drawable.ic_profile
+        R.drawable.ic_bell, R.drawable.ic_settings
     };
 
     private BottomNavigationBar() {}
@@ -82,7 +82,7 @@ public final class BottomNavigationBar {
                     case 1: actions.openRepositories(); break;
                     case 2: actions.openSearch(); break;
                     case 3: actions.openActivity(); break;
-                    case 4: actions.openProfile(); break;
+                    case 4: actions.openSettings(); break;
                     default: break;
                 }
             });
