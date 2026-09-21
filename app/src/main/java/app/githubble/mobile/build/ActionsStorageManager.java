@@ -33,11 +33,13 @@ public final class ActionsStorageManager {
         }
     }
     public static final class Artifact {
-        public final long id, sizeBytes;
+        public final long id, sizeBytes, runId;
         public final String name, createdAt, expiresAt;
         public final boolean expired;
         public Artifact(JSONObject json){
             id=json.optLong("id",0);
+            JSONObject run=json.optJSONObject("workflow_run");
+            runId=run==null?0L:run.optLong("id",0L);
             name=json.optString("name","Артефакт");
             sizeBytes=Math.max(0,json.optLong("size_in_bytes",0));
             createdAt=json.optString("created_at","");
