@@ -3412,7 +3412,7 @@ public class MainActivity extends Activity {
         label.setPadding(dp(3),dp(11),dp(3),dp(5));
         content.addView(label);
         EditText field=new EditText(this);
-        field.setText(cleanNullable(value));
+        field.setText(value==null||"null".equalsIgnoreCase(value)? "":value);
         field.setHint(hint);
         field.setTextSize(14);
         field.setTextColor(TEXT);
@@ -3931,7 +3931,7 @@ public class MainActivity extends Activity {
             }catch(Exception ignored){
                 // The profile remains useful when repository access is temporarily unavailable.
             }
-            runOnUiThread(() -> {profileRefreshInFlight.set(false);if(userInitiated)toast("Профиль и репозитории обновлены");if("Профиль".equals(currentTitle))renderProfilePage(false);else if(currentScreen!=null)currentScreen.run();});
+            runOnUiThread(() -> {profileRefreshInFlight.set(false);if(userInitiated)toast("Профиль и репозитории обновлены");if("Профиль".equals(currentTitle))renderProfilePage(false);else if(currentScreen!=null&&!"Редактирование профиля".equals(currentTitle))currentScreen.run();});
         }catch(Exception e){runOnUiThread(() -> {profileRefreshInFlight.set(false);if(userInitiated)toast("Не удалось обновить профиль: "+e.getMessage());});}});
     }
 
