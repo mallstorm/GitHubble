@@ -25,21 +25,25 @@ public final class GlobalBuildHub {
     private static final int MAX_REPOSITORIES=100;
     private static final int RUNS_PER_REPOSITORY=6;
     private static final int MAX_VISIBLE_RUNS=120;
+    private static final int MAX_VISIBLE_ARTIFACTS=2500;
+    private static final int MAX_ARTIFACT_PAGES_PER_REPOSITORY=10;
     private static final long MIN_REFRESH_INTERVAL_MS=60_000L;
 
     private GlobalBuildHub(){}
 
     public static final class Snapshot {
         public final JSONArray runs;
+        public final JSONArray artifacts;
         public final int scannedRepositories;
         public final int failedRepositories;
         public final boolean partial;
         public final long syncedAt;
         public final String warning;
 
-        Snapshot(JSONArray runs,int scannedRepositories,int failedRepositories,
+        Snapshot(JSONArray runs,JSONArray artifacts,int scannedRepositories,int failedRepositories,
                  boolean partial,long syncedAt,String warning){
             this.runs=runs;
+            this.artifacts=artifacts;
             this.scannedRepositories=scannedRepositories;
             this.failedRepositories=failedRepositories;
             this.partial=partial;
@@ -61,15 +65,70 @@ public final class GlobalBuildHub {
 
     public static Snapshot cached(Context context){
         if(account(context).isEmpty())
-            return new Snapshot(new JSONArray(),0,0,false,0L,"");
+            return new Snapshot(new JSONArray(),new JSONArray(),0,0,false,0L,"");
         SharedPreferences prefs=BuildMonitor.prefs(context);
         String key=prefix(context);
         JSONArray runs;
         try{runs=new JSONArray(prefs.getString(key+"runs","[]"));}
         catch(Exception ignored){runs=new JSONArray();}
-        return new Snapshot(runs,prefs.getInt(key+"repositories",0),
+        JSONArray artifacts;
+        try{artifacts=new JSONArray(prefs.getString(key+"artifacts","[]"));}
+        catch(Exception ignored){artifacts=new JSONArray();}
+        return new Snapshot(runs,artifacts,prefs.getInt(key+"repositories",0),
                 prefs.getInt(key+"failed",0),prefs.getBoolean(key+"partial",false),
                 prefs.getLong(key+"checked_at",0L),prefs.getString(key+"warning",""));
+    }
+
+    /** Removes a confirmed server-side deletion from both the global file list and run cards. */
+    public static synchronized void removeArtifact(Context context,String repository,long id){
+        if(account(context).isEmpty()||id<=0||!validRepository(repository))return;
+        Snapshot old=cached(context);
+        JSONArray remaining=new JSONArray();
+        for(int i=0;i<old.artifacts.length();i++){
+            JSONObject a=old.artifacts.optJSONObject(i);
+            if(a!=null&&!(repository.equals(a.optString("repository",""))&&a.optLong("id",0)==id))
+                remaining.put(a);
+        }
+        JSONArray runs=new JSONArray();
+        for(int i=0;i<old.runs.length();i++){
+            JSONObject run=old.runs.optJSONObject(i);
+            if(run==null)continue;
+            if(repository.equals(run.optString("repository",""))){
+                JSONArray kept=new JSONArray();
+                JSONArray artifacts=run.optJSONArray("artifacts");
+                if(artifacts!=null)for(int j=0;j<artifacts.length();j++){
+                    JSONObject a=artifacts.optJSONObject(j);
+                    if(a!=null&&a.optLong("id",0)!=id)kept.put(a);
+                }
+                try{run.put("artifacts",kept);}catch(Exception ignored){}
+            }
+            runs.put(run);
+        }
+        String key=prefix(context);
+        BuildMonitor.prefs(context).edit().putString(key+"artifacts",remaining.toString())
+                .putString(key+"runs",runs.toString()).apply();
+    }
+
+    public static synchronized void removeRun(Context context,String repository,long runId){
+        if(account(context).isEmpty()||runId<=0||!validRepository(repository))return;
+        Snapshot old=cached(context);
+        JSONArray remainingRuns=new JSONArray(),remainingArtifacts=new JSONArray();
+        for(int i=0;i<old.runs.length();i++){
+            JSONObject run=old.runs.optJSONObject(i);
+            if(run!=null&&!(repository.equals(run.optString("repository",""))&&
+                    run.optLong("id",0)==runId))remainingRuns.put(run);
+        }
+        for(int i=0;i<old.artifacts.length();i++){
+            JSONObject art=old.artifacts.optJSONObject(i);
+            if(art==null)continue;
+            JSONObject workflow=art.optJSONObject("workflow_run");
+            boolean removed=repository.equals(art.optString("repository",""))&&
+                    workflow!=null&&workflow.optLong("id",0)==runId;
+            if(!removed)remainingArtifacts.put(art);
+        }
+        String key=prefix(context);
+        BuildMonitor.prefs(context).edit().putString(key+"runs",remainingRuns.toString())
+                .putString(key+"artifacts",remainingArtifacts.toString()).apply();
     }
 
     private static boolean validRepository(String full){
@@ -108,6 +167,7 @@ public final class GlobalBuildHub {
         }
 
         List<JSONObject> all=new ArrayList<>();
+        List<JSONObject> allArtifacts=new ArrayList<>();
         int scanned=0;
         int failed=0;
         String firstError="";
@@ -120,27 +180,38 @@ public final class GlobalBuildHub {
                 if(runs==null)throw new IllegalStateException("GitHub не вернул workflow_runs");
                 if(runs.length()==0){scanned++;continue;}
                 Map<Long,JSONArray> byRun=new HashMap<>();
+                boolean artifactListComplete=true;
                 try{
-                    JSONObject responseArtifacts=api.getJson("https://api.github.com/repos/"+
-                            full+"/actions/artifacts?per_page=100");
-                    JSONArray artifacts=responseArtifacts.optJSONArray("artifacts");
-                    if(artifacts!=null)for(int i=0;i<artifacts.length();i++){
-                        JSONObject artifact=artifacts.optJSONObject(i);
-                        if(artifact==null||artifact.optLong("id",0L)<=0L)continue;
-                        JSONObject workflow=artifact.optJSONObject("workflow_run");
-                        long runId=workflow==null?0L:workflow.optLong("id",0L);
-                        if(runId>0L){
-                            JSONArray entries=byRun.get(runId);
-                            if(entries==null){entries=new JSONArray();byRun.put(runId,entries);}
-                            entries.put(artifact);
+                    for(int page=1;page<=MAX_ARTIFACT_PAGES_PER_REPOSITORY;page++){
+                        JSONObject responseArtifacts=api.getJson("https://api.github.com/repos/"+
+                                full+"/actions/artifacts?per_page=100&page="+page);
+                        JSONArray artifacts=responseArtifacts.optJSONArray("artifacts");
+                        if(artifacts==null)
+                            throw new IllegalStateException("GitHub не вернул список артефактов");
+                        for(int i=0;i<artifacts.length();i++){
+                            JSONObject artifact=artifacts.optJSONObject(i);
+                            if(artifact==null||artifact.optLong("id",0L)<=0L)continue;
+                            artifact.put("repository",full);
+                            allArtifacts.add(artifact);
+                            JSONObject workflow=artifact.optJSONObject("workflow_run");
+                            long runId=workflow==null?0L:workflow.optLong("id",0L);
+                            if(runId>0L){
+                                JSONArray entries=byRun.get(runId);
+                                if(entries==null){entries=new JSONArray();byRun.put(runId,entries);}
+                                entries.put(artifact);
+                            }
                         }
+                        if(artifacts.length()<100)break;
+                        if(page==MAX_ARTIFACT_PAGES_PER_REPOSITORY)
+                            artifactListComplete=false;
                     }
                 }catch(Exception artifactError){
-                    // A failed artifact request means unknown availability, not "no artifacts".
-                    firstError=firstError.isEmpty()?"Часть артефактов недоступна: "+
-                            artifactError.getMessage():firstError;
-                    partial=true;
+                    // Keep downloaded run data; unknown availability is not an empty list.
+                    if(firstError.isEmpty())firstError="Часть артефактов недоступна: "+
+                            artifactError.getMessage();
+                    artifactListComplete=false;
                 }
+                if(!artifactListComplete)partial=true;
                 for(int i=0;i<runs.length();i++){
                     JSONObject original=runs.optJSONObject(i);
                     if(original==null||original.optLong("id",0L)<=0L)continue;
@@ -173,16 +244,23 @@ public final class GlobalBuildHub {
                 .compareTo(left.optString("created_at","")));
         JSONArray output=new JSONArray();
         for(int i=0;i<Math.min(MAX_VISIBLE_RUNS,all.size());i++)output.put(all.get(i));
-        partial=partial||all.size()>MAX_VISIBLE_RUNS||failed>0;
+        allArtifacts.sort((left,right)->right.optString("created_at","")
+                .compareTo(left.optString("created_at","")));
+        JSONArray artifactOutput=new JSONArray();
+        for(int i=0;i<Math.min(MAX_VISIBLE_ARTIFACTS,allArtifacts.size());i++)
+            artifactOutput.put(allArtifacts.get(i));
+        partial=partial||all.size()>MAX_VISIBLE_RUNS||
+                allArtifacts.size()>MAX_VISIBLE_ARTIFACTS||failed>0;
         long timestamp=System.currentTimeMillis();
         String key=prefix(context);
         prefs.edit().putString(key+"runs",output.toString())
+                .putString(key+"artifacts",artifactOutput.toString())
                 .putInt(key+"repositories",scanned)
                 .putInt(key+"failed",failed)
                 .putBoolean(key+"partial",partial)
                 .putLong(key+"checked_at",timestamp)
                 .putString(key+"warning",firstError)
                 .apply();
-        return new Snapshot(output,scanned,failed,partial,timestamp,firstError);
+        return new Snapshot(output,artifactOutput,scanned,failed,partial,timestamp,firstError);
     }
 }
