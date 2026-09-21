@@ -2380,10 +2380,12 @@ public class MainActivity extends Activity {
         sub.setTextColor(MUTED);sub.setMaxLines(2);sub.setPadding(0,0,0,0);
         label.addView(t);label.addView(sub);
         panel.addView(label,new LinearLayout.LayoutParams(0,-2,1));
-        TextView back=text("‹",23,true);back.setTextColor(GREEN);
-        back.setGravity(Gravity.CENTER);back.setContentDescription("Вернуться к репозиторию");
-        back.setOnClickListener(v->navigate(()->showRepository(full)));
-        panel.addView(back,new LinearLayout.LayoutParams(dp(34),dp(48)));
+        if(full.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")){
+            TextView back=text("‹",23,true);back.setTextColor(GREEN);
+            back.setGravity(Gravity.CENTER);back.setContentDescription("Вернуться к репозиторию");
+            back.setOnClickListener(v->navigate(()->showRepository(full)));
+            panel.addView(back,new LinearLayout.LayoutParams(dp(34),dp(48)));
+        }
         LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,-2);
         params.setMargins(0,0,0,dp(12));content.addView(panel,params);
     }
