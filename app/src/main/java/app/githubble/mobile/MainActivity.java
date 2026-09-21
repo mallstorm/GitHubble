@@ -1356,6 +1356,7 @@ public class MainActivity extends Activity {
     private void showBuildCenter(String focus){
         setCurrentScreen(()->showBuildCenter(focus));
         shell("Центр сборок",false);
+        if(!focus.isEmpty())repoSectionHeader(focus,"Сборки и артефакты","GitHub Actions",R.drawable.ic_android);
         TextView buildIntro=text("GitHub Actions · APK, ZIP и история запусков",13,false);
         buildIntro.setTextColor(MUTED);
         content.addView(buildIntro);
@@ -1956,7 +1957,7 @@ public class MainActivity extends Activity {
 
     private void showRepoDiscussions(String full){showRepoDiscussionsPage(full,"",true);}
     private void showRepoDiscussionsPage(String full,String cursor,boolean first){
-        if(first){setCurrentScreen(()->showRepoDiscussions(full));shell("Обсуждения",true);heroBanner(full,"GitHub Discussions",R.drawable.ic_discussion);}String[] parts=full.split("/",2);if(parts.length!=2){errorCard("Неверный репозиторий",full);return;}ProgressBar pb=new ProgressBar(this);content.addView(pb);
+        if(first){setCurrentScreen(()->showRepoDiscussions(full));shell("Обсуждения",true);repoSectionHeader(full,"Обсуждения","GitHub Discussions",R.drawable.ic_discussion);}String[] parts=full.split("/",2);if(parts.length!=2){errorCard("Неверный репозиторий",full);return;}ProgressBar pb=new ProgressBar(this);content.addView(pb);
         io.execute(()->{try{JSONObject vars=new JSONObject();vars.put("owner",parts[0]);vars.put("name",parts[1]);vars.put("after",cursor.isEmpty()?JSONObject.NULL:cursor);String query="query RepoDiscussions($owner:String!,$name:String!,$after:String){repository(owner:$owner,name:$name){hasDiscussionsEnabled discussions(first:30,after:$after,orderBy:{field:UPDATED_AT,direction:DESC}){totalCount pageInfo{hasNextPage endCursor} nodes{id number title url createdAt updatedAt answerChosenAt author{login} category{name emoji} comments{totalCount}}}}}";JSONObject data=graphql.execute(query,vars);JSONObject repo=data.optJSONObject("repository");JSONObject conn=repo==null?null:repo.optJSONObject("discussions");JSONArray ds=conn==null?new JSONArray():conn.optJSONArray("nodes");if(ds==null)ds=new JSONArray();for(int i=0;i<ds.length();i++){JSONObject d=ds.optJSONObject(i);if(d!=null)d.put("repository",full);}JSONObject pi=conn==null?null:conn.optJSONObject("pageInfo");boolean hasNext=pi!=null&&pi.optBoolean("hasNextPage",false);String next=pi==null?"":pi.optString("endCursor","");int total=conn==null?ds.length():conn.optInt("totalCount",ds.length());JSONArray finalDs=ds;runOnUiThread(()->{content.removeView(pb);if(first)sectionTitle("Тем: "+total,null);if(finalDs.length()==0&&first)card(text("В этом репозитории нет Discussions или они отключены.",13,false));for(int i=0;i<finalDs.length();i++)renderDiscussionGraphQlCard(finalDs.optJSONObject(i));if(hasNext&&!next.isEmpty())addLoadMoreButton("Показать ещё темы",()->showRepoDiscussionsPage(full,next,false));});}catch(Exception e){runOnUiThread(()->{content.removeView(pb);errorCard("Не удалось загрузить Discussions",e.getMessage());});}});
     }
 
@@ -2286,6 +2287,122 @@ public class MainActivity extends Activity {
 
     private TextView pill(String s){TextView t=text(s,12,true);t.setTextColor(MUTED);t.setGravity(Gravity.CENTER);t.setBackground(round(SUBTLE,12,Color.TRANSPARENT,0));LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-2,dp(30));p.setMargins(0,0,dp(8),0);t.setLayoutParams(p);return t;}
 
+
+    private void showRepositoryOverviewHero(JSONObject repo,String full,String description,
+            int stars,int forks,int issues,String branch,String language,String license){
+        String name=full.contains("/")?full.substring(full.indexOf('/')+1):full;
+        String owner=full.contains("/")?full.substring(0,full.indexOf('/')):full;
+        LinearLayout hero=new LinearLayout(this);hero.setOrientation(LinearLayout.VERTICAL);
+        hero.setPadding(dp(15),dp(16),dp(15),dp(16));
+        GradientDrawable bg=new GradientDrawable(GradientDrawable.Orientation.TL_BR,
+                new int[]{blend(CARD,GREEN,0.07f),CARD});
+        bg.setCornerRadius(dp(22));bg.setStroke(dp(1),BORDER);
+        hero.setBackground(bg);hero.setElevation(dp(2));
+        LinearLayout head=new LinearLayout(this);head.setGravity(Gravity.CENTER_VERTICAL);
+        ImageView mark=imageIcon(R.drawable.ic_repository,GREEN,12);
+        mark.setBackground(round(blend(CARD,GREEN,0.10f),18,Color.TRANSPARENT,0));
+        head.addView(mark,new LinearLayout.LayoutParams(dp(56),dp(56)));
+        LinearLayout names=new LinearLayout(this);names.setOrientation(LinearLayout.VERTICAL);
+        names.setPadding(dp(9),0,dp(3),0);
+        TextView ownerText=text(owner+"/",13,false);ownerText.setTextColor(MUTED);
+        TextView title=text(name,22,true);title.setMaxLines(2);
+        names.addView(ownerText);names.addView(title);
+        head.addView(names,new LinearLayout.LayoutParams(0,-2,1));
+        TextView access=text(repo.optBoolean("private",false)?"Private":"Public",10,true);
+        access.setTextColor(GREEN);access.setGravity(Gravity.CENTER);
+        access.setPadding(dp(5),dp(5),dp(5),dp(5));
+        access.setBackground(round(blend(CARD,GREEN,0.09f),12,Color.TRANSPARENT,0));
+        head.addView(access);hero.addView(head);
+        if(description!=null&&!description.trim().isEmpty()){
+            TextView body=text(description,13,false);body.setTextColor(MUTED);
+            LinearLayout.LayoutParams descP=new LinearLayout.LayoutParams(-1,-2);
+            descP.setMargins(0,dp(8),0,dp(7));hero.addView(body,descP);
+        }
+        LinearLayout stats=new LinearLayout(this);stats.setPadding(0,dp(7),0,0);
+        repoMetric(stats,"★  "+stars,"Stars");repoMetric(stats,"⑂  "+forks,"Forks");
+        repoMetric(stats,"!  "+issues,"Issues");hero.addView(stats);
+        LinearLayout details=new LinearLayout(this);details.setPadding(0,dp(10),0,0);
+        repoInfoPill(details,language==null||language.isEmpty()?"—":language);
+        repoInfoPill(details,"Лицензия "+license);
+        repoInfoPill(details,"Ветка: "+branch);hero.addView(details);
+        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);
+        p.setMargins(0,0,0,dp(10));content.addView(hero,p);
+    }
+
+    private void repoMetric(LinearLayout row,String value,String label){
+        LinearLayout chip=new LinearLayout(this);chip.setOrientation(LinearLayout.VERTICAL);
+        chip.setGravity(Gravity.CENTER);chip.setBackground(round(CARD,13,BORDER,1));
+        TextView v=text(value,13,true);v.setTextColor(GREEN);v.setGravity(Gravity.CENTER);
+        TextView l=text(label,10,false);l.setTextColor(MUTED);l.setGravity(Gravity.CENTER);
+        chip.addView(v);chip.addView(l);
+        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(57),1);
+        p.setMargins(dp(2),0,dp(2),0);row.addView(chip,p);
+    }
+
+    private void repoInfoPill(LinearLayout row,String value){
+        TextView p=text(value,10,true);p.setTextColor(MUTED);p.setGravity(Gravity.CENTER);
+        p.setMaxLines(2);p.setBackground(round(SUBTLE,13,Color.TRANSPARENT,0));
+        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(39),1);
+        lp.setMargins(dp(2),0,dp(2),0);row.addView(p,lp);
+    }
+
+    private void repoActionCard(GridLayout grid,int icon,String title,String subtitle,Runnable action){
+        LinearLayout tile=new LinearLayout(this);tile.setOrientation(LinearLayout.VERTICAL);
+        tile.setGravity(Gravity.CENTER_VERTICAL);tile.setPadding(dp(9),dp(7),dp(7),dp(7));
+        tile.setBackground(round(CARD,17,BORDER,1));tile.setElevation(dp(1));
+        ImageView image=imageIcon(icon,GREEN,10);
+        image.setBackground(round(blend(CARD,GREEN,0.09f),11,Color.TRANSPARENT,0));
+        tile.addView(image,new LinearLayout.LayoutParams(dp(29),dp(29)));
+        TextView name=text(title,12,true);name.setMaxLines(2);
+        name.setPadding(0,dp(3),0,0);tile.addView(name);
+        TextView detail=text(subtitle,10,false);detail.setTextColor(MUTED);
+        detail.setMaxLines(2);detail.setPadding(0,0,0,0);tile.addView(detail);
+        tile.setContentDescription(title+", "+subtitle);tile.setOnClickListener(v->action.run());
+        GridLayout.LayoutParams p=new GridLayout.LayoutParams();
+        p.width=0;p.height=dp(isLargeText()?118:91);
+        p.columnSpec=GridLayout.spec(GridLayout.UNDEFINED,1f);
+        p.setMargins(dp(3),dp(3),dp(3),dp(5));grid.addView(tile,p);
+    }
+
+    private void repoSectionHeader(String full,String heading,String details,int icon){
+        LinearLayout panel=new LinearLayout(this);panel.setGravity(Gravity.CENTER_VERTICAL);
+        panel.setPadding(dp(11),dp(10),dp(11),dp(10));
+        GradientDrawable bg=new GradientDrawable(GradientDrawable.Orientation.TL_BR,
+                new int[]{blend(CARD,GREEN,0.06f),CARD});
+        bg.setCornerRadius(dp(18));bg.setStroke(dp(1),BORDER);panel.setBackground(bg);
+        ImageView mark=imageIcon(icon,GREEN,10);
+        mark.setBackground(round(blend(CARD,GREEN,0.10f),12,Color.TRANSPARENT,0));
+        panel.addView(mark,new LinearLayout.LayoutParams(dp(43),dp(43)));
+        LinearLayout label=new LinearLayout(this);label.setOrientation(LinearLayout.VERTICAL);
+        label.setPadding(dp(8),0,0,0);
+        TextView t=text(heading,17,true);t.setPadding(0,0,0,0);
+        TextView sub=text(full+(details.isEmpty()?"":" · "+details),11,false);
+        sub.setTextColor(MUTED);sub.setMaxLines(2);sub.setPadding(0,0,0,0);
+        label.addView(t);label.addView(sub);
+        panel.addView(label,new LinearLayout.LayoutParams(0,-2,1));
+        if(full.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")){
+            TextView back=text("‹",23,true);back.setTextColor(GREEN);
+            back.setGravity(Gravity.CENTER);back.setContentDescription("Вернуться к репозиторию");
+            back.setOnClickListener(v->navigate(()->showRepository(full)));
+            panel.addView(back,new LinearLayout.LayoutParams(dp(34),dp(48)));
+        }
+        LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,-2);
+        params.setMargins(0,0,0,dp(12));content.addView(panel,params);
+    }
+
+    private void repoReadmePreview(String full,String readme){
+        if(readme==null||readme.trim().isEmpty())return;
+        sectionTitle("README",null);
+        LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);
+        String preview=readme.trim();
+        if(preview.length()>260)preview=preview.substring(0,260).trim()+"…";
+        TextView body=text(preview,13,false);body.setTextColor(MUTED);box.addView(body);
+        TextView open=text("Открыть полностью  ›",13,true);open.setTextColor(GREEN);
+        open.setGravity(Gravity.END);box.addView(open);
+        box.setOnClickListener(v->navigate(()->showReadme(full,readme)));
+        card(box);
+    }
+
     private void showRepository(String full){
         if(isSignedIn()&&full.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+"))
             RepositoryActivityFeed.noteVisit(prefs,currentAccountId(),full,
@@ -2313,39 +2430,38 @@ public class MainActivity extends Activity {
                             ||!repoAccount.equals(currentAccountId())
                             ||!full.equals(currentTitle))return;
                     content.removeView(pb);
-                    LinearLayout hero=new LinearLayout(this);hero.setOrientation(LinearLayout.VERTICAL);hero.setPadding(dp(16),dp(16),dp(16),dp(16));hero.setBackground(round(CARD,20,BORDER,1));
-                    TextView n=text(full,22,true);n.setTextColor(BLUE);hero.addView(n);
-                    TextView de=text(desc,15,false);de.setTextColor(MUTED);hero.addView(de);
-                    LinearLayout ms=new LinearLayout(this);ms.setPadding(0,dp(12),0,0);ms.addView(pill("★ "+stars));ms.addView(pill("Forks "+forks));ms.addView(pill("Issues "+issues));hero.addView(ms);
-                    LinearLayout tech=new LinearLayout(this);tech.setPadding(0,dp(8),0,0);tech.addView(pill(language));tech.addView(pill("Лицензия "+license));tech.addView(pill("Ветка "+branch));hero.addView(tech);card(hero);
-                    Button buildShortcut=button("◈  Сборки и артефакты");
+                    showRepositoryOverviewHero(r,full,desc,stars,forks,issues,branch,language,license);
+                    Button buildShortcut=button("⬡  Сборки и артефакты  ›");
                     buildShortcut.setOnClickListener(v->navigate(()->showBuildCenter(full)));
-                    content.addView(buildShortcut,new LinearLayout.LayoutParams(-1,dp(48)));
+                    LinearLayout.LayoutParams buildP=new LinearLayout.LayoutParams(-1,dp(54));
+                    buildP.setMargins(0,dp(4),0,dp(10));content.addView(buildShortcut,buildP);
+                    sectionTitle("Основные разделы",null);
                     GridLayout tabs=new GridLayout(this);tabs.setColumnCount(adaptiveColumns(3));
-                    addAction(tabs,"Обзор",()->navigate(() -> showRepository(full)));
-                    addAction(tabs,"Файлы",()->navigate(() -> showRepositoryFiles(full,branch,"")));
-                    addAction(tabs,"README",()->navigate(() -> showReadme(full,finalReadme)));
-                    addAction(tabs,"Issues",()->navigate(() -> showRepoIssues(full)));
-                    addAction(tabs,"Pull Requests",()->navigate(() -> showRepoPulls(full)));
-                    addAction(tabs,"Обсуждения",()->navigate(() -> showRepoDiscussions(full)));
-                    addAction(tabs,"Релизы",()->navigate(() -> showRepoReleases(full)));
-                    addAction(tabs,"Copilot",()->navigate(() -> showCopilotRepository(full)));
+                    repoActionCard(tabs,R.drawable.ic_home,"Обзор","О проекте",()->navigate(()->showRepository(full)));
+                    repoActionCard(tabs,R.drawable.ic_repository,"Файлы","Код и структура",()->navigate(()->showRepositoryFiles(full,branch,"")));
+                    repoActionCard(tabs,R.drawable.ic_repository,"README","Документация",()->navigate(()->showReadme(full,finalReadme)));
+                    repoActionCard(tabs,R.drawable.ic_issue,"Issues",issues+" открыто",()->navigate(()->showRepoIssues(full)));
+                    repoActionCard(tabs,R.drawable.ic_pull_request,"Pull Requests","Изменения",()->navigate(()->showRepoPulls(full)));
+                    repoActionCard(tabs,R.drawable.ic_discussion,"Обсуждения","Сообщество",()->navigate(()->showRepoDiscussions(full)));
+                    repoActionCard(tabs,R.drawable.ic_release,"Релизы","Публикации",()->navigate(()->showRepoReleases(full)));
+                    repoActionCard(tabs,R.drawable.ic_copilot,"Copilot","ИИ-помощник",()->navigate(()->showCopilotRepository(full)));
                     content.addView(tabs);
-                    String owner = full.contains("/") ? full.substring(0, full.indexOf('/')) : full;
-                    GridLayout actions=new GridLayout(this);actions.setColumnCount(adaptiveColumns(3));
-                    addAction(actions,"Ветка: "+branch,()->showBranchChooser(full, branch));
-                    addAction(actions,"Профиль @"+owner,()->navigate(() -> showDeveloperProfile(owner)));
-                    addAction(actions,trackingDb.isTracked(owner)?"Не отслеживать автора":"Отслеживать автора",()->toggleDeveloperTracking(owner));
+                    sectionTitle("Дополнительные действия",null);
+                    String owner=full.contains("/")?full.substring(0,full.indexOf('/')):full;
+                    GridLayout actions=new GridLayout(this);actions.setColumnCount(adaptiveColumns(2));
+                    repoActionCard(actions,R.drawable.ic_repository,"Ветка: "+branch,"Выбрать ветку",()->showBranchChooser(full,branch));
+                    repoActionCard(actions,R.drawable.ic_profile,"Профиль @"+owner,"Автор проекта",()->navigate(()->showDeveloperProfile(owner)));
+                    repoActionCard(actions,R.drawable.ic_history,trackingDb.isTracked(owner)?"Не отслеживать":"Отслеживать","Активность автора",()->toggleDeveloperTracking(owner));
                     if(isSignedIn()){
-                        if(starred!=null)addAction(actions,starred?"★ Убрать звезду":"☆ Поставить звезду",()->toggleRepositoryStar(full,starred));
-                        else addAction(actions,"Звезда: статус неизвестен",()->toast("Проверьте сеть и разрешения GitHub"));
-                        addAction(actions,"Управление",()->navigate(() -> showRepositoryAdmin(full,r)));
+                        if(starred!=null)repoActionCard(actions,R.drawable.ic_star,starred?"★ Убрать звезду":"☆ Поставить звезду","GitHub Stars",()->toggleRepositoryStar(full,starred));
+                        else repoActionCard(actions,R.drawable.ic_star,"Звезда недоступна","Проверьте права",()->toast("Проверьте сеть и разрешения GitHub"));
+                        repoActionCard(actions,R.drawable.ic_settings,"Управление","Настройки проекта",()->navigate(()->showRepositoryAdmin(full,r)));
                     }
-                    addAction(actions,"Избранное",()->{saveFavorite(full);toast("Добавлено в избранное");});
-                    addAction(actions,"Открыть GitHub",()->openRepoUrl(full,""));
-                    addAction(actions,"Центр наблюдения",()->navigate(this::showTracking));
+                    repoActionCard(actions,R.drawable.ic_star,"Избранное","Сохранить проект",()->{saveFavorite(full);toast("Добавлено в избранное");});
+                    repoActionCard(actions,R.drawable.ic_globe,"Открыть GitHub","В браузере",()->openRepoUrl(full,""));
+                    repoActionCard(actions,R.drawable.ic_history,"Центр наблюдения","Ваша активность",()->navigate(this::showTracking));
                     content.addView(actions);
-                    if(!finalReadme.isEmpty()) showReadmeInline(full,finalReadme);
+                    repoReadmePreview(full,finalReadme);
                 });
             }catch(Exception e){
                 String cached=prefs.getString("cache_repo_"+full,"");
@@ -2369,7 +2485,7 @@ public class MainActivity extends Activity {
         rememberScreen("copilot_repo",routeArgs("full",full));
         setCurrentScreen(() -> showCopilotRepository(full));
         shell("Copilot",true);
-        heroBanner("Copilot Cloud Agent",full,R.drawable.ic_copilot);
+        repoSectionHeader(full,"Copilot","Cloud Agent",R.drawable.ic_copilot);
         if(!isSignedIn()){accountRequiredCard("Подключите GitHub, чтобы запускать задачи Copilot.");return;}
         TextView note=text("Copilot работает на стороне GitHub: создаёт ветку, изменяет код и при необходимости открывает Pull Request. Перед запуском GitHubble выполняет безопасную проверку разрешений без изменения репозитория.",12,false);
         note.setTextColor(MUTED);card(note);
@@ -2620,7 +2736,7 @@ public class MainActivity extends Activity {
     }
 
     private void showRepositoryAdmin(String full,JSONObject repo){
-        featureState.lastAdminRepository=full;rememberScreen("repository_admin",routeArgs("full",full));setCurrentScreen(()->showRepositoryAdmin(full,repo));shell("Управление",true);heroBanner(full,"Исходники, доступ и администрирование",R.drawable.ic_repository);
+        featureState.lastAdminRepository=full;rememberScreen("repository_admin",routeArgs("full",full));setCurrentScreen(()->showRepositoryAdmin(full,repo));shell("Управление",true);repoSectionHeader(full,"Управление","Исходники и доступ",R.drawable.ic_settings);
         TextView note=text("Загрузка папки/ZIP создаёт Git blobs, единое дерево и один коммит. Структура каталогов сохраняется. Операции выполняются напрямую через GitHub API.",12,false);note.setTextColor(MUTED);card(note);
         String defaultBranch=repo==null?"main":repo.optString("default_branch","main");
         sectionTitle("Исходники",null);GridLayout upload=new GridLayout(this);upload.setColumnCount(adaptiveColumns(2));
@@ -2733,7 +2849,7 @@ public class MainActivity extends Activity {
 
     private void showRepoIssues(String full){rememberScreen("repo_issues",routeArgs("full",full));showRepoIssuesPage(full,1,true);}
     private void showRepoIssuesPage(String full,int page,boolean first){
-        if(first){setCurrentScreen(()->showRepoIssues(full));shell("Issues",true);heroBanner(full,"Открытые задачи репозитория",R.drawable.ic_issue);if(isSignedIn()){Button create=button("Создать Issue");create.setOnClickListener(v->showIssueEditor(full,0,"","",""));content.addView(create,new LinearLayout.LayoutParams(-1,dp(50)));}}
+        if(first){setCurrentScreen(()->showRepoIssues(full));shell("Issues",true);repoSectionHeader(full,"Issues","Открытые задачи",R.drawable.ic_issue);if(isSignedIn()){Button create=button("Создать Issue");create.setOnClickListener(v->showIssueEditor(full,0,"","",""));content.addView(create,new LinearLayout.LayoutParams(-1,dp(50)));}}
         ProgressBar pb=new ProgressBar(this);content.addView(pb);io.execute(()->{try{JSONArray a=getArray("https://api.github.com/repos/"+full+"/issues?state=open&per_page=50&page="+page);runOnUiThread(()->{content.removeView(pb);int count=0;for(int i=0;i<a.length();i++){JSONObject o=a.optJSONObject(i);if(o!=null&&!o.has("pull_request"))count++;}if(first)sectionTitle("Открытые Issues",null);if(count==0&&first){card(text("Открытых Issues нет.",14,false));return;}for(int i=0;i<a.length();i++){JSONObject o=a.optJSONObject(i);if(o==null||o.has("pull_request"))continue;int number=o.optInt("number");String title=o.optString("title"),user=o.optJSONObject("user")!=null?o.optJSONObject("user").optString("login"):"";LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.VERTICAL);row.addView(text("#"+number+"  "+title,15,true));TextView meta=text(user+" · "+o.optInt("comments")+" комментариев · "+formatGitHubDate(o.optString("updated_at","")),11,false);meta.setTextColor(MUTED);row.addView(meta);row.setOnClickListener(v->navigate(()->showIssueDetail(full,number)));card(row);}if(a.length()==50)addLoadMoreButton("Показать ещё Issues",()->showRepoIssuesPage(full,page+1,false));});}catch(Exception e){runOnUiThread(()->{content.removeView(pb);errorCard("Не удалось загрузить Issues",e.getMessage());});}});
     }
 
@@ -2804,7 +2920,7 @@ public class MainActivity extends Activity {
 
     private void showRepoPulls(String full){rememberScreen("repo_pulls",routeArgs("full",full));showRepoPullsPage(full,1,true);}
     private void showRepoPullsPage(String full,int page,boolean first){
-        if(first){setCurrentScreen(()->showRepoPulls(full));shell("Pull Requests",true);heroBanner(full,"Изменения и ревью",R.drawable.ic_pull_request);if(isSignedIn()){Button create=button("Создать Pull Request");create.setOnClickListener(v->showCreatePullRequest(full));content.addView(create,new LinearLayout.LayoutParams(-1,dp(50)));}}ProgressBar pb=new ProgressBar(this);content.addView(pb);
+        if(first){setCurrentScreen(()->showRepoPulls(full));shell("Pull Requests",true);repoSectionHeader(full,"Pull Requests","Изменения и ревью",R.drawable.ic_pull_request);if(isSignedIn()){Button create=button("Создать Pull Request");create.setOnClickListener(v->showCreatePullRequest(full));content.addView(create,new LinearLayout.LayoutParams(-1,dp(50)));}}ProgressBar pb=new ProgressBar(this);content.addView(pb);
         io.execute(()->{try{JSONArray a=getArray("https://api.github.com/repos/"+full+"/pulls?state=open&per_page=50&page="+page);runOnUiThread(()->{content.removeView(pb);if(first)sectionTitle("Открытые Pull Requests",null);if(a.length()==0&&first){card(text("Открытых Pull Requests нет.",14,false));return;}for(int i=0;i<a.length();i++){JSONObject o=a.optJSONObject(i);if(o==null)continue;int n=o.optInt("number");LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.VERTICAL);row.addView(text("#"+n+"  "+o.optString("title"),15,true));JSONObject user=o.optJSONObject("user");JSONObject head=o.optJSONObject("head");TextView meta=text((user==null?"":user.optString("login"))+" · "+(head==null?"":head.optString("ref","")),11,false);meta.setTextColor(MUTED);row.addView(meta);row.setOnClickListener(v->navigate(()->showPullDetail(full,n)));card(row);}if(a.length()==50)addLoadMoreButton("Показать ещё Pull Requests",()->showRepoPullsPage(full,page+1,false));});}catch(Exception e){runOnUiThread(()->{content.removeView(pb);errorCard("Не удалось загрузить PR",e.getMessage());});}});
     }
 
@@ -2905,7 +3021,7 @@ public class MainActivity extends Activity {
 
     private void showPullCommits(String full,int number){showPullCommitsPage(full,number,1,true);}
     private void showPullCommitsPage(String full,int number,int page,boolean first){
-        if(first){setCurrentScreen(()->showPullCommits(full,number));shell("Коммиты PR",true);heroBanner(full,"Pull Request #"+number,R.drawable.ic_pull_request);}ProgressBar pb=new ProgressBar(this);content.addView(pb);
+        if(first){setCurrentScreen(()->showPullCommits(full,number));shell("Коммиты PR",true);repoSectionHeader(full,"Коммиты PR","#"+number,R.drawable.ic_pull_request);}ProgressBar pb=new ProgressBar(this);content.addView(pb);
         io.execute(()->{try{JSONArray commits=getArray("https://api.github.com/repos/"+full+"/pulls/"+number+"/commits?per_page=50&page="+page);runOnUiThread(()->{content.removeView(pb);if(first)sectionTitle("Коммиты",null);for(int i=0;i<commits.length();i++){JSONObject item=commits.optJSONObject(i);if(item==null)continue;JSONObject commit=item.optJSONObject("commit");JSONObject author=commit==null?null:commit.optJSONObject("author");LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.VERTICAL);String message=commit==null?"Коммит":commit.optString("message","Коммит");row.addView(text(firstLine(message),14,true));String sha=item.optString("sha","");TextView meta=text(sha.substring(0,Math.min(7,sha.length()))+(author==null?"":" · "+author.optString("name",""))+" · "+formatGitHubDate(author==null?"":author.optString("date","")),11,false);meta.setTextColor(MUTED);row.addView(meta);if(CommitDetailController.validSha(sha))
                             row.setOnClickListener(v->navigate(()->showCommitDetail(full,sha)));
                         card(row);}if(commits.length()==50)addLoadMoreButton("Показать ещё коммиты",()->showPullCommitsPage(full,number,page+1,false));});}catch(Exception e){runOnUiThread(()->{content.removeView(pb);errorCard("Не удалось загрузить коммиты",e.getMessage());});}});
@@ -2913,7 +3029,7 @@ public class MainActivity extends Activity {
 
     private void showPullFiles(String full,int number){showPullFilesPage(full,number,1,true);}
     private void showPullFilesPage(String full,int number,int page,boolean first){
-        if(first){setCurrentScreen(()->showPullFiles(full,number));shell("Файлы PR",true);heroBanner(full,"Изменения Pull Request #"+number,R.drawable.ic_pull_request);}ProgressBar pb=new ProgressBar(this);content.addView(pb);
+        if(first){setCurrentScreen(()->showPullFiles(full,number));shell("Файлы PR",true);repoSectionHeader(full,"Файлы PR","#"+number,R.drawable.ic_pull_request);}ProgressBar pb=new ProgressBar(this);content.addView(pb);
         io.execute(()->{try{JSONArray files=getArray("https://api.github.com/repos/"+full+"/pulls/"+number+"/files?per_page=50&page="+page);runOnUiThread(()->{content.removeView(pb);if(first)sectionTitle("Изменённые файлы",null);for(int i=0;i<files.length();i++){JSONObject f=files.optJSONObject(i);if(f==null)continue;int index=i;LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.VERTICAL);row.addView(text(f.optString("filename"),14,true));TextView m=text("+"+f.optInt("additions")+"  −"+f.optInt("deletions")+" · "+f.optString("status"),11,false);m.setTextColor(MUTED);row.addView(m);String patch=f.optString("patch","");TextView open=text(patch.isEmpty()?"Предпросмотр файла ›":"Открыть diff ›",12,true);open.setTextColor(BLUE);row.addView(open);row.setOnClickListener(v->navigate(()->showAdvancedDiff(full,number,files,index)));card(row);}if(files.length()==50)addLoadMoreButton("Показать ещё файлы",()->showPullFilesPage(full,number,page+1,false));});}catch(Exception e){runOnUiThread(()->{content.removeView(pb);errorCard("Не удалось загрузить файлы",e.getMessage());});}});
     }
 
@@ -2951,7 +3067,7 @@ public class MainActivity extends Activity {
 
     private void showRepoReleases(String full){rememberScreen("repo_releases",routeArgs("full",full));showRepoReleasesPage(full,1,true);}
     private void showRepoReleasesPage(String full,int page,boolean first){
-        if(first){setCurrentScreen(()->showRepoReleases(full));shell("Релизы",true);heroBanner(full,"Версии и файлы",R.drawable.ic_release);}ProgressBar pb=new ProgressBar(this);content.addView(pb);
+        if(first){setCurrentScreen(()->showRepoReleases(full));shell("Релизы",true);repoSectionHeader(full,"Релизы","Версии и файлы",R.drawable.ic_release);}ProgressBar pb=new ProgressBar(this);content.addView(pb);
         io.execute(()->{try{JSONArray releases=getArray("https://api.github.com/repos/"+full+"/releases?per_page=20&page="+page);runOnUiThread(()->{content.removeView(pb);if(releases.length()==0&&first){card(text("У репозитория пока нет релизов.",15,false));return;}for(int i=0;i<releases.length();i++){JSONObject release=releases.optJSONObject(i);if(release!=null)renderReleaseCard(release);}if(releases.length()==20)addLoadMoreButton("Показать ещё релизы",()->showRepoReleasesPage(full,page+1,false));});}catch(Exception e){runOnUiThread(()->{content.removeView(pb);errorCard("Не удалось загрузить релизы",e.getMessage());});}});
     }
 
@@ -3108,7 +3224,7 @@ public class MainActivity extends Activity {
 
     private void showRepositoryFiles(String full,String branch,String path){
         setCurrentScreen(() -> showRepositoryFiles(full, branch, path));
-        shell("Файлы",true);heroBanner(full,path.isEmpty()?"Корень · "+branch:path,R.drawable.ic_repository);ProgressBar pb=new ProgressBar(this);content.addView(pb);
+        shell("Файлы",true);repoSectionHeader(full,"Файлы",path.isEmpty()?"Корень · "+branch:path,R.drawable.ic_repository);ProgressBar pb=new ProgressBar(this);content.addView(pb);
         io.execute(()->{try{JSONArray a=getArray("https://api.github.com/repos/"+full+"/contents/"+path+"?ref="+URLEncoder.encode(branch,"UTF-8"));runOnUiThread(()->{content.removeView(pb);if(!path.isEmpty()){Button up=button("Назад к родительской папке");String parent=path.contains("/")?path.substring(0,path.lastIndexOf('/')):"";up.setOnClickListener(v->navigate(() -> showRepositoryFiles(full,branch,parent)));content.addView(up,new LinearLayout.LayoutParams(-1,dp(48)));}for(int i=0;i<a.length();i++){JSONObject o=a.optJSONObject(i);if(o==null)continue;String name=o.optString("name"),type=o.optString("type"),p=o.optString("path"),download=o.optString("download_url"),html=o.optString("html_url");long size=o.optLong("size");LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);ImageView ic=imageIcon("dir".equals(type)?R.drawable.ic_projects:R.drawable.ic_repository,"dir".equals(type)?tileColors[3]:BLUE,14);row.addView(ic,new LinearLayout.LayoutParams(dp(46),dp(46)));LinearLayout info=new LinearLayout(this);info.setOrientation(LinearLayout.VERTICAL);info.addView(text(name,15,true));TextView meta=text("dir".equals(type)?"Папка":"Файл · "+formatAssetSize(size),11,false);meta.setTextColor(MUTED);info.addView(meta);row.addView(info,new LinearLayout.LayoutParams(0,-2,1));row.setOnClickListener(v->{if("dir".equals(type))navigate(() -> showRepositoryFiles(full,branch,p));else navigate(() -> showFilePreview(full,branch,p,name,size,download,html));});card(row);}});}catch(Exception e){runOnUiThread(()->{content.removeView(pb);errorCard("Не удалось загрузить файлы",e.getMessage());});}});
     }
 
@@ -3120,7 +3236,7 @@ public class MainActivity extends Activity {
         }
         setCurrentScreen(()->showFileEditor(full,branch,path));
         shell("Редактор файла",false);
-        heroBanner(full,path+" · "+branch,R.drawable.ic_repository);
+        repoSectionHeader(full,"Редактор файла",path+" · "+branch,R.drawable.ic_repository);
         if(!isSignedIn()){accountRequiredCard("Для редактирования войдите в GitHub.");return;}
         final long generation=screenGeneration.get();
         final String account=currentAccountId();
@@ -3192,7 +3308,7 @@ public class MainActivity extends Activity {
     }
 
     private void showFilePreview(String full,String branch,String path,String name,long size,String download,String htmlUrl){
-        setCurrentScreen(()->showFilePreview(full,branch,path,name,size,download,htmlUrl));shell(name,true);heroBanner(full,"Безопасный просмотр файла",R.drawable.ic_repository);ProgressBar pb=new ProgressBar(this);content.addView(pb);
+        setCurrentScreen(()->showFilePreview(full,branch,path,name,size,download,htmlUrl));shell(name,true);repoSectionHeader(full,"Просмотр файла",path,R.drawable.ic_repository);ProgressBar pb=new ProgressBar(this);content.addView(pb);
         io.execute(()->{try{FilePreviewController.Preview preview=features.filePreview.load(full,branch,path,name,size,download,htmlUrl);runOnUiThread(()->{content.removeView(pb);renderFilePreview(full,preview,download);
             if(preview.type==FilePreviewController.Type.TEXT&&preview.declaredSize<=512*1024){
                 Button edit=compactButton("Редактировать и создать коммит");
@@ -3219,7 +3335,7 @@ public class MainActivity extends Activity {
     }
 
     private void renderCodeViewer(String full,String name,String raw,int requestedLine,String query){
-        shell(name,true);heroBanner(full,"Исходный код · "+raw.split("\n",-1).length+" строк",R.drawable.ic_repository);
+        shell(name,true);repoSectionHeader(full,"Исходный код",raw.split("\n",-1).length+" строк",R.drawable.ic_repository);
         final int pageSize=400;String[] lines=raw.replace("\r","").split("\n",-1);int totalPages=Math.max(1,(lines.length+pageSize-1)/pageSize);
         int line=Math.max(1,Math.min(lines.length,requestedLine));int page=(line-1)/pageSize;int from=page*pageSize;int to=Math.min(lines.length,from+pageSize);
         LinearLayout tools=new LinearLayout(this);tools.setGravity(Gravity.CENTER_VERTICAL);
@@ -3240,7 +3356,7 @@ public class MainActivity extends Activity {
     private void showGoToLineDialog(String full,String name,String raw,int currentLine,String query){final EditText input=new EditText(this);input.setSingleLine(true);input.setInputType(InputType.TYPE_CLASS_NUMBER);input.setHint("Номер строки");new AlertDialog.Builder(this).setTitle("Перейти к строке").setView(input).setPositiveButton("Перейти",(d,w)->{int line=currentLine;try{line=Integer.parseInt(input.getText().toString());}catch(Exception ignored){}renderCodeViewer(full,name,raw,line,query);}).setNegativeButton("Отмена",null).show();}
     private void showCopyLinesDialog(String name,String raw){LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);final EditText from=new EditText(this);from.setHint("С строки");from.setInputType(InputType.TYPE_CLASS_NUMBER);final EditText to=new EditText(this);to.setHint("По строку");to.setInputType(InputType.TYPE_CLASS_NUMBER);box.addView(from);box.addView(to);new AlertDialog.Builder(this).setTitle("Копировать диапазон").setView(box).setPositiveButton("Копировать",(d,w)->{String[] lines=raw.replace("\r","").split("\n",-1);int a=1,b=lines.length;try{a=Integer.parseInt(from.getText().toString());}catch(Exception ignored){}try{b=Integer.parseInt(to.getText().toString());}catch(Exception ignored){}a=Math.max(1,Math.min(lines.length,a));b=Math.max(a,Math.min(lines.length,b));StringBuilder out=new StringBuilder();for(int i=a-1;i<b;i++){if(out.length()>0)out.append('\n');out.append(lines[i]);}ClipboardManager cm=(ClipboardManager)getSystemService(CLIPBOARD_SERVICE);if(cm!=null)cm.setPrimaryClip(ClipData.newPlainText(name+":"+a+"-"+b,out.toString()));toast("Строки "+a+"–"+b+" скопированы");}).setNegativeButton("Отмена",null).show();}
 
-    private void showReadme(String full,String readme){setCurrentScreen(() -> showReadme(full,readme));shell("README",true);showReadmeInline(full,readme);}
+    private void showReadme(String full,String readme){setCurrentScreen(() -> showReadme(full,readme));shell("README",true);repoSectionHeader(full,"README","Документация проекта",R.drawable.ic_repository);showReadmeInline(full,readme);}
     private void showReadmeInline(String full,String readme){sectionTitle("README",null);addTranslatableMarkdownCard("readme:"+full,readme,prefs.getString("cache_repo_updated_"+full,""));}
 
     private TranslationEngine.Config translationConfig(){return translationController.config();}
@@ -4448,7 +4564,7 @@ public class MainActivity extends Activity {
     private void showActionsCleanup(String full){
         setCurrentScreen(()->showActionsCleanup(full));
         shell("Actions storage",true);
-        heroBanner(full,"Артефакты и кэши GitHub Actions",R.drawable.ic_history);
+        repoSectionHeader(full,"Артефакты и кэши","GitHub Actions",R.drawable.ic_history);
         if(!isSignedIn()){accountRequiredCard("Подключите GitHub для управления Actions.");return;}
         ProgressBar pb=new ProgressBar(this);content.addView(pb);
         io.execute(()->{
@@ -4518,7 +4634,7 @@ public class MainActivity extends Activity {
         final long generation=screenGeneration.get();
         final String account=currentAccountId();
         final LinearLayout destination=content;
-        heroBanner(full,"Коммит "+shortSha(sha)+" · встроенный просмотр",R.drawable.ic_repository);
+        repoSectionHeader(full,"Коммит",shortSha(sha),R.drawable.ic_repository);
         ProgressBar loading=new ProgressBar(this);
         destination.addView(loading);
         io.execute(()->{
@@ -4568,7 +4684,7 @@ public class MainActivity extends Activity {
     private void showRepositoryCommits(String full,String branch){
         setCurrentScreen(()->showRepositoryCommits(full,branch));
         shell("Коммиты",true);
-        heroBanner(full,"Ветка "+branch,R.drawable.ic_history);
+        repoSectionHeader(full,"Коммиты","Ветка "+branch,R.drawable.ic_history);
         TextView warning=text("Опасное принудительное удаление HEAD убрано. Для отмены изменений используйте revert-коммит и Pull Request на GitHub — история ветки останется восстанавливаемой.",12,false);warning.setTextColor(MUTED);card(warning);
         ProgressBar pb=new ProgressBar(this);content.addView(pb);
         io.execute(()->{
