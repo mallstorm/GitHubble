@@ -47,6 +47,7 @@ import app.githubble.mobile.tracking.TrackingJobService;
 import app.githubble.mobile.build.BuildMonitor;
 import app.githubble.mobile.build.BuildMonitorJobService;
 import app.githubble.mobile.build.BuildArtifactDownloads;
+import app.githubble.mobile.build.ActionsStorageManager;
 import app.githubble.mobile.tracking.TrackingNotificationHelper;
 import app.githubble.mobile.web.GitHubCustomTabs;
 import app.githubble.mobile.translation.LanguageDetector;
@@ -2616,6 +2617,9 @@ public class MainActivity extends Activity {
                     buildShortcut.setOnClickListener(v->navigate(()->showBuildCenter(full)));
                     LinearLayout.LayoutParams buildP=new LinearLayout.LayoutParams(-1,dp(54));
                     buildP.setMargins(0,dp(4),0,dp(10));content.addView(buildShortcut,buildP);
+                    Button storageShortcut=button("⚙  Хранилище Actions · правила и очистка");
+                    storageShortcut.setOnClickListener(v->navigate(()->showActionsStorage(full)));
+                    content.addView(storageShortcut,new LinearLayout.LayoutParams(-1,dp(48)));
                     sectionTitle("Основные разделы",null);
                     GridLayout tabs=new GridLayout(this);tabs.setColumnCount(adaptiveColumns(3));
                     repoActionCard(tabs,R.drawable.ic_home,"Обзор","О проекте",()->navigate(()->showRepository(full)));
@@ -2926,9 +2930,13 @@ public class MainActivity extends Activity {
         addAction(upload,"Загрузить файл/ZIP",()->startRepositoryFileImport(full,defaultBranch));
         addAction(upload,"Открыть файлы",()->navigate(()->showRepositoryFiles(full,defaultBranch,"")));content.addView(upload);
         sectionTitle("Git и публикация",null);GridLayout actions=new GridLayout(this);actions.setColumnCount(adaptiveColumns(2));
-        addAction(actions,"Создать fork",()->showForkDialog(full));addAction(actions,"Новая ветка",()->showCreateBranchDialog(full,defaultBranch));addAction(actions,"Новый тег",()->showCreateTagDialog(full,defaultBranch));addAction(actions,"Новый Release",()->showCreateReleaseDialog(full,defaultBranch));addAction(actions,"Actions / место",()->navigate(()->showActionsCleanup(full)));addAction(actions,"Коммиты "+defaultBranch,()->navigate(()->showRepositoryCommits(full,defaultBranch)));content.addView(actions);
+        addAction(actions,"Создать fork",()->showForkDialog(full));addAction(actions,"Новая ветка",()->showCreateBranchDialog(full,defaultBranch));addAction(actions,"Новый тег",()->showCreateTagDialog(full,defaultBranch));addAction(actions,"Новый Release",()->showCreateReleaseDialog(full,defaultBranch));addAction(actions,"Actions / место",()->navigate(()->showActionsStorage(full)));addAction(actions,"Коммиты "+defaultBranch,()->navigate(()->showRepositoryCommits(full,defaultBranch)));content.addView(actions);
         boolean isPrivate=repo!=null&&repo.optBoolean("private",false);boolean admin=repo==null||repo.optJSONObject("permissions")==null||repo.optJSONObject("permissions").optBoolean("admin",true);
-        sectionTitle("Настройки репозитория",null);GridLayout settings=new GridLayout(this);settings.setColumnCount(adaptiveColumns(2));
+        sectionTitle("Настройки репозитория",null);
+        Button retention=button("⚙  Хранилище Actions · срок и лимиты");
+        retention.setOnClickListener(v->navigate(()->showActionsStorage(full)));
+        content.addView(retention,new LinearLayout.LayoutParams(-1,dp(50)));
+        GridLayout settings=new GridLayout(this);settings.setColumnCount(adaptiveColumns(2));
         if(admin){addAction(settings,"Имя и описание",()->showEditRepositoryDialog(full,repo));addAction(settings,isPrivate?"Сделать публичным":"Сделать приватным",()->showRepositoryVisibilityDialog(full,isPrivate));addAction(settings,"Удалить репозиторий",()->showDeleteRepositoryDialog(full));}
         else{TextView ro=text("У вашего аккаунта нет административных прав на этот репозиторий. Загрузка кода и обычные Git-операции остаются доступны в пределах выданных разрешений.",12,false);ro.setTextColor(MUTED);settings.addView(ro,new GridLayout.LayoutParams());}
         content.addView(settings);
@@ -4914,6 +4922,9 @@ public class MainActivity extends Activity {
         content.addView(refreshBilling,new LinearLayout.LayoutParams(-1,dp(48)));
 
         sectionTitle("Хранилище Actions","Инвентаризация не является официальным остатком квоты");
+        Button storageManager=button("Менеджер артефактов · все репозитории");
+        storageManager.setOnClickListener(v->navigate(this::showActionsStorageRepositories));
+        content.addView(storageManager,new LinearLayout.LayoutParams(-1,dp(52)));
         TextView inventoryStatus=text("Хранилище ещё не проверено. Нажмите «Сканировать», чтобы получить данные о доступных репозиториях.",12,false);
         inventoryStatus.setTextColor(MUTED);
         card(inventoryStatus);
@@ -4946,6 +4957,10 @@ public class MainActivity extends Activity {
         });
 
         sectionTitle("Оплата GitHub",null);
+        settingsActionRow("Настроить бюджеты GitHub","Официальная страница · фактические ограничения оплаты",
+                ()->openSecureGitHubPage("https://github.com/settings/billing/budgets"));
+        TextView budgetHint=text("Денежные бюджеты принадлежат аккаунту или организации GitHub. Локальный лимит проекта не останавливает списания. Установите stop-usage в официальном Billing.",11,false);
+        budgetHint.setTextColor(MUTED);card(budgetHint);
         TextView payment=text("Карта, PayPal и подтверждение платежа вводятся только на официальной странице GitHub. GitHubble не получает и не хранит платёжные реквизиты.",12,false);
         payment.setTextColor(MUTED);
         card(payment);
@@ -5051,6 +5066,269 @@ public class MainActivity extends Activity {
                     cancel.setEnabled(false);
                     status.setText("Инвентаризация не завершилась: "+error.getMessage()
                             +"\nОбъём хранилища неизвестен; данные Billing загружаются независимо.");
+                });
+            }
+        });
+    }
+
+
+    /** Account-wide entry point. Each repository owns its own GitHub retention policy. */
+    private void showActionsStorageRepositories(){
+        setCurrentScreen(this::showActionsStorageRepositories);
+        shell("Хранилище Actions",false);
+        settingsPanelHeader("Менеджер Actions","Артефакты, правила хранения и управление по репозиториям",R.drawable.ic_settings);
+        if(!isSignedIn()){accountRequiredCard("Подключите GitHub для управления хранилищем.");return;}
+        settingsActionRow("Billing и денежные бюджеты","Официальный расход и настройка расходов аккаунта",
+                ()->navigate(this::showAccountCenter));
+        final long generation=screenGeneration.get();
+        final String account=currentAccountId();
+        final LinearLayout host=content;
+        TextView status=text("Загружаем репозитории…",12,false);status.setTextColor(MUTED);host.addView(status);
+        io.execute(()->{
+            try{
+                java.util.LinkedHashSet<String> names=new java.util.LinkedHashSet<>();
+                boolean incomplete=true;
+                for(int page=1;page<=10;page++){
+                    JSONArray repos=api.getArray("https://api.github.com/user/repos?visibility=all&affiliation=owner,collaborator,organization_member&per_page=100&page="+page);
+                    for(int i=0;i<repos.length();i++){
+                        JSONObject repo=repos.optJSONObject(i);
+                        if(repo!=null&&repo.optString("full_name","").matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+"))
+                            names.add(repo.optString("full_name",""));
+                    }
+                    if(repos.length()<100){incomplete=false;break;}
+                }
+                final boolean partial=incomplete;
+                runOnUiThread(()->{
+                    if(generation!=screenGeneration.get()||host!=content||!account.equals(currentAccountId()))return;
+                    status.setText("Доступных репозиториев: "+names.size()+
+                            (partial?" · показаны первые 1000, список неполный":""));
+                    if(names.isEmpty())card(text("Нет доступных репозиториев. Проверьте разрешения GitHub App.",12,false));
+                    for(String full:names)
+                        settingsActionRow(full,"Артефакты · скачивание · удаление · правила",
+                                ()->navigate(()->showActionsStorage(full)));
+                });
+            }catch(Exception e){
+                runOnUiThread(()->{
+                    if(generation!=screenGeneration.get()||host!=content)return;
+                    status.setText("Не удалось получить список: "+e.getMessage());
+                    Button retry=button("Повторить");retry.setOnClickListener(v->showActionsStorageRepositories());
+                    host.addView(retry);
+                });
+            }
+        });
+    }
+
+    private void showActionsStorage(String full){
+        if(!full.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")){
+            errorDialog("Хранилище","Некорректное имя репозитория");return;
+        }
+        setCurrentScreen(()->showActionsStorage(full));
+        shell("Хранилище Actions",false);
+        repoSectionHeader(full,"Управление хранилищем","Артефакты, срок хранения, локальная очистка",R.drawable.ic_settings);
+        if(!isSignedIn()){accountRequiredCard("Подключите GitHub для управления Actions.");return;}
+        final ActionsStorageManager manager=new ActionsStorageManager(api,prefs);
+        final long generation=screenGeneration.get();
+        final String account=currentAccountId();
+        final LinearLayout host=content;
+        TextView warning=text("Срок хранения GitHub действует для новых файлов. Мягкий лимит и правила очистки на телефоне не являются квотой GitHub и не останавливают платное использование.",12,false);
+        warning.setTextColor(MUTED);card(warning);
+        sectionTitle("Срок хранения GitHub","Общая настройка репозитория · требует Administration: write");
+        TextView retentionStatus=text("Получаем текущую настройку GitHub…",12,false);
+        retentionStatus.setTextColor(MUTED);card(retentionStatus);
+        Button retentionButton=button("Изменить срок хранения");
+        retentionButton.setEnabled(false);
+        retentionButton.setOnClickListener(v->{
+            String value=retentionStatus.getTag() instanceof String?(String)retentionStatus.getTag():"";
+            int max=400;
+            try{max=Integer.parseInt(value);}catch(Exception ignored){}
+            final int maxDays=max;
+            EditText daysInput=new EditText(this);
+            daysInput.setInputType(InputType.TYPE_CLASS_NUMBER);
+            daysInput.setHint("Например, 7");
+            new AlertDialog.Builder(this).setTitle("Срок хранения · "+full)
+                    .setMessage("От 1 до "+maxDays+" дней. Применится только к новым объектам GitHub Actions.")
+                    .setView(daysInput).setNegativeButton("Отмена",null)
+                    .setPositiveButton("Сохранить",(dialog,which)->{
+                        int days;
+                        try{days=Integer.parseInt(daysInput.getText().toString().trim());}
+                        catch(Exception e){toast("Введите целое число дней");return;}
+                        if(days<1||days>maxDays){toast("Допустимо 1–"+maxDays+" дней");return;}
+                        retentionButton.setEnabled(false);
+                        retentionStatus.setText("Сохраняем в GitHub…");
+                        io.execute(()->{
+                            try{
+                                ActionsStorageManager.Retention updated=manager.setRetention(full,days);
+                                runOnUiThread(()->{
+                                    if(generation!=screenGeneration.get()||host!=content||!account.equals(currentAccountId()))return;
+                                    retentionStatus.setText("GitHub: "+updated.days+" дней · максимум "+updated.maxDays);
+                                    retentionStatus.setTag(String.valueOf(updated.maxDays));
+                                    retentionButton.setEnabled(true);
+                                });
+                            }catch(Exception e){
+                                runOnUiThread(()->{
+                                    if(generation!=screenGeneration.get()||host!=content)return;
+                                    retentionStatus.setText("Не удалось сохранить срок: "+e.getMessage());
+                                    retentionButton.setEnabled(true);
+                                });
+                            }
+                        });
+                    }).show();
+        });
+        content.addView(retentionButton,new LinearLayout.LayoutParams(-1,dp(49)));
+        io.execute(()->{
+            try{
+                ActionsStorageManager.Retention current=manager.loadRetention(full);
+                runOnUiThread(()->{
+                    if(generation!=screenGeneration.get()||host!=content||!account.equals(currentAccountId()))return;
+                    retentionStatus.setText("GitHub: "+current.days+" дней · максимум "+current.maxDays);
+                    retentionStatus.setTag(String.valueOf(current.maxDays));
+                    retentionButton.setEnabled(current.maxDays>0);
+                });
+            }catch(Exception e){
+                runOnUiThread(()->{
+                    if(generation!=screenGeneration.get()||host!=content)return;
+                    retentionStatus.setText("Недоступно: "+e.getMessage()+"\nНужны права Administration: read/write. Файлы можно скачивать и удалять отдельно.");
+                });
+            }
+        });
+        sectionTitle("Правила очистки на устройстве","Применяются только по нажатию «Предпросмотр», затем подтверждение");
+        ActionsStorageManager.Policy policy=manager.loadPolicy(full);
+        EditText keepInput=new EditText(this);keepInput.setSingleLine(true);
+        keepInput.setInputType(InputType.TYPE_CLASS_NUMBER);
+        keepInput.setHint("Сохранять последних сборок");keepInput.setText(String.valueOf(policy.keepLatest));
+        card(keepInput);
+        EditText ageInput=new EditText(this);ageInput.setSingleLine(true);
+        ageInput.setInputType(InputType.TYPE_CLASS_NUMBER);
+        ageInput.setHint("Минимальный возраст для удаления, дней");ageInput.setText(String.valueOf(policy.minAgeDays));
+        card(ageInput);
+        EditText limitInput=new EditText(this);limitInput.setSingleLine(true);
+        limitInput.setInputType(InputType.TYPE_CLASS_NUMBER);
+        limitInput.setHint("Мягкий лимит, МБ · 0 = удалить всё подходящее");
+        limitInput.setText(String.valueOf(policy.softLimitMb));card(limitInput);
+        Button save=button("Сохранить локальное правило");
+        save.setOnClickListener(v->{
+            try{
+                ActionsStorageManager.Policy p=new ActionsStorageManager.Policy(
+                        Integer.parseInt(keepInput.getText().toString().trim()),
+                        Integer.parseInt(ageInput.getText().toString().trim()),
+                        Integer.parseInt(limitInput.getText().toString().trim()));
+                manager.savePolicy(full,p);toast("Локальное правило сохранено");
+            }catch(Exception e){errorDialog("Правило очистки",e.getMessage());}
+        });
+        content.addView(save,new LinearLayout.LayoutParams(-1,dp(49)));
+        sectionTitle("Артефакты проекта","APK/ZIP · отдельное скачивание и удаление");
+        TextView status=text("Получаем артефакты…",12,false);status.setTextColor(MUTED);card(status);
+        LinearLayout rows=new LinearLayout(this);rows.setOrientation(LinearLayout.VERTICAL);content.addView(rows);
+        Button refresh=button("Обновить артефакты");
+        refresh.setOnClickListener(v->showActionsStorage(full));
+        content.addView(refresh,new LinearLayout.LayoutParams(-1,dp(49)));
+        Button oldCache=button("Управление Actions cache");
+        oldCache.setOnClickListener(v->navigate(()->showActionsCleanup(full)));
+        content.addView(oldCache,new LinearLayout.LayoutParams(-1,dp(49)));
+        io.execute(()->{
+            try{
+                ActionsStorageManager.Page page=manager.listArtifacts(full,30);
+                runOnUiThread(()->{
+                    if(generation!=screenGeneration.get()||host!=content||!account.equals(currentAccountId()))return;
+                    status.setText("Артефакты: "+page.artifacts.size()+" из "+page.totalCount+
+                            " · найдено "+formatAccountBytes(page.visibleBytes)+
+                            (page.incomplete?"\nСписок неполный: просмотр доступен, групповая очистка отключена.":"")+
+                            "\nЭто текущий размер файлов, не официальный расход Billing.");
+                    if(page.artifacts.isEmpty())card(text("Артефактов нет.",12,false));
+                    for(ActionsStorageManager.Artifact artifact:page.artifacts){
+                        LinearLayout line=new LinearLayout(this);line.setOrientation(LinearLayout.VERTICAL);
+                        line.setPadding(dp(8),dp(8),dp(8),dp(8));
+                        line.addView(text(artifact.name,14,true));
+                        TextView meta=text(formatAccountBytes(artifact.sizeBytes)+" · "+formatGitHubDate(artifact.createdAt)
+                                +(artifact.expiresAt.isEmpty()?"":" · до "+formatGitHubDate(artifact.expiresAt))
+                                +(artifact.expired?" · истёк":""),11,false);
+                        meta.setTextColor(MUTED);line.addView(meta);
+                        LinearLayout buttons=new LinearLayout(this);
+                        Button download=button("↓ Скачать ZIP");
+                        download.setEnabled(!artifact.expired);
+                        download.setOnClickListener(v->{
+                            try{
+                                JSONObject minimal=new JSONObject().put("id",artifact.id)
+                                        .put("name",artifact.name).put("expired",artifact.expired);
+                                startArtifactDownload(full,minimal);
+                            }catch(Exception e){errorDialog("Загрузка артефакта",e.getMessage());}
+                        });
+                        buttons.addView(download,new LinearLayout.LayoutParams(0,dp(45),1));
+                        Button remove=button("Удалить");
+                        remove.setOnClickListener(v->new AlertDialog.Builder(this)
+                                .setTitle("Удалить артефакт?")
+                                .setMessage(full+"\n"+artifact.name+"\n"+formatAccountBytes(artifact.sizeBytes)
+                                        +"\nУдаление необратимо. Исходники и Releases не затрагиваются.")
+                                .setNegativeButton("Отмена",null)
+                                .setPositiveButton("Удалить",(dialog,which)->{
+                                    remove.setEnabled(false);
+                                    io.execute(()->{
+                                        try{
+                                            manager.deleteArtifact(full,artifact.id);
+                                            runOnUiThread(()->{
+                                                if(generation==screenGeneration.get()&&host==content){
+                                                    rows.removeView(line);
+                                                    toast("Артефакт удалён");
+                                                }
+                                            });
+                                        }catch(Exception e){
+                                            runOnUiThread(()->{remove.setEnabled(true);errorDialog("Ошибка удаления",e.getMessage());});
+                                        }
+                                    });
+                                }).show());
+                        buttons.addView(remove,new LinearLayout.LayoutParams(0,dp(45),1));
+                        line.addView(buttons);
+                        card(line);
+                    }
+                    Button preview=button("Предпросмотр очистки по правилу");
+                    preview.setEnabled(!page.incomplete&&page.artifacts.size()>0);
+                    preview.setOnClickListener(v->{
+                        try{
+                            ActionsStorageManager.Policy p=new ActionsStorageManager.Policy(
+                                    Integer.parseInt(keepInput.getText().toString().trim()),
+                                    Integer.parseInt(ageInput.getText().toString().trim()),
+                                    Integer.parseInt(limitInput.getText().toString().trim()));
+                            manager.savePolicy(full,p);
+                            List<ActionsStorageManager.Artifact> selected=manager.previewCleanup(page,p);
+                            long sum=0;for(ActionsStorageManager.Artifact item:selected)sum+=item.sizeBytes;
+                            if(selected.isEmpty()){toast("По текущему правилу удалять нечего");return;}
+                            final long bytes=sum;
+                            StringBuilder names=new StringBuilder();
+                            for(int i=0;i<Math.min(8,selected.size());i++)
+                                names.append("\n• ").append(selected.get(i).name);
+                            if(selected.size()>8)names.append("\n… и ещё ").append(selected.size()-8);
+                            new AlertDialog.Builder(this).setTitle("Подтвердить очистку?")
+                                    .setMessage("Репозиторий: "+full+"\nОбъектов: "+selected.size()
+                                            +"\nРазмер: "+formatAccountBytes(bytes)+names
+                                            +"\n\nУдалённые файлы не восстановить. Это не изменит уже начисленную сумму Billing.")
+                                    .setNegativeButton("Отмена",null)
+                                    .setPositiveButton("Удалить",(dialog,which)->{
+                                        preview.setEnabled(false);
+                                        io.execute(()->{
+                                            int done=0,failed=0;String lastError="";
+                                            for(ActionsStorageManager.Artifact item:selected){
+                                                try{manager.deleteArtifact(full,item.id);done++;}
+                                                catch(Exception ex){failed++;lastError=ex.getMessage();}
+                                            }
+                                            final int deleted=done,errors=failed;
+                                            final String explanation=lastError;
+                                            runOnUiThread(()->{
+                                                if(generation!=screenGeneration.get()||host!=content)return;
+                                                new AlertDialog.Builder(this).setTitle("Результат очистки")
+                                                        .setMessage("Удалено: "+deleted+"\nОшибок: "+errors+
+                                                                (explanation.isEmpty()?"":"\n"+explanation))
+                                                        .setPositiveButton("Обновить",(dlg,w)->showActionsStorage(full)).show();
+                                            });
+                                        });
+                                    }).show();
+                        }catch(Exception e){errorDialog("Правило очистки",e.getMessage());}
+                    });
+                    rows.addView(preview,new LinearLayout.LayoutParams(-1,dp(52)));
+                });
+            }catch(Exception e){
+                runOnUiThread(()->{
+                    if(generation!=screenGeneration.get()||host!=content)return;
+                    status.setText("Не удалось получить артефакты: "+e.getMessage());
                 });
             }
         });
@@ -5433,6 +5711,8 @@ public class MainActivity extends Activity {
                 () -> navigate(this::showProfile));
         settingsActionRow("GitHub App","Подключение, тариф и Actions",
                 () -> navigate(this::showAccountCenter));
+        settingsActionRow("Менеджер хранилища Actions","Артефакты, срок хранения и очистка по проектам",
+                () -> navigate(this::showActionsStorageRepositories));
         settingsActionRow("Приватные репозитории","Разрешения и синхронизация",
                 this::openPrivateRepositoryAccess);
         if(isSignedIn())settingsActionRow("Отключить аккаунт","Удалить локальный сеанс",
@@ -5486,6 +5766,8 @@ public class MainActivity extends Activity {
         settingsActionRow("Центр сборок и артефакты",
                 "Сборки, APK, скачивание и локальный архив",
                 () -> navigate(this::showBuildCenter));
+        settingsActionRow("Хранилище Actions","Правила хранения, загрузки, удаление и квоты",
+                () -> navigate(this::showActionsStorageRepositories));
         settingsActionRow("Мониторинг сборок",
                 "Выбор проектов, фоновые проверки и уведомления",
                 () -> navigate(this::showBuildMonitorSettings));
