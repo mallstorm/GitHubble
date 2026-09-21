@@ -191,70 +191,62 @@ public final class CommitDetailScreen {
         }
     }
 
+    /** Show every GitHub-provided patch line in bounded pages instead of truncating at 550. */
     private void renderPatch(JSONObject file,LinearLayout target){
         target.removeAllViews();
         String patch=file.optString("patch","");
         if(patch.isEmpty()){
-            TextView missing=label("Текстовый diff недоступен: бинарный файл, слишком большой patch или ограничение GitHub API.",12,false,muted);
-            addTo(target,missing,0,7);
+            addTo(target,label("GitHub не предоставил текстовый patch: файл бинарный или изменение слишком большое.",12,false,muted),0,7);
             String raw=file.optString("raw_url","");
-            if(raw.startsWith("https://")){
+            if(raw.startsWith("https://"))
                 addTo(target,action("Предпросмотр файла",()->actions.openRemoteFile(file)),0,5);
-            }
             return;
         }
-        DiffModel model=DiffModel.parse(patch);
-        List<DiffModel.Line> lines=model.displayLines(true,4);
+        List<DiffModel.Line> lines=DiffModel.parse(patch).displayLines(true,4);
+        if(lines.isEmpty()){addTo(target,label("Нет текстовых изменений.",12,false,muted),0,5);return;}
+        appendPatchPage(target,lines,0);
+    }
+
+    private void appendPatchPage(LinearLayout target,List<DiffModel.Line> lines,int from){
+        final int end=Math.min(lines.size(),from+220);
         SpannableStringBuilder result=new SpannableStringBuilder();
-        int shown=0;
-        final int maxLines=550;
-        final int maxChars=150000;
-        for(DiffModel.Line line:lines){
-            if(shown>=maxLines||result.length()>=maxChars)break;
+        for(int i=from;i<end;i++){
+            DiffModel.Line line=lines.get(i);
             String lineText;
             int color=foreground;
             int background=Color.TRANSPARENT;
             switch(line.kind){
                 case ADD:
                     lineText=String.format(Locale.ROOT,"+ %4d  %s",line.newLine,line.text);
-                    color=positive;
-                    background=mix(card,positive,0.11f);
-                    break;
+                    color=positive;background=mix(card,positive,0.11f);break;
                 case DELETE:
                     lineText=String.format(Locale.ROOT,"− %4d  %s",line.oldLine,line.text);
-                    color=negative;
-                    background=mix(card,negative,0.11f);
-                    break;
+                    color=negative;background=mix(card,negative,0.11f);break;
                 case CONTEXT:
-                    lineText=String.format(Locale.ROOT,"  %4d  %s",line.newLine,line.text);
-                    break;
-                case HUNK:
-                    lineText=line.text;color=blue;break;
-                default:
-                    lineText=line.text;color=muted;break;
+                    lineText=String.format(Locale.ROOT,"  %4d  %s",line.newLine,line.text);break;
+                case HUNK:lineText=line.text;color=blue;break;
+                default:lineText=line.text;color=muted;break;
             }
-            int start=result.length();
-            result.append(lineText).append("\n");
+            int start=result.length();result.append(lineText).append("\n");
             result.setSpan(new ForegroundColorSpan(color),start,result.length(),
                     android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
             if(background!=Color.TRANSPARENT)
                 result.setSpan(new BackgroundColorSpan(background),start,result.length(),
                         android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            shown++;
         }
         HorizontalScrollView horizontal=new HorizontalScrollView(activity);
         horizontal.setFillViewport(true);
         TextView code=label("",11,false,foreground);
-        code.setTypeface(Typeface.MONOSPACE);
-        code.setTextIsSelectable(true);
-        code.setHorizontallyScrolling(true);
-        code.setPadding(dp(8),dp(8),dp(8),dp(8));
+        code.setTypeface(Typeface.MONOSPACE);code.setTextIsSelectable(true);
+        code.setHorizontallyScrolling(true);code.setPadding(dp(8),dp(8),dp(8),dp(8));
         code.setText(result);
         horizontal.addView(code,new android.widget.FrameLayout.LayoutParams(-2,-2));
         addTo(target,horizontal,0,6);
-        if(shown<lines.size()){
-            addTo(target,label("Предпросмотр ограничен "+maxLines+
-                    " строками / "+maxChars+" символами. Для полного diff доступна страница GitHub.",11,false,muted),0,7);
+        if(end<lines.size()){
+            TextView more=action("Показать строки "+(end+1)+"–"+
+                    Math.min(lines.size(),end+220)+" из "+lines.size(),()->{});
+            more.setOnClickListener(v->{target.removeView(more);appendPatchPage(target,lines,end);});
+            addTo(target,more,0,6);
         }
     }
 

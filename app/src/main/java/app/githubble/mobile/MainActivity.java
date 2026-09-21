@@ -905,7 +905,7 @@ public class MainActivity extends Activity {
             }
             @Override public void refresh(){showNotifications();}
             @Override public void openGitHubNotifications(){
-                openWeb("https://github.com/notifications");
+                navigate(MainActivity.this::showGitHubInbox);
             }
             @Override public void openBuilds(){navigate(MainActivity.this::showBuildCenter);}
             @Override public void openRepository(String repository){
@@ -1216,6 +1216,142 @@ public class MainActivity extends Activity {
     private String repoFromApiUrl(String url){String marker="/repos/";int i=url.indexOf(marker);return i>=0?url.substring(i+marker.length()):"";}
 
 
+
+    /** Native GitHub notifications; requires Notifications: Read on the current token. */
+    private void showGitHubInbox(){
+        setCurrentScreen(this::showGitHubInbox);
+        shell("Уведомления GitHub",true);
+        heroBanner("GitHub Inbox","Непрочитанные уведомления",R.drawable.ic_bell);
+        if(!isSignedIn()){accountRequiredCard("Для просмотра уведомлений войдите в GitHub.");return;}
+        final long generation=screenGeneration.get();
+        final String account=currentAccountId();
+        final LinearLayout destination=content;
+        Button refresh=compactButton("Обновить");
+        refresh.setOnClickListener(v->showGitHubInbox());
+        destination.addView(refresh,new LinearLayout.LayoutParams(-1,dp(48)));
+        ProgressBar loading=new ProgressBar(this);destination.addView(loading);
+        io.execute(()->{
+            try{
+                JSONArray notifications=getArray("https://api.github.com/notifications?all=false&per_page=50");
+                runOnUiThread(()->{
+                    if(generation!=screenGeneration.get()||destination!=content
+                            ||!account.equals(currentAccountId()))return;
+                    destination.removeView(loading);
+                    if(notifications.length()==0){card(text("Непрочитанных уведомлений нет.",13,false));return;}
+                    sectionTitle("Непрочитанные · "+notifications.length(),null);
+                    for(int i=0;i<notifications.length();i++){
+                        JSONObject item=notifications.optJSONObject(i);if(item==null)continue;
+                        JSONObject repository=item.optJSONObject("repository");
+                        JSONObject subject=item.optJSONObject("subject");
+                        if(repository==null||subject==null)continue;
+                        String full=repository.optString("full_name","");
+                        String type=subject.optString("type","");
+                        String url=subject.optString("url","");
+                        String thread=item.optString("id","");
+                        LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.VERTICAL);
+                        row.addView(text(subject.optString("title","Уведомление GitHub"),14,true));
+                        TextView meta=text(full+" · "+type+" · "+formatGitHubDate(item.optString("updated_at","")),11,false);
+                        meta.setTextColor(MUTED);row.addView(meta);
+                        row.setOnClickListener(v->{
+                            int marker=url.lastIndexOf("/"+("PullRequest".equals(type)?"pulls/":"issues/"));
+                            int number=0;
+                            if(marker>=0)try{
+                                number=Integer.parseInt(url.substring(url.lastIndexOf('/')+1));
+                            }catch(Exception ignored){}
+                            if(CommitDetailController.validRepository(full)){
+                                final int selected=number;
+                                if(selected>0&&"PullRequest".equals(type))navigate(()->showPullDetail(full,selected));
+                                else if(selected>0&&"Issue".equals(type))navigate(()->showIssueDetail(full,selected));
+                                else navigate(()->showRepository(full));
+                            }
+                            if(thread.matches("[0-9]+"))io.execute(()->{
+                                try{api.executeJson("PATCH","https://api.github.com/notifications/threads/"+thread,
+                                        new JSONObject(),true);}catch(Exception ignored){}
+                            });
+                        });
+                        card(row);
+                    }
+                });
+            }catch(Exception error){
+                runOnUiThread(()->{
+                    if(generation!=screenGeneration.get()||destination!=content
+                            ||!account.equals(currentAccountId()))return;
+                    destination.removeView(loading);
+                    errorCard("Не удалось загрузить уведомления",error.getMessage());
+                    card(text("Проверьте разрешение Notifications: Read для GitHub App.",12,false));
+                });
+            }
+        });
+    }
+
+    /** Native Actions run and job details; browser is optional for raw log files. */
+    private void showBuildRunDetail(String full,long runId){
+        if(!CommitDetailController.validRepository(full)||runId<=0){
+            errorDialog("Запуск","Некорректный репозиторий или номер запуска.");return;
+        }
+        setCurrentScreen(()->showBuildRunDetail(full,runId));
+        shell("Запуск Actions",false);
+        heroBanner(full,"GitHub Actions · #"+runId,R.drawable.ic_android);
+        if(!isSignedIn()){accountRequiredCard("Подключите GitHub.");return;}
+        final long generation=screenGeneration.get();
+        final String account=currentAccountId();
+        final LinearLayout destination=content;
+        ProgressBar loading=new ProgressBar(this);destination.addView(loading);
+        io.execute(()->{
+            try{
+                app.githubble.mobile.build.BuildRunDetailController.Detail details=
+                        new app.githubble.mobile.build.BuildRunDetailController(api).load(full,runId);
+                runOnUiThread(()->{
+                    if(generation!=screenGeneration.get()||destination!=content
+                            ||!account.equals(currentAccountId()))return;
+                    destination.removeView(loading);
+                    JSONObject run=details.run;
+                    card(text(run.optString("name","GitHub Actions"),17,true));
+                    card(text("Статус: "+run.optString("status","")+" · "+
+                            run.optString("conclusion","")+"\nВетка: "+
+                            run.optString("head_branch","")+" · "+
+                            shortSha(run.optString("head_sha",""))+"\nЗапуск: "+
+                            formatGitHubDate(run.optString("created_at","")),12,false));
+                    sectionTitle("Задания · "+details.jobs.length(),null);
+                    for(int i=0;i<details.jobs.length();i++){
+                        JSONObject job=details.jobs.optJSONObject(i);if(job==null)continue;
+                        LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.VERTICAL);
+                        row.addView(text(job.optString("name","Job")+" · "+
+                                job.optString("conclusion",job.optString("status","")),14,true));
+                        JSONArray steps=job.optJSONArray("steps");
+                        if(steps!=null)for(int k=0;k<steps.length();k++){
+                            JSONObject step=steps.optJSONObject(k);if(step==null)continue;
+                            TextView line=text("  "+(k+1)+". "+step.optString("name","")+" · "+
+                                    step.optString("conclusion",step.optString("status","")),11,false);
+                            line.setTextColor(MUTED);row.addView(line);
+                        }
+                        card(row);
+                    }
+                    sectionTitle("Артефакты · "+details.artifacts.length(),null);
+                    for(int i=0;i<details.artifacts.length();i++){
+                        JSONObject artifact=details.artifacts.optJSONObject(i);if(artifact==null)continue;
+                        Button download=compactButton("↓ "+artifact.optString("name","Артефакт"));
+                        download.setEnabled(!artifact.optBoolean("expired",false));
+                        download.setOnClickListener(v->startArtifactDownload(full,artifact));
+                        destination.addView(download,new LinearLayout.LayoutParams(-1,dp(48)));
+                    }
+                    if(details.partial)card(text("Список заданий или артефактов неполный.",12,false));
+                    Button web=compactButton("Открыть полный журнал GitHub");
+                    web.setOnClickListener(v->openWeb(run.optString("html_url",
+                            "https://github.com/"+full+"/actions/runs/"+runId)));
+                    destination.addView(web,new LinearLayout.LayoutParams(-1,dp(48)));
+                });
+            }catch(Exception error){
+                runOnUiThread(()->{
+                    if(generation!=screenGeneration.get()||destination!=content
+                            ||!account.equals(currentAccountId()))return;
+                    destination.removeView(loading);
+                    errorCard("Не удалось загрузить запуск",error.getMessage());
+                });
+            }
+        });
+    }
+
     private void showBuildCenter(){showBuildCenter("");}
     private void showBuildCenter(String focus){
         setCurrentScreen(()->showBuildCenter(focus));
@@ -1421,8 +1557,8 @@ public class MainActivity extends Activity {
             }
             TextView open=text("Открыть запуск GitHub  ›",11,true);
             open.setTextColor(GREEN);
-            open.setOnClickListener(v->openWeb(run.optString("html_url",
-                    "https://github.com/"+repo+"/actions/runs/"+runId)));
+            open.setText("Детали запуска  ›");
+            open.setOnClickListener(v->navigate(()->showBuildRunDetail(repo,runId)));
             card.addView(open);
             LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);
             p.setMargins(0,0,0,dp(9));
@@ -2976,9 +3112,94 @@ public class MainActivity extends Activity {
         io.execute(()->{try{JSONArray a=getArray("https://api.github.com/repos/"+full+"/contents/"+path+"?ref="+URLEncoder.encode(branch,"UTF-8"));runOnUiThread(()->{content.removeView(pb);if(!path.isEmpty()){Button up=button("Назад к родительской папке");String parent=path.contains("/")?path.substring(0,path.lastIndexOf('/')):"";up.setOnClickListener(v->navigate(() -> showRepositoryFiles(full,branch,parent)));content.addView(up,new LinearLayout.LayoutParams(-1,dp(48)));}for(int i=0;i<a.length();i++){JSONObject o=a.optJSONObject(i);if(o==null)continue;String name=o.optString("name"),type=o.optString("type"),p=o.optString("path"),download=o.optString("download_url"),html=o.optString("html_url");long size=o.optLong("size");LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);ImageView ic=imageIcon("dir".equals(type)?R.drawable.ic_projects:R.drawable.ic_repository,"dir".equals(type)?tileColors[3]:BLUE,14);row.addView(ic,new LinearLayout.LayoutParams(dp(46),dp(46)));LinearLayout info=new LinearLayout(this);info.setOrientation(LinearLayout.VERTICAL);info.addView(text(name,15,true));TextView meta=text("dir".equals(type)?"Папка":"Файл · "+formatAssetSize(size),11,false);meta.setTextColor(MUTED);info.addView(meta);row.addView(info,new LinearLayout.LayoutParams(0,-2,1));row.setOnClickListener(v->{if("dir".equals(type))navigate(() -> showRepositoryFiles(full,branch,p));else navigate(() -> showFilePreview(full,branch,p,name,size,download,html));});card(row);}});}catch(Exception e){runOnUiThread(()->{content.removeView(pb);errorCard("Не удалось загрузить файлы",e.getMessage());});}});
     }
 
+    /** Edit text inside GitHubble using GitHub Contents API, without force overwrite. */
+    private void showFileEditor(String full,String branch,String path){
+        if(!CommitDetailController.validRepository(full)||path==null||path.isEmpty()
+                ||branch==null||branch.isEmpty()){
+            errorDialog("Редактор","Некорректный репозиторий, ветка или путь.");return;
+        }
+        setCurrentScreen(()->showFileEditor(full,branch,path));
+        shell("Редактор файла",false);
+        heroBanner(full,path+" · "+branch,R.drawable.ic_repository);
+        if(!isSignedIn()){accountRequiredCard("Для редактирования войдите в GitHub.");return;}
+        final long generation=screenGeneration.get();
+        final String account=currentAccountId();
+        final LinearLayout destination=content;
+        ProgressBar loading=new ProgressBar(this);destination.addView(loading);
+        io.execute(()->{
+            try{
+                app.githubble.mobile.controller.GitFileEditorController editor=
+                        new app.githubble.mobile.controller.GitFileEditorController(api);
+                app.githubble.mobile.controller.GitFileEditorController.Snapshot original=
+                        editor.load(full,branch,path);
+                runOnUiThread(()->{
+                    if(generation!=screenGeneration.get()||destination!=content
+                            ||!account.equals(currentAccountId()))return;
+                    destination.removeView(loading);
+                    EditText source=new EditText(this);
+                    source.setText(original.text);
+                    source.setTypeface(android.graphics.Typeface.MONOSPACE);
+                    source.setTextSize(12);source.setGravity(Gravity.TOP|Gravity.START);
+                    source.setInputType(InputType.TYPE_CLASS_TEXT|
+                            InputType.TYPE_TEXT_FLAG_MULTI_LINE|
+                            InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+                    destination.addView(source,new LinearLayout.LayoutParams(-1,dp(360)));
+                    EditText message=new EditText(this);
+                    message.setSingleLine(true);message.setHint("Сообщение коммита");
+                    message.setText("Edit "+path+" via GitHubble");
+                    destination.addView(message,new LinearLayout.LayoutParams(-1,dp(52)));
+                    TextView note=text("Сохранение создаст коммит в выбранной ветке. "+
+                            "Если файл изменился на GitHub, перезапись будет заблокирована.",12,false);
+                    note.setTextColor(MUTED);destination.addView(note);
+                    Button save=button("Создать коммит");
+                    destination.addView(save,new LinearLayout.LayoutParams(-1,dp(52)));
+                    save.setOnClickListener(v->{
+                        String updated=source.getText().toString();
+                        String commitMessage=message.getText().toString().trim();
+                        if(commitMessage.isEmpty()){message.setError("Введите сообщение");return;}
+                        if(updated.equals(original.text)){toast("Нет изменений");return;}
+                        save.setEnabled(false);
+                        io.execute(()->{
+                            try{
+                                editor.save(full,branch,path,original,updated,commitMessage);
+                                runOnUiThread(()->{
+                                    if(generation!=screenGeneration.get()||destination!=content
+                                            ||!account.equals(currentAccountId()))return;
+                                    toast("Коммит создан");
+                                    navigate(()->showRepositoryFiles(full,branch,
+                                            path.contains("/")?path.substring(0,path.lastIndexOf('/')):""));
+                                });
+                            }catch(Exception error){
+                                runOnUiThread(()->{
+                                    if(generation!=screenGeneration.get()||destination!=content
+                                            ||!account.equals(currentAccountId()))return;
+                                    save.setEnabled(true);
+                                    errorDialog("Не удалось сохранить файл",error.getMessage());
+                                });
+                            }
+                        });
+                    });
+                });
+            }catch(Exception error){
+                runOnUiThread(()->{
+                    if(generation!=screenGeneration.get()||destination!=content
+                            ||!account.equals(currentAccountId()))return;
+                    destination.removeView(loading);
+                    errorCard("Редактор недоступен",error.getMessage());
+                });
+            }
+        });
+    }
+
     private void showFilePreview(String full,String branch,String path,String name,long size,String download,String htmlUrl){
         setCurrentScreen(()->showFilePreview(full,branch,path,name,size,download,htmlUrl));shell(name,true);heroBanner(full,"Безопасный просмотр файла",R.drawable.ic_repository);ProgressBar pb=new ProgressBar(this);content.addView(pb);
-        io.execute(()->{try{FilePreviewController.Preview preview=features.filePreview.load(full,branch,path,name,size,download,htmlUrl);runOnUiThread(()->{content.removeView(pb);renderFilePreview(full,preview,download);});}catch(Exception e){runOnUiThread(()->{content.removeView(pb);errorCard("Не удалось открыть файл",e.getMessage());if(htmlUrl!=null&&!htmlUrl.isEmpty()){Button web=button("Открыть на GitHub");web.setOnClickListener(v->openWeb(htmlUrl));content.addView(web,new LinearLayout.LayoutParams(-1,dp(48)));}});}});
+        io.execute(()->{try{FilePreviewController.Preview preview=features.filePreview.load(full,branch,path,name,size,download,htmlUrl);runOnUiThread(()->{content.removeView(pb);renderFilePreview(full,preview,download);
+            if(preview.type==FilePreviewController.Type.TEXT&&preview.declaredSize<=512*1024){
+                Button edit=compactButton("Редактировать и создать коммит");
+                edit.setOnClickListener(v->navigate(()->showFileEditor(full,branch,path)));
+                content.addView(edit,new LinearLayout.LayoutParams(-1,dp(48)));
+            }
+        });}catch(Exception e){runOnUiThread(()->{content.removeView(pb);errorCard("Не удалось открыть файл",e.getMessage());if(htmlUrl!=null&&!htmlUrl.isEmpty()){Button web=button("Открыть на GitHub");web.setOnClickListener(v->openWeb(htmlUrl));content.addView(web,new LinearLayout.LayoutParams(-1,dp(48)));}});}});
     }
 
     private void showRemotePreview(String name,String download,String htmlUrl){
