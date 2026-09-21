@@ -8,6 +8,9 @@ import android.content.pm.PackageManager;
 import android.graphics.*;
 import android.graphics.drawable.*;
 import android.net.Uri;
+import android.speech.RecognitionListener;
+import android.speech.RecognizerIntent;
+import android.speech.SpeechRecognizer;
 import android.text.InputType;
 import android.text.TextUtils;
 import android.text.Spannable;
@@ -157,6 +160,15 @@ public class MainActivity extends Activity {
     private static final int REQUEST_REPOSITORY_FOLDER = 2710;
     private static final int REQUEST_REPOSITORY_ZIP = 2711;
     private static final int REQUEST_REPOSITORY_FILE = 2712;
+    private static final int REQUEST_VOICE_AUDIO = 2720;
+    private static final int REQUEST_LOCAL_AVATAR = 2721;
+    private SpeechRecognizer voiceRecognizer;
+    private EditText voiceTarget;
+    private ImageView voiceButton;
+    private boolean voiceRecording;
+    private boolean voiceWaiting;
+    private String pendingAvatarAccount = "";
+    private ImageView profileEditorAvatar;
     private String pendingPortableExport = "";
     private String pendingUserDataExport = "";
     private String pendingRepositoryImportFull = "";
@@ -288,6 +300,7 @@ public class MainActivity extends Activity {
     }
 
     private void shell(String title, boolean showSearchAction) {
+        if(voiceRecognizer!=null)cancelVoiceInput();
         // Discard old account-inventory callbacks on ANY screen transition.
         accountInventoryCancelled.set(true);
         if(accountInventoryFuture!=null&&!accountInventoryFuture.isDone())
@@ -330,31 +343,8 @@ public class MainActivity extends Activity {
         titles.addView(page);
         top.addView(titles, new LinearLayout.LayoutParams(0, dp(52), 1));
 
-        if (showSearchAction) {
-            ImageView search = iconButton(R.drawable.ic_search, "Поиск");
-            search.setOnClickListener(v -> showQuickSearchDialog());
-            top.addView(search);
-        }
-
-        if (!"Репозитории".equals(title) && !"Активность".equals(title) && !"Поиск".equals(title) && !"Профиль".equals(title) && !title.equals("Настройки") && !title.equals("Интерфейс") && !title.equals("Уведомления") && !title.equals("Аккаунт и доступ") && !title.equals("Данные и синхронизация") && !title.equals("Безопасность") && !title.equals("О приложении")) {
-        FrameLayout bellWrap = new FrameLayout(this);
-        ImageView bell = iconButton(R.drawable.ic_bell, "Уведомления");
-        bell.setOnClickListener(v -> navigate(this::showNotifications));
-        bellWrap.addView(bell, new FrameLayout.LayoutParams(dp(48), dp(48)));
-        int unreadCount = getUnreadNotificationCount();
-        if (unreadCount > 0) {
-            TextView badge = text(unreadCount > 99 ? "99+" : String.valueOf(unreadCount), 9, true);
-            badge.setTextColor(Color.WHITE);
-            badge.setGravity(Gravity.CENTER);
-            badge.setPadding(dp(3),0,dp(3),0);
-            badge.setBackground(round(Color.rgb(226,73,82), 9, Color.TRANSPARENT, 0));
-            FrameLayout.LayoutParams badgeP = new FrameLayout.LayoutParams(
-                    unreadCount > 9 ? dp(25) : dp(18), dp(18), Gravity.END | Gravity.TOP);
-            badgeP.setMargins(0, 0, 0, 0);
-            bellWrap.addView(badge, badgeP);
-        }
-        top.addView(bellWrap, new LinearLayout.LayoutParams(dp(50), dp(50)));
-        }
+        // Global search and notifications are available only in the bottom navigation.
+        // No top search or bell on any screen, regardless of showSearchAction/title.
 
         // Account avatar opens Profile from every root tab. Profile has no
         // duplicate gear: Settings live in the fifth bottom navigation tab.
@@ -777,6 +767,8 @@ public class MainActivity extends Activity {
                 BG, CARD, SUBTLE, TEXT, MUTED, GREEN, BORDER, tileColors, "dark".equals(activeTheme));
         new SearchScreen(this, content, palette, new SearchScreen.Actions() {
             @Override public void search(String query, boolean smart) { navigate(() -> searchRepos(query, smart)); }
+            @Override public void dictate(EditText target, ImageView microphone) { toggleVoiceInput(target,microphone); }
+            @Override public void chooseDictationLanguage() { showVoiceLanguageChooser(); }
             @Override public void searchAdvanced(String query, boolean smart, SearchMode mode, SearchFilters filters) {
                 navigate(() -> MainActivity.this.searchAdvanced(query, smart, mode, filters));
             }
@@ -1118,11 +1110,19 @@ public class MainActivity extends Activity {
         input.setHint("Репозиторий, пользователь или технология");
         input.setTextColor(TEXT);
         input.setHintTextColor(MUTED);
-        input.setPadding(dp(14), 0, dp(14), 0);
+        input.setPadding(dp(14), 0, dp(56), 0);
         input.setBackground(round(CARD, 14, BORDER, 1));
         FrameLayout holder = new FrameLayout(this);
         holder.setPadding(dp(18), dp(4), dp(18), 0);
         holder.addView(input, new FrameLayout.LayoutParams(-1, dp(54)));
+        ImageView quickMic=new ImageView(this);
+        quickMic.setImageResource(R.drawable.ic_mic);
+        quickMic.setContentDescription("Голосовой поиск; долгое нажатие — выбор языка");
+        quickMic.setPadding(dp(12),dp(12),dp(12),dp(12));
+        quickMic.setOnClickListener(v->toggleVoiceInput(input,quickMic));
+        quickMic.setOnLongClickListener(v->{showVoiceLanguageChooser();return true;});
+        FrameLayout.LayoutParams micP=new FrameLayout.LayoutParams(dp(50),dp(54),Gravity.END|Gravity.TOP);
+        micP.setMargins(0,dp(4),dp(18),0);holder.addView(quickMic,micP);
         new android.app.AlertDialog.Builder(this)
                 .setTitle("Быстрый поиск")
                 .setMessage("Для истории, фильтров и подборок откройте нижний раздел «Поиск».")
@@ -1137,6 +1137,124 @@ public class MainActivity extends Activity {
                 })
                 .show();
     }
+
+
+    private void showVoiceLanguageChooser(){
+        final String[] labels={"Русский (ru-RU)","English (en-US)"};
+        String lang=prefs.getString("voice_search_language",
+                "ru".equalsIgnoreCase(Locale.getDefault().getLanguage())?"ru-RU":"en-US");
+        new AlertDialog.Builder(this).setTitle("Язык голосового ввода")
+                .setSingleChoiceItems(labels,"en-US".equals(lang)?1:0,(dialog,index)->{
+                    prefs.edit().putString("voice_search_language",index==0?"ru-RU":"en-US").apply();
+                    dialog.dismiss();
+                    toast(index==0?"Голосовой ввод: русский":"Voice input: English");
+                })
+                .setNegativeButton("Отмена",null).show();
+    }
+
+    private void toggleVoiceInput(EditText target,ImageView microphone){
+        if(voiceRecognizer!=null){
+            if(voiceTarget==target&&voiceRecording){
+                voiceRecording=false;voiceWaiting=true;
+                microphone.setImageResource(R.drawable.ic_mic);
+                microphone.setContentDescription("Распознаём речь…");
+                try{voiceRecognizer.stopListening();}catch(Exception e){finishVoiceInput("Не удалось остановить запись");}
+            }else if(voiceWaiting){toast("Распознаём запись, подождите…");}
+            else{cancelVoiceInput();}
+            return;
+        }
+        voiceTarget=target;voiceButton=microphone;
+        if(android.os.Build.VERSION.SDK_INT>=23
+                &&checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED){
+            requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO},REQUEST_VOICE_AUDIO);
+            return;
+        }
+        beginVoiceInput();
+    }
+
+    private void beginVoiceInput(){
+        final EditText target=voiceTarget;
+        final ImageView button=voiceButton;
+        if(target==null||button==null||!target.isAttachedToWindow())return;
+        if(!SpeechRecognizer.isRecognitionAvailable(this)){
+            toast("На устройстве нет службы распознавания речи. Установите или включите системный голосовой ввод.");
+            finishVoiceInput(null);return;
+        }
+        try{
+            voiceRecognizer=SpeechRecognizer.createSpeechRecognizer(this);
+            voiceRecognizer.setRecognitionListener(new RecognitionListener(){
+                @Override public void onReadyForSpeech(Bundle params){toast("Говорите; нажмите красную кнопку, чтобы остановить");}
+                @Override public void onBeginningOfSpeech(){}
+                @Override public void onRmsChanged(float rmsdB){}
+                @Override public void onBufferReceived(byte[] buffer){}
+                @Override public void onEndOfSpeech(){
+                    voiceRecording=false;voiceWaiting=true;
+                    if(voiceButton==button&&button.isAttachedToWindow()){
+                        button.setImageResource(R.drawable.ic_mic);
+                        button.setContentDescription("Распознаём речь…");
+                    }
+                }
+                @Override public void onError(int error){
+                    String message=error==SpeechRecognizer.ERROR_NO_MATCH?"Речь не распознана — попробуйте ещё раз":
+                            error==SpeechRecognizer.ERROR_SPEECH_TIMEOUT?"Речь не обнаружена":
+                            error==SpeechRecognizer.ERROR_NETWORK||error==SpeechRecognizer.ERROR_NETWORK_TIMEOUT?
+                                    "Ошибка сети голосового распознавания":
+                            error==SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS?"Нет доступа к микрофону":
+                            error==SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED||error==SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE?
+                                    "Язык недоступен; удерживайте микрофон и выберите другой":
+                                    "Голосовой ввод недоступен (код "+error+")";
+                    finishVoiceInput(message);
+                }
+                @Override public void onResults(Bundle results){
+                    ArrayList<String> matches=results==null?null:
+                            results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+                    if(matches!=null&&!matches.isEmpty()&&target.isAttachedToWindow()
+                            &&voiceTarget==target){
+                        String recognized=matches.get(0).trim();
+                        if(!recognized.isEmpty()){
+                            target.setText(recognized);target.setSelection(recognized.length());
+                            toast("Распознано — проверьте запрос и нажмите «Найти»");
+                        }
+                    }else toast("Ничего не распознано");
+                    finishVoiceInput(null);
+                }
+                @Override public void onPartialResults(Bundle partialResults){}
+                @Override public void onEvent(int eventType,Bundle params){}
+            });
+            Intent intent=new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+            String language=prefs.getString("voice_search_language",
+                    "ru".equalsIgnoreCase(Locale.getDefault().getLanguage())?"ru-RU":"en-US");
+            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE,language);
+            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE,language);
+            intent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS,3);
+            intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS,false);
+            if(Build.VERSION.SDK_INT>=34){
+                intent.putExtra(RecognizerIntent.EXTRA_ENABLE_LANGUAGE_DETECTION,true);
+                intent.putExtra(RecognizerIntent.EXTRA_ENABLE_LANGUAGE_SWITCH,
+                        RecognizerIntent.LANGUAGE_SWITCH_BALANCED);
+                intent.putStringArrayListExtra(RecognizerIntent.EXTRA_LANGUAGE_DETECTION_ALLOWED_LANGUAGES,
+                        new ArrayList<>(Arrays.asList("ru-RU","en-US")));
+            }
+            voiceRecording=true;voiceWaiting=false;
+            button.setImageResource(R.drawable.ic_mic_stop);
+            button.setContentDescription("Остановить запись речи");
+            voiceRecognizer.startListening(intent);
+        }catch(Exception e){finishVoiceInput("Не удалось запустить голосовой ввод: "+e.getMessage());}
+    }
+
+    private void finishVoiceInput(String message){
+        if(voiceRecognizer!=null){try{voiceRecognizer.destroy();}catch(Exception ignored){}}
+        voiceRecognizer=null;voiceRecording=false;voiceWaiting=false;
+        if(voiceButton!=null){
+            voiceButton.setImageResource(R.drawable.ic_mic);
+            voiceButton.setContentDescription("Начать голосовой ввод; удерживайте для выбора языка");
+        }
+        voiceTarget=null;voiceButton=null;
+        if(message!=null&&!message.isEmpty())toast(message);
+    }
+
+    private void cancelVoiceInput(){finishVoiceInput(null);}
 
     private void addDirectionRow(int iconRes, String title, String subtitle, int accent, Runnable action) {
         LinearLayout row = new LinearLayout(this);
@@ -3553,7 +3671,8 @@ public class MainActivity extends Activity {
         LinearLayout identity=new LinearLayout(this);
         identity.setGravity(Gravity.CENTER_VERTICAL);
         identity.setPadding(dp(10),dp(6),dp(10),dp(6));
-        identity.addView(createProfileAvatar(dp(58)),
+        profileEditorAvatar=createProfileAvatar(dp(58));
+        identity.addView(profileEditorAvatar,
                 new LinearLayout.LayoutParams(dp(58),dp(58)));
         TextView login=text("@"+original.optString("login","")+" · GitHub ID "+
                 original.optLong("id",0L),13,true);
@@ -3562,12 +3681,35 @@ public class MainActivity extends Activity {
         identity.addView(login);
         card(identity);
 
-        TextView details=text("Изменения сохраняются непосредственно в GitHub. "+
-                "Логин, пароль и фотография не редактируются через этот API. "+
-                "Для сохранения нужен доступ GitHub App: Profile → Write.",12,false);
+        TextView details=text("Поля профиля сохраняются в GitHub (Profile → Write). "+
+                "Фотографию GitHub нельзя изменить через официальный API. "+
+                "Ниже можно выбрать свой аватар для GitHubble или открыть официальный экран "+
+                "GitHub и заменить фотографию аккаунта там.",12,false);
         details.setTextColor(MUTED);
         details.setPadding(dp(3),dp(8),dp(3),dp(3));
         destination.addView(details);
+        Button uploadLocalAvatar=button("Загрузить свой аватар в GitHubble");
+        uploadLocalAvatar.setOnClickListener(v->pickCustomAvatar());
+        destination.addView(uploadLocalAvatar,new LinearLayout.LayoutParams(-1,dp(50)));
+        Button changeGitHubAvatar=button("Изменить фотографию аккаунта GitHub ↗");
+        changeGitHubAvatar.setTextColor(GREEN);
+        changeGitHubAvatar.setBackground(round(CARD,14,GREEN,1));
+        changeGitHubAvatar.setOnClickListener(v->openWeb("https://github.com/settings/profile"));
+        LinearLayout.LayoutParams githubAvatarP=new LinearLayout.LayoutParams(-1,dp(50));
+        githubAvatarP.setMargins(0,dp(8),0,0);destination.addView(changeGitHubAvatar,githubAvatarP);
+        if(localAvatarFile().isFile()){
+            Button restoreGitHubAvatar=compactButton("Убрать локальный аватар");
+            restoreGitHubAvatar.setOnClickListener(v->{
+                if(localAvatarFile().delete()){
+                    if(profileEditorAvatar!=null){
+                        Bitmap image=readCachedAvatar();
+                        if(image!=null)profileEditorAvatar.setImageBitmap(image);
+                    }
+                    toast("В GitHubble снова отображается фотография GitHub");
+                }
+            });
+            destination.addView(restoreGitHubAvatar,new LinearLayout.LayoutParams(-1,dp(46)));
+        }
 
         EditText name=profileEditInput("Имя",original.optString("name",""),
                 "Как вас зовут",255,false,InputType.TYPE_CLASS_TEXT
@@ -4066,7 +4208,110 @@ public class MainActivity extends Activity {
         Bitmap bitmap=readCachedAvatar();if(bitmap!=null)account.setImageBitmap(bitmap);else{account.setImageResource(R.drawable.ic_profile);account.setColorFilter(GREEN);account.setPadding(dp(10),dp(10),dp(10),dp(10));}return account;
     }
 
-    private Bitmap readCachedAvatar(){try{File file=new File(getFilesDir(),"github_avatar.png");return file.isFile()?BitmapFactory.decodeFile(file.getAbsolutePath()):null;}catch(Exception e){return null;}}
+    private Bitmap readCachedAvatar(){try{
+        if(isSignedIn()){
+            File local=localAvatarFile();
+            if(local.isFile()){
+                Bitmap custom=BitmapFactory.decodeFile(local.getAbsolutePath());
+                if(custom!=null)return custom;
+            }
+        }
+        File remote=new File(getFilesDir(),"github_avatar.png");
+        return remote.isFile()?BitmapFactory.decodeFile(remote.getAbsolutePath()):null;
+    }catch(Exception e){return null;}}
+
+    private File localAvatarFile(){
+        String account=currentAccountId();
+        try{
+            byte[] digest=java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(account.getBytes(StandardCharsets.UTF_8));
+            StringBuilder key=new StringBuilder();
+            for(int i=0;i<12;i++)key.append(String.format(Locale.ROOT,"%02x",digest[i]&0xff));
+            return new File(getFilesDir(),"githubble_local_avatar_"+key+".png");
+        }catch(Exception e){
+            return new File(getFilesDir(),"githubble_local_avatar_fallback.png");
+        }
+    }
+
+    private void pickCustomAvatar(){
+        if(!isSignedIn()){toast("Сначала войдите в GitHub");return;}
+        pendingAvatarAccount=currentAccountId();
+        Intent picker=new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        picker.addCategory(Intent.CATEGORY_OPENABLE);
+        picker.setType("image/*");
+        picker.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        try{startActivityForResult(picker,REQUEST_LOCAL_AVATAR);}
+        catch(Exception e){pendingAvatarAccount="";errorDialog("Выбор фотографии",e.getMessage());}
+    }
+
+    private void importLocalAvatar(Uri uri,String account){
+        io.execute(()->{
+            try{
+                if(uri==null)throw new IOException("Не выбрано изображение");
+                ByteArrayOutputStream source=new ByteArrayOutputStream();
+                try(InputStream in=getContentResolver().openInputStream(uri)){
+                    if(in==null)throw new IOException("Изображение недоступно");
+                    byte[] chunk=new byte[8192];int count;
+                    while((count=in.read(chunk))!=-1){
+                        if(source.size()+count>8*1024*1024)
+                            throw new IOException("Изображение больше 8 МБ");
+                        source.write(chunk,0,count);
+                    }
+                }
+                byte[] encoded=source.toByteArray();
+                BitmapFactory.Options bounds=new BitmapFactory.Options();
+                bounds.inJustDecodeBounds=true;
+                BitmapFactory.decodeByteArray(encoded,0,encoded.length,bounds);
+                if(bounds.outWidth<=0||bounds.outHeight<=0||
+                        (long)bounds.outWidth*bounds.outHeight>100_000_000L)
+                    throw new IOException("Неподдерживаемые размеры изображения");
+                BitmapFactory.Options options=new BitmapFactory.Options();
+                options.inSampleSize=1;
+                while(bounds.outWidth/options.inSampleSize>1024||
+                        bounds.outHeight/options.inSampleSize>1024)
+                    options.inSampleSize*=2;
+                Bitmap original=BitmapFactory.decodeByteArray(encoded,0,encoded.length,options);
+                if(original==null)throw new IOException("Не удалось открыть изображение");
+                Bitmap avatar=Bitmap.createBitmap(512,512,Bitmap.Config.ARGB_8888);
+                Canvas canvas=new Canvas(avatar);
+                float scale=Math.max(512f/original.getWidth(),512f/original.getHeight());
+                int width=Math.round(original.getWidth()*scale);
+                int height=Math.round(original.getHeight()*scale);
+                android.graphics.Paint paint=new android.graphics.Paint(
+                        android.graphics.Paint.ANTI_ALIAS_FLAG|android.graphics.Paint.FILTER_BITMAP_FLAG);
+                canvas.drawBitmap(original,null,
+                        new Rect((512-width)/2,(512-height)/2,(512+width)/2,(512+height)/2),paint);
+                original.recycle();
+                if(!account.equals(currentAccountId())){
+                    avatar.recycle();return;
+                }
+                File destination=localAvatarFile();
+                File temp=new File(getFilesDir(),destination.getName()+".tmp");
+                try(FileOutputStream out=new FileOutputStream(temp)){
+                    if(!avatar.compress(Bitmap.CompressFormat.PNG,100,out))
+                        throw new IOException("Не удалось сохранить фотографию");
+                    out.flush();
+                }
+                if(!temp.renameTo(destination)){
+                    try(FileInputStream in=new FileInputStream(temp);
+                            FileOutputStream out=new FileOutputStream(destination)){
+                        byte[] buf=new byte[8192];int n;
+                        while((n=in.read(buf))!=-1)out.write(buf,0,n);
+                    }
+                    temp.delete();
+                }
+                runOnUiThread(()->{
+                    if(!account.equals(currentAccountId()))return;
+                    if(profileEditorAvatar!=null&&profileEditorAvatar.isAttachedToWindow())
+                        profileEditorAvatar.setImageBitmap(avatar);
+                    toast("Аватар обновлён в GitHubble. Для замены на GitHub используйте официальную страницу.");
+                });
+            }catch(Exception error){
+                runOnUiThread(()->errorDialog("Не удалось загрузить аватар",error.getMessage()));
+            }
+        });
+    }
+
     private void downloadAvatar(String url){if(url==null||url.isEmpty())return;try{URLConnection connection=new URL(url).openConnection();connection.setConnectTimeout(12000);connection.setReadTimeout(20000);connection.setRequestProperty("User-Agent","GitHubble-Android/0.25");try(InputStream in=connection.getInputStream();FileOutputStream out=new FileOutputStream(new File(getFilesDir(),"github_avatar.png"))){byte[] buffer=new byte[8192];int n;while((n=in.read(buffer))!=-1)out.write(buffer,0,n);}}catch(Exception ignored){}}
 
     private void showTracking(){ rememberScreen("tracking",null); showTrackingFiltered("ALL"); }
@@ -5085,8 +5330,28 @@ public class MainActivity extends Activity {
 
     private void startPortableImport(){Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT);intent.addCategory(Intent.CATEGORY_OPENABLE);intent.setType("application/json");startActivityForResult(intent,REQUEST_IMPORT_PORTABLE);}
 
+    @Override public void onRequestPermissionsResult(int requestCode,String[] permissions,int[] grantResults){
+        super.onRequestPermissionsResult(requestCode,permissions,grantResults);
+        if(requestCode==REQUEST_VOICE_AUDIO){
+            if(grantResults.length>0&&grantResults[0]==PackageManager.PERMISSION_GRANTED){
+                if(voiceTarget!=null&&voiceTarget.isAttachedToWindow())beginVoiceInput();
+            }else{
+                finishVoiceInput("Разрешение на микрофон не предоставлено. Можно вводить запрос вручную.");
+            }
+        }
+    }
+
     @Override protected void onActivityResult(int requestCode,int resultCode,Intent data){
-        super.onActivityResult(requestCode,resultCode,data);if(resultCode!=RESULT_OK||data==null||data.getData()==null){if(requestCode==REQUEST_REPOSITORY_FOLDER||requestCode==REQUEST_REPOSITORY_ZIP||requestCode==REQUEST_REPOSITORY_FILE)clearPendingRepositoryImport();return;}Uri uri=data.getData();
+        super.onActivityResult(requestCode,resultCode,data);
+        if(requestCode==REQUEST_LOCAL_AVATAR){
+            String account=pendingAvatarAccount;
+            pendingAvatarAccount="";
+            if(resultCode==RESULT_OK&&data!=null&&data.getData()!=null
+                    &&!account.isEmpty()&&account.equals(currentAccountId()))
+                importLocalAvatar(data.getData(),account);
+            return;
+        }
+        if(resultCode!=RESULT_OK||data==null||data.getData()==null){if(requestCode==REQUEST_REPOSITORY_FOLDER||requestCode==REQUEST_REPOSITORY_ZIP||requestCode==REQUEST_REPOSITORY_FILE)clearPendingRepositoryImport();return;}Uri uri=data.getData();
         if(requestCode==REQUEST_REPOSITORY_FOLDER||requestCode==REQUEST_REPOSITORY_ZIP||requestCode==REQUEST_REPOSITORY_FILE){handleRepositoryImportUri(requestCode,uri);return;}
         if(requestCode==REQUEST_EXPORT_PORTABLE){try(OutputStream out=getContentResolver().openOutputStream(uri)){if(out==null)throw new IOException("Не удалось открыть файл");out.write(pendingPortableExport.getBytes(StandardCharsets.UTF_8));out.flush();pendingPortableExport="";toast("Резервная копия сохранена");}catch(Exception e){errorDialog("Ошибка экспорта",e.getMessage());}}
         else if(requestCode==REQUEST_EXPORT_USER_DATA){try(OutputStream out=getContentResolver().openOutputStream(uri)){if(out==null)throw new IOException("Не удалось открыть файл");out.write(pendingUserDataExport.getBytes(StandardCharsets.UTF_8));out.flush();pendingUserDataExport="";toast("Данные пользователя экспортированы");}catch(Exception e){errorDialog("Ошибка экспорта данных",e.getMessage());}}
@@ -5671,6 +5936,7 @@ public class MainActivity extends Activity {
     }
 
     @Override protected void onDestroy(){
+        cancelVoiceInput();
         stopCopilotForegroundPolling();
         accountInventoryCancelled.set(true);
         if(accountInventoryFuture!=null)accountInventoryFuture.cancel(true);

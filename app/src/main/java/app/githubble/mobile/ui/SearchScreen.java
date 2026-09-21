@@ -26,6 +26,8 @@ import java.util.*;
 public final class SearchScreen {
     public interface Actions {
         void search(String query, boolean intelligentRussian);
+        void dictate(EditText target, ImageView microphone);
+        void chooseDictationLanguage();
         default void searchAdvanced(String query, boolean intelligentRussian, SearchMode mode, SearchFilters filters) {
             search(query, intelligentRussian);
         }
@@ -75,10 +77,19 @@ public final class SearchScreen {
         lensP.setMargins(dp(11),0,0,0);searchBox.addView(lens,lensP);
         query=new EditText(activity);query.setHintTextColor(palette.muted);
         query.setTextColor(palette.text);query.setSingleLine(true);query.setTextSize(14);
-        query.setPadding(dp(39),0,dp(10),0);query.setBackgroundColor(Color.TRANSPARENT);
+        query.setPadding(dp(39),0,dp(56),0);query.setBackgroundColor(Color.TRANSPARENT);
         query.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
         query.setContentDescription("Поиск GitHub");
         searchBox.addView(query,new FrameLayout.LayoutParams(-1,-1));
+        ImageView mic=new ImageView(activity);
+        mic.setImageResource(R.drawable.ic_mic);
+        mic.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+        mic.setContentDescription("Начать голосовой поиск; долгое нажатие — выбор языка");
+        mic.setPadding(dp(11),dp(11),dp(11),dp(11));
+        mic.setOnClickListener(v->actions.dictate(query,mic));
+        mic.setOnLongClickListener(v->{actions.chooseDictationLanguage();return true;});
+        FrameLayout.LayoutParams micP=new FrameLayout.LayoutParams(dp(52),dp(52),Gravity.END|Gravity.CENTER_VERTICAL);
+        searchBox.addView(mic,micP);
         LinearLayout.LayoutParams qP=new LinearLayout.LayoutParams(-1,dp(52));
         qP.setMargins(0,dp(5),0,dp(8));content.addView(searchBox,qP);
         renderModeSelector();renderFilterRow();
