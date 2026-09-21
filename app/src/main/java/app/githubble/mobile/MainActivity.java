@@ -119,6 +119,9 @@ public class MainActivity extends Activity {
     private boolean repositoriesGrid = false;
     private String buildRunFilter = BuildRunFilter.ALL;
     private int buildVisibleLimit = 12;
+    private int buildHubMode = 0;
+    private int hubArtifactVisibleLimit = 60;
+    private String hubArtifactQuery = "";
     private String repositoriesSort = "updated";
     private AccountOperationsController accountOperations;
     private ProfileController profileController;
@@ -1524,6 +1527,33 @@ public class MainActivity extends Activity {
         LinearLayout rows=new LinearLayout(this);
         rows.setOrientation(LinearLayout.VERTICAL);
         rows.setTag("global-build-rows");
+        LinearLayout tabs=new LinearLayout(this);
+        Button runsTab=button("Сборки");
+        Button artifactsTab=button("Артефакты");
+        Runnable updateTabs=()->{
+            runsTab.setTextColor(buildHubMode==0?Color.WHITE:GREEN);
+            runsTab.setBackground(round(buildHubMode==0?GREEN:CARD,13,
+                    buildHubMode==0?GREEN:BORDER,buildHubMode==0?0:1));
+            artifactsTab.setTextColor(buildHubMode==1?Color.WHITE:GREEN);
+            artifactsTab.setBackground(round(buildHubMode==1?GREEN:CARD,13,
+                    buildHubMode==1?GREEN:BORDER,buildHubMode==1?0:1));
+        };
+        runsTab.setOnClickListener(v->{
+            buildHubMode=0;updateTabs.run();
+            displayGlobalBuildSnapshot(rows,status,GlobalBuildHub.cached(this));
+        });
+        artifactsTab.setOnClickListener(v->{
+            buildHubMode=1;updateTabs.run();
+            displayGlobalBuildSnapshot(rows,status,GlobalBuildHub.cached(this));
+        });
+        tabs.addView(runsTab,new LinearLayout.LayoutParams(0,dp(48),1f));
+        LinearLayout.LayoutParams artifactTabParams=new LinearLayout.LayoutParams(0,dp(48),1f);
+        artifactTabParams.setMargins(dp(9),0,0,0);
+        tabs.addView(artifactsTab,artifactTabParams);
+        LinearLayout.LayoutParams tabsParams=new LinearLayout.LayoutParams(-1,dp(48));
+        tabsParams.setMargins(0,dp(10),0,dp(9));
+        destination.addView(tabs,tabsParams);
+        updateTabs.run();
         destination.addView(rows);
         displayGlobalBuildSnapshot(rows,status,cached);
         if(cached.syncedAt==0L||System.currentTimeMillis()-cached.syncedAt>60_000L)
@@ -1534,17 +1564,19 @@ public class MainActivity extends Activity {
                                              GlobalBuildHub.Snapshot snapshot){
         if(snapshot.syncedAt>0L){
             String summary="Репозиториев проверено: "+snapshot.scannedRepositories+
-                    " · Запусков: "+snapshot.runs.length()+
+                    " · Сборок: "+snapshot.runs.length()+
+                    " · Артефактов: "+snapshot.artifacts.length()+
                     " · "+formatEpoch(snapshot.syncedAt);
             if(snapshot.partial)summary+="\nДанные частичные: в центре показываются последние "+
-                    "запуски максимум 100 репозиториев.";
+                    "запуски и файлы максимум 100 репозиториев; архив может быть неполным.";
             if(snapshot.failedRepositories>0)
                 summary+="\nНе удалось проверить проектов: "+snapshot.failedRepositories;
             if(!snapshot.warning.isEmpty())
                 summary+="\n"+snapshot.warning;
             status.setText(summary);
         }else status.setText("Сборки ещё не синхронизированы. Получаем данные GitHub…");
-        renderBuildRows(rows,snapshot.runs,"");
+        if(buildHubMode==0)renderBuildRows(rows,snapshot.runs,"");
+        else renderHubArtifacts(rows,snapshot);
     }
 
     private void refreshGlobalBuildHub(LinearLayout destination,long generation,String account,
@@ -1643,8 +1675,7 @@ public class MainActivity extends Activity {
             shown++;
             String repo=run.optString("repository","");
             long runId=run.optLong("id",0);
-            boolean ready=run.optJSONArray("artifacts")!=null&&
-                    run.optJSONArray("artifacts").length()>0;
+            boolean ready=hasLiveArtifacts(run.optJSONArray("artifacts"));
             String state=!"completed".equals(run.optString("status",""))?
                     "◷ Выполняется":"success".equals(run.optString("conclusion",""))?
                     (ready?"✓ Артефакты готовы":"✓ Сборка успешна"):
@@ -1717,9 +1748,8 @@ public class MainActivity extends Activity {
                 row.addView(download,new LinearLayout.LayoutParams(dp(61),dp(42)));
                 card.addView(row);
             }
-            TextView open=text("Открыть запуск GitHub  ›",11,true);
+            TextView open=text("Детали запуска  ›",12,true);
             open.setTextColor(GREEN);
-            open.setText("Детали запуска  ›");
             open.setOnClickListener(v->navigate(()->showBuildRunDetail(repo,runId)));
             card.addView(open);
             LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);
@@ -1740,6 +1770,158 @@ public class MainActivity extends Activity {
                 renderBuildRows(host,source,focus);
             });
             host.addView(more,new LinearLayout.LayoutParams(-1,dp(48)));
+        }
+    }
+
+    private boolean hasLiveArtifacts(JSONArray artifacts){
+        if(artifacts==null)return false;
+        for(int i=0;i<artifacts.length();i++){
+            JSONObject artifact=artifacts.optJSONObject(i);
+            if(artifact!=null&&!artifact.optBoolean("expired",false))return true;
+        }
+        return false;
+    }
+
+    /** Artifact inventory remains a peer tab inside the single global center. */
+    private void renderHubArtifacts(LinearLayout host,GlobalBuildHub.Snapshot snapshot){
+        host.removeAllViews();
+        TextView subtitle=text("Все найденные артефакты · можно скачать, удалить по одному "+
+                "или выделить несколько. Удаление на GitHub необратимо.",12,false);
+        subtitle.setTextColor(MUTED);
+        host.addView(subtitle);
+        EditText filter=new EditText(this);
+        filter.setSingleLine(true);
+        filter.setTextSize(14);
+        filter.setHint("Имя файла или репозитория");
+        filter.setText(hubArtifactQuery);
+        filter.setSelectAllOnFocus(false);
+        host.addView(filter,new LinearLayout.LayoutParams(-1,dp(52)));
+        Button search=button("Найти");
+        search.setOnClickListener(v->{
+            hubArtifactQuery=filter.getText().toString().trim().toLowerCase(Locale.ROOT);
+            hubArtifactVisibleLimit=60;
+            renderHubArtifacts(host,GlobalBuildHub.cached(this));
+        });
+        host.addView(search,new LinearLayout.LayoutParams(-1,dp(44)));
+
+        List<JSONObject> listed=new ArrayList<>();
+        int matches=0;
+        for(int i=0;i<snapshot.artifacts.length();i++){
+            JSONObject artifact=snapshot.artifacts.optJSONObject(i);
+            if(artifact==null)continue;
+            String repository=artifact.optString("repository","");
+            String name=artifact.optString("name","");
+            if(!hubArtifactQuery.isEmpty()&&
+                    !(repository.toLowerCase(Locale.ROOT).contains(hubArtifactQuery)
+                    ||name.toLowerCase(Locale.ROOT).contains(hubArtifactQuery)))continue;
+            matches++;
+            if(listed.size()<hubArtifactVisibleLimit)listed.add(artifact);
+        }
+        TextView count=text("Найдено: "+matches+" · показано: "+listed.size(),12,true);
+        count.setTextColor(GREEN);
+        host.addView(count);
+        if(listed.isEmpty()){
+            TextView empty=text(snapshot.syncedAt==0L?
+                    "Загружаем список файлов GitHub…" :
+                    "Артефактов по выбранному фильтру нет. Проверьте доступ Actions: Read.",12,false);
+            empty.setTextColor(MUTED);
+            host.addView(empty);
+            return;
+        }
+        List<CheckBox> checks=new ArrayList<>();
+        Button selectAll=button("Выбрать все показанные");
+        selectAll.setTextColor(GREEN);
+        selectAll.setBackground(round(CARD,13,BORDER,1));
+        Button bulk=button("Удалить выбранные");
+        bulk.setEnabled(false);
+        TextView selection=text("Выбрано: 0",12,false);
+        Runnable updateSelection=()->{
+            int countSelected=0;
+            for(CheckBox b:checks)if(b.isChecked())countSelected++;
+            selection.setText("Выбрано: "+countSelected+" из "+listed.size());
+            bulk.setEnabled(countSelected>0);
+        };
+        selectAll.setOnClickListener(v->{
+            boolean all=true;
+            for(CheckBox b:checks)if(!b.isChecked()){all=false;break;}
+            for(CheckBox b:checks)b.setChecked(!all);
+            selectAll.setText(all?"Выбрать все показанные":"Снять выделение");
+            updateSelection.run();
+        });
+        bulk.setOnClickListener(v->{
+            List<JSONObject> chosen=new ArrayList<>();
+            for(int i=0;i<checks.size();i++)
+                if(checks.get(i).isChecked())chosen.add(listed.get(i));
+            confirmArtifactsDeletion(chosen,this::showBuildHub);
+        });
+        host.addView(selection);
+        LinearLayout bulkButtons=new LinearLayout(this);
+        bulkButtons.addView(selectAll,new LinearLayout.LayoutParams(0,dp(48),1f));
+        LinearLayout.LayoutParams b=new LinearLayout.LayoutParams(0,dp(48),1f);
+        b.setMargins(dp(8),0,0,0);
+        bulkButtons.addView(bulk,b);
+        host.addView(bulkButtons,new LinearLayout.LayoutParams(-1,dp(48)));
+
+        for(JSONObject artifact:listed){
+            String repository=artifact.optString("repository","");
+            long id=artifact.optLong("id",0L);
+            String name=artifact.optString("name","Артефакт");
+            boolean expired=artifact.optBoolean("expired",false);
+            LinearLayout tile=new LinearLayout(this);
+            tile.setOrientation(LinearLayout.VERTICAL);
+            tile.setPadding(dp(12),dp(9),dp(12),dp(10));
+            tile.setBackground(round(CARD,15,BORDER,1));
+            CheckBox mark=new CheckBox(this);
+            mark.setText(name);
+            mark.setTextSize(14);
+            mark.setTextColor(TEXT);
+            mark.setOnCheckedChangeListener((buttonView,isChecked)->updateSelection.run());
+            checks.add(mark);
+            tile.addView(mark,new LinearLayout.LayoutParams(-1,-2));
+            TextView info=text(repository+" · "+formatAccountBytes(artifact.optLong("size_in_bytes",0))
+                    +(expired?" · срок истёк":" · "+buildTimeOrPending(artifact.optString("created_at",""))),
+                    11,false);
+            info.setTextColor(MUTED);
+            tile.addView(info);
+            LinearLayout actions=new LinearLayout(this);
+            Button download=button("Скачать ZIP");
+            download.setTextSize(12);
+            download.setEnabled(!expired);
+            download.setOnClickListener(v->startArtifactDownload(repository,artifact));
+            actions.addView(download,new LinearLayout.LayoutParams(0,dp(46),1f));
+            Button delete=button("Удалить");
+            delete.setTextSize(12);
+            delete.setTextColor(0xFFC34F48);
+            delete.setBackground(round(CARD,12,0xFFC34F48,1));
+            delete.setOnClickListener(v->{
+                List<JSONObject> single=new ArrayList<>();
+                single.add(artifact);
+                confirmArtifactsDeletion(single,this::showBuildHub);
+            });
+            LinearLayout.LayoutParams dpDelete=new LinearLayout.LayoutParams(0,dp(46),1f);
+            dpDelete.setMargins(dp(9),0,0,0);
+            actions.addView(delete,dpDelete);
+            tile.addView(actions);
+            LinearLayout.LayoutParams tileParams=new LinearLayout.LayoutParams(-1,-2);
+            tileParams.setMargins(0,dp(8),0,0);
+            host.addView(tile,tileParams);
+        }
+        if(matches>listed.size()){
+            Button more=button("Показать ещё · "+(matches-listed.size()));
+            more.setTextColor(GREEN);
+            more.setBackground(round(CARD,13,BORDER,1));
+            more.setOnClickListener(v->{
+                hubArtifactVisibleLimit+=60;
+                renderHubArtifacts(host,GlobalBuildHub.cached(this));
+            });
+            host.addView(more,new LinearLayout.LayoutParams(-1,dp(48)));
+        }
+        if(snapshot.partial){
+            TextView partial=text("Показаны найденные файлы. При ограничениях GitHub или лимите "+
+                    "индекса часть старых артефактов может отсутствовать. "+
+                    "Выделение не затрагивает скрытые и незагруженные файлы.",11,false);
+            partial.setTextColor(MUTED);
+            host.addView(partial);
         }
     }
 
