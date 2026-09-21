@@ -1455,14 +1455,16 @@ public class MainActivity extends Activity {
                         card(row);
                     }
                     sectionTitle("Артефакты · "+details.artifacts.length(),null);
-                    for(int i=0;i<details.artifacts.length();i++){
-                        JSONObject artifact=details.artifacts.optJSONObject(i);if(artifact==null)continue;
-                        Button download=compactButton("↓ "+artifact.optString("name","Артефакт"));
-                        download.setEnabled(!artifact.optBoolean("expired",false));
-                        download.setOnClickListener(v->startArtifactDownload(full,artifact));
-                        destination.addView(download,new LinearLayout.LayoutParams(-1,dp(48)));
-                    }
-                    if(details.partial)card(text("Список заданий или артефактов неполный.",12,false));
+                    showRunArtifacts(full,runId,details.artifacts);
+                    if(details.partial)card(text("Список заданий или артефактов неполный. "+
+                            "Выделение действует только на загруженные файлы.",12,false));
+                    Button deleteRun=button("Удалить запуск и все его артефакты");
+                    deleteRun.setTextColor(0xFFC34F48);
+                    deleteRun.setBackground(round(CARD,13,0xFFC34F48,1));
+                    deleteRun.setEnabled("completed".equals(run.optString("status","")));
+                    deleteRun.setOnClickListener(v->confirmRunDeletion(full,runId,
+                            run.optString("name","GitHub Actions")));
+                    destination.addView(deleteRun,new LinearLayout.LayoutParams(-1,dp(51)));
                     Button web=compactButton("Открыть полный журнал GitHub");
                     web.setOnClickListener(v->openWeb(run.optString("html_url",
                             "https://github.com/"+full+"/actions/runs/"+runId)));
@@ -1752,6 +1754,14 @@ public class MainActivity extends Activity {
             open.setTextColor(GREEN);
             open.setOnClickListener(v->navigate(()->showBuildRunDetail(repo,runId)));
             card.addView(open);
+            if("completed".equals(run.optString("status",""))){
+                TextView delete=text("Удалить запуск и связанные артефакты",11,true);
+                delete.setTextColor(0xFFC34F48);
+                delete.setPadding(dp(4),dp(8),dp(4),dp(7));
+                delete.setOnClickListener(v->confirmRunDeletion(repo,runId,
+                        run.optString("name","GitHub Actions")));
+                card.addView(delete);
+            }
             LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);
             p.setMargins(0,0,0,dp(9));
             host.addView(card,p);
@@ -1771,6 +1781,199 @@ public class MainActivity extends Activity {
             });
             host.addView(more,new LinearLayout.LayoutParams(-1,dp(48)));
         }
+    }
+
+    /** Shared explicit confirmation for a single item or any number of selected artifacts. */
+    private void confirmArtifactsDeletion(List<JSONObject> selected,Runnable after){
+        if(selected==null||selected.isEmpty()){toast("Артефакты не выбраны");return;}
+        List<JSONObject> unique=new ArrayList<>();
+        Set<String> seen=new HashSet<>();
+        long bytes=0L;
+        for(JSONObject artifact:selected){
+            if(artifact==null)continue;
+            String repo=artifact.optString("repository","");
+            long id=artifact.optLong("id",0L);
+            if(!repo.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")||id<=0L)continue;
+            if(seen.add(repo+":"+id)){
+                unique.add(artifact);
+                bytes+=Math.max(0L,artifact.optLong("size_in_bytes",0L));
+            }
+        }
+        if(unique.isEmpty()){toast("Нет доступных для удаления файлов");return;}
+        StringBuilder examples=new StringBuilder();
+        for(int i=0;i<Math.min(5,unique.size());i++){
+            JSONObject item=unique.get(i);
+            examples.append("\n• ").append(item.optString("repository",""))
+                    .append(" / ").append(item.optString("name","Артефакт"));
+        }
+        if(unique.size()>5)examples.append("\n… и ещё ").append(unique.size()-5);
+        final long totalBytes=bytes;
+        new AlertDialog.Builder(this)
+                .setTitle(unique.size()==1?"Удалить артефакт?":"Удалить "+unique.size()+" артефактов?")
+                .setMessage("Удаляемые файлы GitHub: "+unique.size()+
+                        "\nРазмер: "+formatAccountBytes(totalBytes)+examples+
+                        "\n\nУдаление необратимо. Исходники, Releases и другие артефакты "+
+                        "этих запусков не затрагиваются.")
+                .setNegativeButton("Отмена",null)
+                .setPositiveButton("Удалить",(dialog,which)->{
+                    ProgressDialog progress=new ProgressDialog(this);
+                    progress.setTitle("Удаление артефактов");
+                    progress.setMessage("Обработано: 0 из "+unique.size());
+                    progress.setCancelable(false);
+                    progress.show();
+                    final String account=currentAccountId();
+                    io.execute(()->{
+                        int removed=0,failed=0;
+                        String lastError="";
+                        ActionsStorageManager storage=new ActionsStorageManager(api,prefs);
+                        for(JSONObject artifact:unique){
+                            if(!account.equals(currentAccountId()))break;
+                            String repo=artifact.optString("repository","");
+                            long id=artifact.optLong("id",0L);
+                            try{
+                                storage.deleteArtifact(repo,id);
+                                GlobalBuildHub.removeArtifact(getApplicationContext(),repo,id);
+                                removed++;
+                            }catch(Exception error){
+                                failed++;
+                                lastError=error.getMessage()==null?"Ошибка GitHub":error.getMessage();
+                            }
+                            final int processed=removed+failed;
+                            runOnUiThread(()->{
+                                if(progress.isShowing())
+                                    progress.setMessage("Обработано: "+processed+" из "+unique.size());
+                            });
+                        }
+                        final int deleted=removed,errors=failed;
+                        final String last=lastError;
+                        runOnUiThread(()->{
+                            progress.dismiss();
+                            if(!account.equals(currentAccountId()))return;
+                            new AlertDialog.Builder(this).setTitle("Результат удаления")
+                                    .setMessage("Удалено: "+deleted+"\nОшибок: "+errors+
+                                            (last.isEmpty()?"":"\n"+last))
+                                    .setPositiveButton("Обновить",(d,w)->after.run()).show();
+                        });
+                    });
+                }).show();
+    }
+
+    /** Deleting a run removes its Actions history/logs and all linked artifacts, not workflow YAML. */
+    private void confirmRunDeletion(String repository,long runId,String name){
+        if(!repository.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")||runId<=0L)return;
+        new AlertDialog.Builder(this)
+                .setTitle("Удалить запуск Actions #"+runId+"?")
+                .setMessage(repository+"\n"+name+
+                        "\n\nGitHub удалит историю этого запуска, логи и ВСЕ его артефакты. "+
+                        "Восстановить их нельзя. Сам workflow (.github/workflows/*.yml), "+
+                        "исходники и GitHub Releases сохранятся.")
+                .setNegativeButton("Отмена",null)
+                .setPositiveButton("Удалить запуск",(dialog,which)->{
+                    ProgressDialog progress=ProgressDialog.show(this,"Удаление запуска",
+                            "Удаляем запуск Actions и связанные артефакты…",true,false);
+                    final String account=currentAccountId();
+                    io.execute(()->{
+                        try{
+                            api.delete("https://api.github.com/repos/"+repository+
+                                    "/actions/runs/"+runId);
+                            GlobalBuildHub.removeRun(getApplicationContext(),repository,runId);
+                            runOnUiThread(()->{
+                                progress.dismiss();
+                                if(!account.equals(currentAccountId()))return;
+                                toast("Запуск и все его артефакты удалены");
+                                openRoot(this::showBuildHub);
+                            });
+                        }catch(Exception error){
+                            runOnUiThread(()->{
+                                progress.dismiss();
+                                if(account.equals(currentAccountId()))
+                                    errorDialog("Не удалось удалить запуск",error.getMessage()+
+                                            "\nТребуется разрешение Actions: Write.");
+                            });
+                        }
+                    });
+                }).show();
+    }
+
+    private void showRunArtifacts(String repository,long runId,JSONArray artifacts){
+        if(artifacts==null||artifacts.length()==0){
+            TextView empty=text("У этого запуска нет доступных артефактов.",12,false);
+            empty.setTextColor(MUTED);
+            card(empty);
+            return;
+        }
+        List<JSONObject> available=new ArrayList<>();
+        List<CheckBox> marks=new ArrayList<>();
+        TextView selected=text("Выбрано: 0",12,false);
+        Button bulk=button("Удалить выбранные");
+        bulk.setEnabled(false);
+        Runnable update=()->{
+            int count=0;
+            for(CheckBox b:marks)if(b.isChecked())count++;
+            selected.setText("Выбрано: "+count);
+            bulk.setEnabled(count>0);
+        };
+        for(int i=0;i<artifacts.length();i++){
+            JSONObject artifact=artifacts.optJSONObject(i);
+            if(artifact==null||artifact.optLong("id",0L)<=0L)continue;
+            try{artifact.put("repository",repository);}catch(Exception ignored){}
+            available.add(artifact);
+            LinearLayout tile=new LinearLayout(this);
+            tile.setOrientation(LinearLayout.VERTICAL);
+            tile.setPadding(dp(13),dp(10),dp(13),dp(10));
+            tile.setBackground(round(CARD,15,BORDER,1));
+            CheckBox mark=new CheckBox(this);
+            mark.setText(artifact.optString("name","Артефакт"));
+            mark.setTextColor(TEXT);
+            mark.setTextSize(14);
+            mark.setOnCheckedChangeListener((buttonView,checked)->update.run());
+            marks.add(mark);
+            tile.addView(mark);
+            TextView info=text(formatAccountBytes(artifact.optLong("size_in_bytes",0L))+
+                    (artifact.optBoolean("expired",false)?" · срок хранения истёк":""),11,false);
+            info.setTextColor(MUTED);
+            tile.addView(info);
+            LinearLayout buttons=new LinearLayout(this);
+            Button download=button("Скачать ZIP");
+            download.setTextSize(12);
+            download.setEnabled(!artifact.optBoolean("expired",false));
+            download.setOnClickListener(v->startArtifactDownload(repository,artifact));
+            buttons.addView(download,new LinearLayout.LayoutParams(0,dp(46),1f));
+            Button delete=button("Удалить");
+            delete.setTextSize(12);
+            delete.setTextColor(0xFFC34F48);
+            delete.setBackground(round(CARD,12,0xFFC34F48,1));
+            delete.setOnClickListener(v->{
+                List<JSONObject> only=new ArrayList<>();
+                only.add(artifact);
+                confirmArtifactsDeletion(only,()->showBuildRunDetail(repository,runId));
+            });
+            LinearLayout.LayoutParams del=new LinearLayout.LayoutParams(0,dp(46),1f);
+            del.setMargins(dp(9),0,0,0);
+            buttons.addView(delete,del);
+            tile.addView(buttons);
+            card(tile);
+        }
+        if(available.isEmpty())return;
+        Button all=button("Выбрать все артефакты запуска");
+        all.setTextColor(GREEN);
+        all.setBackground(round(CARD,13,BORDER,1));
+        all.setOnClickListener(v->{
+            boolean anyUnchecked=false;
+            for(CheckBox m:marks)if(!m.isChecked()){anyUnchecked=true;break;}
+            for(CheckBox m:marks)m.setChecked(anyUnchecked);
+            all.setText(anyUnchecked?"Снять выделение":"Выбрать все артефакты запуска");
+            update.run();
+        });
+        bulk.setOnClickListener(v->{
+            List<JSONObject> chosen=new ArrayList<>();
+            for(int i=0;i<marks.size();i++)
+                if(marks.get(i).isChecked())chosen.add(available.get(i));
+            confirmArtifactsDeletion(chosen,()->showBuildRunDetail(repository,runId));
+        });
+        content.addView(selected);
+        content.addView(all,new LinearLayout.LayoutParams(-1,dp(48)));
+        content.addView(bulk,new LinearLayout.LayoutParams(-1,dp(48)));
     }
 
     private boolean hasLiveArtifacts(JSONArray artifacts){
