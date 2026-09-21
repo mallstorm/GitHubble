@@ -2286,6 +2286,120 @@ public class MainActivity extends Activity {
 
     private TextView pill(String s){TextView t=text(s,12,true);t.setTextColor(MUTED);t.setGravity(Gravity.CENTER);t.setBackground(round(SUBTLE,12,Color.TRANSPARENT,0));LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-2,dp(30));p.setMargins(0,0,dp(8),0);t.setLayoutParams(p);return t;}
 
+
+    private void showRepositoryOverviewHero(JSONObject repo,String full,String description,
+            int stars,int forks,int issues,String branch,String language,String license){
+        String name=full.contains("/")?full.substring(full.indexOf('/')+1):full;
+        String owner=full.contains("/")?full.substring(0,full.indexOf('/')):full;
+        LinearLayout hero=new LinearLayout(this);hero.setOrientation(LinearLayout.VERTICAL);
+        hero.setPadding(dp(15),dp(16),dp(15),dp(16));
+        GradientDrawable bg=new GradientDrawable(GradientDrawable.Orientation.TL_BR,
+                new int[]{blend(CARD,GREEN,0.07f),CARD});
+        bg.setCornerRadius(dp(22));bg.setStroke(dp(1),BORDER);
+        hero.setBackground(bg);hero.setElevation(dp(2));
+        LinearLayout head=new LinearLayout(this);head.setGravity(Gravity.CENTER_VERTICAL);
+        ImageView mark=imageIcon(R.drawable.ic_repository,GREEN,12);
+        mark.setBackground(round(blend(CARD,GREEN,0.10f),18,Color.TRANSPARENT,0));
+        head.addView(mark,new LinearLayout.LayoutParams(dp(56),dp(56)));
+        LinearLayout names=new LinearLayout(this);names.setOrientation(LinearLayout.VERTICAL);
+        names.setPadding(dp(9),0,dp(3),0);
+        TextView ownerText=text(owner+"/",13,false);ownerText.setTextColor(MUTED);
+        TextView title=text(name,22,true);title.setMaxLines(2);
+        names.addView(ownerText);names.addView(title);
+        head.addView(names,new LinearLayout.LayoutParams(0,-2,1));
+        TextView access=text(repo.optBoolean("private",false)?"Private":"Public",10,true);
+        access.setTextColor(GREEN);access.setGravity(Gravity.CENTER);
+        access.setPadding(dp(5),dp(5),dp(5),dp(5));
+        access.setBackground(round(blend(CARD,GREEN,0.09f),12,Color.TRANSPARENT,0));
+        head.addView(access);hero.addView(head);
+        if(description!=null&&!description.trim().isEmpty()){
+            TextView body=text(description,13,false);body.setTextColor(MUTED);
+            LinearLayout.LayoutParams descP=new LinearLayout.LayoutParams(-1,-2);
+            descP.setMargins(0,dp(8),0,dp(7));hero.addView(body,descP);
+        }
+        LinearLayout stats=new LinearLayout(this);stats.setPadding(0,dp(7),0,0);
+        repoMetric(stats,"★  "+stars,"Stars");repoMetric(stats,"⑂  "+forks,"Forks");
+        repoMetric(stats,"!  "+issues,"Issues");hero.addView(stats);
+        LinearLayout details=new LinearLayout(this);details.setPadding(0,dp(10),0,0);
+        repoInfoPill(details,language==null||language.isEmpty()?"—":language);
+        repoInfoPill(details,"Лицензия "+license);
+        repoInfoPill(details,"Ветка: "+branch);hero.addView(details);
+        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);
+        p.setMargins(0,0,0,dp(10));content.addView(hero,p);
+    }
+
+    private void repoMetric(LinearLayout row,String value,String label){
+        LinearLayout chip=new LinearLayout(this);chip.setOrientation(LinearLayout.VERTICAL);
+        chip.setGravity(Gravity.CENTER);chip.setBackground(round(CARD,13,BORDER,1));
+        TextView v=text(value,13,true);v.setTextColor(GREEN);v.setGravity(Gravity.CENTER);
+        TextView l=text(label,10,false);l.setTextColor(MUTED);l.setGravity(Gravity.CENTER);
+        chip.addView(v);chip.addView(l);
+        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(57),1);
+        p.setMargins(dp(2),0,dp(2),0);row.addView(chip,p);
+    }
+
+    private void repoInfoPill(LinearLayout row,String value){
+        TextView p=text(value,10,true);p.setTextColor(MUTED);p.setGravity(Gravity.CENTER);
+        p.setMaxLines(2);p.setBackground(round(SUBTLE,13,Color.TRANSPARENT,0));
+        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(39),1);
+        lp.setMargins(dp(2),0,dp(2),0);row.addView(p,lp);
+    }
+
+    private void repoActionCard(GridLayout grid,int icon,String title,String subtitle,Runnable action){
+        LinearLayout tile=new LinearLayout(this);tile.setOrientation(LinearLayout.VERTICAL);
+        tile.setGravity(Gravity.CENTER_VERTICAL);tile.setPadding(dp(9),dp(7),dp(7),dp(7));
+        tile.setBackground(round(CARD,17,BORDER,1));tile.setElevation(dp(1));
+        ImageView image=imageIcon(icon,GREEN,10);
+        image.setBackground(round(blend(CARD,GREEN,0.09f),11,Color.TRANSPARENT,0));
+        tile.addView(image,new LinearLayout.LayoutParams(dp(29),dp(29)));
+        TextView name=text(title,12,true);name.setMaxLines(2);
+        name.setPadding(0,dp(3),0,0);tile.addView(name);
+        TextView detail=text(subtitle,10,false);detail.setTextColor(MUTED);
+        detail.setMaxLines(2);detail.setPadding(0,0,0,0);tile.addView(detail);
+        tile.setContentDescription(title+", "+subtitle);tile.setOnClickListener(v->action.run());
+        GridLayout.LayoutParams p=new GridLayout.LayoutParams();
+        p.width=0;p.height=dp(isLargeText()?118:91);
+        p.columnSpec=GridLayout.spec(GridLayout.UNDEFINED,1f);
+        p.setMargins(dp(3),dp(3),dp(3),dp(5));grid.addView(tile,p);
+    }
+
+    private void repoSectionHeader(String full,String heading,String details,int icon){
+        LinearLayout panel=new LinearLayout(this);panel.setGravity(Gravity.CENTER_VERTICAL);
+        panel.setPadding(dp(11),dp(10),dp(11),dp(10));
+        GradientDrawable bg=new GradientDrawable(GradientDrawable.Orientation.TL_BR,
+                new int[]{blend(CARD,GREEN,0.06f),CARD});
+        bg.setCornerRadius(dp(18));bg.setStroke(dp(1),BORDER);panel.setBackground(bg);
+        ImageView mark=imageIcon(icon,GREEN,10);
+        mark.setBackground(round(blend(CARD,GREEN,0.10f),12,Color.TRANSPARENT,0));
+        panel.addView(mark,new LinearLayout.LayoutParams(dp(43),dp(43)));
+        LinearLayout label=new LinearLayout(this);label.setOrientation(LinearLayout.VERTICAL);
+        label.setPadding(dp(8),0,0,0);
+        TextView t=text(heading,17,true);t.setPadding(0,0,0,0);
+        TextView sub=text(full+(details.isEmpty()?"":" · "+details),11,false);
+        sub.setTextColor(MUTED);sub.setMaxLines(2);sub.setPadding(0,0,0,0);
+        label.addView(t);label.addView(sub);
+        panel.addView(label,new LinearLayout.LayoutParams(0,-2,1));
+        TextView back=text("‹",23,true);back.setTextColor(GREEN);
+        back.setGravity(Gravity.CENTER);back.setContentDescription("Вернуться к репозиторию");
+        back.setOnClickListener(v->navigate(()->showRepository(full)));
+        panel.addView(back,new LinearLayout.LayoutParams(dp(34),dp(48)));
+        LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,-2);
+        params.setMargins(0,0,0,dp(12));content.addView(panel,params);
+    }
+
+    private void repoReadmePreview(String full,String readme){
+        if(readme==null||readme.trim().isEmpty())return;
+        sectionTitle("README",null);
+        LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);
+        String preview=readme.trim();
+        if(preview.length()>260)preview=preview.substring(0,260).trim()+"…";
+        TextView body=text(preview,13,false);body.setTextColor(MUTED);box.addView(body);
+        TextView open=text("Открыть полностью  ›",13,true);open.setTextColor(GREEN);
+        open.setGravity(Gravity.END);box.addView(open);
+        box.setOnClickListener(v->navigate(()->showReadme(full,readme)));
+        card(box);
+    }
+
     private void showRepository(String full){
         if(isSignedIn()&&full.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+"))
             RepositoryActivityFeed.noteVisit(prefs,currentAccountId(),full,
@@ -2313,39 +2427,38 @@ public class MainActivity extends Activity {
                             ||!repoAccount.equals(currentAccountId())
                             ||!full.equals(currentTitle))return;
                     content.removeView(pb);
-                    LinearLayout hero=new LinearLayout(this);hero.setOrientation(LinearLayout.VERTICAL);hero.setPadding(dp(16),dp(16),dp(16),dp(16));hero.setBackground(round(CARD,20,BORDER,1));
-                    TextView n=text(full,22,true);n.setTextColor(BLUE);hero.addView(n);
-                    TextView de=text(desc,15,false);de.setTextColor(MUTED);hero.addView(de);
-                    LinearLayout ms=new LinearLayout(this);ms.setPadding(0,dp(12),0,0);ms.addView(pill("★ "+stars));ms.addView(pill("Forks "+forks));ms.addView(pill("Issues "+issues));hero.addView(ms);
-                    LinearLayout tech=new LinearLayout(this);tech.setPadding(0,dp(8),0,0);tech.addView(pill(language));tech.addView(pill("Лицензия "+license));tech.addView(pill("Ветка "+branch));hero.addView(tech);card(hero);
-                    Button buildShortcut=button("◈  Сборки и артефакты");
+                    showRepositoryOverviewHero(r,full,desc,stars,forks,issues,branch,language,license);
+                    Button buildShortcut=button("⬡  Сборки и артефакты  ›");
                     buildShortcut.setOnClickListener(v->navigate(()->showBuildCenter(full)));
-                    content.addView(buildShortcut,new LinearLayout.LayoutParams(-1,dp(48)));
+                    LinearLayout.LayoutParams buildP=new LinearLayout.LayoutParams(-1,dp(54));
+                    buildP.setMargins(0,dp(4),0,dp(10));content.addView(buildShortcut,buildP);
+                    sectionTitle("Основные разделы",null);
                     GridLayout tabs=new GridLayout(this);tabs.setColumnCount(adaptiveColumns(3));
-                    addAction(tabs,"Обзор",()->navigate(() -> showRepository(full)));
-                    addAction(tabs,"Файлы",()->navigate(() -> showRepositoryFiles(full,branch,"")));
-                    addAction(tabs,"README",()->navigate(() -> showReadme(full,finalReadme)));
-                    addAction(tabs,"Issues",()->navigate(() -> showRepoIssues(full)));
-                    addAction(tabs,"Pull Requests",()->navigate(() -> showRepoPulls(full)));
-                    addAction(tabs,"Обсуждения",()->navigate(() -> showRepoDiscussions(full)));
-                    addAction(tabs,"Релизы",()->navigate(() -> showRepoReleases(full)));
-                    addAction(tabs,"Copilot",()->navigate(() -> showCopilotRepository(full)));
+                    repoActionCard(tabs,R.drawable.ic_home,"Обзор","О проекте",()->navigate(()->showRepository(full)));
+                    repoActionCard(tabs,R.drawable.ic_repository,"Файлы","Код и структура",()->navigate(()->showRepositoryFiles(full,branch,"")));
+                    repoActionCard(tabs,R.drawable.ic_repository,"README","Документация",()->navigate(()->showReadme(full,finalReadme)));
+                    repoActionCard(tabs,R.drawable.ic_issue,"Issues",issues+" открыто",()->navigate(()->showRepoIssues(full)));
+                    repoActionCard(tabs,R.drawable.ic_pull_request,"Pull Requests","Изменения",()->navigate(()->showRepoPulls(full)));
+                    repoActionCard(tabs,R.drawable.ic_discussion,"Обсуждения","Сообщество",()->navigate(()->showRepoDiscussions(full)));
+                    repoActionCard(tabs,R.drawable.ic_release,"Релизы","Публикации",()->navigate(()->showRepoReleases(full)));
+                    repoActionCard(tabs,R.drawable.ic_copilot,"Copilot","ИИ-помощник",()->navigate(()->showCopilotRepository(full)));
                     content.addView(tabs);
-                    String owner = full.contains("/") ? full.substring(0, full.indexOf('/')) : full;
-                    GridLayout actions=new GridLayout(this);actions.setColumnCount(adaptiveColumns(3));
-                    addAction(actions,"Ветка: "+branch,()->showBranchChooser(full, branch));
-                    addAction(actions,"Профиль @"+owner,()->navigate(() -> showDeveloperProfile(owner)));
-                    addAction(actions,trackingDb.isTracked(owner)?"Не отслеживать автора":"Отслеживать автора",()->toggleDeveloperTracking(owner));
+                    sectionTitle("Дополнительные действия",null);
+                    String owner=full.contains("/")?full.substring(0,full.indexOf('/')):full;
+                    GridLayout actions=new GridLayout(this);actions.setColumnCount(adaptiveColumns(2));
+                    repoActionCard(actions,R.drawable.ic_repository,"Ветка: "+branch,"Выбрать ветку",()->showBranchChooser(full,branch));
+                    repoActionCard(actions,R.drawable.ic_profile,"Профиль @"+owner,"Автор проекта",()->navigate(()->showDeveloperProfile(owner)));
+                    repoActionCard(actions,R.drawable.ic_history,trackingDb.isTracked(owner)?"Не отслеживать":"Отслеживать","Активность автора",()->toggleDeveloperTracking(owner));
                     if(isSignedIn()){
-                        if(starred!=null)addAction(actions,starred?"★ Убрать звезду":"☆ Поставить звезду",()->toggleRepositoryStar(full,starred));
-                        else addAction(actions,"Звезда: статус неизвестен",()->toast("Проверьте сеть и разрешения GitHub"));
-                        addAction(actions,"Управление",()->navigate(() -> showRepositoryAdmin(full,r)));
+                        if(starred!=null)repoActionCard(actions,R.drawable.ic_star,starred?"★ Убрать звезду":"☆ Поставить звезду","GitHub Stars",()->toggleRepositoryStar(full,starred));
+                        else repoActionCard(actions,R.drawable.ic_star,"Звезда недоступна","Проверьте права",()->toast("Проверьте сеть и разрешения GitHub"));
+                        repoActionCard(actions,R.drawable.ic_settings,"Управление","Настройки проекта",()->navigate(()->showRepositoryAdmin(full,r)));
                     }
-                    addAction(actions,"Избранное",()->{saveFavorite(full);toast("Добавлено в избранное");});
-                    addAction(actions,"Открыть GitHub",()->openRepoUrl(full,""));
-                    addAction(actions,"Центр наблюдения",()->navigate(this::showTracking));
+                    repoActionCard(actions,R.drawable.ic_star,"Избранное","Сохранить проект",()->{saveFavorite(full);toast("Добавлено в избранное");});
+                    repoActionCard(actions,R.drawable.ic_globe,"Открыть GitHub","В браузере",()->openRepoUrl(full,""));
+                    repoActionCard(actions,R.drawable.ic_history,"Центр наблюдения","Ваша активность",()->navigate(this::showTracking));
                     content.addView(actions);
-                    if(!finalReadme.isEmpty()) showReadmeInline(full,finalReadme);
+                    repoReadmePreview(full,finalReadme);
                 });
             }catch(Exception e){
                 String cached=prefs.getString("cache_repo_"+full,"");
