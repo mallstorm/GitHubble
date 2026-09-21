@@ -177,6 +177,11 @@ public final class GitHubApiClient {
             }
             String response = readAll(code >= 200 && code < 300 ? c.getInputStream() : c.getErrorStream());
             if (code >= 200 && code < 300) {
+                // A successful authenticated /user check rehabilitates sessions
+                // previously marked invalid by older search-code 401 handling.
+                if (authenticated && ("https://api.github.com/user".equals(url)
+                        || url.startsWith("https://api.github.com/user?")))
+                    secureStore.remove("github_reauth_required");
                 String etag = c.getHeaderField("ETag");
                 String normalized = response == null || response.trim().isEmpty() ? "{}" : response;
                 if ("GET".equals(method)) {
