@@ -769,6 +769,7 @@ public class MainActivity extends Activity {
             @Override public void search(String query, boolean smart) { navigate(() -> searchRepos(query, smart)); }
             @Override public void dictate(EditText target, ImageView microphone) { toggleVoiceInput(target,microphone); }
             @Override public void chooseDictationLanguage() { showVoiceLanguageChooser(); }
+            @Override public void searchFileNames(String query) { showFileNameSearchPicker(query); }
             @Override public void searchAdvanced(String query, boolean smart, SearchMode mode, SearchFilters filters) {
                 navigate(() -> MainActivity.this.searchAdvanced(query, smart, mode, filters));
             }
@@ -2133,6 +2134,7 @@ public class MainActivity extends Activity {
         if(value.isEmpty()){toast("Введите запрос");return;}
         SearchMode selected=mode==null?SearchMode.REPOSITORIES:mode;
         SearchFilters safeFilters=filters==null?new SearchFilters():filters.copy();
+        prefs.edit().putString("search_draft_query",value).apply();
         new SmartSearchHistory(prefs).remember(value,smart);
         AdvancedSearchPlanner.Plan plan=AdvancedSearchPlanner.plan(value,smart,selected,safeFilters);
         if(plan.variants.isEmpty()){
@@ -2157,7 +2159,14 @@ public class MainActivity extends Activity {
             for(String variant:plan.variants){
                 try{
                     String url=advancedSearchUrl(plan.mode,variant,page);
-                    JSONObject root=getJson(url);
+                    JSONObject root;
+                    try{root=getJson(url);}
+                    catch(GitHubApiClient.ApiException denied){
+                        if(denied.statusCode!=401||!oauth.canRefresh()
+                                ||!oauth.refreshIfNeeded(effectiveGitHubClientId()))throw denied;
+                        api.clearSessionCaches();
+                        root=getJson(url); // one retry with newly rotated token
+                    }
                     JSONArray items=root.optJSONArray("items");if(items==null)items=new JSONArray();
                     batches.add(items);reported+=Math.max(0,root.optInt("total_count",items.length()));
                     if(items.length()==20)mayHaveMore=true;
@@ -2165,7 +2174,11 @@ public class MainActivity extends Activity {
             }
             if(batches.isEmpty()){
                 Exception error=lastError==null?new IOException("GitHub не вернул результаты поиска"):lastError;
-                runOnUiThread(()->{content.removeView(pb);errorCard("Ошибка поиска",friendlyAdvancedSearchError(plan.mode,error));});
+                runOnUiThread(()->{
+                    content.removeView(pb);
+                    errorCard("Ошибка поиска",friendlyAdvancedSearchError(plan.mode,error));
+                    renderAdvancedSearchRecovery(plan,error);
+                });
                 return;
             }
             List<JSONObject> results;
@@ -2295,9 +2308,35 @@ public class MainActivity extends Activity {
     }
 
     private String friendlyAdvancedSearchError(SearchMode mode,Exception error){
-        String message=error==null?"Неизвестная ошибка":String.valueOf(error.getMessage());
-        if(mode==SearchMode.CODE&&(message.contains("401")||message.contains("403")))return "GitHub ограничил поиск кода для текущей сессии. Подключите GitHub или проверьте доступ приложения GiHubble.\n\n"+message;
-        return message;
+        if(error instanceof GitHubApiClient.ApiException){
+            GitHubApiClient.ApiException issue=(GitHubApiClient.ApiException)error;
+            if(issue.statusCode==401)return mode==SearchMode.CODE
+                    ?"GitHub отклонил авторизацию для поиска кода (HTTP 401). Это не доказывает, что весь аккаунт отключён. Если токен можно обновить, приложение уже повторило запрос один раз. Проверьте доступ к коду или переподключите GitHub; введённый запрос сохранён."
+                    :"GitHub отклонил запрос (HTTP 401). Токен мог истечь или у текущей авторизации недостаточно доступа. Переподключите аккаунт, не теряя введённый запрос.";
+            if(issue.statusCode==403)return "GitHub отказал в доступе к этому виду поиска (HTTP 403). Причина может быть в правах приложения, доступе к приватному репозиторию или лимите API. Остальные виды поиска доступны. "+issue.getMessage();
+            if(issue.statusCode==429)return "Превышен лимит поиска GitHub (HTTP 429). Повторите запрос позже; сохранённый текст останется в поле.";
+            if(issue.statusCode==422)return "GitHub не принял поисковый запрос (HTTP 422). Упростите формулировку или уберите неподдерживаемые фильтры.";
+        }
+        return error==null?"Неизвестная ошибка":String.valueOf(error.getMessage());
+    }
+
+
+    private void renderAdvancedSearchRecovery(AdvancedSearchPlanner.Plan plan,Exception error){
+        if(plan==null)return;
+        Button back=compactButton("Вернуться к запросу: "+limit(plan.original,48));
+        back.setOnClickListener(v->navigate(this::showSearch));
+        content.addView(back,new LinearLayout.LayoutParams(-1,dp(50)));
+        if(plan.mode==SearchMode.CODE){
+            Button files=compactButton("Поиск файла по имени в репозитории");
+            files.setOnClickListener(v->showFileNameSearchPicker(plan.original));
+            content.addView(files,new LinearLayout.LayoutParams(-1,dp(50)));
+        }
+        if(error instanceof GitHubApiClient.ApiException
+                &&((GitHubApiClient.ApiException)error).statusCode==401){
+            Button login=compactButton("Переподключить GitHub (запрос сохранён)");
+            login.setOnClickListener(v->startSmartLogin());
+            content.addView(login,new LinearLayout.LayoutParams(-1,dp(50)));
+        }
     }
 
     private void searchRepos(String q){searchReposPage(q,1,true);}
