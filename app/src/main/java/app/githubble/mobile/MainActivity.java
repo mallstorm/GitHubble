@@ -8,6 +8,9 @@ import android.content.pm.PackageManager;
 import android.graphics.*;
 import android.graphics.drawable.*;
 import android.net.Uri;
+import android.speech.RecognitionListener;
+import android.speech.RecognizerIntent;
+import android.speech.SpeechRecognizer;
 import android.text.InputType;
 import android.text.TextUtils;
 import android.text.Spannable;
@@ -157,6 +160,14 @@ public class MainActivity extends Activity {
     private static final int REQUEST_REPOSITORY_FOLDER = 2710;
     private static final int REQUEST_REPOSITORY_ZIP = 2711;
     private static final int REQUEST_REPOSITORY_FILE = 2712;
+    private static final int REQUEST_VOICE_AUDIO = 2720;
+    private static final int REQUEST_LOCAL_AVATAR = 2721;
+    private SpeechRecognizer voiceRecognizer;
+    private EditText voiceTarget;
+    private ImageView voiceButton;
+    private boolean voiceRecording;
+    private boolean voiceWaiting;
+    private String pendingAvatarAccount = "";
     private String pendingPortableExport = "";
     private String pendingUserDataExport = "";
     private String pendingRepositoryImportFull = "";
@@ -754,6 +765,8 @@ public class MainActivity extends Activity {
                 BG, CARD, SUBTLE, TEXT, MUTED, GREEN, BORDER, tileColors, "dark".equals(activeTheme));
         new SearchScreen(this, content, palette, new SearchScreen.Actions() {
             @Override public void search(String query, boolean smart) { navigate(() -> searchRepos(query, smart)); }
+            @Override public void dictate(EditText target, ImageView microphone) { toggleVoiceInput(target,microphone); }
+            @Override public void chooseDictationLanguage() { showVoiceLanguageChooser(); }
             @Override public void searchAdvanced(String query, boolean smart, SearchMode mode, SearchFilters filters) {
                 navigate(() -> MainActivity.this.searchAdvanced(query, smart, mode, filters));
             }
@@ -1095,11 +1108,19 @@ public class MainActivity extends Activity {
         input.setHint("Репозиторий, пользователь или технология");
         input.setTextColor(TEXT);
         input.setHintTextColor(MUTED);
-        input.setPadding(dp(14), 0, dp(14), 0);
+        input.setPadding(dp(14), 0, dp(56), 0);
         input.setBackground(round(CARD, 14, BORDER, 1));
         FrameLayout holder = new FrameLayout(this);
         holder.setPadding(dp(18), dp(4), dp(18), 0);
         holder.addView(input, new FrameLayout.LayoutParams(-1, dp(54)));
+        ImageView quickMic=new ImageView(this);
+        quickMic.setImageResource(R.drawable.ic_mic);
+        quickMic.setContentDescription("Голосовой поиск; долгое нажатие — выбор языка");
+        quickMic.setPadding(dp(12),dp(12),dp(12),dp(12));
+        quickMic.setOnClickListener(v->toggleVoiceInput(input,quickMic));
+        quickMic.setOnLongClickListener(v->{showVoiceLanguageChooser();return true;});
+        FrameLayout.LayoutParams micP=new FrameLayout.LayoutParams(dp(50),dp(54),Gravity.END|Gravity.TOP);
+        micP.setMargins(0,dp(4),dp(18),0);holder.addView(quickMic,micP);
         new android.app.AlertDialog.Builder(this)
                 .setTitle("Быстрый поиск")
                 .setMessage("Для истории, фильтров и подборок откройте нижний раздел «Поиск».")
@@ -1114,6 +1135,124 @@ public class MainActivity extends Activity {
                 })
                 .show();
     }
+
+
+    private void showVoiceLanguageChooser(){
+        final String[] labels={"Русский (ru-RU)","English (en-US)"};
+        String lang=prefs.getString("voice_search_language",
+                "ru".equalsIgnoreCase(Locale.getDefault().getLanguage())?"ru-RU":"en-US");
+        new AlertDialog.Builder(this).setTitle("Язык голосового ввода")
+                .setSingleChoiceItems(labels,"en-US".equals(lang)?1:0,(dialog,index)->{
+                    prefs.edit().putString("voice_search_language",index==0?"ru-RU":"en-US").apply();
+                    dialog.dismiss();
+                    toast(index==0?"Голосовой ввод: русский":"Voice input: English");
+                })
+                .setNegativeButton("Отмена",null).show();
+    }
+
+    private void toggleVoiceInput(EditText target,ImageView microphone){
+        if(voiceRecognizer!=null){
+            if(voiceTarget==target&&voiceRecording){
+                voiceRecording=false;voiceWaiting=true;
+                microphone.setImageResource(R.drawable.ic_mic);
+                microphone.setContentDescription("Распознаём речь…");
+                try{voiceRecognizer.stopListening();}catch(Exception e){finishVoiceInput("Не удалось остановить запись");}
+            }else if(voiceWaiting){toast("Распознаём запись, подождите…");}
+            else{cancelVoiceInput();}
+            return;
+        }
+        voiceTarget=target;voiceButton=microphone;
+        if(android.os.Build.VERSION.SDK_INT>=23
+                &&checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED){
+            requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO},REQUEST_VOICE_AUDIO);
+            return;
+        }
+        beginVoiceInput();
+    }
+
+    private void beginVoiceInput(){
+        final EditText target=voiceTarget;
+        final ImageView button=voiceButton;
+        if(target==null||button==null||!target.isAttachedToWindow())return;
+        if(!SpeechRecognizer.isRecognitionAvailable(this)){
+            toast("На устройстве нет службы распознавания речи. Установите или включите системный голосовой ввод.");
+            finishVoiceInput(null);return;
+        }
+        try{
+            voiceRecognizer=SpeechRecognizer.createSpeechRecognizer(this);
+            voiceRecognizer.setRecognitionListener(new RecognitionListener(){
+                @Override public void onReadyForSpeech(Bundle params){toast("Говорите; нажмите красную кнопку, чтобы остановить");}
+                @Override public void onBeginningOfSpeech(){}
+                @Override public void onRmsChanged(float rmsdB){}
+                @Override public void onBufferReceived(byte[] buffer){}
+                @Override public void onEndOfSpeech(){
+                    voiceRecording=false;voiceWaiting=true;
+                    if(voiceButton==button&&button.isAttachedToWindow()){
+                        button.setImageResource(R.drawable.ic_mic);
+                        button.setContentDescription("Распознаём речь…");
+                    }
+                }
+                @Override public void onError(int error){
+                    String message=error==SpeechRecognizer.ERROR_NO_MATCH?"Речь не распознана — попробуйте ещё раз":
+                            error==SpeechRecognizer.ERROR_SPEECH_TIMEOUT?"Речь не обнаружена":
+                            error==SpeechRecognizer.ERROR_NETWORK||error==SpeechRecognizer.ERROR_NETWORK_TIMEOUT?
+                                    "Ошибка сети голосового распознавания":
+                            error==SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS?"Нет доступа к микрофону":
+                            error==SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED||error==SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE?
+                                    "Язык недоступен; удерживайте микрофон и выберите другой":
+                                    "Голосовой ввод недоступен (код "+error+")";
+                    finishVoiceInput(message);
+                }
+                @Override public void onResults(Bundle results){
+                    ArrayList<String> matches=results==null?null:
+                            results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+                    if(matches!=null&&!matches.isEmpty()&&target.isAttachedToWindow()
+                            &&voiceTarget==target){
+                        String recognized=matches.get(0).trim();
+                        if(!recognized.isEmpty()){
+                            target.setText(recognized);target.setSelection(recognized.length());
+                            toast("Распознано — проверьте запрос и нажмите «Найти»");
+                        }
+                    }else toast("Ничего не распознано");
+                    finishVoiceInput(null);
+                }
+                @Override public void onPartialResults(Bundle partialResults){}
+                @Override public void onEvent(int eventType,Bundle params){}
+            });
+            Intent intent=new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+            String language=prefs.getString("voice_search_language",
+                    "ru".equalsIgnoreCase(Locale.getDefault().getLanguage())?"ru-RU":"en-US");
+            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE,language);
+            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE,language);
+            intent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS,3);
+            intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS,false);
+            if(Build.VERSION.SDK_INT>=34){
+                intent.putExtra(RecognizerIntent.EXTRA_ENABLE_LANGUAGE_DETECTION,true);
+                intent.putExtra(RecognizerIntent.EXTRA_ENABLE_LANGUAGE_SWITCH,
+                        RecognizerIntent.LANGUAGE_SWITCH_BALANCED);
+                intent.putStringArrayListExtra(RecognizerIntent.EXTRA_LANGUAGE_DETECTION_ALLOWED_LANGUAGES,
+                        new ArrayList<>(Arrays.asList("ru-RU","en-US")));
+            }
+            voiceRecording=true;voiceWaiting=false;
+            button.setImageResource(R.drawable.ic_mic_stop);
+            button.setContentDescription("Остановить запись речи");
+            voiceRecognizer.startListening(intent);
+        }catch(Exception e){finishVoiceInput("Не удалось запустить голосовой ввод: "+e.getMessage());}
+    }
+
+    private void finishVoiceInput(String message){
+        if(voiceRecognizer!=null){try{voiceRecognizer.destroy();}catch(Exception ignored){}}
+        voiceRecognizer=null;voiceRecording=false;voiceWaiting=false;
+        if(voiceButton!=null){
+            voiceButton.setImageResource(R.drawable.ic_mic);
+            voiceButton.setContentDescription("Начать голосовой ввод; удерживайте для выбора языка");
+        }
+        voiceTarget=null;voiceButton=null;
+        if(message!=null&&!message.isEmpty())toast(message);
+    }
+
+    private void cancelVoiceInput(){finishVoiceInput(null);}
 
     private void addDirectionRow(int iconRes, String title, String subtitle, int accent, Runnable action) {
         LinearLayout row = new LinearLayout(this);
