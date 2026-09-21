@@ -1,9 +1,10 @@
 name: GitHubble Android checks and release
 
-# Pull requests run compilation, lint and emulator tests, but publish NO APKs.
-# A completed, reviewed PR is squash-merged into main. Only that push
-# publishes the installable APK and source archive. Working/backup branches
-# never publish installable intermediate builds.
+# STABLE RELEASE POLICY:
+# Every PR targeting main runs checks and publishes a TEST Debug APK plus source ZIP.
+# A merge to main runs the same checks and publishes the FINAL Debug APK and source ZIP.
+# PR builds never use release-signing secrets; release signing is main-only.
+# Working/backup branches do not publish builds.
 on:
   workflow_dispatch:
   push:
@@ -81,6 +82,29 @@ jobs:
             adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
             adb shell pm list instrumentation
             adb shell am instrument -w app.githubble.mobile.debug.test/app.githubble.mobile.RcInstrumentationTest
+
+      - name: Export PR test APK and exact tested source tree
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist-pr
+          cp app/build/outputs/apk/debug/app-debug.apk "dist-pr/GitHubble-${{ steps.version.outputs.name }}-pr${{ github.event.pull_request.number }}-debug.apk"
+          git archive --format=zip --output="dist-pr/GitHubble-${{ steps.version.outputs.name }}-pr${{ github.event.pull_request.number }}-sources.zip" HEAD
+          test -s "dist-pr/GitHubble-${{ steps.version.outputs.name }}-pr${{ github.event.pull_request.number }}-sources.zip"
+          sha256sum dist-pr/*.apk > dist-pr/SHA256SUMS.txt
+          sha256sum dist-pr/*.zip > dist-pr/SOURCE_SHA256.txt
+          printf '%s\n' "$(git rev-parse HEAD)" > dist-pr/SOURCE_COMMIT.txt
+          printf '%s\n' "TEST DEBUG APK ONLY: PR validation, not a signed production Release." > dist-pr/SIGNING_INFO.txt
+
+      - name: Publish PR test APK and sources
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: githubble-pr${{ github.event.pull_request.number }}-${{ steps.version.outputs.name }}-${{ github.sha }}
+          path: dist-pr/*
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Sign release APK
         if: github.event_name == 'push' && github.ref == 'refs/heads/main' && env.HAS_RELEASE_SIGNING == 'true'
