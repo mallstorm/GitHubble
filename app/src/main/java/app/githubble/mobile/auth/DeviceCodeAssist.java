@@ -1,6 +1,5 @@
 package app.githubble.mobile.auth;
 
-import android.accessibilityservice.AccessibilityServiceInfo;
 import android.content.ClipData;
 import android.content.ClipDescription;
 import android.content.ClipboardManager;
@@ -8,7 +7,6 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.os.Build;
 import android.os.PersistableBundle;
-import android.view.accessibility.AccessibilityManager;
 
 import app.githubble.mobile.util.DeviceCodeFormatter;
 
@@ -20,8 +18,6 @@ public final class DeviceCodeAssist {
     private static final String PREFS = "githubble_device_login_assist";
     private static final String CODE = "user_code";
     private static final String EXPIRES = "expires_at";
-    private static final String ARMED_UNTIL = "armed_until";
-    private static final long ARM_WINDOW_MS = 45_000L;
 
     private DeviceCodeAssist() {}
 
@@ -61,37 +57,8 @@ public final class DeviceCodeAssist {
         return true;
     }
 
-    /** An explicit user tap is required for every autofill attempt. */
-    public static boolean arm(Context context) {
-        if (currentCode(context).isEmpty()) return false;
-        prefs(context).edit().putLong(ARMED_UNTIL,
-            System.currentTimeMillis() + ARM_WINDOW_MS).apply();
-        return true;
-    }
-
-    public static boolean isArmed(Context context) {
-        return !currentCode(context).isEmpty()
-            && System.currentTimeMillis() < prefs(context).getLong(ARMED_UNTIL, 0L);
-    }
-
-    public static void disarm(Context context) {
-        prefs(context).edit().remove(ARMED_UNTIL).apply();
-    }
-
     public static void clear(Context context) {
         prefs(context).edit().clear().apply();
     }
 
-    public static boolean isAccessibilityEnabled(Context context) {
-        AccessibilityManager manager = (AccessibilityManager)
-            context.getSystemService(Context.ACCESSIBILITY_SERVICE);
-        if (manager == null || !manager.isEnabled()) return false;
-        String id = context.getPackageName() + "/"
-            + DeviceCodeAccessibilityService.class.getName();
-        for (AccessibilityServiceInfo info : manager.getEnabledAccessibilityServiceList(
-                AccessibilityServiceInfo.FEEDBACK_ALL_MASK)) {
-            if (id.equals(info.getId())) return true;
-        }
-        return false;
-    }
 }
