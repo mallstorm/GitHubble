@@ -168,6 +168,7 @@ public class MainActivity extends Activity {
     private boolean voiceRecording;
     private boolean voiceWaiting;
     private String pendingAvatarAccount = "";
+    private ImageView profileEditorAvatar;
     private String pendingPortableExport = "";
     private String pendingUserDataExport = "";
     private String pendingRepositoryImportFull = "";
@@ -3669,7 +3670,8 @@ public class MainActivity extends Activity {
         LinearLayout identity=new LinearLayout(this);
         identity.setGravity(Gravity.CENTER_VERTICAL);
         identity.setPadding(dp(10),dp(6),dp(10),dp(6));
-        identity.addView(createProfileAvatar(dp(58)),
+        profileEditorAvatar=createProfileAvatar(dp(58));
+        identity.addView(profileEditorAvatar,
                 new LinearLayout.LayoutParams(dp(58),dp(58)));
         TextView login=text("@"+original.optString("login","")+" · GitHub ID "+
                 original.optLong("id",0L),13,true);
@@ -3678,12 +3680,35 @@ public class MainActivity extends Activity {
         identity.addView(login);
         card(identity);
 
-        TextView details=text("Изменения сохраняются непосредственно в GitHub. "+
-                "Логин, пароль и фотография не редактируются через этот API. "+
-                "Для сохранения нужен доступ GitHub App: Profile → Write.",12,false);
+        TextView details=text("Поля профиля сохраняются в GitHub (Profile → Write). "+
+                "Фотографию GitHub нельзя изменить через официальный API. "+
+                "Ниже можно выбрать свой аватар для GitHubble или открыть официальный экран "+
+                "GitHub и заменить фотографию аккаунта там.",12,false);
         details.setTextColor(MUTED);
         details.setPadding(dp(3),dp(8),dp(3),dp(3));
         destination.addView(details);
+        Button uploadLocalAvatar=button("Загрузить свой аватар в GitHubble");
+        uploadLocalAvatar.setOnClickListener(v->pickCustomAvatar());
+        destination.addView(uploadLocalAvatar,new LinearLayout.LayoutParams(-1,dp(50)));
+        Button changeGitHubAvatar=button("Изменить фотографию аккаунта GitHub ↗");
+        changeGitHubAvatar.setTextColor(GREEN);
+        changeGitHubAvatar.setBackground(round(CARD,14,GREEN,1));
+        changeGitHubAvatar.setOnClickListener(v->openWeb("https://github.com/settings/profile"));
+        LinearLayout.LayoutParams githubAvatarP=new LinearLayout.LayoutParams(-1,dp(50));
+        githubAvatarP.setMargins(0,dp(8),0,0);destination.addView(changeGitHubAvatar,githubAvatarP);
+        if(localAvatarFile().isFile()){
+            Button restoreGitHubAvatar=compactButton("Убрать локальный аватар");
+            restoreGitHubAvatar.setOnClickListener(v->{
+                if(localAvatarFile().delete()){
+                    if(profileEditorAvatar!=null){
+                        Bitmap image=readCachedAvatar();
+                        if(image!=null)profileEditorAvatar.setImageBitmap(image);
+                    }
+                    toast("В GitHubble снова отображается фотография GitHub");
+                }
+            });
+            destination.addView(restoreGitHubAvatar,new LinearLayout.LayoutParams(-1,dp(46)));
+        }
 
         EditText name=profileEditInput("Имя",original.optString("name",""),
                 "Как вас зовут",255,false,InputType.TYPE_CLASS_TEXT
@@ -4182,7 +4207,110 @@ public class MainActivity extends Activity {
         Bitmap bitmap=readCachedAvatar();if(bitmap!=null)account.setImageBitmap(bitmap);else{account.setImageResource(R.drawable.ic_profile);account.setColorFilter(GREEN);account.setPadding(dp(10),dp(10),dp(10),dp(10));}return account;
     }
 
-    private Bitmap readCachedAvatar(){try{File file=new File(getFilesDir(),"github_avatar.png");return file.isFile()?BitmapFactory.decodeFile(file.getAbsolutePath()):null;}catch(Exception e){return null;}}
+    private Bitmap readCachedAvatar(){try{
+        if(isSignedIn()){
+            File local=localAvatarFile();
+            if(local.isFile()){
+                Bitmap custom=BitmapFactory.decodeFile(local.getAbsolutePath());
+                if(custom!=null)return custom;
+            }
+        }
+        File remote=new File(getFilesDir(),"github_avatar.png");
+        return remote.isFile()?BitmapFactory.decodeFile(remote.getAbsolutePath()):null;
+    }catch(Exception e){return null;}}
+
+    private File localAvatarFile(){
+        String account=currentAccountId();
+        try{
+            byte[] digest=java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(account.getBytes(StandardCharsets.UTF_8));
+            StringBuilder key=new StringBuilder();
+            for(int i=0;i<12;i++)key.append(String.format(Locale.ROOT,"%02x",digest[i]&0xff));
+            return new File(getFilesDir(),"githubble_local_avatar_"+key+".png");
+        }catch(Exception e){
+            return new File(getFilesDir(),"githubble_local_avatar_fallback.png");
+        }
+    }
+
+    private void pickCustomAvatar(){
+        if(!isSignedIn()){toast("Сначала войдите в GitHub");return;}
+        pendingAvatarAccount=currentAccountId();
+        Intent picker=new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        picker.addCategory(Intent.CATEGORY_OPENABLE);
+        picker.setType("image/*");
+        picker.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        try{startActivityForResult(picker,REQUEST_LOCAL_AVATAR);}
+        catch(Exception e){pendingAvatarAccount="";errorDialog("Выбор фотографии",e.getMessage());}
+    }
+
+    private void importLocalAvatar(Uri uri,String account){
+        io.execute(()->{
+            try{
+                if(uri==null)throw new IOException("Не выбрано изображение");
+                ByteArrayOutputStream source=new ByteArrayOutputStream();
+                try(InputStream in=getContentResolver().openInputStream(uri)){
+                    if(in==null)throw new IOException("Изображение недоступно");
+                    byte[] chunk=new byte[8192];int count;
+                    while((count=in.read(chunk))!=-1){
+                        if(source.size()+count>8*1024*1024)
+                            throw new IOException("Изображение больше 8 МБ");
+                        source.write(chunk,0,count);
+                    }
+                }
+                byte[] encoded=source.toByteArray();
+                BitmapFactory.Options bounds=new BitmapFactory.Options();
+                bounds.inJustDecodeBounds=true;
+                BitmapFactory.decodeByteArray(encoded,0,encoded.length,bounds);
+                if(bounds.outWidth<=0||bounds.outHeight<=0||
+                        (long)bounds.outWidth*bounds.outHeight>100_000_000L)
+                    throw new IOException("Неподдерживаемые размеры изображения");
+                BitmapFactory.Options options=new BitmapFactory.Options();
+                options.inSampleSize=1;
+                while(bounds.outWidth/options.inSampleSize>1024||
+                        bounds.outHeight/options.inSampleSize>1024)
+                    options.inSampleSize*=2;
+                Bitmap original=BitmapFactory.decodeByteArray(encoded,0,encoded.length,options);
+                if(original==null)throw new IOException("Не удалось открыть изображение");
+                Bitmap avatar=Bitmap.createBitmap(512,512,Bitmap.Config.ARGB_8888);
+                Canvas canvas=new Canvas(avatar);
+                float scale=Math.max(512f/original.getWidth(),512f/original.getHeight());
+                int width=Math.round(original.getWidth()*scale);
+                int height=Math.round(original.getHeight()*scale);
+                android.graphics.Paint paint=new android.graphics.Paint(
+                        android.graphics.Paint.ANTI_ALIAS_FLAG|android.graphics.Paint.FILTER_BITMAP_FLAG);
+                canvas.drawBitmap(original,null,
+                        new Rect((512-width)/2,(512-height)/2,(512+width)/2,(512+height)/2),paint);
+                original.recycle();
+                if(!account.equals(currentAccountId())){
+                    avatar.recycle();return;
+                }
+                File destination=localAvatarFile();
+                File temp=new File(getFilesDir(),destination.getName()+".tmp");
+                try(FileOutputStream out=new FileOutputStream(temp)){
+                    if(!avatar.compress(Bitmap.CompressFormat.PNG,100,out))
+                        throw new IOException("Не удалось сохранить фотографию");
+                    out.flush();
+                }
+                if(!temp.renameTo(destination)){
+                    try(FileInputStream in=new FileInputStream(temp);
+                            FileOutputStream out=new FileOutputStream(destination)){
+                        byte[] buf=new byte[8192];int n;
+                        while((n=in.read(buf))!=-1)out.write(buf,0,n);
+                    }
+                    temp.delete();
+                }
+                runOnUiThread(()->{
+                    if(!account.equals(currentAccountId()))return;
+                    if(profileEditorAvatar!=null&&profileEditorAvatar.isAttachedToWindow())
+                        profileEditorAvatar.setImageBitmap(avatar);
+                    toast("Аватар обновлён в GitHubble. Для замены на GitHub используйте официальную страницу.");
+                });
+            }catch(Exception error){
+                runOnUiThread(()->errorDialog("Не удалось загрузить аватар",error.getMessage()));
+            }
+        });
+    }
+
     private void downloadAvatar(String url){if(url==null||url.isEmpty())return;try{URLConnection connection=new URL(url).openConnection();connection.setConnectTimeout(12000);connection.setReadTimeout(20000);connection.setRequestProperty("User-Agent","GitHubble-Android/0.25");try(InputStream in=connection.getInputStream();FileOutputStream out=new FileOutputStream(new File(getFilesDir(),"github_avatar.png"))){byte[] buffer=new byte[8192];int n;while((n=in.read(buffer))!=-1)out.write(buffer,0,n);}}catch(Exception ignored){}}
 
     private void showTracking(){ rememberScreen("tracking",null); showTrackingFiltered("ALL"); }
