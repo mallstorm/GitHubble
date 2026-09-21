@@ -5278,7 +5278,10 @@ public class MainActivity extends Activity {
                                 }).show());
                         buttons.addView(remove,new LinearLayout.LayoutParams(0,dp(45),1));
                         line.addView(buttons);
-                        card(line);
+                        line.setBackground(round(CARD,15,BORDER,1));
+                        LinearLayout.LayoutParams entryParams=new LinearLayout.LayoutParams(-1,-2);
+                        entryParams.setMargins(0,0,0,dp(8));
+                        rows.addView(line,entryParams);
                     }
                     Button preview=button("Предпросмотр очистки по правилу");
                     preview.setEnabled(!page.incomplete&&page.artifacts.size()>0);
