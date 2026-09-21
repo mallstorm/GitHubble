@@ -1472,12 +1472,51 @@ public class MainActivity extends Activity {
         });
     }
 
+
+    /**
+     * One GitHub Actions destination with two related native views. Use the same
+     * layout on the repository overview and in both destination screens.
+     * selected: -1 on overview, 0 for runs, 1 for storage.
+     */
+    private void addRepositoryActionsTabs(String full,int selected){
+        LinearLayout tabs=new LinearLayout(this);
+        tabs.setOrientation(LinearLayout.HORIZONTAL);
+        tabs.setGravity(Gravity.CENTER_VERTICAL);
+        final String[] names={"Сборки","Артефакты"};
+        for(int i=0;i<2;i++){
+            final int position=i;
+            Button tab=button(names[i]);
+            tab.setTextSize(13);
+            tab.setMaxLines(1);
+            tab.setAllCaps(false);
+            tab.setPadding(dp(6),0,dp(6),0);
+            boolean active=selected==i;
+            tab.setTextColor(active?Color.WHITE:GREEN);
+            tab.setBackground(round(active?GREEN:CARD,13,active?GREEN:BORDER,active?0:1));
+            tab.setContentDescription(names[i]+(active?", открытый раздел":""));
+            tab.setOnClickListener(v->{
+                if(selected==position)return;
+                if(position==0)navigate(()->showBuildCenter(full));
+                else navigate(()->showActionsStorage(full));
+            });
+            LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(0,dp(48),1f);
+            if(i==1)params.setMargins(dp(9),0,0,0);
+            tabs.addView(tab,params);
+        }
+        LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,dp(48));
+        params.setMargins(0,dp(7),0,dp(10));
+        content.addView(tabs,params);
+    }
+
     private void showBuildCenter(){showBuildCenter("");}
     private void showBuildCenter(String focus){
         setCurrentScreen(()->showBuildCenter(focus));
         shell("Центр сборок",false);
-        if(!focus.isEmpty())repoSectionHeader(focus,"Сборки и артефакты","GitHub Actions",R.drawable.ic_android);
-        TextView buildIntro=text("GitHub Actions · APK, ZIP и история запусков",13,false);
+        if(!focus.isEmpty()){
+            repoSectionHeader(focus,"GitHub Actions","Сборки и артефакты",R.drawable.ic_android);
+            addRepositoryActionsTabs(focus,0);
+        }
+        TextView buildIntro=text("История запусков, задания и результаты сборок",13,false);
         buildIntro.setTextColor(MUTED);
         content.addView(buildIntro);
         if(!isSignedIn()){
@@ -2613,13 +2652,11 @@ public class MainActivity extends Activity {
                             ||!full.equals(currentTitle))return;
                     content.removeView(pb);
                     showRepositoryOverviewHero(r,full,desc,stars,forks,issues,branch,language,license);
-                    Button buildShortcut=button("⬡  Сборки и артефакты  ›");
-                    buildShortcut.setOnClickListener(v->navigate(()->showBuildCenter(full)));
-                    LinearLayout.LayoutParams buildP=new LinearLayout.LayoutParams(-1,dp(54));
-                    buildP.setMargins(0,dp(4),0,dp(10));content.addView(buildShortcut,buildP);
-                    Button storageShortcut=button("⚙  Хранилище Actions · правила и очистка");
-                    storageShortcut.setOnClickListener(v->navigate(()->showActionsStorage(full)));
-                    content.addView(storageShortcut,new LinearLayout.LayoutParams(-1,dp(48)));
+                    sectionTitle("GitHub Actions",null);
+                    addRepositoryActionsTabs(full,-1);
+                    TextView actionsHint=text("Сборки — история запусков · Артефакты — скачивание, удаление и правила хранения.",11,false);
+                    actionsHint.setTextColor(MUTED);
+                    content.addView(actionsHint,new LinearLayout.LayoutParams(-1,-2));
                     sectionTitle("Основные разделы",null);
                     GridLayout tabs=new GridLayout(this);tabs.setColumnCount(adaptiveColumns(3));
                     repoActionCard(tabs,R.drawable.ic_home,"Обзор","О проекте",()->navigate(()->showRepository(full)));
@@ -5262,7 +5299,8 @@ public class MainActivity extends Activity {
         }
         setCurrentScreen(()->showActionsStorage(full));
         shell("Хранилище Actions",false);
-        repoSectionHeader(full,"Управление хранилищем","Артефакты, срок хранения, локальная очистка",R.drawable.ic_settings);
+        repoSectionHeader(full,"GitHub Actions","Артефакты и правила хранения",R.drawable.ic_android);
+        addRepositoryActionsTabs(full,1);
         if(!isSignedIn()){accountRequiredCard("Подключите GitHub для управления Actions.");return;}
         final ActionsStorageManager manager=new ActionsStorageManager(api,prefs);
         final long generation=screenGeneration.get();
@@ -5361,15 +5399,24 @@ public class MainActivity extends Activity {
             }catch(Exception e){errorDialog("Правило очистки",e.getMessage());}
         });
         content.addView(save,new LinearLayout.LayoutParams(-1,dp(49)));
-        sectionTitle("Артефакты проекта","APK/ZIP · отдельное скачивание и удаление");
+        sectionTitle("Артефакты","APK/ZIP · скачать или удалить прямо здесь");
         TextView status=text("Получаем артефакты…",12,false);status.setTextColor(MUTED);card(status);
         LinearLayout rows=new LinearLayout(this);rows.setOrientation(LinearLayout.VERTICAL);content.addView(rows);
-        Button refresh=button("Обновить артефакты");
+        LinearLayout tools=new LinearLayout(this);
+        Button refresh=button("↻ Обновить");
         refresh.setOnClickListener(v->showActionsStorage(full));
-        content.addView(refresh,new LinearLayout.LayoutParams(-1,dp(49)));
-        Button oldCache=button("Управление Actions cache");
+        Button oldCache=button("Кэш Actions");
         oldCache.setOnClickListener(v->navigate(()->showActionsCleanup(full)));
-        content.addView(oldCache,new LinearLayout.LayoutParams(-1,dp(49)));
+        for(Button action:new Button[]{refresh,oldCache}){
+            action.setTextSize(12);action.setTextColor(GREEN);
+            action.setBackground(round(CARD,13,BORDER,1));
+            LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(45),1f);
+            if(action==oldCache)p.setMargins(dp(9),0,0,0);
+            tools.addView(action,p);
+        }
+        LinearLayout.LayoutParams toolsP=new LinearLayout.LayoutParams(-1,dp(45));
+        toolsP.setMargins(0,dp(6),0,dp(12));
+        content.addView(tools,toolsP);
         io.execute(()->{
             try{
                 ActionsStorageManager.Page page=manager.listArtifacts(full,30);
@@ -5382,14 +5429,18 @@ public class MainActivity extends Activity {
                     if(page.artifacts.isEmpty())card(text("Артефактов нет.",12,false));
                     for(ActionsStorageManager.Artifact artifact:page.artifacts){
                         LinearLayout line=new LinearLayout(this);line.setOrientation(LinearLayout.VERTICAL);
-                        line.setPadding(dp(8),dp(8),dp(8),dp(8));
+                        line.setPadding(dp(12),dp(12),dp(12),dp(12));
                         line.addView(text(artifact.name,14,true));
                         TextView meta=text(formatAccountBytes(artifact.sizeBytes)+" · "+formatGitHubDate(artifact.createdAt)
                                 +(artifact.expiresAt.isEmpty()?"":" · до "+formatGitHubDate(artifact.expiresAt))
                                 +(artifact.expired?" · истёк":""),11,false);
                         meta.setTextColor(MUTED);line.addView(meta);
                         LinearLayout buttons=new LinearLayout(this);
+                        buttons.setOrientation(LinearLayout.HORIZONTAL);
+                        buttons.setPadding(0,dp(10),0,0);
                         Button download=button("↓ Скачать ZIP");
+                        download.setTextSize(12);
+                        download.setPadding(dp(4),0,dp(4),0);
                         download.setEnabled(!artifact.expired);
                         download.setOnClickListener(v->{
                             try{
@@ -5398,8 +5449,12 @@ public class MainActivity extends Activity {
                                 startArtifactDownload(full,minimal);
                             }catch(Exception e){errorDialog("Загрузка артефакта",e.getMessage());}
                         });
-                        buttons.addView(download,new LinearLayout.LayoutParams(0,dp(45),1));
+                        buttons.addView(download,new LinearLayout.LayoutParams(0,dp(45),1f));
                         Button remove=button("Удалить");
+                        remove.setTextSize(12);
+                        remove.setTextColor(0xFFC34F48);
+                        remove.setBackground(round(CARD,12,0xFFC34F48,1));
+                        remove.setPadding(dp(4),0,dp(4),0);
                         remove.setOnClickListener(v->new AlertDialog.Builder(this)
                                 .setTitle("Удалить артефакт?")
                                 .setMessage(full+"\n"+artifact.name+"\n"+formatAccountBytes(artifact.sizeBytes)
@@ -5421,7 +5476,9 @@ public class MainActivity extends Activity {
                                         }
                                     });
                                 }).show());
-                        buttons.addView(remove,new LinearLayout.LayoutParams(0,dp(45),1));
+                        LinearLayout.LayoutParams removeParams=new LinearLayout.LayoutParams(0,dp(45),1f);
+                        removeParams.setMargins(dp(9),0,0,0);
+                        buttons.addView(remove,removeParams);
                         line.addView(buttons);
                         line.setBackground(round(CARD,15,BORDER,1));
                         LinearLayout.LayoutParams entryParams=new LinearLayout.LayoutParams(-1,-2);
