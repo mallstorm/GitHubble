@@ -2156,16 +2156,21 @@ public class MainActivity extends Activity {
         io.execute(()->{
             List<JSONArray> batches=new ArrayList<>();
             long reported=0;int failed=0;boolean mayHaveMore=false;Exception lastError=null;
+            boolean refreshAttempted=false;
             for(String variant:plan.variants){
                 try{
                     String url=advancedSearchUrl(plan.mode,variant,page);
                     JSONObject root;
                     try{root=getJson(url);}
                     catch(GitHubApiClient.ApiException denied){
-                        if(denied.statusCode!=401||!oauth.canRefresh()
-                                ||!oauth.refreshIfNeeded(effectiveGitHubClientId()))throw denied;
+                        // Only refresh an expired session; a CODE-only 401 need not
+                        // mean the account's token is invalid for other GitHub APIs.
+                        if(denied.statusCode!=401||refreshAttempted||oauth.hasUsableToken()
+                                ||!oauth.canRefresh())throw denied;
+                        refreshAttempted=true;
+                        if(!oauth.refreshIfNeeded(effectiveGitHubClientId()))throw denied;
                         api.clearSessionCaches();
-                        root=getJson(url); // one retry with newly rotated token
+                        root=getJson(url); // retry this request once
                     }
                     JSONArray items=root.optJSONArray("items");if(items==null)items=new JSONArray();
                     batches.add(items);reported+=Math.max(0,root.optInt("total_count",items.length()));
