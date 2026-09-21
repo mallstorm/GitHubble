@@ -1508,8 +1508,262 @@ public class MainActivity extends Activity {
         content.addView(tabs,params);
     }
 
+
+    /**
+     * Unified Actions: a run is the parent record; available artifacts are the
+     * files beneath it. Completed successful runs without artifacts do not
+     * appear as misleading empty cards after their final file is removed.
+     */
+    private void showUnifiedActions(String full,int page){
+        if(full==null||!full.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")||page<1){
+            errorDialog("GitHub Actions","Некорректный репозиторий или страница.");return;
+        }
+        setCurrentScreen(()->showUnifiedActions(full,page));
+        shell("GitHub Actions",false);
+        repoSectionHeader(full,"GitHub Actions","Сборки и артефакты",R.drawable.ic_android);
+        if(!isSignedIn()){accountRequiredCard("Подключите GitHub, чтобы открыть Actions.");return;}
+        LinearLayout heading=new LinearLayout(this);
+        heading.setGravity(Gravity.CENTER_VERTICAL);
+        TextView section=text("Сборки и артефакты",18,true);
+        heading.addView(section,new LinearLayout.LayoutParams(0,-2,1f));
+        Button gear=button("⚙");
+        gear.setTextSize(21);gear.setTextColor(GREEN);
+        gear.setBackground(round(CARD,13,BORDER,1));
+        gear.setContentDescription("Управление хранилищем и Billing");
+        gear.setOnClickListener(v->navigate(()->showActionsStorage(full)));
+        heading.addView(gear,new LinearLayout.LayoutParams(dp(52),dp(48)));
+        content.addView(heading,new LinearLayout.LayoutParams(-1,dp(57)));
+        final long generation=screenGeneration.get();
+        final String account=currentAccountId();
+        final LinearLayout host=content;
+        final app.githubble.mobile.build.UnifiedActionsController controller=
+                new app.githubble.mobile.build.UnifiedActionsController(api);
+        LinearLayout summary=new LinearLayout(this);
+        summary.setOrientation(LinearLayout.VERTICAL);
+        summary.setPadding(dp(16),dp(13),dp(16),dp(13));
+        summary.setBackground(round(blend(CARD,GREEN,.06f),17,BORDER,1));
+        TextView volume=text("Хранилище проекта · загрузка…",17,true);
+        summary.addView(volume);
+        TextView usageNote=text("Текущий объём артефактов проекта, не остаток квоты или сумма Billing GitHub.",11,false);
+        usageNote.setTextColor(MUTED);
+        summary.addView(usageNote);
+        LinearLayout.LayoutParams summaryParams=new LinearLayout.LayoutParams(-1,-2);
+        summaryParams.setMargins(0,dp(8),0,dp(13));
+        content.addView(summary,summaryParams);
+        LinearLayout controls=new LinearLayout(this);
+        controls.setGravity(Gravity.CENTER_VERTICAL);
+        TextView listTitle=text("Доступные сборки",16,true);
+        controls.addView(listTitle,new LinearLayout.LayoutParams(0,-2,1f));
+        Button refresh=button("↻");
+        refresh.setTextColor(GREEN);refresh.setTextSize(21);
+        refresh.setBackground(round(CARD,13,BORDER,1));
+        refresh.setContentDescription("Обновить GitHub Actions");
+        refresh.setOnClickListener(v->{
+            api.invalidatePrefix("https://api.github.com/repos/"+full+"/actions/");
+            showUnifiedActions(full,1);
+        });
+        controls.addView(refresh,new LinearLayout.LayoutParams(dp(49),dp(45)));
+        content.addView(controls,new LinearLayout.LayoutParams(-1,dp(55)));
+        TextView status=text("Получаем данные GitHub Actions…",12,false);
+        status.setTextColor(MUTED);
+        content.addView(status);
+        LinearLayout rows=new LinearLayout(this);
+        rows.setOrientation(LinearLayout.VERTICAL);
+        content.addView(rows);
+        io.execute(()->{
+            try{
+                app.githubble.mobile.build.UnifiedActionsController.Snapshot data=
+                        controller.load(full,page);
+                runOnUiThread(()->{
+                    if(generation!=screenGeneration.get()||host!=content||
+                            !account.equals(currentAccountId()))return;
+                    volume.setText(formatAccountBytes(data.artifactBytes)+
+                            " · "+data.artifactCount+" артефактов");
+                    if(data.inventoryPartial){
+                        usageNote.setText("Частичный список: отображённый размер не включает все файлы проекта. Это не остаток квоты GitHub.");
+                    }
+                    status.setText("Страница "+page+" · всего запусков: "+data.runCount+
+                            (data.inventoryPartial?" · список файлов неполный":""));
+                    int displayed=0;
+                    for(int i=0;i<data.runs.length();i++){
+                        JSONObject run=data.runs.optJSONObject(i);
+                        if(run==null)continue;
+                        JSONArray artifacts=run.optJSONArray("artifacts");
+                        boolean present=artifacts!=null&&artifacts.length()>0;
+                        String runStatus=run.optString("status","");
+                        // A successful build with zero files has nothing left to download.
+                        // Do not claim deletion is complete until GitHub confirms it.
+                        if(!present&&"completed".equals(runStatus)&&
+                                "success".equals(run.optString("conclusion","")))continue;
+                        renderUnifiedActionsCard(full,run,rows,controller);
+                        displayed++;
+                    }
+                    if(displayed==0){
+                        TextView empty=text("На этой странице нет доступных артефактов или активных запусков.",12,false);
+                        empty.setTextColor(MUTED);rows.addView(empty);
+                    }
+                    if(page>1||data.hasMoreRuns){
+                        LinearLayout pager=new LinearLayout(this);
+                        if(page>1){
+                            Button previous=button("← Назад");
+                            previous.setOnClickListener(v->showUnifiedActions(full,page-1));
+                            pager.addView(previous,new LinearLayout.LayoutParams(0,dp(48),1f));
+                        }
+                        if(data.hasMoreRuns){
+                            Button next=button("Далее →");
+                            next.setOnClickListener(v->showUnifiedActions(full,page+1));
+                            LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(48),1f);
+                            if(page>1)p.setMargins(dp(9),0,0,0);
+                            pager.addView(next,p);
+                        }
+                        rows.addView(pager,new LinearLayout.LayoutParams(-1,dp(48)));
+                    }
+                });
+            }catch(Exception e){
+                runOnUiThread(()->{
+                    if(generation!=screenGeneration.get()||host!=content||
+                            !account.equals(currentAccountId()))return;
+                    status.setText("Не удалось получить сборки: "+e.getMessage());
+                    Button retry=button("Повторить");
+                    retry.setOnClickListener(v->showUnifiedActions(full,page));
+                    rows.addView(retry,new LinearLayout.LayoutParams(-1,dp(48)));
+                });
+            }
+        });
+    }
+
+    private void renderUnifiedActionsCard(String full,JSONObject run,LinearLayout list,
+                     app.githubble.mobile.build.UnifiedActionsController controller){
+        long runId=run.optLong("id",0L);
+        if(runId<=0)return;
+        JSONArray artifacts=run.optJSONArray("artifacts");
+        LinearLayout panel=new LinearLayout(this);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setPadding(dp(13),dp(13),dp(13),dp(13));
+        panel.setBackground(round(CARD,17,BORDER,1));
+        String stage=run.optString("status","");
+        String conclusion=run.optString("conclusion","");
+        boolean successful="completed".equals(stage)&&"success".equals(conclusion);
+        boolean pending=!"completed".equals(stage);
+        TextView name=text((successful?"✓ ":pending?"◷ ":"⚠ ")+
+                run.optString("name","GitHub Actions")+" #"+run.optLong("run_number",runId),15,true);
+        name.setTextColor(successful?GREEN:pending?BLUE:TEXT);
+        name.setOnClickListener(v->navigate(()->showBuildRunDetail(full,runId)));
+        panel.addView(name);
+        TextView stageLabel=text(successful?"Сборка успешна":pending?
+                "Сборка выполняется":"Состояние: "+conclusion,12,false);
+        stageLabel.setTextColor(successful?GREEN:MUTED);
+        panel.addView(stageLabel);
+        String date=run.optString("run_started_at","");
+        if(date.isEmpty()||"null".equals(date))date=run.optString("created_at","");
+        TextView details=text(buildTimeOrPending(date)+" · "+
+                run.optString("head_branch","")+
+                " · "+shortSha(run.optString("head_sha","")),11,false);
+        details.setTextColor(MUTED);panel.addView(details);
+        if(artifacts!=null&&artifacts.length()>0){
+            View rule=new View(this);
+            rule.setBackgroundColor(BORDER);
+            LinearLayout.LayoutParams ruleParams=new LinearLayout.LayoutParams(-1,dp(1));
+            ruleParams.setMargins(0,dp(12),0,dp(8));panel.addView(rule,ruleParams);
+            for(int i=0;i<artifacts.length();i++){
+                JSONObject file=artifacts.optJSONObject(i);
+                if(file==null)continue;
+                long id=file.optLong("id",0L);
+                if(id<=0)continue;
+                LinearLayout artifact=new LinearLayout(this);
+                artifact.setOrientation(LinearLayout.VERTICAL);
+                artifact.setPadding(0,dp(6),0,dp(8));
+                TextView filename=text(file.optString("name","Артефакт"),13,true);
+                filename.setMaxLines(2);artifact.addView(filename);
+                TextView meta=text("ZIP · "+formatAccountBytes(file.optLong("size_in_bytes",0))+
+                        " · "+formatGitHubDate(file.optString("created_at","")),11,false);
+                meta.setTextColor(MUTED);artifact.addView(meta);
+                LinearLayout buttons=new LinearLayout(this);
+                buttons.setPadding(0,dp(8),0,0);
+                Button download=button("↓ Скачать ZIP");
+                download.setTextSize(12);download.setPadding(dp(4),0,dp(4),0);
+                download.setEnabled(!file.optBoolean("expired",false));
+                download.setOnClickListener(v->startArtifactDownload(full,file));
+                buttons.addView(download,new LinearLayout.LayoutParams(0,dp(46),1f));
+                Button delete=button("Удалить");
+                delete.setTextSize(12);delete.setPadding(dp(4),0,dp(4),0);
+                delete.setTextColor(0xFFC85050);
+                delete.setBackground(round(CARD,13,0xFFC85050,1));
+                LinearLayout.LayoutParams deletionParams=new LinearLayout.LayoutParams(0,dp(46),1f);
+                deletionParams.setMargins(dp(9),0,0,0);
+                buttons.addView(delete,deletionParams);
+                delete.setOnClickListener(v->new AlertDialog.Builder(this)
+                        .setTitle("Удалить артефакт?")
+                        .setMessage(file.optString("name","Артефакт")+"\n"+
+                                formatAccountBytes(file.optLong("size_in_bytes",0L))+
+                                "\n\nЕсли это последний артефакт сборки, в GitHub также будет удалён весь запуск и его журнал. Действие необратимо.")
+                        .setNegativeButton("Отмена",null)
+                        .setPositiveButton("Удалить",(dialog,which)->{
+                            delete.setEnabled(false);
+                            io.execute(()->{
+                                try{
+                                    boolean runDeleted=controller.deleteArtifact(full,runId,id);
+                                    runOnUiThread(()->{
+                                        toast(runDeleted?"Сборка и её последний артефакт удалены":
+                                                "Артефакт удалён");
+                                        showUnifiedActions(full,1);
+                                    });
+                                }catch(Exception error){
+                                    runOnUiThread(()->{
+                                        delete.setEnabled(true);
+                                        errorDialog("Удаление не выполнено",error.getMessage());
+                                    });
+                                }
+                            });
+                        }).show());
+                artifact.addView(buttons);
+                panel.addView(artifact);
+            }
+        }else{
+            TextView empty=text(pending?"Артефакты ещё не опубликованы":
+                    "Артефактов нет; журнал запуска доступен по нажатию на название.",11,false);
+            empty.setTextColor(MUTED);panel.addView(empty);
+        }
+        TextView open=text("Детали запуска  ›",12,true);
+        open.setTextColor(GREEN);
+        open.setPadding(0,dp(10),0,dp(7));
+        open.setOnClickListener(v->navigate(()->showBuildRunDetail(full,runId)));
+        panel.addView(open);
+        Button deleteRun=button("Удалить сборку целиком");
+        deleteRun.setTextSize(11);
+        deleteRun.setTextColor(0xFFC85050);
+        deleteRun.setBackground(round(CARD,13,0xFFC85050,1));
+        deleteRun.setOnClickListener(v->new AlertDialog.Builder(this)
+                .setTitle("Удалить сборку полностью?")
+                .setMessage("GitHub Actions #"+runId+
+                        "\nБудут удалены запуск, его журнал и все прикреплённые артефакты. Восстановление невозможно.")
+                .setNegativeButton("Отмена",null)
+                .setPositiveButton("Удалить сборку",(dlg,w)->{
+                    deleteRun.setEnabled(false);
+                    io.execute(()->{
+                        try{
+                            controller.deleteRun(full,runId);
+                            runOnUiThread(()->{
+                                toast("Сборка удалена из GitHub");
+                                showUnifiedActions(full,1);
+                            });
+                        }catch(Exception ex){
+                            runOnUiThread(()->{
+                                deleteRun.setEnabled(true);
+                                errorDialog("Не удалось удалить сборку",ex.getMessage());
+                            });
+                        }
+                    });
+                }).show());
+        panel.addView(deleteRun,new LinearLayout.LayoutParams(-1,dp(43)));
+        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);
+        p.setMargins(0,0,0,dp(10));
+        list.addView(panel,p);
+    }
+
     private void showBuildCenter(){showBuildCenter("");}
     private void showBuildCenter(String focus){
+        if(!focus.isEmpty()){showUnifiedActions(focus,1);return;}
         setCurrentScreen(()->showBuildCenter(focus));
         shell("Центр сборок",false);
         if(!focus.isEmpty()){
@@ -2653,10 +2907,29 @@ public class MainActivity extends Activity {
                     content.removeView(pb);
                     showRepositoryOverviewHero(r,full,desc,stars,forks,issues,branch,language,license);
                     sectionTitle("GitHub Actions",null);
-                    addRepositoryActionsTabs(full,-1);
-                    TextView actionsHint=text("Сборки — история запусков · Артефакты — скачивание, удаление и правила хранения.",11,false);
-                    actionsHint.setTextColor(MUTED);
-                    content.addView(actionsHint,new LinearLayout.LayoutParams(-1,-2));
+                    LinearLayout actionsEntry=new LinearLayout(this);
+                    actionsEntry.setGravity(Gravity.CENTER_VERTICAL);
+                    actionsEntry.setPadding(dp(12),dp(8),dp(8),dp(8));
+                    actionsEntry.setBackground(round(CARD,16,BORDER,1));
+                    LinearLayout actionsLabels=new LinearLayout(this);
+                    actionsLabels.setOrientation(LinearLayout.VERTICAL);
+                    TextView actionsTitle=text("GitHub Actions  ›",16,true);
+                    actionsTitle.setTextColor(GREEN);
+                    TextView actionsSub=text("Сборки · APK · скачивание и удаление",11,false);
+                    actionsSub.setTextColor(MUTED);
+                    actionsLabels.addView(actionsTitle);
+                    actionsLabels.addView(actionsSub);
+                    actionsLabels.setGravity(Gravity.CENTER_VERTICAL);
+                    actionsLabels.setOnClickListener(v->navigate(()->showUnifiedActions(full,1)));
+                    actionsEntry.addView(actionsLabels,new LinearLayout.LayoutParams(0,dp(57),1f));
+                    Button actionsGear=button("⚙");
+                    actionsGear.setTextSize(22);actionsGear.setTextColor(GREEN);
+                    actionsGear.setBackground(round(SUBTLE,13,BORDER,1));
+                    actionsGear.setContentDescription("Настройки GitHub Actions");
+                    actionsGear.setOnClickListener(v->navigate(()->showActionsStorage(full)));
+                    actionsEntry.addView(actionsGear,new LinearLayout.LayoutParams(dp(54),dp(50)));
+                    LinearLayout.LayoutParams actionParams=new LinearLayout.LayoutParams(-1,-2);
+                    actionParams.setMargins(0,0,0,dp(10));content.addView(actionsEntry,actionParams);
                     sectionTitle("Основные разделы",null);
                     GridLayout tabs=new GridLayout(this);tabs.setColumnCount(adaptiveColumns(3));
                     repoActionCard(tabs,R.drawable.ic_home,"Обзор","О проекте",()->navigate(()->showRepository(full)));
@@ -2967,10 +3240,10 @@ public class MainActivity extends Activity {
         addAction(upload,"Загрузить файл/ZIP",()->startRepositoryFileImport(full,defaultBranch));
         addAction(upload,"Открыть файлы",()->navigate(()->showRepositoryFiles(full,defaultBranch,"")));content.addView(upload);
         sectionTitle("Git и публикация",null);GridLayout actions=new GridLayout(this);actions.setColumnCount(adaptiveColumns(2));
-        addAction(actions,"Создать fork",()->showForkDialog(full));addAction(actions,"Новая ветка",()->showCreateBranchDialog(full,defaultBranch));addAction(actions,"Новый тег",()->showCreateTagDialog(full,defaultBranch));addAction(actions,"Новый Release",()->showCreateReleaseDialog(full,defaultBranch));addAction(actions,"Actions / место",()->navigate(()->showActionsStorage(full)));addAction(actions,"Коммиты "+defaultBranch,()->navigate(()->showRepositoryCommits(full,defaultBranch)));content.addView(actions);
+        addAction(actions,"Создать fork",()->showForkDialog(full));addAction(actions,"Новая ветка",()->showCreateBranchDialog(full,defaultBranch));addAction(actions,"Новый тег",()->showCreateTagDialog(full,defaultBranch));addAction(actions,"Новый Release",()->showCreateReleaseDialog(full,defaultBranch));addAction(actions,"GitHub Actions",()->navigate(()->showUnifiedActions(full,1)));addAction(actions,"Коммиты "+defaultBranch,()->navigate(()->showRepositoryCommits(full,defaultBranch)));content.addView(actions);
         boolean isPrivate=repo!=null&&repo.optBoolean("private",false);boolean admin=repo==null||repo.optJSONObject("permissions")==null||repo.optJSONObject("permissions").optBoolean("admin",true);
         sectionTitle("Настройки репозитория",null);
-        Button retention=button("⚙  Хранилище Actions · срок и лимиты");
+        Button retention=button("⚙  GitHub Actions · срок и лимиты");
         retention.setOnClickListener(v->navigate(()->showActionsStorage(full)));
         content.addView(retention,new LinearLayout.LayoutParams(-1,dp(50)));
         GridLayout settings=new GridLayout(this);settings.setColumnCount(adaptiveColumns(2));
@@ -5091,7 +5364,7 @@ public class MainActivity extends Activity {
                                 +(usage.actionsAccessible?formatAccountBytes(usage.totalBytes()):"нет доступа"));
                         open.setAllCaps(false);
                         open.setEnabled(usage.actionsAccessible);
-                        open.setOnClickListener(v->navigate(()->showActionsStorage(usage.fullName)));
+                        open.setOnClickListener(v->navigate(()->showUnifiedActions(usage.fullName,1)));
                         LinearLayout.LayoutParams rowParams=new LinearLayout.LayoutParams(-1,dp(49));
                         rowParams.setMargins(0,dp(5),0,0);
                         rows.addView(open,rowParams);
@@ -5279,8 +5552,8 @@ public class MainActivity extends Activity {
                             (partial?" · показаны первые 1000, список неполный":""));
                     if(names.isEmpty())card(text("Нет доступных репозиториев. Проверьте разрешения GitHub App.",12,false));
                     for(String full:names)
-                        settingsActionRow(full,"Артефакты · скачивание · удаление · правила",
-                                ()->navigate(()->showActionsStorage(full)));
+                        settingsActionRow(full,"Сборки и файлы · открыть GitHub Actions",
+                                ()->navigate(()->showUnifiedActions(full,1)));
                 });
             }catch(Exception e){
                 runOnUiThread(()->{
