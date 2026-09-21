@@ -5076,6 +5076,72 @@ public class MainActivity extends Activity {
 
 
     /** Official billed cost; never calculate money by multiplying artifacts' current size. */
+
+    private void showServerCacheSetting(String full,ActionsStorageManager manager,boolean duration){
+        final String title=duration?"Срок хранения кэшей":"Размер кэшей";
+        final String units=duration?"дней":"ГБ";
+        final long generation=screenGeneration.get();
+        final LinearLayout host=content;
+        final String account=currentAccountId();
+        TextView status=text(title+": получаем настройки GitHub…",12,false);
+        status.setTextColor(MUTED);card(status);
+        Button edit=button("Изменить · "+title);
+        edit.setEnabled(false);
+        content.addView(edit,new LinearLayout.LayoutParams(-1,dp(48)));
+        edit.setOnClickListener(v->{
+            EditText input=new EditText(this);
+            input.setInputType(InputType.TYPE_CLASS_NUMBER);
+            input.setHint(duration?"Например, 7":"Например, 10");
+            new AlertDialog.Builder(this).setTitle(title)
+                    .setMessage(duration?"Управление сроком хранения кэшей репозитория":
+                            "До 10 ГБ кэша на репозиторий включено бесплатно. При большем размере возможна оплата.")
+                    .setView(input).setNegativeButton("Отмена",null)
+                    .setPositiveButton("Продолжить",(dialog,which)->{
+                        int value;
+                        try{value=Integer.parseInt(input.getText().toString().trim());}
+                        catch(Exception ex){toast("Введите целое число");return;}
+                        int max=duration?400:10000;
+                        if(value<1||value>max){toast("Разрешено от 1 до "+max);return;}
+                        Runnable save=()->{
+                            edit.setEnabled(false);status.setText("Сохраняем в GitHub…");
+                            io.execute(()->{
+                                try{
+                                    int updated=duration?manager.setCacheRetentionDays(full,value):
+                                            manager.setCacheStorageLimitGb(full,value);
+                                    runOnUiThread(()->{
+                                        if(generation!=screenGeneration.get()||host!=content||!account.equals(currentAccountId()))return;
+                                        status.setText(title+": "+updated+" "+units+" · GitHub");
+                                        edit.setEnabled(true);
+                                    });
+                                }catch(Exception ex){runOnUiThread(()->{
+                                    if(generation!=screenGeneration.get()||host!=content)return;
+                                    status.setText(title+": "+ex.getMessage());edit.setEnabled(true);
+                                });}
+                            });
+                        };
+                        if(!duration&&value>10)
+                            new AlertDialog.Builder(this).setTitle("Возможны списания GitHub")
+                                    .setMessage("Кэш больше бесплатных 10 ГБ на репозиторий может оплачиваться. Установить лимит "+value+" ГБ?")
+                                    .setNegativeButton("Отмена",null)
+                                    .setPositiveButton("Подтвердить",(dlg,w)->save.run()).show();
+                        else save.run();
+                    }).show();
+        });
+        io.execute(()->{
+            try{
+                int value=duration?manager.loadCacheRetentionDays(full):manager.loadCacheStorageLimitGb(full);
+                runOnUiThread(()->{
+                    if(generation!=screenGeneration.get()||host!=content||!account.equals(currentAccountId()))return;
+                    status.setText(title+": "+(value>0?value+" "+units:"не определено")+" · GitHub");
+                    edit.setEnabled(value>0);
+                });
+            }catch(Exception ex){runOnUiThread(()->{
+                if(generation!=screenGeneration.get()||host!=content)return;
+                status.setText(title+": недоступно ("+ex.getMessage()+"). Нужны Administration и Actions.");
+            });}
+        });
+    }
+
     private void showActionsBillingCost(String full){
         if(!full.isEmpty()&&!full.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")){
             errorDialog("Billing","Некорректный репозиторий");return;
@@ -5267,6 +5333,9 @@ public class MainActivity extends Activity {
                 ()->navigate(()->showActionsBillingCost(full)));
         settingsActionRow("Денежный бюджет GitHub","Настроить в официальном Billing → Budgets and alerts",
                 ()->openSecureGitHubPage("https://github.com/settings/billing"));
+        sectionTitle("Кэш Actions","Отдельная квота 10 ГБ на проект; не входит в 500 МБ артефактов");
+        showServerCacheSetting(full,manager,false);
+        showServerCacheSetting(full,manager,true);
         sectionTitle("Правила очистки на устройстве","Применяются только по нажатию «Предпросмотр», затем подтверждение");
         ActionsStorageManager.Policy policy=manager.loadPolicy(full);
         EditText keepInput=new EditText(this);keepInput.setSingleLine(true);
