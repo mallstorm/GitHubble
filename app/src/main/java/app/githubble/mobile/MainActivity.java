@@ -1476,42 +1476,6 @@ public class MainActivity extends Activity {
     }
 
 
-    /**
-     * One GitHub Actions destination with two related native views. Use the same
-     * layout on the repository overview and in both destination screens.
-     * selected: -1 on overview, 0 for runs, 1 for storage.
-     */
-    private void addRepositoryActionsTabs(String full,int selected){
-        LinearLayout tabs=new LinearLayout(this);
-        tabs.setOrientation(LinearLayout.HORIZONTAL);
-        tabs.setGravity(Gravity.CENTER_VERTICAL);
-        final String[] names={"Сборки","Артефакты"};
-        for(int i=0;i<2;i++){
-            final int position=i;
-            Button tab=button(names[i]);
-            tab.setTextSize(13);
-            tab.setMaxLines(1);
-            tab.setAllCaps(false);
-            tab.setPadding(dp(6),0,dp(6),0);
-            boolean active=selected==i;
-            tab.setTextColor(active?Color.WHITE:GREEN);
-            tab.setBackground(round(active?GREEN:CARD,13,active?GREEN:BORDER,active?0:1));
-            tab.setContentDescription(names[i]+(active?", открытый раздел":""));
-            tab.setOnClickListener(v->{
-                if(selected==position)return;
-                if(position==0)navigate(()->showBuildCenter(full));
-                else navigate(()->showActionsStorage(full));
-            });
-            LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(0,dp(48),1f);
-            if(i==1)params.setMargins(dp(9),0,0,0);
-            tabs.addView(tab,params);
-        }
-        LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,dp(48));
-        params.setMargins(0,dp(7),0,dp(10));
-        content.addView(tabs,params);
-    }
-
-
     /** Sixth root tab: all accessible repositories, never constrained to watched projects. */
     private void showBuildCenter(){showBuildHub();}
     private void showBuildCenter(String focus){showBuildHub();}
@@ -2683,11 +2647,6 @@ public class MainActivity extends Activity {
                             ||!full.equals(currentTitle))return;
                     content.removeView(pb);
                     showRepositoryOverviewHero(r,full,desc,stars,forks,issues,branch,language,license);
-                    sectionTitle("GitHub Actions",null);
-                    addRepositoryActionsTabs(full,-1);
-                    TextView actionsHint=text("Сборки — история запусков · Артефакты — скачивание, удаление и правила хранения.",11,false);
-                    actionsHint.setTextColor(MUTED);
-                    content.addView(actionsHint,new LinearLayout.LayoutParams(-1,-2));
                     sectionTitle("Основные разделы",null);
                     GridLayout tabs=new GridLayout(this);tabs.setColumnCount(adaptiveColumns(3));
                     repoActionCard(tabs,R.drawable.ic_home,"Обзор","О проекте",()->navigate(()->showRepository(full)));
