@@ -330,31 +330,8 @@ public class MainActivity extends Activity {
         titles.addView(page);
         top.addView(titles, new LinearLayout.LayoutParams(0, dp(52), 1));
 
-        if (showSearchAction) {
-            ImageView search = iconButton(R.drawable.ic_search, "Поиск");
-            search.setOnClickListener(v -> showQuickSearchDialog());
-            top.addView(search);
-        }
-
-        if (!"Репозитории".equals(title) && !"Активность".equals(title) && !"Поиск".equals(title) && !"Профиль".equals(title) && !title.equals("Настройки") && !title.equals("Интерфейс") && !title.equals("Уведомления") && !title.equals("Аккаунт и доступ") && !title.equals("Данные и синхронизация") && !title.equals("Безопасность") && !title.equals("О приложении")) {
-        FrameLayout bellWrap = new FrameLayout(this);
-        ImageView bell = iconButton(R.drawable.ic_bell, "Уведомления");
-        bell.setOnClickListener(v -> navigate(this::showNotifications));
-        bellWrap.addView(bell, new FrameLayout.LayoutParams(dp(48), dp(48)));
-        int unreadCount = getUnreadNotificationCount();
-        if (unreadCount > 0) {
-            TextView badge = text(unreadCount > 99 ? "99+" : String.valueOf(unreadCount), 9, true);
-            badge.setTextColor(Color.WHITE);
-            badge.setGravity(Gravity.CENTER);
-            badge.setPadding(dp(3),0,dp(3),0);
-            badge.setBackground(round(Color.rgb(226,73,82), 9, Color.TRANSPARENT, 0));
-            FrameLayout.LayoutParams badgeP = new FrameLayout.LayoutParams(
-                    unreadCount > 9 ? dp(25) : dp(18), dp(18), Gravity.END | Gravity.TOP);
-            badgeP.setMargins(0, 0, 0, 0);
-            bellWrap.addView(badge, badgeP);
-        }
-        top.addView(bellWrap, new LinearLayout.LayoutParams(dp(50), dp(50)));
-        }
+        // Global search and notifications are available only in the bottom navigation.
+        // No top search or bell on any screen, regardless of showSearchAction/title.
 
         // Account avatar opens Profile from every root tab. Profile has no
         // duplicate gear: Settings live in the fifth bottom navigation tab.
