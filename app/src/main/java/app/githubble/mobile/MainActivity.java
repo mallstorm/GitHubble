@@ -49,6 +49,7 @@ import app.githubble.mobile.build.BuildMonitorJobService;
 import app.githubble.mobile.build.BuildArtifactDownloads;
 import app.githubble.mobile.build.ActionsStorageManager;
 import app.githubble.mobile.build.GlobalBuildHub;
+import app.githubble.mobile.release.ReleaseAssetDownloads;
 import app.githubble.mobile.tracking.TrackingNotificationHelper;
 import app.githubble.mobile.web.GitHubCustomTabs;
 import app.githubble.mobile.translation.LanguageDetector;
@@ -2649,9 +2650,7 @@ public class MainActivity extends Activity {
                     showRepositoryOverviewHero(r,full,desc,stars,forks,issues,branch,language,license);
                     sectionTitle("Основные разделы",null);
                     GridLayout tabs=new GridLayout(this);tabs.setColumnCount(adaptiveColumns(3));
-                    repoActionCard(tabs,R.drawable.ic_home,"Обзор","О проекте",()->navigate(()->showRepository(full)));
                     repoActionCard(tabs,R.drawable.ic_repository,"Файлы","Код и структура",()->navigate(()->showRepositoryFiles(full,branch,"")));
-                    repoActionCard(tabs,R.drawable.ic_repository,"README","Документация",()->navigate(()->showReadme(full,finalReadme)));
                     repoActionCard(tabs,R.drawable.ic_issue,"Issues",issues+" открыто",()->navigate(()->showRepoIssues(full)));
                     repoActionCard(tabs,R.drawable.ic_pull_request,"Pull Requests","Изменения",()->navigate(()->showRepoPulls(full)));
                     repoActionCard(tabs,R.drawable.ic_discussion,"Обсуждения","Сообщество",()->navigate(()->showRepoDiscussions(full)));
@@ -3281,10 +3280,10 @@ public class MainActivity extends Activity {
     private void showRepoReleases(String full){rememberScreen("repo_releases",routeArgs("full",full));showRepoReleasesPage(full,1,true);}
     private void showRepoReleasesPage(String full,int page,boolean first){
         if(first){setCurrentScreen(()->showRepoReleases(full));shell("Релизы",true);repoSectionHeader(full,"Релизы","Версии и файлы",R.drawable.ic_release);}ProgressBar pb=new ProgressBar(this);content.addView(pb);
-        io.execute(()->{try{JSONArray releases=getArray("https://api.github.com/repos/"+full+"/releases?per_page=20&page="+page);runOnUiThread(()->{content.removeView(pb);if(releases.length()==0&&first){card(text("У репозитория пока нет релизов.",15,false));return;}for(int i=0;i<releases.length();i++){JSONObject release=releases.optJSONObject(i);if(release!=null)renderReleaseCard(release);}if(releases.length()==20)addLoadMoreButton("Показать ещё релизы",()->showRepoReleasesPage(full,page+1,false));});}catch(Exception e){runOnUiThread(()->{content.removeView(pb);errorCard("Не удалось загрузить релизы",e.getMessage());});}});
+        io.execute(()->{try{JSONArray releases=getArray("https://api.github.com/repos/"+full+"/releases?per_page=20&page="+page);runOnUiThread(()->{content.removeView(pb);if(releases.length()==0&&first){card(text("У репозитория пока нет релизов.",15,false));return;}for(int i=0;i<releases.length();i++){JSONObject release=releases.optJSONObject(i);if(release!=null)renderReleaseCard(full,release);}if(releases.length()==20)addLoadMoreButton("Показать ещё релизы",()->showRepoReleasesPage(full,page+1,false));});}catch(Exception e){runOnUiThread(()->{content.removeView(pb);errorCard("Не удалось загрузить релизы",e.getMessage());});}});
     }
 
-    private void renderReleaseCard(JSONObject release){
+    private void renderReleaseCard(String repository,JSONObject release){
         LinearLayout box=new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
 
@@ -3320,7 +3319,7 @@ public class MainActivity extends Activity {
             box.addView(files);
             for(int j=0;j<assets.length();j++){
                 JSONObject asset=assets.optJSONObject(j);
-                if(asset!=null)addReleaseAssetRow(box,asset);
+                if(asset!=null)addReleaseAssetRow(box,repository,asset);
             }
         }else{
             TextView noFiles=text("Прикреплённых файлов нет",12,false);
@@ -3331,9 +3330,9 @@ public class MainActivity extends Activity {
         card(box);
     }
 
-    private void addReleaseAssetRow(LinearLayout parent,JSONObject asset){
+    private void addReleaseAssetRow(LinearLayout parent,String repository,JSONObject asset){
         String assetName=asset.optString("name","release.bin");
-        String url=asset.optString("browser_download_url","");
+        long assetId=asset.optLong("id",0L);
         long size=asset.optLong("size",0L);
         int downloads=asset.optInt("download_count",0);
         String contentType=cleanNullable(asset.optString("content_type",""));
@@ -3372,12 +3371,54 @@ public class MainActivity extends Activity {
         download.setMinWidth(0);
         download.setMinimumWidth(0);
         download.setBackground(round(blend(CARD,GREEN,0.08f),12,GREEN,1));
-        download.setOnClickListener(v->enqueueReleaseDownload(assetName,url));
+        download.setEnabled(assetId>0L);
+        download.setOnClickListener(v->downloadReleaseAsset(repository,assetId,assetName));
         row.addView(download,new LinearLayout.LayoutParams(dp(102),dp(42)));
 
         LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,-2);
         params.setMargins(0,dp(5),0,dp(5));
         parent.addView(row,params);
+    }
+
+    /** Private release browser URLs return 404 in DownloadManager: fetch by authenticated asset ID. */
+    private void downloadReleaseAsset(String repository,long assetId,String fileName){
+        if(assetId<=0L){toast("Файл релиза недоступен");return;}
+        ProgressDialog dialog=new ProgressDialog(this);
+        dialog.setTitle("Скачивание релиза");
+        dialog.setMessage(fileName);
+        dialog.setProgressStyle(ProgressDialog.STYLE_HORIZONTAL);
+        dialog.setMax(100);
+        dialog.setIndeterminate(true);
+        dialog.setCancelable(false);
+        dialog.show();
+        final String account=currentAccountId();
+        io.execute(()->{
+            try{
+                Uri saved=ReleaseAssetDownloads.download(getApplicationContext(),repository,assetId,
+                        fileName,(transferred,total)->runOnUiThread(()->{
+                            if(!dialog.isShowing())return;
+                            if(total>0L){
+                                dialog.setIndeterminate(false);
+                                dialog.setProgress((int)Math.min(100,transferred*100L/total));
+                            }else dialog.setMessage(fileName+" · "+formatAccountBytes(transferred));
+                        }));
+                runOnUiThread(()->{
+                    dialog.dismiss();
+                    if(!account.equals(currentAccountId()))return;
+                    new AlertDialog.Builder(this).setTitle("Релиз скачан")
+                            .setMessage(Build.VERSION.SDK_INT>=29?
+                                    "Файл сохранён в Загрузки/GitHubble: "+fileName:
+                                    "Файл сохранён в папке приложения: "+fileName)
+                            .setPositiveButton("ОК",null).show();
+                });
+            }catch(Exception error){
+                runOnUiThread(()->{
+                    dialog.dismiss();
+                    if(account.equals(currentAccountId()))
+                        errorDialog("Не удалось скачать релиз",error.getMessage());
+                });
+            }
+        });
     }
 
     private String formatAssetSize(long bytes){
