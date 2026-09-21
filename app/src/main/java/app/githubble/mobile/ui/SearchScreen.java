@@ -28,6 +28,7 @@ public final class SearchScreen {
         void search(String query, boolean intelligentRussian);
         void dictate(EditText target, ImageView microphone);
         void chooseDictationLanguage();
+        void searchFileNames(String query);
         default void searchAdvanced(String query, boolean intelligentRussian, SearchMode mode, SearchFilters filters) {
             search(query, intelligentRussian);
         }
@@ -76,6 +77,7 @@ public final class SearchScreen {
         FrameLayout.LayoutParams lensP=new FrameLayout.LayoutParams(dp(21),dp(21),Gravity.START|Gravity.CENTER_VERTICAL);
         lensP.setMargins(dp(11),0,0,0);searchBox.addView(lens,lensP);
         query=new EditText(activity);query.setHintTextColor(palette.muted);
+        query.setText(prefs.getString("search_draft_query",""));
         query.setTextColor(palette.text);query.setSingleLine(true);query.setTextSize(14);
         query.setPadding(dp(39),0,dp(56),0);query.setBackgroundColor(Color.TRANSPARENT);
         query.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
@@ -97,6 +99,17 @@ public final class SearchScreen {
         go.setAllCaps(false);go.setTextSize(14);go.setTextColor(Color.WHITE);
         go.setBackground(round(palette.green,13,0,0));go.setOnClickListener(v->submit());
         content.addView(go,new LinearLayout.LayoutParams(-1,dp(48)));
+        TextView fileNameSearch=text("⌕  Найти файл по имени в выбранном репозитории  ›",12,true);
+        fileNameSearch.setTextColor(palette.green);
+        fileNameSearch.setGravity(Gravity.CENTER_VERTICAL|Gravity.CENTER_HORIZONTAL);
+        fileNameSearch.setMinHeight(dp(45));
+        fileNameSearch.setContentDescription("Поиск файлов по имени без поиска содержимого кода");
+        fileNameSearch.setOnClickListener(v->{
+            String text=query.getText().toString().trim();
+            prefs.edit().putString("search_draft_query",text).apply();
+            actions.searchFileNames(text);
+        });
+        content.addView(fileNameSearch,new LinearLayout.LayoutParams(-1,dp(45)));
         query.setOnEditorActionListener((v,id,event)->{
             if(id==EditorInfo.IME_ACTION_SEARCH){submit();return true;}return false;
         });
@@ -287,7 +300,10 @@ public final class SearchScreen {
 
     private void submit() {
         String value = query.getText().toString().trim();
-        if (!value.isEmpty()) actions.searchAdvanced(value, smartEnabled, mode, filters.copy());
+        if (!value.isEmpty()) {
+            prefs.edit().putString("search_draft_query",value).apply();
+            actions.searchAdvanced(value,smartEnabled,mode,filters.copy());
+        }
     }
 
     private void setSmartEnabled(boolean enabled) {

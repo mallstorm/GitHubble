@@ -769,6 +769,7 @@ public class MainActivity extends Activity {
             @Override public void search(String query, boolean smart) { navigate(() -> searchRepos(query, smart)); }
             @Override public void dictate(EditText target, ImageView microphone) { toggleVoiceInput(target,microphone); }
             @Override public void chooseDictationLanguage() { showVoiceLanguageChooser(); }
+            @Override public void searchFileNames(String query) { showFileNameSearchPicker(query); }
             @Override public void searchAdvanced(String query, boolean smart, SearchMode mode, SearchFilters filters) {
                 navigate(() -> MainActivity.this.searchAdvanced(query, smart, mode, filters));
             }
@@ -2133,6 +2134,7 @@ public class MainActivity extends Activity {
         if(value.isEmpty()){toast("Введите запрос");return;}
         SearchMode selected=mode==null?SearchMode.REPOSITORIES:mode;
         SearchFilters safeFilters=filters==null?new SearchFilters():filters.copy();
+        prefs.edit().putString("search_draft_query",value).apply();
         new SmartSearchHistory(prefs).remember(value,smart);
         AdvancedSearchPlanner.Plan plan=AdvancedSearchPlanner.plan(value,smart,selected,safeFilters);
         if(plan.variants.isEmpty()){
@@ -2154,18 +2156,53 @@ public class MainActivity extends Activity {
         io.execute(()->{
             List<JSONArray> batches=new ArrayList<>();
             long reported=0;int failed=0;boolean mayHaveMore=false;Exception lastError=null;
+            boolean refreshAttempted=false;
+            boolean userProbeAttempted=false;
+            boolean accountEndpointHealthy=false;
             for(String variant:plan.variants){
                 try{
                     String url=advancedSearchUrl(plan.mode,variant,page);
-                    JSONObject root=getJson(url);
+                    JSONObject root;
+                    try{root=getJson(url);}
+                    catch(GitHubApiClient.ApiException denied){
+                        // Verify /user once: search/code may return 401 even
+                        // when this GitHub account remains authenticated.
+                        if(denied.statusCode!=401)throw denied;
+                        if(!userProbeAttempted){
+                            userProbeAttempted=true;
+                            try{
+                                getJson("https://api.github.com/user");
+                                accountEndpointHealthy=true;
+                            }catch(Exception probeError){
+                                // A separate /user 401 marks genuine reauthorization;
+                                // do not convert 403/network errors into sign-out.
+                            }
+                        }
+                        if(accountEndpointHealthy||refreshAttempted||oauth.hasUsableToken()
+                                ||!oauth.canRefresh())throw denied;
+                        refreshAttempted=true;
+                        if(!oauth.refreshIfNeeded(effectiveGitHubClientId()))throw denied;
+                        api.clearSessionCaches();
+                        root=getJson(url); // retry this request once
+                    }
                     JSONArray items=root.optJSONArray("items");if(items==null)items=new JSONArray();
                     batches.add(items);reported+=Math.max(0,root.optInt("total_count",items.length()));
                     if(items.length()==20)mayHaveMore=true;
-                }catch(Exception e){failed++;lastError=e;}
+                }catch(Exception e){
+                    failed++;lastError=e;
+                    if(plan.mode==SearchMode.CODE
+                            &&e instanceof GitHubApiClient.ApiException
+                            &&((GitHubApiClient.ApiException)e).statusCode==401)
+                        break; // alternate phrases cannot repair missing endpoint access
+                }
             }
             if(batches.isEmpty()){
                 Exception error=lastError==null?new IOException("GitHub не вернул результаты поиска"):lastError;
-                runOnUiThread(()->{content.removeView(pb);errorCard("Ошибка поиска",friendlyAdvancedSearchError(plan.mode,error));});
+                runOnUiThread(()->{
+                    content.removeView(pb);
+                    errorCard("Ошибка поиска",friendlyAdvancedSearchError(plan.mode,error));
+                    renderAdvancedSearchRecovery(plan,error);
+                });
                 return;
             }
             List<JSONObject> results;
@@ -2295,9 +2332,35 @@ public class MainActivity extends Activity {
     }
 
     private String friendlyAdvancedSearchError(SearchMode mode,Exception error){
-        String message=error==null?"Неизвестная ошибка":String.valueOf(error.getMessage());
-        if(mode==SearchMode.CODE&&(message.contains("401")||message.contains("403")))return "GitHub ограничил поиск кода для текущей сессии. Подключите GitHub или проверьте доступ приложения GiHubble.\n\n"+message;
-        return message;
+        if(error instanceof GitHubApiClient.ApiException){
+            GitHubApiClient.ApiException issue=(GitHubApiClient.ApiException)error;
+            if(issue.statusCode==401)return mode==SearchMode.CODE
+                    ?"GitHub отклонил авторизацию для поиска кода (HTTP 401). Это не доказывает, что весь аккаунт отключён. Если токен можно обновить, приложение уже повторило запрос один раз. Проверьте доступ к коду или переподключите GitHub; введённый запрос сохранён."
+                    :"GitHub отклонил запрос (HTTP 401). Токен мог истечь или у текущей авторизации недостаточно доступа. Переподключите аккаунт, не теряя введённый запрос.";
+            if(issue.statusCode==403)return "GitHub отказал в доступе к этому виду поиска (HTTP 403). Причина может быть в правах приложения, доступе к приватному репозиторию или лимите API. Остальные виды поиска доступны. "+issue.getMessage();
+            if(issue.statusCode==429)return "Превышен лимит поиска GitHub (HTTP 429). Повторите запрос позже; сохранённый текст останется в поле.";
+            if(issue.statusCode==422)return "GitHub не принял поисковый запрос (HTTP 422). Упростите формулировку или уберите неподдерживаемые фильтры.";
+        }
+        return error==null?"Неизвестная ошибка":String.valueOf(error.getMessage());
+    }
+
+
+    private void renderAdvancedSearchRecovery(AdvancedSearchPlanner.Plan plan,Exception error){
+        if(plan==null)return;
+        Button back=compactButton("Вернуться к запросу: "+limit(plan.original,48));
+        back.setOnClickListener(v->navigate(this::showSearch));
+        content.addView(back,new LinearLayout.LayoutParams(-1,dp(50)));
+        if(plan.mode==SearchMode.CODE){
+            Button files=compactButton("Поиск файла по имени в репозитории");
+            files.setOnClickListener(v->showFileNameSearchPicker(plan.original));
+            content.addView(files,new LinearLayout.LayoutParams(-1,dp(50)));
+        }
+        if(error instanceof GitHubApiClient.ApiException
+                &&((GitHubApiClient.ApiException)error).statusCode==401){
+            Button login=compactButton("Переподключить GitHub (запрос сохранён)");
+            login.setOnClickListener(v->startSmartLogin());
+            content.addView(login,new LinearLayout.LayoutParams(-1,dp(50)));
+        }
     }
 
     private void searchRepos(String q){searchReposPage(q,1,true);}
@@ -3340,9 +3403,196 @@ public class MainActivity extends Activity {
 
     private void openRepoUrl(String full,String suffix){String u="https://github.com/"+full+(suffix.isEmpty()?"":"/"+suffix);startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse(u)));}
 
+
+    /** Filename/path lookup scoped to one repository. Uses Git Trees API, not search/code. */
+    private void showFileNameSearchPicker(String initial){
+        RepositoryStore.Snapshot snapshot=repositoryStore.read(currentAccountId());
+        ArrayList<String> names=new ArrayList<>();
+        if(snapshot.hasData()){
+            for(int i=0;i<snapshot.repositories.length();i++){
+                JSONObject repo=snapshot.repositories.optJSONObject(i);
+                if(repo==null)continue;
+                String full=repo.optString("full_name","");
+                if(full.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")&&!names.contains(full))
+                    names.add(full);
+            }
+        }
+        Collections.sort(names,String.CASE_INSENSITIVE_ORDER);
+        ArrayList<String> choices=new ArrayList<>(names);
+        choices.add("Указать владелец/репозиторий вручную…");
+        new AlertDialog.Builder(this).setTitle("В каком репозитории искать файл?")
+                .setItems(choices.toArray(new String[0]),(dialog,index)->{
+                    if(index<names.size()){
+                        String full=names.get(index);
+                        navigate(()->showFileNameSearch(full,"",initial));
+                    }else{
+                        EditText input=new EditText(this);
+                        input.setSingleLine(true);input.setHint("owner/repository");
+                        LinearLayout holder=new LinearLayout(this);
+                        holder.setPadding(dp(20),0,dp(20),0);
+                        holder.addView(input,new LinearLayout.LayoutParams(-1,dp(56)));
+                        new AlertDialog.Builder(this).setTitle("Репозиторий").setView(holder)
+                                .setPositiveButton("Продолжить",(d,w)->{
+                                    String full=input.getText().toString().trim();
+                                    if(!full.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")){
+                                        toast("Укажите репозиторий в формате владелец/имя");
+                                        return;
+                                    }
+                                    navigate(()->showFileNameSearch(full,"",initial));
+                                }).setNegativeButton("Отмена",null).show();
+                    }
+                }).setNegativeButton("Отмена",null).show();
+    }
+
+    private void showFileNameSearch(String full,String branch,String initial){
+        if(full==null||!full.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")){
+            toast("Укажите корректный репозиторий");return;
+        }
+        String start=initial==null?"":initial;
+        setCurrentScreen(()->showFileNameSearch(full,branch,start));
+        shell("Поиск файла",false);
+        repoSectionHeader(full,"Поиск файлов по имени",
+                branch==null||branch.isEmpty()?"Ветка по умолчанию":branch,R.drawable.ic_repository);
+        TextView info=text("Ищем в именах и путях файлов выбранного репозитория. "+
+                "Содержимое исходного кода и другие репозитории не проверяются.",12,false);
+        info.setTextColor(MUTED);card(info);
+        FrameLayout field=new FrameLayout(this);
+        field.setBackground(round(CARD,14,BORDER,1));
+        EditText query=new EditText(this);
+        query.setSingleLine(true);query.setHint("Например: OAuthManager или build.gradle");
+        query.setText(start);query.setTextSize(14);query.setTextColor(TEXT);
+        query.setHintTextColor(MUTED);query.setBackgroundColor(Color.TRANSPARENT);
+        query.setPadding(dp(12),0,dp(52),0);
+        field.addView(query,new FrameLayout.LayoutParams(-1,dp(52)));
+        ImageView mic=iconButton(R.drawable.ic_mic,"Наговорить имя файла");
+        mic.setOnClickListener(v->toggleVoiceInput(query,mic));
+        mic.setOnLongClickListener(v->{showVoiceLanguageChooser();return true;});
+        field.addView(mic,new FrameLayout.LayoutParams(dp(48),dp(52),Gravity.END|Gravity.CENTER_VERTICAL));
+        content.addView(field,new LinearLayout.LayoutParams(-1,dp(52)));
+        Button submit=button("Найти файлы");
+        LinearLayout results=new LinearLayout(this);results.setOrientation(LinearLayout.VERTICAL);
+        submit.setOnClickListener(v->{
+            String value=query.getText().toString().trim();
+            if(value.isEmpty()){query.setError("Введите имя или часть пути");return;}
+            if(value.length()>160){query.setError("Максимум 160 символов");return;}
+            setCurrentScreen(()->showFileNameSearch(full,branch,value));
+            searchFileNamesInRepo(full,branch,value,results,submit);
+        });
+        content.addView(submit,new LinearLayout.LayoutParams(-1,dp(51)));
+        content.addView(results,new LinearLayout.LayoutParams(-1,-2));
+        if(!start.trim().isEmpty())submit.performClick();
+    }
+
+    private void searchFileNamesInRepo(String full,String branch,String term,
+                                       LinearLayout results,Button submit){
+        if(!submit.isEnabled())return;
+        submit.setEnabled(false);results.removeAllViews();
+        ProgressBar spinner=new ProgressBar(this);results.addView(spinner);
+        final LinearLayout screen=content;
+        final long generation=screenGeneration.get();
+        final String account=currentAccountId();
+        io.execute(()->{
+            try{
+                String chosenBranch=branch;
+                if(chosenBranch==null||chosenBranch.isEmpty()){
+                    JSONObject metadata=getJson("https://api.github.com/repos/"+full);
+                    chosenBranch=metadata.optString("default_branch","main");
+                }
+                String treeUrl="https://api.github.com/repos/"+full+"/git/trees/"+
+                        URLEncoder.encode(chosenBranch,"UTF-8")+"?recursive=1";
+                JSONObject tree=getJson(treeUrl);
+                JSONArray entries=tree.optJSONArray("tree");
+                if(entries==null)throw new IOException("GitHub не вернул список файлов");
+                final boolean truncated=tree.optBoolean("truncated",false);
+                final String currentBranch=chosenBranch;
+                final int total=entries.length();
+                String normalized=term.toLowerCase(Locale.ROOT).trim();
+                String[] tokens=normalized.split("\\s+");
+                ArrayList<JSONObject> hits=new ArrayList<>();
+                for(int i=0;i<total;i++){
+                    JSONObject item=entries.optJSONObject(i);
+                    if(item==null||!"blob".equals(item.optString("type","")))continue;
+                    String path=item.optString("path","");
+                    String candidate=path.toLowerCase(Locale.ROOT);
+                    boolean matches=true;
+                    for(String token:tokens)if(!candidate.contains(token)){matches=false;break;}
+                    if(matches)hits.add(item);
+                }
+                hits.sort((a,b)->{
+                    String ap=a.optString("path",""),bp=b.optString("path","");
+                    String an=ap.substring(ap.lastIndexOf('/')+1).toLowerCase(Locale.ROOT);
+                    String bn=bp.substring(bp.lastIndexOf('/')+1).toLowerCase(Locale.ROOT);
+                    boolean ae=an.equals(normalized),be=bn.equals(normalized);
+                    if(ae!=be)return ae?-1:1;
+                    boolean as=an.startsWith(normalized),bs=bn.startsWith(normalized);
+                    if(as!=bs)return as?-1:1;
+                    return Integer.compare(ap.length(),bp.length());
+                });
+                runOnUiThread(()->{
+                    if(generation!=screenGeneration.get()||screen!=content
+                            ||!account.equals(currentAccountId()))return;
+                    submit.setEnabled(true);results.removeAllViews();
+                    TextView count=text("Найдено: "+hits.size()+" · ветка "+currentBranch,13,true);
+                    count.setPadding(0,dp(12),0,dp(7));results.addView(count);
+                    if(truncated){
+                        TextView note=text("GitHub вернул неполное дерево большого репозитория. "+
+                                "Результаты могут не включать некоторые файлы.",12,false);
+                        note.setTextColor(MUTED);results.addView(note);
+                    }
+                    if(hits.isEmpty())results.addView(text("Файлы по имени не найдены. "+
+                            "Проверьте ветку, написание и доступ к репозиторию.",13,false));
+                    for(int i=0;i<Math.min(80,hits.size());i++){
+                        JSONObject item=hits.get(i);
+                        String path=item.optString("path","");
+                        String name=path.substring(path.lastIndexOf('/')+1);
+                        long size=item.optLong("size",-1);
+                        LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);
+                        ImageView icon=imageIcon(R.drawable.ic_repository,GREEN,11);
+                        row.addView(icon,new LinearLayout.LayoutParams(dp(42),dp(42)));
+                        LinearLayout labels=new LinearLayout(this);
+                        labels.setOrientation(LinearLayout.VERTICAL);
+                        labels.addView(text(name,14,true));
+                        TextView subtitle=text(path,11,false);
+                        subtitle.setTextColor(MUTED);subtitle.setMaxLines(2);labels.addView(subtitle);
+                        row.addView(labels,new LinearLayout.LayoutParams(0,-2,1));
+                        row.setOnClickListener(v->navigate(()->showFilePreview(
+                                full,currentBranch,path,name,size,"","")));
+                        cardInto(results,row);
+                    }
+                    if(hits.size()>80){
+                        TextView more=text("Показаны первые 80 совпадений. Уточните имя файла.",12,false);
+                        more.setTextColor(MUTED);results.addView(more);
+                    }
+                });
+            }catch(Exception error){
+                runOnUiThread(()->{
+                    if(generation!=screenGeneration.get()||screen!=content
+                            ||!account.equals(currentAccountId()))return;
+                    submit.setEnabled(true);results.removeAllViews();
+                    TextView fail=text("Не удалось получить список файлов: "+
+                            friendlyAdvancedSearchError(SearchMode.CODE,error),12,false);
+                    fail.setTextColor(0xFFB24141);results.addView(fail);
+                });
+            }
+        });
+    }
+
+    private void cardInto(LinearLayout parent,View view){
+        LinearLayout holder=new LinearLayout(this);
+        holder.setPadding(dp(10),dp(8),dp(10),dp(8));
+        holder.setBackground(round(CARD,13,BORDER,1));
+        holder.addView(view,new LinearLayout.LayoutParams(-1,-2));
+        LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,-2);
+        params.setMargins(0,dp(3),0,dp(3));parent.addView(holder,params);
+    }
+
     private void showRepositoryFiles(String full,String branch,String path){
         setCurrentScreen(() -> showRepositoryFiles(full, branch, path));
-        shell("Файлы",true);repoSectionHeader(full,"Файлы",path.isEmpty()?"Корень · "+branch:path,R.drawable.ic_repository);ProgressBar pb=new ProgressBar(this);content.addView(pb);
+        shell("Файлы",true);repoSectionHeader(full,"Файлы",path.isEmpty()?"Корень · "+branch:path,R.drawable.ic_repository);
+        Button findByName=compactButton("⌕  Найти файл по имени в этом репозитории");
+        findByName.setOnClickListener(v->navigate(()->showFileNameSearch(full,branch,"")));
+        content.addView(findByName,new LinearLayout.LayoutParams(-1,dp(49)));
+        ProgressBar pb=new ProgressBar(this);content.addView(pb);
         io.execute(()->{try{JSONArray a=getArray("https://api.github.com/repos/"+full+"/contents/"+path+"?ref="+URLEncoder.encode(branch,"UTF-8"));runOnUiThread(()->{content.removeView(pb);if(!path.isEmpty()){Button up=button("Назад к родительской папке");String parent=path.contains("/")?path.substring(0,path.lastIndexOf('/')):"";up.setOnClickListener(v->navigate(() -> showRepositoryFiles(full,branch,parent)));content.addView(up,new LinearLayout.LayoutParams(-1,dp(48)));}for(int i=0;i<a.length();i++){JSONObject o=a.optJSONObject(i);if(o==null)continue;String name=o.optString("name"),type=o.optString("type"),p=o.optString("path"),download=o.optString("download_url"),html=o.optString("html_url");long size=o.optLong("size");LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);ImageView ic=imageIcon("dir".equals(type)?R.drawable.ic_projects:R.drawable.ic_repository,"dir".equals(type)?tileColors[3]:BLUE,14);row.addView(ic,new LinearLayout.LayoutParams(dp(46),dp(46)));LinearLayout info=new LinearLayout(this);info.setOrientation(LinearLayout.VERTICAL);info.addView(text(name,15,true));TextView meta=text("dir".equals(type)?"Папка":"Файл · "+formatAssetSize(size),11,false);meta.setTextColor(MUTED);info.addView(meta);row.addView(info,new LinearLayout.LayoutParams(0,-2,1));row.setOnClickListener(v->{if("dir".equals(type))navigate(() -> showRepositoryFiles(full,branch,p));else navigate(() -> showFilePreview(full,branch,p,name,size,download,html));});card(row);}});}catch(Exception e){runOnUiThread(()->{content.removeView(pb);errorCard("Не удалось загрузить файлы",e.getMessage());});}});
     }
 
