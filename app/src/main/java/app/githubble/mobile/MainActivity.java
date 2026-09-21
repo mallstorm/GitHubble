@@ -4957,8 +4957,10 @@ public class MainActivity extends Activity {
         });
 
         sectionTitle("Оплата GitHub",null);
-        settingsActionRow("Настроить бюджеты GitHub","Официальная страница · фактические ограничения оплаты",
-                ()->openSecureGitHubPage("https://github.com/settings/billing/budgets"));
+        settingsActionRow("Детализация стоимости Actions","Расход, скидки и платёж в USD по отчёту GitHub",
+                ()->navigate(()->showActionsBillingCost("")));
+        settingsActionRow("Настроить бюджеты GitHub","Billing → Budgets and alerts · реальные денежные ограничения",
+                ()->openSecureGitHubPage("https://github.com/settings/billing"));
         TextView budgetHint=text("Денежные бюджеты принадлежат аккаунту или организации GitHub. Локальный лимит проекта не останавливает списания. Установите stop-usage в официальном Billing.",11,false);
         budgetHint.setTextColor(MUTED);card(budgetHint);
         TextView payment=text("Карта, PayPal и подтверждение платежа вводятся только на официальной странице GitHub. GitHubble не получает и не хранит платёжные реквизиты.",12,false);
@@ -5071,6 +5073,76 @@ public class MainActivity extends Activity {
         });
     }
 
+
+
+    /** Official billed cost; never calculate money by multiplying artifacts' current size. */
+    private void showActionsBillingCost(String full){
+        if(!full.isEmpty()&&!full.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")){
+            errorDialog("Billing","Некорректный репозиторий");return;
+        }
+        setCurrentScreen(()->showActionsBillingCost(full));
+        shell("Расходы Actions",false);
+        settingsPanelHeader("Отчёт GitHub Billing",full.isEmpty()?"Все доступные проекты":"Проект "+full,R.drawable.ic_settings);
+        if(!isSignedIn()){accountRequiredCard("Подключите GitHub для просмотра Billing.");return;}
+        final long generation=screenGeneration.get();
+        final String account=currentAccountId();
+        final LinearLayout host=content;
+        TextView status=text("Получаем официальный отчёт Billing…",12,false);status.setTextColor(MUTED);card(status);
+        settingsActionRow("Денежные бюджеты","Открыть Billing → Budgets and alerts",
+                ()->openSecureGitHubPage("https://github.com/settings/billing"));
+        TextView note=text("Этот отчёт показывает расход и скидки в USD, но не гарантирует точность будущего счёта. Бюджеты и запрет платного использования задаются только в GitHub Billing. Если API недоступен, сумма неизвестна, а не равна нулю.",11,false);
+        note.setTextColor(MUTED);card(note);
+        io.execute(()->{
+            try{
+                JSONObject profile=api.getJson("https://api.github.com/user");
+                String login=profile.optString("login","");
+                if(!login.matches("[A-Za-z0-9-]+"))throw new IllegalStateException("Не удалось определить аккаунт GitHub");
+                java.time.LocalDate month=java.time.LocalDate.now(java.time.ZoneOffset.UTC);
+                String url="https://api.github.com/users/"+login+"/settings/billing/usage/summary?year="+month.getYear()
+                        +"&month="+month.getMonthValue()+"&product=Actions"
+                        +(full.isEmpty()?"":"&repository="+Uri.encode(full));
+                JSONObject report=api.getJson(url);
+                JSONArray items=report.optJSONArray("usageItems");
+                if(items==null)throw new IllegalStateException("GitHub Billing API не вернул usageItems");
+                double gross=0d,discount=0d,net=0d;
+                StringBuilder lines=new StringBuilder();
+                boolean moneyComplete=true;
+                for(int i=0;i<items.length();i++){
+                    JSONObject item=items.optJSONObject(i);
+                    if(item==null||!"Actions".equalsIgnoreCase(item.optString("product","")))continue;
+                    if(!item.has("grossAmount")||!item.has("discountAmount")||!item.has("netAmount")){
+                        moneyComplete=false;continue;
+                    }
+                    gross+=item.optDouble("grossAmount",0d);
+                    discount+=item.optDouble("discountAmount",0d);
+                    net+=item.optDouble("netAmount",0d);
+                    lines.append("\n").append(item.optString("sku","Actions"))
+                            .append(": ").append(item.optString("grossQuantity","?")).append(" ")
+                            .append(item.optString("unitType",""))
+                            .append(" · к оплате $").append(String.format(Locale.US,"%.4f",item.optDouble("netAmount",0d)));
+                }
+                final boolean complete=moneyComplete;
+                final String details=lines.toString();
+                final double grossFinal=gross,discountFinal=discount,netFinal=net;
+                final String period=month.getYear()+"-"+String.format(Locale.US,"%02d",month.getMonthValue());
+                runOnUiThread(()->{
+                    if(generation!=screenGeneration.get()||host!=content||!account.equals(currentAccountId()))return;
+                    status.setText("Период: "+period+" UTC\n"+
+                            (complete?"До скидок: $"+String.format(Locale.US,"%.4f",grossFinal)
+                                    +"\nСкидки: $"+String.format(Locale.US,"%.4f",discountFinal)
+                                    +"\nК оплате: $"+String.format(Locale.US,"%.4f",netFinal)
+                                    :"GitHub вернул неполные суммы, итог недоступен")
+                            +(details.isEmpty()?"\nДетализированных начислений Actions пока нет.":details));
+                });
+            }catch(Exception error){
+                runOnUiThread(()->{
+                    if(generation!=screenGeneration.get()||host!=content)return;
+                    status.setText("Стоимость недоступна: "+error.getMessage()
+                            +"\nПроверьте разрешение аккаунта Plan: read и доступ владельца к Billing.");
+                });
+            }
+        });
+    }
 
     /** Account-wide entry point. Each repository owns its own GitHub retention policy. */
     private void showActionsStorageRepositories(){
@@ -5191,6 +5263,10 @@ public class MainActivity extends Activity {
                 });
             }
         });
+        settingsActionRow("Стоимость Actions для проекта","Официальный отчёт GitHub Billing · если разрешён",
+                ()->navigate(()->showActionsBillingCost(full)));
+        settingsActionRow("Денежный бюджет GitHub","Настроить в официальном Billing → Budgets and alerts",
+                ()->openSecureGitHubPage("https://github.com/settings/billing"));
         sectionTitle("Правила очистки на устройстве","Применяются только по нажатию «Предпросмотр», затем подтверждение");
         ActionsStorageManager.Policy policy=manager.loadPolicy(full);
         EditText keepInput=new EditText(this);keepInput.setSingleLine(true);
