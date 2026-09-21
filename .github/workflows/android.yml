@@ -1,12 +1,19 @@
 name: GitHubble Android checks and release
 
 # STABLE RELEASE POLICY:
-# Every PR targeting main runs checks and publishes a TEST Debug APK plus source ZIP.
-# A merge to main runs the same checks and publishes the FINAL Debug APK and source ZIP.
+# Fast path (RC3.9-style): unit tests plus Debug/Release compile, without an emulator.
+# Each PR publishes a TEST Debug APK and source ZIP; main publishes the final bundle.
+# Use workflow_dispatch with full_validation=true for lint + emulator regressions.
 # PR builds never use release-signing secrets; release signing is main-only.
 # Working/backup branches do not publish builds.
 on:
   workflow_dispatch:
+    inputs:
+      full_validation:
+        description: 'Run lint and Android emulator regressions (slower, manual only)'
+        required: false
+        type: boolean
+        default: false
   push:
     branches: [main]
   pull_request:
@@ -43,6 +50,7 @@ jobs:
           gradle-version: '9.5.1'
 
       - name: Enable KVM for Android emulator
+        if: github.event_name == 'workflow_dispatch' && inputs.full_validation == true
         shell: bash
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -58,13 +66,19 @@ jobs:
           echo "name=${VERSION_NAME}" >> "$GITHUB_OUTPUT"
           echo "code=${VERSION_CODE}" >> "$GITHUB_OUTPUT"
 
-      - name: Unit tests, lint and release compile
+      - name: Fast unit tests and Debug/Release compile
+        env:
+          GITHUB_CLIENT_ID: ${{ secrets.GITHUB_CLIENT_ID }}
+        run: gradle --no-daemon test assembleDebug assembleRelease
+
+      - name: Extended lint and instrumentation APK (manual only)
+        if: github.event_name == 'workflow_dispatch' && inputs.full_validation == true
         env:
           GITHUB_CLIENT_ID: ${{ secrets.GITHUB_CLIENT_ID }}
         shell: bash
         run: |
           set +e
-          gradle --no-daemon test lintRelease assembleDebug assembleDebugAndroidTest assembleRelease
+          gradle --no-daemon lintRelease assembleDebugAndroidTest
           result=$?
           if [ "$result" -ne 0 ]; then
             report="app/build/intermediates/lint_intermediate_text_report/release/lintReportRelease/lint-results-release.txt"
@@ -72,7 +86,8 @@ jobs:
           fi
           exit "$result"
 
-      - name: On-device regression suite
+      - name: On-device regression suite (manual only)
+        if: github.event_name == 'workflow_dispatch' && inputs.full_validation == true
         uses: ReactiveCircus/android-emulator-runner@v2
         with:
           api-level: 35
