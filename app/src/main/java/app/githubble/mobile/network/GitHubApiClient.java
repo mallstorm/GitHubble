@@ -193,7 +193,12 @@ public final class GitHubApiClient {
                 long wait = retryAfter > 0L ? Math.min(retryAfter, 30_000L) : 350L * attempts + (long)(Math.random()*180L);
                 Thread.sleep(wait); continue;
             }
-            if (code == 401) secureStore.put("github_reauth_required", "true");
+            // Some GitHub endpoints (notably code search) may deny this token while
+            // /user and other API operations remain valid. Never sign out globally
+            // merely because one feature received a 401.
+            if (code == 401 && ("https://api.github.com/user".equals(url)
+                    || url.startsWith("https://api.github.com/user?")))
+                secureStore.put("github_reauth_required", "true");
             throw new ApiException(code, humanMessage(code, response), resetEpochSeconds);
         }
     }
@@ -207,7 +212,7 @@ public final class GitHubApiClient {
         String detail = body == null ? "" : body.replace('\n',' ');
         if (detail.length() > 180) detail = detail.substring(0,180) + "…";
         switch (code) {
-            case 401: return "Сессия GitHub недействительна. Выполните вход заново.";
+            case 401: return "GitHub отклонил авторизацию для этого запроса (HTTP 401). Доступ к другим функциям аккаунта может сохраняться.";
             case 403: return "GitHub отклонил запрос: недостаточно прав или исчерпан лимит. " + detail;
             case 404: return "Объект GitHub не найден или недоступен.";
             case 422: return "GitHub не принял параметры запроса. " + detail;
