@@ -41,30 +41,85 @@ public final class TranslationEngine {
             Pattern.compile("<[^>]+>")
     };
 
+    private static final Pattern PLACEHOLDER = Pattern.compile("⟦GH_\\\\d{4,}⟧");
+
+    /**
+     * ML Kit can rewrite artificial placeholders. Never send technical fragments to
+     * the on-device translator: split on protected markers and splice the exact
+     * original source fragments back after translating only ordinary prose.
+     */
+    private static final class LocalPart {
+        final String text;
+        final boolean translate;
+        LocalPart(String text,boolean translate){this.text=text;this.translate=translate;}
+    }
+
+    private static List<LocalPart> localParts(ProtectedText protectedText,int max){
+        List<LocalPart> parts=new ArrayList<>();
+        Matcher matcher=PLACEHOLDER.matcher(protectedText.text);
+        int cursor=0;
+        while(matcher.find()){
+            addLocalProse(parts,protectedText.text.substring(cursor,matcher.start()),max);
+            String original=protectedText.tokens.get(matcher.group());
+            if(original==null)
+                throw new IllegalStateException("Не удалось восстановить защищённый фрагмент.");
+            parts.add(new LocalPart(original,false));
+            cursor=matcher.end();
+        }
+        addLocalProse(parts,protectedText.text.substring(cursor),max);
+        return parts;
+    }
+
+    private static void addLocalProse(List<LocalPart> parts,String text,int max){
+        if(text.isEmpty())return;
+        for(String chunk:splitMarkdown(text,max))
+            if(!chunk.isEmpty())parts.add(new LocalPart(chunk,true));
+    }
+
+    private static String translateOffline(String source,String target,Config config,
+                                           Progress progress)throws Exception{
+        String from=MlKitTranslation.detectSource(source,config.sourceLanguage);
+        if(from.equals(target))return source;
+        List<LocalPart> parts=localParts(protect(source),
+                Math.max(1200,Math.min(7000,config.chunkSize)));
+        List<String> prose=new ArrayList<>();
+        for(LocalPart part:parts)
+            if(part.translate&&!part.text.trim().isEmpty())prose.add(part.text);
+        if(prose.isEmpty())return source;
+        List<String> translated=MlKitTranslation.translateSegments(prose,from,target,progress);
+        StringBuilder output=new StringBuilder(source.length()+source.length()/5);
+        int translatedIndex=0;
+        for(LocalPart part:parts){
+            if(!part.translate||part.text.trim().isEmpty())output.append(part.text);
+            else output.append(translated.get(translatedIndex++));
+        }
+        return output.toString();
+    }
+
     public String translate(String source, String target, Config config, Progress progress) throws Exception {
-        if (source == null || source.trim().isEmpty()) return "";
-        if (config == null) throw new IllegalStateException("Переводчик не выбран");
-        boolean local="mlkit".equals(config.provider)||"auto".equals(config.provider);
-        if (!local && (config.endpoint == null || config.endpoint.trim().isEmpty()))
+        if(source==null||source.trim().isEmpty())return "";
+        if(config==null)throw new IllegalStateException("Переводчик не выбран");
+        if("mlkit".equals(config.provider)||"auto".equals(config.provider))
+            return translateOffline(source,target,config,progress);
+        if(config.endpoint==null||config.endpoint.trim().isEmpty())
             throw new IllegalStateException("Настройте адрес облачного переводчика.");
-        ProtectedText protectedText = protect(source);
-        List<String> chunks = splitMarkdown(protectedText.text, Math.max(1200, Math.min(7000, config.chunkSize)));
-        StringBuilder translated = new StringBuilder(source.length() + source.length() / 5);
-        String from=local?MlKitTranslation.detectSource(source,config.sourceLanguage):"";
-        if(local&&from.equals(target))return source;
-        for (int i = 0; i < chunks.size(); i++) {
-            String part = local?MlKitTranslation.translate(chunks.get(i),from,target):
-                    request(chunks.get(i), target, config);
-            if (translated.length() > 0 && !endsWithWhitespace(translated) && !part.startsWith("\n")) translated.append('\n');
+        ProtectedText protectedText=protect(source);
+        List<String> chunks=splitMarkdown(protectedText.text,
+                Math.max(1200,Math.min(7000,config.chunkSize)));
+        StringBuilder translated=new StringBuilder(source.length()+source.length()/5);
+        for(int i=0;i<chunks.size();i++){
+            String part=request(chunks.get(i),target,config);
+            if(translated.length()>0&&!endsWithWhitespace(translated)&&!part.startsWith("\\n"))
+                translated.append('\\n');
             translated.append(part);
-            if (progress != null) progress.onProgress(i + 1, chunks.size());
+            if(progress!=null)progress.onProgress(i+1,chunks.size());
         }
         String output=translated.toString();
         for(String placeholder:protectedText.tokens.keySet()){
             if(!output.contains(placeholder))
                 throw new IllegalStateException("Переводчик изменил технический фрагмент. Оригинал сохранён; попробуйте другой способ перевода.");
         }
-        return restore(output, protectedText.tokens);
+        return restore(output,protectedText.tokens);
     }
 
     public static String providerLabel(String provider) {
