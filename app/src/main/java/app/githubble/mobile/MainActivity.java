@@ -55,6 +55,7 @@ import app.githubble.mobile.web.GitHubCustomTabs;
 import app.githubble.mobile.translation.LanguageDetector;
 import app.githubble.mobile.translation.TranslationCache;
 import app.githubble.mobile.translation.TranslationEngine;
+import app.githubble.mobile.translation.MlKitTranslation;
 import app.githubble.mobile.code.CodeHighlighter;
 import app.githubble.mobile.diagnostics.TrackingDiagnostics;
 import app.githubble.mobile.diagnostics.DiagnosticsExporter;
@@ -6455,7 +6456,8 @@ public class MainActivity extends Activity {
         settingsRow("Язык интерфейса","Русский · другие языки пока не поддерживаются");
         sectionTitle("Перевод",null);
         settingsActionRow("Как работает перевод","Защита кода и Markdown",this::showTranslationInfo);
-        settingsActionRow("Провайдер перевода",translatorDisplayName(),this::configureTranslatorSettings);
+        settingsActionRow("Перевод и языковые модели",translatorDisplayName(),
+                ()->navigate(this::configureTranslatorSettings));
         settingsToggleRow("Автоперевод","Переводить иностранный контент при открытии",
                 "translator_auto",false);
         settingsRow("Кэш переводов",translationCache.count()+" документов");
@@ -6688,15 +6690,226 @@ public class MainActivity extends Activity {
 
     private String compactBytes(long bytes){if(bytes<1024)return bytes+" Б";if(bytes<1024L*1024L)return String.format(Locale.ROOT,"%.1f КБ",bytes/1024.0);return String.format(Locale.ROOT,"%.1f МБ",bytes/(1024.0*1024.0));}
 
-    private String translatorDisplayName(){TranslationEngine.Config c=translationConfig();if(c.endpoint.isEmpty())return "Не настроен";String host="";try{host=Uri.parse(c.endpoint).getHost();}catch(Exception ignored){}return TranslationEngine.providerLabel(c.provider)+(host==null||host.isEmpty()?"":" · "+host);}
+    private String translatorDisplayName(){
+        String mode=secureStore.get("translator_provider");
+        if(mode.isEmpty())mode="mlkit";
+        return TranslationEngine.providerLabel(mode);
+    }
+
     private void configureTranslatorSettings(){
-        LinearLayout form=new LinearLayout(this);form.setOrientation(LinearLayout.VERTICAL);form.setPadding(dp(18),0,dp(18),0);
-        String[] providers={"Универсальный JSON","OpenAI-совместимый","LibreTranslate"};Spinner provider=new Spinner(this);provider.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,providers));String current=secureStore.get("translator_provider");provider.setSelection("openai".equals(current)?1:"libretranslate".equals(current)?2:0);form.addView(provider);
-        EditText endpoint=new EditText(this);endpoint.setSingleLine(true);endpoint.setHint("Endpoint API");endpoint.setText(secureStore.get("translator_endpoint"));form.addView(endpoint);
-        EditText apiKey=new EditText(this);apiKey.setSingleLine(true);apiKey.setHint("API-ключ (необязательно)");apiKey.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD);apiKey.setText(secureStore.get("translator_api_key"));form.addView(apiKey);
-        EditText model=new EditText(this);model.setSingleLine(true);model.setHint("Модель, например gpt-4.1-mini");model.setText(secureStore.get("translator_model"));form.addView(model);
-        TextView help=text("Generic: {text,target} → translatedText. OpenAI: /v1/chat/completions. LibreTranslate: /translate. Endpoint, ключ и модель хранятся зашифрованно через Android Keystore.",11,false);help.setTextColor(MUTED);form.addView(help);
-        new AlertDialog.Builder(this).setTitle("Провайдер перевода").setView(form).setPositiveButton("Сохранить",(d,w)->{String p=provider.getSelectedItemPosition()==1?"openai":provider.getSelectedItemPosition()==2?"libretranslate":"generic";secureStore.put("translator_provider",p);secureStore.put("translator_endpoint",endpoint.getText().toString().trim());secureStore.put("translator_api_key",apiKey.getText().toString().trim());secureStore.put("translator_model",model.getText().toString().trim());toast("Провайдер сохранён");if("Настройки".equals(currentTitle))showSettings();}).setNeutralButton("Очистить",(d,w)->{secureStore.remove("translator_provider");secureStore.remove("translator_endpoint");secureStore.remove("translator_api_key");secureStore.remove("translator_model");translationCache.clear();if("Настройки".equals(currentTitle))showSettings();}).setNegativeButton("Отмена",null).show();
+        setCurrentScreen(this::configureTranslatorSettings);
+        shell("Перевод",false);
+        settingsPanelHeader("Перевод",
+                "Google ML Kit на устройстве, специализированные API и нейросети",
+                R.drawable.ic_globe);
+        settingsActionRow("Основной способ",translatorDisplayName(),this::chooseTranslationMode);
+        settingsRow("Режим «Авто»","На устройстве; облако только по вашему подтверждению");
+        settingsActionRow("Исходный язык",
+                sourceLanguageLabel(prefs.getString("translator_source_language","auto")),
+                this::chooseTranslationLanguage);
+        settingsActionRow("Языковые модели ML Kit","Загрузка по Wi-Fi и удаление моделей",
+                this::showTranslationModels);
+        settingsActionRow("Облачный переводчик",
+                TranslationEngine.providerLabel(translationController.cloudConfig().provider),
+                this::configureCloudTranslation);
+        settingsToggleRow("Автоперевод на устройстве",
+                "Переводить иностранные материалы с уже загруженными моделями",
+                "translator_auto",false);
+        settingsRow("Кэш переводов",translationCache.count()+" документов");
+        TextView privacy=text("Для ML Kit не нужен ключ API. Модели скачиваются только по вашему "+
+                "запросу. Исходный текст репозитория не отправляется в облако без вашего действия. "+
+                "Для внешних API могут действовать тарифы и правила обработки данных сервиса.",12,false);
+        privacy.setTextColor(MUTED);card(privacy);
+    }
+
+    private String sourceLanguageLabel(String code){
+        switch(code){
+            case "en":return "Английский";
+            case "de":return "Немецкий";
+            case "fr":return "Французский";
+            case "es":return "Испанский";
+            case "uk":return "Украинский";
+            case "ja":return "Японский";
+            case "zh":return "Китайский";
+            default:return "Определять автоматически · ML Kit";
+        }
+    }
+
+    private void chooseTranslationLanguage(){
+        String[] languages={"Автоматически","Английский","Немецкий","Французский",
+                "Испанский","Украинский","Японский","Китайский"};
+        String[] codes={"auto","en","de","fr","es","uk","ja","zh"};
+        String old=prefs.getString("translator_source_language","auto");
+        int checked=0;
+        for(int i=0;i<codes.length;i++)if(codes[i].equals(old))checked=i;
+        new AlertDialog.Builder(this).setTitle("Исходный язык")
+                .setSingleChoiceItems(languages,checked,(dialog,which)->{
+                    prefs.edit().putString("translator_source_language",codes[which]).apply();
+                    dialog.dismiss();
+                    configureTranslatorSettings();
+                }).setNegativeButton("Отмена",null).show();
+    }
+
+    private void chooseTranslationMode(){
+        String[] modes={"Авто · локально, облако по подтверждению","Google ML Kit · локально",
+                "DeepL API","Google Cloud Translation","LibreTranslate",
+                "OpenAI-совместимая модель","Свой JSON API"};
+        String[] keys={"auto","mlkit","deepl","google","libretranslate","openai","generic"};
+        String current=secureStore.get("translator_provider");
+        if(current.isEmpty())current="mlkit";
+        int checked=1;
+        for(int i=0;i<keys.length;i++)if(keys[i].equals(current))checked=i;
+        new AlertDialog.Builder(this).setTitle("Основной способ перевода")
+                .setSingleChoiceItems(modes,checked,(dialog,which)->{
+                    secureStore.put("translator_provider",keys[which]);
+                    if(which>1)secureStore.put("translator_cloud_provider",keys[which]);
+                    dialog.dismiss();
+                    configureTranslatorSettings();
+                }).setNegativeButton("Отмена",null).show();
+    }
+
+    private void showTranslationModels(){
+        setCurrentScreen(this::showTranslationModels);
+        shell("Модели ML Kit",false);
+        settingsPanelHeader("Локальные языковые модели",
+                "Каждую модель загружают отдельно. Скачивание разрешено только по Wi-Fi.",
+                R.drawable.ic_globe);
+        final String[] names={"Русский","Английский","Немецкий","Французский",
+                "Испанский","Украинский","Японский","Китайский"};
+        final String[] codes={"ru","en","de","fr","es","uk","ja","zh"};
+        final long generation=screenGeneration.get();
+        final LinearLayout destination=content;
+        for(int i=0;i<codes.length;i++){
+            final String code=codes[i],name=names[i];
+            TextView row=text(name+" · проверяем модель…",14,false);
+            card(row);
+            Button download=compactButton("Скачать модель "+name+" по Wi-Fi");
+            Button delete=compactButton("Удалить модель "+name);
+            download.setEnabled(false);delete.setEnabled(false);
+            content.addView(download,new LinearLayout.LayoutParams(-1,dp(48)));
+            content.addView(delete,new LinearLayout.LayoutParams(-1,dp(48)));
+            Runnable check=()->io.execute(()->{
+                try{
+                    boolean installed=MlKitTranslation.modelExists(code);
+                    runOnUiThread(()->{
+                        if(generation!=screenGeneration.get()||destination!=content)return;
+                        row.setText(name+(installed?" · модель загружена":" · не загружена"));
+                        download.setEnabled(!installed);
+                        delete.setEnabled(installed);
+                    });
+                }catch(Exception ex){
+                    runOnUiThread(()->{if(generation==screenGeneration.get()&&destination==content)
+                        row.setText(name+" · не удалось проверить: "+ex.getMessage());});
+                }
+            });
+            download.setOnClickListener(v->{
+                download.setEnabled(false);
+                row.setText(name+" · ожидаем Wi-Fi и загрузку модели…");
+                io.execute(()->{
+                    try{
+                        MlKitTranslation.downloadModel(code);
+                        runOnUiThread(()->{
+                            if(generation==screenGeneration.get()&&destination==content)check.run();
+                        });
+                    }catch(Exception ex){
+                        runOnUiThread(()->{
+                            if(generation!=screenGeneration.get()||destination!=content)return;
+                            row.setText(name+" · загрузка не удалась: "+ex.getMessage());
+                            download.setEnabled(true);
+                        });
+                    }
+                });
+            });
+            delete.setOnClickListener(v->new AlertDialog.Builder(this)
+                    .setTitle("Удалить модель "+name+"?")
+                    .setMessage("После удаления без сети перевод с этим языком будет недоступен.")
+                    .setNegativeButton("Отмена",null)
+                    .setPositiveButton("Удалить",(d,w)->io.execute(()->{
+                        try{
+                            MlKitTranslation.deleteModel(code);
+                            runOnUiThread(()->{
+                                if(generation==screenGeneration.get()&&destination==content)check.run();
+                            });
+                        }catch(Exception ex){
+                            runOnUiThread(()->errorDialog("Не удалось удалить модель",ex.getMessage()));
+                        }
+                    })).show());
+            check.run();
+        }
+    }
+
+    private void configureCloudTranslation(){
+        LinearLayout form=new LinearLayout(this);
+        form.setOrientation(LinearLayout.VERTICAL);
+        form.setPadding(dp(18),0,dp(18),0);
+        String[] providers={"DeepL API","Google Cloud Translation","LibreTranslate",
+                "OpenAI-совместимый","Свой JSON API"};
+        String[] ids={"deepl","google","libretranslate","openai","generic"};
+        Spinner provider=new Spinner(this);
+        provider.setAdapter(new ArrayAdapter<>(this,
+                android.R.layout.simple_spinner_dropdown_item,providers));
+        String current=secureStore.get("translator_cloud_provider");
+        if(current.isEmpty())current="libretranslate";
+        for(int i=0;i<ids.length;i++)if(ids[i].equals(current))provider.setSelection(i);
+        form.addView(provider);
+        EditText endpoint=new EditText(this);
+        endpoint.setSingleLine(true);
+        endpoint.setHint("HTTPS endpoint API");
+        endpoint.setText(secureStore.get("translator_cloud_endpoint").isEmpty()?
+                secureStore.get("translator_endpoint"):secureStore.get("translator_cloud_endpoint"));
+        form.addView(endpoint);
+        EditText key=new EditText(this);
+        key.setSingleLine(true);
+        key.setHint("API-ключ (для платного API обязателен)");
+        key.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        key.setText(secureStore.get("translator_cloud_api_key").isEmpty()?
+                secureStore.get("translator_api_key"):secureStore.get("translator_cloud_api_key"));
+        form.addView(key);
+        EditText model=new EditText(this);
+        model.setSingleLine(true);
+        model.setHint("Модель (для OpenAI-совместимого API)");
+        model.setText(secureStore.get("translator_cloud_model").isEmpty()?
+                secureStore.get("translator_model"):secureStore.get("translator_cloud_model"));
+        form.addView(model);
+        TextView help=text("DeepL Free: https://api-free.deepl.com/v2/translate"+
+                "\nDeepL Pro: https://api.deepl.com/v2/translate"+
+                "\nGoogle Cloud: https://translation.googleapis.com/language/translate/v2"+
+                "\nOpenAI-совместимый: адрес /v1/chat/completions"+
+                "\nLibreTranslate: адрес сервера /translate"+
+                "\nКлючи зашифрованы в Android Keystore. Используйте только HTTPS.",11,false);
+        help.setTextColor(MUTED);form.addView(help);
+        new AlertDialog.Builder(this).setTitle("Облачный переводчик").setView(form)
+                .setPositiveButton("Сохранить",(d,w)->{
+                    String selected=ids[provider.getSelectedItemPosition()];
+                    String url=endpoint.getText().toString().trim();
+                    if(url.isEmpty()){
+                        if("deepl".equals(selected))url="https://api-free.deepl.com/v2/translate";
+                        if("google".equals(selected))url="https://translation.googleapis.com/language/translate/v2";
+                    }
+                    if(!url.isEmpty()){
+                        try{
+                            Uri parsed=Uri.parse(url);
+                            if(!"https".equalsIgnoreCase(parsed.getScheme())||parsed.getHost()==null
+                                    ||parsed.getUserInfo()!=null)throw new IllegalArgumentException();
+                        }catch(Exception ex){
+                            errorDialog("Небезопасный endpoint",
+                                    "Укажите полный HTTPS адрес облачного сервиса.");
+                            return;
+                        }
+                    }
+                    secureStore.put("translator_cloud_provider",selected);
+                    secureStore.put("translator_cloud_endpoint",url);
+                    secureStore.put("translator_cloud_api_key",key.getText().toString().trim());
+                    secureStore.put("translator_cloud_model",model.getText().toString().trim());
+                    toast("Настройки облачного переводчика сохранены");
+                    configureTranslatorSettings();
+                }).setNeutralButton("Сбросить",(d,w)->{
+                    secureStore.remove("translator_cloud_provider");
+                    secureStore.remove("translator_cloud_endpoint");
+                    secureStore.remove("translator_cloud_api_key");
+                    secureStore.remove("translator_cloud_model");
+                    configureTranslatorSettings();
+                }).setNegativeButton("Отмена",null).show();
     }
 
     private String cacheSizeText(){long bytes=0;for(Map.Entry<String,?> entry:prefs.getAll().entrySet()){String key=entry.getKey();if(key.startsWith("cache_")||key.startsWith("translation_")||key.equals("github_profile_json")){Object value=entry.getValue();if(value!=null)bytes+=value.toString().getBytes(StandardCharsets.UTF_8).length;}}File avatar=new File(getFilesDir(),"github_avatar.png");if(avatar.isFile())bytes+=avatar.length();bytes+=translationCache.sizeBytes()+entityCache.sizeBytes();return bytes<1024?bytes+" Б":bytes<1024*1024?String.format(Locale.ROOT,"%.1f КБ",bytes/1024.0):String.format(Locale.ROOT,"%.1f МБ",bytes/(1024.0*1024.0));}
