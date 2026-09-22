@@ -19,7 +19,11 @@ public final class BuildMonitorJobService extends JobService {
     @Override public boolean onStartJob(JobParameters params){
         running=WORK.submit(()->{
             boolean retry=false;
-            try{BuildMonitor.scan(getApplicationContext(),true);}
+            try{
+                if(GlobalBuildHub.enabled(getApplicationContext()))
+                    GlobalBuildHub.refresh(getApplicationContext(),false);
+                BuildMonitor.scan(getApplicationContext(),true);
+            }
             catch(Exception error){retry=true;}
             finally{jobFinished(params,retry);}
         });
@@ -33,8 +37,9 @@ public final class BuildMonitorJobService extends JobService {
         JobScheduler scheduler=context.getSystemService(JobScheduler.class);
         if(scheduler==null)return;
         scheduler.cancel(JOB_ID);
-        if(!BuildMonitor.prefs(context).getBoolean(BuildMonitor.PREF_ENABLED,true)
-                ||BuildMonitor.watched(context).isEmpty())return;
+        boolean watched=BuildMonitor.prefs(context).getBoolean(BuildMonitor.PREF_ENABLED,true)
+                &&!BuildMonitor.watched(context).isEmpty();
+        if(!watched&&!GlobalBuildHub.enabled(context))return;
         long period=Math.max(JobInfo.getMinPeriodMillis(),TimeUnit.MINUTES.toMillis(15));
         long flex=Math.max(JobInfo.getMinFlexMillis(),TimeUnit.MINUTES.toMillis(5));
         JobInfo job=new JobInfo.Builder(JOB_ID,
@@ -46,13 +51,18 @@ public final class BuildMonitorJobService extends JobService {
         scheduler.schedule(job);
     }
     public static void checkSoon(Context context){
-        if(BuildMonitor.watched(context).isEmpty()||
-                !BuildMonitor.prefs(context).getBoolean(BuildMonitor.PREF_ENABLED,true))return;
+        boolean watched=BuildMonitor.prefs(context).getBoolean(BuildMonitor.PREF_ENABLED,true)
+                &&!BuildMonitor.watched(context).isEmpty();
+        if(!watched&&!GlobalBuildHub.enabled(context))return;
         long last=BuildMonitor.prefs(context).getLong(
                 "build_"+BuildMonitor.account(context)+"_last_check",0L);
         if(System.currentTimeMillis()-last<2*60*1000L)return;
         WORK.submit(()->{
-            try{BuildMonitor.scan(context.getApplicationContext(),true);}
+            try{
+                if(GlobalBuildHub.enabled(context))
+                    GlobalBuildHub.refresh(context.getApplicationContext(),false);
+                BuildMonitor.scan(context.getApplicationContext(),true);
+            }
             catch(Exception ignored){}
         });
     }
