@@ -4191,25 +4191,167 @@ public class MainActivity extends Activity {
     private void addTranslatableMarkdownCard(String scopeKey,String source,String updateMarker){
         LinearLayout panel=translatableMarkdownPanel(scopeKey,source,updateMarker);LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,-2);params.setMargins(0,0,0,dp(12));content.addView(panel,params);
     }
+    private boolean isLocalTranslation(TranslationEngine.Config config){
+        return "mlkit".equals(config.provider)||"auto".equals(config.provider);
+    }
+
     private LinearLayout translatableMarkdownPanel(String scopeKey,String source,String updateMarker){
-        String safeSource=source==null?"":source;LinearLayout panel=new LinearLayout(this);panel.setOrientation(LinearLayout.VERTICAL);panel.setPadding(dp(12),dp(10),dp(12),dp(10));panel.setBackground(round(CARD,16,BORDER,1));panel.setElevation(dp(1));
-        renderTranslatablePanel(panel,scopeKey,safeSource,updateMarker,false);
-        if(prefs.getBoolean("translator_auto",false)&&LanguageDetector.needsRussianTranslation(safeSource)&&!translationConfig().endpoint.isEmpty()&&translationCache.get(safeSource,updateMarker,"ru",translationConfig().identity())==null)new Handler(Looper.getMainLooper()).postDelayed(()->startTranslation(panel,scopeKey,safeSource,updateMarker),180L);
+        String safeSource=source==null?"":source;
+        LinearLayout panel=new LinearLayout(this);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setPadding(dp(12),dp(10),dp(12),dp(10));
+        panel.setBackground(round(CARD,16,BORDER,1));
+        panel.setElevation(dp(1));
+        TranslationEngine.Config config=translationConfig();
+        renderTranslatablePanel(panel,scopeKey,safeSource,updateMarker,false,config);
+        // No implicit cloud requests, including when the user selected a cloud engine.
+        if(prefs.getBoolean("translator_auto",false)&&isLocalTranslation(config)&&
+                LanguageDetector.needsRussianTranslation(safeSource)&&
+                translationCache.get(safeSource,updateMarker,"ru",config.identity())==null){
+            io.execute(()->{
+                try{
+                    String detected=MlKitTranslation.detectSource(safeSource,config.sourceLanguage);
+                    if("ru".equals(detected)||!MlKitTranslation.modelExists("ru")||
+                            !MlKitTranslation.modelExists(detected))return;
+                    runOnUiThread(()->{
+                        if(panel.getParent()!=null)startTranslation(panel,scopeKey,safeSource,
+                                updateMarker,config,true);
+                    });
+                }catch(Exception ignored){/* No background model downloads or cloud fallback. */}
+            });
+        }
         return panel;
     }
 
-    private void renderTranslatablePanel(LinearLayout panel,String scopeKey,String source,String updateMarker,boolean russian){
-        panel.removeAllViews();TranslationEngine.Config config=translationConfig();LanguageDetector.Result detected=LanguageDetector.detect(source);TranslationCache.Entry cached=translationCache.get(source,updateMarker,"ru",config.identity());
-        LinearLayout header=new LinearLayout(this);header.setGravity(Gravity.CENTER_VERTICAL);TextView language=text(detected.displayName,10,true);language.setTextColor(detected.code.equals("ru")?GREEN:BLUE);language.setBackground(round(SUBTLE,10,Color.TRANSPARENT,0));language.setPadding(dp(8),dp(3),dp(8),dp(3));header.addView(language);TextView cacheState=text(cached==null?"":"  перевод сохранён",10,false);cacheState.setTextColor(MUTED);header.addView(cacheState,new LinearLayout.LayoutParams(0,-2,1));panel.addView(header);
-        String shown=russian&&cached!=null?cached.translated:source;TextView body=markdownView(shown,14);body.setPadding(0,dp(8),0,dp(8));panel.addView(body);
-        LinearLayout actions=new LinearLayout(this);Button original=compactButton("Оригинал");original.setEnabled(russian);original.setOnClickListener(v->renderTranslatablePanel(panel,scopeKey,source,updateMarker,false));actions.addView(original,new LinearLayout.LayoutParams(0,dp(44),1));
-        Button translate=compactButton(cached==null?"Перевести":"Русский");translate.setEnabled(!detected.code.equals("ru"));translate.setOnClickListener(v->{if(cached!=null)renderTranslatablePanel(panel,scopeKey,source,updateMarker,true);else startTranslation(panel,scopeKey,source,updateMarker);});LinearLayout.LayoutParams tp=new LinearLayout.LayoutParams(0,dp(44),1);tp.setMargins(dp(6),0,0,0);actions.addView(translate,tp);panel.addView(actions);
+    private void renderTranslatablePanel(LinearLayout panel,String scopeKey,String source,
+                                          String updateMarker,boolean russian,
+                                          TranslationEngine.Config config){
+        panel.removeAllViews();
+        LanguageDetector.Result detected=LanguageDetector.detect(source);
+        TranslationCache.Entry cached=translationCache.get(source,updateMarker,
+                "ru",config.identity());
+        LinearLayout header=new LinearLayout(this);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        TextView language=text(detected.displayName,10,true);
+        language.setTextColor(detected.code.equals("ru")?GREEN:BLUE);
+        language.setBackground(round(SUBTLE,10,Color.TRANSPARENT,0));
+        language.setPadding(dp(8),dp(3),dp(8),dp(3));
+        header.addView(language);
+        TextView cacheState=text(cached==null?"":"  перевод сохранён · "+
+                TranslationEngine.providerLabel(config.provider),10,false);
+        cacheState.setTextColor(MUTED);
+        header.addView(cacheState,new LinearLayout.LayoutParams(0,-2,1));
+        panel.addView(header);
+
+        String shown=russian&&cached!=null?cached.translated:source;
+        TextView body=markdownView(shown,14);
+        body.setPadding(0,dp(8),0,dp(8));
+        panel.addView(body);
+
+        LinearLayout actions=new LinearLayout(this);
+        Button original=compactButton("Оригинал");
+        original.setEnabled(russian);
+        original.setOnClickListener(v->renderTranslatablePanel(panel,scopeKey,source,
+                updateMarker,false,config));
+        actions.addView(original,new LinearLayout.LayoutParams(0,dp(44),1));
+        Button translate=compactButton(cached==null?"Перевести":"Русский");
+        translate.setOnClickListener(v->{
+            if(cached!=null)renderTranslatablePanel(panel,scopeKey,source,updateMarker,true,config);
+            else startTranslation(panel,scopeKey,source,updateMarker,config,
+                    isLocalTranslation(config));
+        });
+        LinearLayout.LayoutParams tp=new LinearLayout.LayoutParams(0,dp(44),1);
+        tp.setMargins(dp(6),0,0,0);
+        actions.addView(translate,tp);
+        panel.addView(actions);
+
+        if(isLocalTranslation(config)){
+            Button cloud=compactButton("Перевести облачным сервисом");
+            cloud.setOnClickListener(v->startTranslation(panel,scopeKey,source,updateMarker,
+                    translationController.cloudConfig(),false));
+            panel.addView(cloud,new LinearLayout.LayoutParams(-1,dp(44)));
+        }
     }
 
-    private void startTranslation(LinearLayout panel,String scopeKey,String source,String updateMarker){
-        TranslationEngine.Config config=translationConfig();if(config.endpoint.isEmpty()){toast("Сначала настройте провайдер перевода");configureTranslatorSettings();return;}
-        panel.removeAllViews();TextView title=text("Переводим на русский…",14,true);panel.addView(title);ProgressBar progress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);progress.setMax(100);progress.setProgress(4);panel.addView(progress,new LinearLayout.LayoutParams(-1,dp(8)));TextView detail=text("Подготовка Markdown и защита технических фрагментов",11,false);detail.setTextColor(MUTED);panel.addView(detail);
-        io.execute(()->{try{String translated=translationEngine.translate(source,"ru",config,(done,total)->runOnUiThread(()->{progress.setProgress(Math.max(4,done*100/Math.max(1,total)));detail.setText("Переведено частей: "+done+"/"+total);}));LanguageDetector.Result detected=LanguageDetector.detect(source);translationCache.put(source,updateMarker,"ru",config.identity(),translated,detected.code);runOnUiThread(()->renderTranslatablePanel(panel,scopeKey,source,updateMarker,true));}catch(Exception e){runOnUiThread(()->{panel.removeAllViews();TextView error=text("Не удалось перевести: "+e.getMessage(),13,false);error.setTextColor(Color.rgb(190,55,60));panel.addView(error);Button retry=compactButton("Повторить");retry.setOnClickListener(v->startTranslation(panel,scopeKey,source,updateMarker));panel.addView(retry,new LinearLayout.LayoutParams(-1,dp(44)));});}});
+    private void startTranslation(LinearLayout panel,String scopeKey,String source,
+                                  String updateMarker){
+        TranslationEngine.Config config=translationConfig();
+        startTranslation(panel,scopeKey,source,updateMarker,config,isLocalTranslation(config));
+    }
+
+    private void startTranslation(LinearLayout panel,String scopeKey,String source,
+                                  String updateMarker,TranslationEngine.Config config,
+                                  boolean cloudConfirmed){
+        if(!isLocalTranslation(config)){
+            if(config.endpoint.isEmpty()){
+                toast("Настройте облачный переводчик.");
+                configureCloudTranslation();
+                return;
+            }
+            if(!cloudConfirmed){
+                String name=TranslationEngine.providerLabel(config.provider);
+                new AlertDialog.Builder(this).setTitle("Перевести через "+name+"?")
+                        .setMessage("Текст будет передан внешнему облачному сервису. "+
+                                "Он может содержать данные приватного репозитория. "+
+                                "Проверьте условия сервиса и возможную оплату.")
+                        .setNegativeButton("Отмена",null)
+                        .setPositiveButton("Передать и перевести",(d,w)->
+                                startTranslation(panel,scopeKey,source,updateMarker,config,true))
+                        .show();
+                return;
+            }
+        }
+        panel.removeAllViews();
+        TextView title=text("Переводим на русский · "+
+                TranslationEngine.providerLabel(config.provider),14,true);
+        panel.addView(title);
+        ProgressBar progress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);
+        progress.setMax(100);
+        progress.setProgress(4);
+        panel.addView(progress,new LinearLayout.LayoutParams(-1,dp(8)));
+        TextView detail=text("Обрабатываем Markdown, код и технические фрагменты",11,false);
+        detail.setTextColor(MUTED);
+        panel.addView(detail);
+        final String account=currentAccountId();
+        io.execute(()->{
+            try{
+                String translated=translationEngine.translate(source,"ru",config,
+                        (done,total)->runOnUiThread(()->{
+                            if(panel.getParent()==null)return;
+                            progress.setProgress(Math.max(4,done*100/Math.max(1,total)));
+                            detail.setText("Переведено частей: "+done+"/"+total);
+                        }));
+                LanguageDetector.Result detected=LanguageDetector.detect(source);
+                if(account.equals(currentAccountId()))
+                    translationCache.put(source,updateMarker,"ru",config.identity(),
+                            translated,detected.code);
+                runOnUiThread(()->{
+                    if(panel.getParent()!=null&&account.equals(currentAccountId()))
+                        renderTranslatablePanel(panel,scopeKey,source,updateMarker,true,config);
+                });
+            }catch(Exception error){
+                runOnUiThread(()->{
+                    if(panel.getParent()==null||!account.equals(currentAccountId()))return;
+                    panel.removeAllViews();
+                    TextView message=text("Не удалось перевести: "+error.getMessage(),13,false);
+                    message.setTextColor(Color.rgb(190,55,60));
+                    panel.addView(message);
+                    Button retry=compactButton("Повторить");
+                    retry.setOnClickListener(v->startTranslation(panel,scopeKey,source,
+                            updateMarker,config,isLocalTranslation(config)));
+                    panel.addView(retry,new LinearLayout.LayoutParams(-1,dp(44)));
+                    if(isLocalTranslation(config)){
+                        Button models=compactButton("Управление языковыми моделями");
+                        models.setOnClickListener(v->navigate(this::showTranslationModels));
+                        panel.addView(models,new LinearLayout.LayoutParams(-1,dp(44)));
+                        Button cloud=compactButton("Попробовать облачный перевод");
+                        cloud.setOnClickListener(v->startTranslation(panel,scopeKey,source,
+                                updateMarker,translationController.cloudConfig(),false));
+                        panel.addView(cloud,new LinearLayout.LayoutParams(-1,dp(44)));
+                    }
+                });
+            }
+        });
     }
 
     private void addAction(GridLayout g,String label,Runnable r){TextView v=text(label,14,true);v.setGravity(Gravity.CENTER);v.setTextColor(BLUE);v.setContentDescription(label);v.setMinHeight(dp(48));v.setBackground(round(CARD,14,BORDER,1));v.setOnClickListener(x->r.run());GridLayout.LayoutParams p=new GridLayout.LayoutParams();p.width=0;p.height=dp(isLargeText()?64:52);p.columnSpec=GridLayout.spec(GridLayout.UNDEFINED,1f);p.setMargins(dp(4),dp(4),dp(4),dp(4));g.addView(v,p);}
