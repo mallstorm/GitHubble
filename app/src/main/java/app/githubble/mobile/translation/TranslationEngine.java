@@ -41,7 +41,7 @@ public final class TranslationEngine {
             Pattern.compile("<[^>]+>")
     };
 
-    private static final Pattern PLACEHOLDER = Pattern.compile("⟦GH_\\\\d{4,}⟧");
+    private static final Pattern PLACEHOLDER = Pattern.compile("⟦GH_\\d{4,}⟧");
 
     /**
      * ML Kit can rewrite artificial placeholders. Never send technical fragments to
