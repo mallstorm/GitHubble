@@ -110,7 +110,7 @@ public final class TranslationEngine {
         for(int i=0;i<chunks.size();i++){
             String part=request(chunks.get(i),target,config);
             if(translated.length()>0&&!endsWithWhitespace(translated)&&!part.startsWith("\\n"))
-                translated.append('\\n');
+                translated.append('\n');
             translated.append(part);
             if(progress!=null)progress.onProgress(i+1,chunks.size());
         }
