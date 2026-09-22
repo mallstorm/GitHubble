@@ -12,7 +12,9 @@ import com.google.mlkit.nl.translate.Translation;
 import com.google.mlkit.nl.translate.Translator;
 import com.google.mlkit.nl.translate.TranslatorOptions;
 import java.util.Locale;
-import java.util.Set;
+import java.util.List;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.concurrent.TimeUnit;
 
 /** Native/offline Google ML Kit backend. All blocking methods run on the app's IO worker. */
@@ -47,20 +49,51 @@ public final class MlKitTranslation {
     }
 
     public static String translate(String input,String sourceCode,String targetCode)throws Exception{
+        return translateSegments(Collections.singletonList(input),sourceCode,targetCode,null).get(0);
+    }
+
+    /**
+     * One translator instance for all prose pieces in a document. Code, URLs,
+     * Markdown tokens and their stand-in markers are never included in this list.
+     */
+    public static List<String> translateSegments(List<String> prose,String sourceCode,
+                                                  String targetCode,
+                                                  TranslationEngine.Progress progress)throws Exception{
+        if(prose==null||prose.isEmpty())return new ArrayList<>();
         String from=TranslateLanguage.fromLanguageTag(sourceCode);
         String to=TranslateLanguage.fromLanguageTag(targetCode);
         if(from==null||to==null)
             throw new IllegalStateException("Языковая пара не поддерживается ML Kit.");
-        if(from.equals(to))return input;
+        if(from.equals(to))return new ArrayList<>(prose);
+        // Check once per document, not before every Markdown/code boundary.
+        if(!modelExists(from)||!modelExists(to))
+            throw new IllegalStateException("Языковая модель отсутствует. Откройте Настройки → "+
+                    "Перевод → Модели ML Kit и загрузите нужные языки по Wi-Fi.");
         TranslatorOptions options=new TranslatorOptions.Builder()
                 .setSourceLanguage(from).setTargetLanguage(to).build();
+        List<String> output=new ArrayList<>(prose.size());
         try(Translator translator=Translation.getClient(options)){
-            // Never trigger a surprise mobile-data model download from a page.
-            if(!modelExists(from)||!modelExists(to))
-                throw new IllegalStateException("Языковая модель отсутствует. Откройте Настройки → "+
-                        "Перевод → Модели ML Kit и загрузите нужные языки по Wi-Fi.");
-            return Tasks.await(translator.translate(input),90,TimeUnit.SECONDS);
+            for(int i=0;i<prose.size();i++){
+                String segment=prose.get(i);
+                if(segment==null||segment.trim().isEmpty()){
+                    output.add(segment==null?"":segment);
+                }else{
+                    int fromIndex=0,toIndex=segment.length();
+                    while(fromIndex<toIndex&&Character.isWhitespace(segment.charAt(fromIndex)))
+                        fromIndex++;
+                    while(toIndex>fromIndex&&Character.isWhitespace(segment.charAt(toIndex-1)))
+                        toIndex--;
+                    String translated=Tasks.await(translator.translate(
+                            segment.substring(fromIndex,toIndex)),90,TimeUnit.SECONDS);
+                    if(translated==null||translated.trim().isEmpty())
+                        throw new IllegalStateException("Локальный переводчик вернул пустой текст.");
+                    output.add(segment.substring(0,fromIndex)+translated+
+                            segment.substring(toIndex));
+                }
+                if(progress!=null)progress.onProgress(i+1,prose.size());
+            }
         }
+        return output;
     }
 
     public static boolean modelExists(String language)throws Exception{
