@@ -48,11 +48,14 @@ import app.githubble.mobile.build.BuildMonitor;
 import app.githubble.mobile.build.BuildMonitorJobService;
 import app.githubble.mobile.build.BuildArtifactDownloads;
 import app.githubble.mobile.build.ActionsStorageManager;
+import app.githubble.mobile.build.GlobalBuildHub;
+import app.githubble.mobile.release.ReleaseAssetDownloads;
 import app.githubble.mobile.tracking.TrackingNotificationHelper;
 import app.githubble.mobile.web.GitHubCustomTabs;
 import app.githubble.mobile.translation.LanguageDetector;
 import app.githubble.mobile.translation.TranslationCache;
 import app.githubble.mobile.translation.TranslationEngine;
+import app.githubble.mobile.translation.MlKitTranslation;
 import app.githubble.mobile.code.CodeHighlighter;
 import app.githubble.mobile.diagnostics.TrackingDiagnostics;
 import app.githubble.mobile.diagnostics.DiagnosticsExporter;
@@ -117,6 +120,9 @@ public class MainActivity extends Activity {
     private boolean repositoriesGrid = false;
     private String buildRunFilter = BuildRunFilter.ALL;
     private int buildVisibleLimit = 12;
+    private int buildHubMode = 0;
+    private int hubArtifactVisibleLimit = 60;
+    private String hubArtifactQuery = "";
     private String repositoriesSort = "updated";
     private AccountOperationsController accountOperations;
     private ProfileController profileController;
@@ -251,6 +257,7 @@ public class MainActivity extends Activity {
     @Override protected void onResume() {
         super.onResume();
         if (prefs == null) return;
+        BuildMonitorJobService.reschedule(this);
         BuildMonitorJobService.checkSoon(this);
         if (features != null && features.offlineDispatcher.isOnline()) io.execute(() -> { try { OfflineActionQueue.ProcessResult r=features.offlineQueue.processReady(api); if(r.completed>0||r.conflicts>0) runOnUiThread(() -> toast("Офлайн-очередь: отправлено "+r.completed+", конфликтов "+r.conflicts)); } catch (Exception ignored) {} });
         if (prefs.getBoolean(PREF_AUTH_JUST_COMPLETED, false)) {
@@ -392,6 +399,7 @@ public class MainActivity extends Activity {
                     @Override public void openRepositories(){openRoot(MainActivity.this::showMyRepositories);}
                     @Override public void openSearch(){openRoot(MainActivity.this::showSearch);}
                     @Override public void openActivity(){openRoot(MainActivity.this::showNotifications);}
+                    @Override public void openBuildHub(){openRoot(MainActivity.this::showBuildHub);}
                     @Override public void openSettings(){openRoot(MainActivity.this::showSettings);}
                 });
     }
@@ -1448,14 +1456,16 @@ public class MainActivity extends Activity {
                         card(row);
                     }
                     sectionTitle("Артефакты · "+details.artifacts.length(),null);
-                    for(int i=0;i<details.artifacts.length();i++){
-                        JSONObject artifact=details.artifacts.optJSONObject(i);if(artifact==null)continue;
-                        Button download=compactButton("↓ "+artifact.optString("name","Артефакт"));
-                        download.setEnabled(!artifact.optBoolean("expired",false));
-                        download.setOnClickListener(v->startArtifactDownload(full,artifact));
-                        destination.addView(download,new LinearLayout.LayoutParams(-1,dp(48)));
-                    }
-                    if(details.partial)card(text("Список заданий или артефактов неполный.",12,false));
+                    showRunArtifacts(full,runId,details.artifacts);
+                    if(details.partial)card(text("Список заданий или артефактов неполный. "+
+                            "Выделение действует только на загруженные файлы.",12,false));
+                    Button deleteRun=button("Удалить запуск и все его артефакты");
+                    deleteRun.setTextColor(0xFFC34F48);
+                    deleteRun.setBackground(round(CARD,13,0xFFC34F48,1));
+                    deleteRun.setEnabled("completed".equals(run.optString("status","")));
+                    deleteRun.setOnClickListener(v->confirmRunDeletion(full,runId,
+                            run.optString("name","GitHub Actions")));
+                    destination.addView(deleteRun,new LinearLayout.LayoutParams(-1,dp(51)));
                     Button web=compactButton("Открыть полный журнал GitHub");
                     web.setOnClickListener(v->openWeb(run.optString("html_url",
                             "https://github.com/"+full+"/actions/runs/"+runId)));
@@ -1473,107 +1483,133 @@ public class MainActivity extends Activity {
     }
 
 
-    /**
-     * One GitHub Actions destination with two related native views. Use the same
-     * layout on the repository overview and in both destination screens.
-     * selected: -1 on overview, 0 for runs, 1 for storage.
-     */
-    private void addRepositoryActionsTabs(String full,int selected){
-        LinearLayout tabs=new LinearLayout(this);
-        tabs.setOrientation(LinearLayout.HORIZONTAL);
-        tabs.setGravity(Gravity.CENTER_VERTICAL);
-        final String[] names={"Сборки","Артефакты"};
-        for(int i=0;i<2;i++){
-            final int position=i;
-            Button tab=button(names[i]);
-            tab.setTextSize(13);
-            tab.setMaxLines(1);
-            tab.setAllCaps(false);
-            tab.setPadding(dp(6),0,dp(6),0);
-            boolean active=selected==i;
-            tab.setTextColor(active?Color.WHITE:GREEN);
-            tab.setBackground(round(active?GREEN:CARD,13,active?GREEN:BORDER,active?0:1));
-            tab.setContentDescription(names[i]+(active?", открытый раздел":""));
-            tab.setOnClickListener(v->{
-                if(selected==position)return;
-                if(position==0)navigate(()->showBuildCenter(full));
-                else navigate(()->showActionsStorage(full));
-            });
-            LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(0,dp(48),1f);
-            if(i==1)params.setMargins(dp(9),0,0,0);
-            tabs.addView(tab,params);
-        }
-        LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,dp(48));
-        params.setMargins(0,dp(7),0,dp(10));
-        content.addView(tabs,params);
-    }
+    /** Sixth root tab: all accessible repositories, never constrained to watched projects. */
+    private void showBuildCenter(){showBuildHub();}
+    private void showBuildCenter(String focus){showBuildHub();}
 
-    private void showBuildCenter(){showBuildCenter("");}
-    private void showBuildCenter(String focus){
-        setCurrentScreen(()->showBuildCenter(focus));
-        shell("Центр сборок",false);
-        if(!focus.isEmpty()){
-            repoSectionHeader(focus,"GitHub Actions","Сборки и артефакты",R.drawable.ic_android);
-            addRepositoryActionsTabs(focus,0);
-        }
-        TextView buildIntro=text("История запусков, задания и результаты сборок",13,false);
-        buildIntro.setTextColor(MUTED);
-        content.addView(buildIntro);
+    private void showBuildHub(){
+        rememberScreen("build_hub",null);
+        setCurrentScreen(this::showBuildHub);
+        shell("Центр сборок и артефактов",false);
+        settingsPanelHeader("Центр сборок и артефактов",
+                "Все доступные проекты GitHub · запуски Actions, APK и ZIP",
+                R.drawable.ic_android);
         if(!isSignedIn()){
-            accountRequiredCard("Подключите GitHub, чтобы увидеть приватные сборки и артефакты.");
+            accountRequiredCard("Подключите GitHub, чтобы увидеть сборки и артефакты всех доступных репозиториев.");
             return;
         }
-        final String account=BuildMonitor.account(this);
         final long generation=screenGeneration.get();
-        Set<String> watched=BuildMonitor.watched(this);
-        if(!focus.isEmpty()&&!watched.contains(focus)){
-            Button add=button("+  Отслеживать "+focus);
-            add.setOnClickListener(v->{
-                BuildMonitor.setWatched(this,focus,true);
-                requestNotificationPermissionIfNeeded();
-                showBuildCenter(focus);
-            });
-            content.addView(add,new LinearLayout.LayoutParams(-1,dp(50)));
-        }
-        LinearLayout toolbar=new LinearLayout(this);
-        toolbar.setGravity(Gravity.CENTER_VERTICAL);
-        TextView count=text("Проектов: "+watched.size(),12,true);
-        count.setTextColor(GREEN);
-        toolbar.addView(count,new LinearLayout.LayoutParams(0,-2,1));
-        Button refresh=button("Обновить");
-        refresh.setTextSize(12);
-        refresh.setOnClickListener(v->showBuildCenter(focus));
-        LinearLayout.LayoutParams refreshParams=new LinearLayout.LayoutParams(dp(102),dp(44));
-        refreshParams.setMargins(dp(6),0,0,0);
-        toolbar.addView(refresh,refreshParams);
-        content.addView(toolbar,new LinearLayout.LayoutParams(-1,dp(52)));
-        if(watched.isEmpty()){
-            TextView empty=text("Нет отслеживаемых проектов. Выберите репозитории в настройках мониторинга.",12,false);
-            empty.setTextColor(MUTED);
-            card(empty);
-        }
-        TextView status=text("",11,false);
+        final String account=currentAccountId();
+        final LinearLayout destination=content;
+        final GlobalBuildHub.Snapshot cached=GlobalBuildHub.cached(this);
+        TextView status=text("Синхронизация GitHub Actions…",12,false);
         status.setTextColor(MUTED);
-        content.addView(status,new LinearLayout.LayoutParams(-1,-2));
+        card(status);
+
+        LinearLayout controls=new LinearLayout(this);
+        controls.setGravity(Gravity.CENTER_VERTICAL);
+        Button refresh=button("↻ Обновить");
+        refresh.setTextSize(12);
+        refresh.setOnClickListener(v->refreshGlobalBuildHub(destination,generation,account,status,true));
+        controls.addView(refresh,new LinearLayout.LayoutParams(0,dp(47),1f));
+        Button monitoring=button("Уведомления");
+        monitoring.setTextSize(12);
+        monitoring.setTextColor(GREEN);
+        monitoring.setBackground(round(CARD,13,BORDER,1));
+        monitoring.setOnClickListener(v->navigate(this::showBuildMonitorSettings));
+        LinearLayout.LayoutParams mp=new LinearLayout.LayoutParams(0,dp(47),1f);
+        mp.setMargins(dp(8),0,0,0);
+        controls.addView(monitoring,mp);
+        destination.addView(controls,new LinearLayout.LayoutParams(-1,dp(50)));
+
+        TextView notice=text("Сборки и файлы появляются здесь без подписки на отдельные репозитории. "+
+                "Уведомления и автозагрузка APK настраиваются отдельно. "+
+                "Фоновая проверка зависит от ограничений Android и не является мгновенной.",11,false);
+        notice.setTextColor(MUTED);
+        card(notice);
         LinearLayout rows=new LinearLayout(this);
         rows.setOrientation(LinearLayout.VERTICAL);
-        content.addView(rows);
-        renderBuildRows(rows,BuildMonitor.recent(this),focus);
-        if(watched.isEmpty())return;
-        status.setText("Проверяем GitHub Actions…");
+        rows.setTag("global-build-rows");
+        LinearLayout tabs=new LinearLayout(this);
+        Button runsTab=button("Сборки");
+        Button artifactsTab=button("Артефакты");
+        Runnable updateTabs=()->{
+            runsTab.setTextColor(buildHubMode==0?Color.WHITE:GREEN);
+            runsTab.setBackground(round(buildHubMode==0?GREEN:CARD,13,
+                    buildHubMode==0?GREEN:BORDER,buildHubMode==0?0:1));
+            artifactsTab.setTextColor(buildHubMode==1?Color.WHITE:GREEN);
+            artifactsTab.setBackground(round(buildHubMode==1?GREEN:CARD,13,
+                    buildHubMode==1?GREEN:BORDER,buildHubMode==1?0:1));
+        };
+        runsTab.setOnClickListener(v->{
+            buildHubMode=0;updateTabs.run();
+            displayGlobalBuildSnapshot(rows,status,GlobalBuildHub.cached(this));
+        });
+        artifactsTab.setOnClickListener(v->{
+            buildHubMode=1;updateTabs.run();
+            displayGlobalBuildSnapshot(rows,status,GlobalBuildHub.cached(this));
+        });
+        tabs.addView(runsTab,new LinearLayout.LayoutParams(0,dp(48),1f));
+        LinearLayout.LayoutParams artifactTabParams=new LinearLayout.LayoutParams(0,dp(48),1f);
+        artifactTabParams.setMargins(dp(9),0,0,0);
+        tabs.addView(artifactsTab,artifactTabParams);
+        LinearLayout.LayoutParams tabsParams=new LinearLayout.LayoutParams(-1,dp(48));
+        tabsParams.setMargins(0,dp(10),0,dp(9));
+        destination.addView(tabs,tabsParams);
+        updateTabs.run();
+        destination.addView(rows);
+        displayGlobalBuildSnapshot(rows,status,cached);
+        if(cached.syncedAt==0L||System.currentTimeMillis()-cached.syncedAt>60_000L)
+            refreshGlobalBuildHub(destination,generation,account,status,false);
+    }
+
+    private void displayGlobalBuildSnapshot(LinearLayout rows,TextView status,
+                                             GlobalBuildHub.Snapshot snapshot){
+        if(snapshot.syncedAt>0L){
+            String summary="Репозиториев проверено: "+snapshot.scannedRepositories+
+                    " · Сборок: "+snapshot.runs.length()+
+                    " · Артефактов: "+snapshot.artifacts.length()+
+                    " · "+formatEpoch(snapshot.syncedAt);
+            if(snapshot.partial)summary+="\nДанные частичные: в центре показываются последние "+
+                    "запуски и файлы максимум 100 репозиториев; архив может быть неполным.";
+            if(snapshot.failedRepositories>0)
+                summary+="\nНе удалось проверить проектов: "+snapshot.failedRepositories;
+            if(!snapshot.warning.isEmpty())
+                summary+="\n"+snapshot.warning;
+            status.setText(summary);
+        }else status.setText("Сборки ещё не синхронизированы. Получаем данные GitHub…");
+        if(buildHubMode==0)renderBuildRows(rows,snapshot.runs,"");
+        else renderHubArtifacts(rows,snapshot);
+    }
+
+    private void refreshGlobalBuildHub(LinearLayout destination,long generation,String account,
+                                       TextView status,boolean force){
+        status.setText("Проверяем сборки и артефакты GitHub…");
         io.execute(()->{
             try{
-                BuildMonitor.scan(getApplicationContext(),false);
+                GlobalBuildHub.Snapshot snapshot=GlobalBuildHub.refresh(getApplicationContext(),force);
                 runOnUiThread(()->{
-                    if(generation!=screenGeneration.get()||
-                            !account.equals(BuildMonitor.account(this)))return;
-                    status.setText("Синхронизировано с GitHub · "+watched.size()+" проектов");
-                    renderBuildRows(rows,BuildMonitor.recent(this),focus);
+                    if(generation!=screenGeneration.get()||destination!=content||
+                            !account.equals(currentAccountId()))return;
+                    // The snapshot was cached atomically; rerender without resetting the root stack.
+                    status.setText("Синхронизировано · "+snapshot.runs.length()+" запусков");
+                    LinearLayout rows=null;
+                    for(int i=0;i<destination.getChildCount();i++){
+                        android.view.View child=destination.getChildAt(i);
+                        if(child instanceof LinearLayout&&"global-build-rows".equals(child.getTag())){
+                            rows=(LinearLayout)child;
+                            break;
+                        }
+                    }
+                    if(rows!=null)displayGlobalBuildSnapshot(rows,status,snapshot);
                 });
             }catch(Exception error){
                 runOnUiThread(()->{
-                    if(generation!=screenGeneration.get())return;
-                    status.setText("Не удалось обновить: "+error.getMessage());
+                    if(generation!=screenGeneration.get()||destination!=content||
+                            !account.equals(currentAccountId()))return;
+                    status.setText("Не удалось обновить центр сборок: "+
+                            (error.getMessage()==null?"ошибка сети":error.getMessage())+
+                            "\nРанее загруженные данные остаются доступными.");
                 });
             }
         });
@@ -1642,8 +1678,7 @@ public class MainActivity extends Activity {
             shown++;
             String repo=run.optString("repository","");
             long runId=run.optLong("id",0);
-            boolean ready=run.optJSONArray("artifacts")!=null&&
-                    run.optJSONArray("artifacts").length()>0;
+            boolean ready=hasLiveArtifacts(run.optJSONArray("artifacts"));
             String state=!"completed".equals(run.optString("status",""))?
                     "◷ Выполняется":"success".equals(run.optString("conclusion",""))?
                     (ready?"✓ Артефакты готовы":"✓ Сборка успешна"):
@@ -1711,15 +1746,23 @@ public class MainActivity extends Activity {
                 download.setTextColor(GREEN);
                 download.setGravity(Gravity.CENTER);
                 download.setContentDescription("Скачать "+artifact.optString("name","артефакт"));
+                download.setEnabled(!artifact.optBoolean("expired",false));
                 download.setOnClickListener(v->startArtifactDownload(repo,artifact));
                 row.addView(download,new LinearLayout.LayoutParams(dp(61),dp(42)));
                 card.addView(row);
             }
-            TextView open=text("Открыть запуск GitHub  ›",11,true);
+            TextView open=text("Детали запуска  ›",12,true);
             open.setTextColor(GREEN);
-            open.setText("Детали запуска  ›");
             open.setOnClickListener(v->navigate(()->showBuildRunDetail(repo,runId)));
             card.addView(open);
+            if("completed".equals(run.optString("status",""))){
+                TextView delete=text("Удалить запуск и связанные артефакты",11,true);
+                delete.setTextColor(0xFFC34F48);
+                delete.setPadding(dp(4),dp(8),dp(4),dp(7));
+                delete.setOnClickListener(v->confirmRunDeletion(repo,runId,
+                        run.optString("name","GitHub Actions")));
+                card.addView(delete);
+            }
             LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);
             p.setMargins(0,0,0,dp(9));
             host.addView(card,p);
@@ -1738,6 +1781,355 @@ public class MainActivity extends Activity {
                 renderBuildRows(host,source,focus);
             });
             host.addView(more,new LinearLayout.LayoutParams(-1,dp(48)));
+        }
+    }
+
+    /** Shared explicit confirmation for a single item or any number of selected artifacts. */
+    private void confirmArtifactsDeletion(List<JSONObject> selected,Runnable after){
+        if(selected==null||selected.isEmpty()){toast("Артефакты не выбраны");return;}
+        List<JSONObject> unique=new ArrayList<>();
+        Set<String> seen=new HashSet<>();
+        long bytes=0L;
+        for(JSONObject artifact:selected){
+            if(artifact==null)continue;
+            String repo=artifact.optString("repository","");
+            long id=artifact.optLong("id",0L);
+            if(!repo.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")||id<=0L)continue;
+            if(seen.add(repo+":"+id)){
+                unique.add(artifact);
+                bytes+=Math.max(0L,artifact.optLong("size_in_bytes",0L));
+            }
+        }
+        if(unique.isEmpty()){toast("Нет доступных для удаления файлов");return;}
+        StringBuilder examples=new StringBuilder();
+        for(int i=0;i<Math.min(5,unique.size());i++){
+            JSONObject item=unique.get(i);
+            examples.append("\n• ").append(item.optString("repository",""))
+                    .append(" / ").append(item.optString("name","Артефакт"));
+        }
+        if(unique.size()>5)examples.append("\n… и ещё ").append(unique.size()-5);
+        final long totalBytes=bytes;
+        new AlertDialog.Builder(this)
+                .setTitle(unique.size()==1?"Удалить артефакт?":"Удалить "+unique.size()+" артефактов?")
+                .setMessage("Удаляемые файлы GitHub: "+unique.size()+
+                        "\nРазмер: "+formatAccountBytes(totalBytes)+examples+
+                        "\n\nУдаление необратимо. Исходники, Releases и другие артефакты "+
+                        "этих запусков не затрагиваются.")
+                .setNegativeButton("Отмена",null)
+                .setPositiveButton("Удалить",(dialog,which)->{
+                    ProgressDialog progress=new ProgressDialog(this);
+                    progress.setTitle("Удаление артефактов");
+                    progress.setMessage("Обработано: 0 из "+unique.size());
+                    progress.setCancelable(false);
+                    progress.show();
+                    final String account=currentAccountId();
+                    io.execute(()->{
+                        int removed=0,failed=0;
+                        String lastError="";
+                        ActionsStorageManager storage=new ActionsStorageManager(api,prefs);
+                        for(JSONObject artifact:unique){
+                            if(!account.equals(currentAccountId()))break;
+                            String repo=artifact.optString("repository","");
+                            long id=artifact.optLong("id",0L);
+                            try{
+                                storage.deleteArtifact(repo,id);
+                                GlobalBuildHub.removeArtifact(getApplicationContext(),repo,id);
+                                removed++;
+                            }catch(Exception error){
+                                failed++;
+                                lastError=error.getMessage()==null?"Ошибка GitHub":error.getMessage();
+                            }
+                            final int processed=removed+failed;
+                            runOnUiThread(()->{
+                                if(progress.isShowing())
+                                    progress.setMessage("Обработано: "+processed+" из "+unique.size());
+                            });
+                        }
+                        final int deleted=removed,errors=failed;
+                        final String last=lastError;
+                        runOnUiThread(()->{
+                            progress.dismiss();
+                            if(!account.equals(currentAccountId()))return;
+                            new AlertDialog.Builder(this).setTitle("Результат удаления")
+                                    .setMessage("Удалено: "+deleted+"\nОшибок: "+errors+
+                                            (last.isEmpty()?"":"\n"+last))
+                                    .setPositiveButton("Обновить",(d,w)->after.run()).show();
+                        });
+                    });
+                }).show();
+    }
+
+    /** Deleting a run removes its Actions history/logs and all linked artifacts, not workflow YAML. */
+    private void confirmRunDeletion(String repository,long runId,String name){
+        if(!repository.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")||runId<=0L)return;
+        new AlertDialog.Builder(this)
+                .setTitle("Удалить запуск Actions #"+runId+"?")
+                .setMessage(repository+"\n"+name+
+                        "\n\nGitHub удалит историю этого запуска, логи и ВСЕ его артефакты. "+
+                        "Восстановить их нельзя. Сам workflow (.github/workflows/*.yml), "+
+                        "исходники и GitHub Releases сохранятся.")
+                .setNegativeButton("Отмена",null)
+                .setPositiveButton("Удалить запуск",(dialog,which)->{
+                    ProgressDialog progress=ProgressDialog.show(this,"Удаление запуска",
+                            "Удаляем запуск Actions и связанные артефакты…",true,false);
+                    final String account=currentAccountId();
+                    io.execute(()->{
+                        try{
+                            api.delete("https://api.github.com/repos/"+repository+
+                                    "/actions/runs/"+runId);
+                            GlobalBuildHub.removeRun(getApplicationContext(),repository,runId);
+                            runOnUiThread(()->{
+                                progress.dismiss();
+                                if(!account.equals(currentAccountId()))return;
+                                toast("Запуск и все его артефакты удалены");
+                                openRoot(this::showBuildHub);
+                            });
+                        }catch(Exception error){
+                            runOnUiThread(()->{
+                                progress.dismiss();
+                                if(account.equals(currentAccountId()))
+                                    errorDialog("Не удалось удалить запуск",error.getMessage()+
+                                            "\nТребуется разрешение Actions: Write.");
+                            });
+                        }
+                    });
+                }).show();
+    }
+
+    private void showRunArtifacts(String repository,long runId,JSONArray artifacts){
+        if(artifacts==null||artifacts.length()==0){
+            TextView empty=text("У этого запуска нет доступных артефактов.",12,false);
+            empty.setTextColor(MUTED);
+            card(empty);
+            return;
+        }
+        List<JSONObject> available=new ArrayList<>();
+        List<CheckBox> marks=new ArrayList<>();
+        TextView selected=text("Выбрано: 0",12,false);
+        Button bulk=button("Удалить выбранные");
+        bulk.setEnabled(false);
+        Runnable update=()->{
+            int count=0;
+            for(CheckBox b:marks)if(b.isChecked())count++;
+            selected.setText("Выбрано: "+count);
+            bulk.setEnabled(count>0);
+        };
+        for(int i=0;i<artifacts.length();i++){
+            JSONObject artifact=artifacts.optJSONObject(i);
+            if(artifact==null||artifact.optLong("id",0L)<=0L)continue;
+            try{artifact.put("repository",repository);}catch(Exception ignored){}
+            available.add(artifact);
+            LinearLayout tile=new LinearLayout(this);
+            tile.setOrientation(LinearLayout.VERTICAL);
+            tile.setPadding(dp(13),dp(10),dp(13),dp(10));
+            tile.setBackground(round(CARD,15,BORDER,1));
+            CheckBox mark=new CheckBox(this);
+            mark.setText(artifact.optString("name","Артефакт"));
+            mark.setTextColor(TEXT);
+            mark.setTextSize(14);
+            mark.setOnCheckedChangeListener((buttonView,checked)->update.run());
+            marks.add(mark);
+            tile.addView(mark);
+            TextView info=text(formatAccountBytes(artifact.optLong("size_in_bytes",0L))+
+                    (artifact.optBoolean("expired",false)?" · срок хранения истёк":""),11,false);
+            info.setTextColor(MUTED);
+            tile.addView(info);
+            LinearLayout buttons=new LinearLayout(this);
+            Button download=button("Скачать ZIP");
+            download.setTextSize(12);
+            download.setEnabled(!artifact.optBoolean("expired",false));
+            download.setOnClickListener(v->startArtifactDownload(repository,artifact));
+            buttons.addView(download,new LinearLayout.LayoutParams(0,dp(46),1f));
+            Button delete=button("Удалить");
+            delete.setTextSize(12);
+            delete.setTextColor(0xFFC34F48);
+            delete.setBackground(round(CARD,12,0xFFC34F48,1));
+            delete.setOnClickListener(v->{
+                List<JSONObject> only=new ArrayList<>();
+                only.add(artifact);
+                confirmArtifactsDeletion(only,()->showBuildRunDetail(repository,runId));
+            });
+            LinearLayout.LayoutParams del=new LinearLayout.LayoutParams(0,dp(46),1f);
+            del.setMargins(dp(9),0,0,0);
+            buttons.addView(delete,del);
+            tile.addView(buttons);
+            card(tile);
+        }
+        if(available.isEmpty())return;
+        Button all=button("Выбрать все артефакты запуска");
+        all.setTextColor(GREEN);
+        all.setBackground(round(CARD,13,BORDER,1));
+        all.setOnClickListener(v->{
+            boolean anyUnchecked=false;
+            for(CheckBox m:marks)if(!m.isChecked()){anyUnchecked=true;break;}
+            for(CheckBox m:marks)m.setChecked(anyUnchecked);
+            all.setText(anyUnchecked?"Снять выделение":"Выбрать все артефакты запуска");
+            update.run();
+        });
+        bulk.setOnClickListener(v->{
+            List<JSONObject> chosen=new ArrayList<>();
+            for(int i=0;i<marks.size();i++)
+                if(marks.get(i).isChecked())chosen.add(available.get(i));
+            confirmArtifactsDeletion(chosen,()->showBuildRunDetail(repository,runId));
+        });
+        content.addView(selected);
+        LinearLayout.LayoutParams selectParams=new LinearLayout.LayoutParams(-1,dp(48));
+        selectParams.setMargins(0,dp(8),0,0);
+        content.addView(all,selectParams);
+        LinearLayout.LayoutParams bulkParams=new LinearLayout.LayoutParams(-1,dp(48));
+        bulkParams.setMargins(0,dp(8),0,dp(8));
+        content.addView(bulk,bulkParams);
+    }
+
+    private boolean hasLiveArtifacts(JSONArray artifacts){
+        if(artifacts==null)return false;
+        for(int i=0;i<artifacts.length();i++){
+            JSONObject artifact=artifacts.optJSONObject(i);
+            if(artifact!=null&&!artifact.optBoolean("expired",false))return true;
+        }
+        return false;
+    }
+
+    /** Artifact inventory remains a peer tab inside the single global center. */
+    private void renderHubArtifacts(LinearLayout host,GlobalBuildHub.Snapshot snapshot){
+        host.removeAllViews();
+        TextView subtitle=text("Все найденные артефакты · можно скачать, удалить по одному "+
+                "или выделить несколько. Удаление на GitHub необратимо.",12,false);
+        subtitle.setTextColor(MUTED);
+        host.addView(subtitle);
+        EditText filter=new EditText(this);
+        filter.setSingleLine(true);
+        filter.setTextSize(14);
+        filter.setHint("Имя файла или репозитория");
+        filter.setText(hubArtifactQuery);
+        filter.setSelectAllOnFocus(false);
+        host.addView(filter,new LinearLayout.LayoutParams(-1,dp(52)));
+        Button search=button("Найти");
+        search.setOnClickListener(v->{
+            hubArtifactQuery=filter.getText().toString().trim().toLowerCase(Locale.ROOT);
+            hubArtifactVisibleLimit=60;
+            renderHubArtifacts(host,GlobalBuildHub.cached(this));
+        });
+        host.addView(search,new LinearLayout.LayoutParams(-1,dp(44)));
+
+        List<JSONObject> listed=new ArrayList<>();
+        int matches=0;
+        for(int i=0;i<snapshot.artifacts.length();i++){
+            JSONObject artifact=snapshot.artifacts.optJSONObject(i);
+            if(artifact==null)continue;
+            String repository=artifact.optString("repository","");
+            String name=artifact.optString("name","");
+            if(!hubArtifactQuery.isEmpty()&&
+                    !(repository.toLowerCase(Locale.ROOT).contains(hubArtifactQuery)
+                    ||name.toLowerCase(Locale.ROOT).contains(hubArtifactQuery)))continue;
+            matches++;
+            if(listed.size()<hubArtifactVisibleLimit)listed.add(artifact);
+        }
+        TextView count=text("Найдено: "+matches+" · показано: "+listed.size(),12,true);
+        count.setTextColor(GREEN);
+        host.addView(count);
+        if(listed.isEmpty()){
+            TextView empty=text(snapshot.syncedAt==0L?
+                    "Загружаем список файлов GitHub…" :
+                    "Артефактов по выбранному фильтру нет. Проверьте доступ Actions: Read.",12,false);
+            empty.setTextColor(MUTED);
+            host.addView(empty);
+            return;
+        }
+        List<CheckBox> checks=new ArrayList<>();
+        Button selectAll=button("Выбрать все показанные");
+        selectAll.setTextColor(GREEN);
+        selectAll.setBackground(round(CARD,13,BORDER,1));
+        Button bulk=button("Удалить выбранные");
+        bulk.setEnabled(false);
+        TextView selection=text("Выбрано: 0",12,false);
+        Runnable updateSelection=()->{
+            int countSelected=0;
+            for(CheckBox b:checks)if(b.isChecked())countSelected++;
+            selection.setText("Выбрано: "+countSelected+" из "+listed.size());
+            bulk.setEnabled(countSelected>0);
+        };
+        selectAll.setOnClickListener(v->{
+            boolean all=true;
+            for(CheckBox b:checks)if(!b.isChecked()){all=false;break;}
+            for(CheckBox b:checks)b.setChecked(!all);
+            selectAll.setText(all?"Выбрать все показанные":"Снять выделение");
+            updateSelection.run();
+        });
+        bulk.setOnClickListener(v->{
+            List<JSONObject> chosen=new ArrayList<>();
+            for(int i=0;i<checks.size();i++)
+                if(checks.get(i).isChecked())chosen.add(listed.get(i));
+            confirmArtifactsDeletion(chosen,this::showBuildHub);
+        });
+        host.addView(selection);
+        LinearLayout bulkButtons=new LinearLayout(this);
+        bulkButtons.addView(selectAll,new LinearLayout.LayoutParams(0,dp(48),1f));
+        LinearLayout.LayoutParams b=new LinearLayout.LayoutParams(0,dp(48),1f);
+        b.setMargins(dp(8),0,0,0);
+        bulkButtons.addView(bulk,b);
+        host.addView(bulkButtons,new LinearLayout.LayoutParams(-1,dp(48)));
+
+        for(JSONObject artifact:listed){
+            String repository=artifact.optString("repository","");
+            long id=artifact.optLong("id",0L);
+            String name=artifact.optString("name","Артефакт");
+            boolean expired=artifact.optBoolean("expired",false);
+            LinearLayout tile=new LinearLayout(this);
+            tile.setOrientation(LinearLayout.VERTICAL);
+            tile.setPadding(dp(12),dp(9),dp(12),dp(10));
+            tile.setBackground(round(CARD,15,BORDER,1));
+            CheckBox mark=new CheckBox(this);
+            mark.setText(name);
+            mark.setTextSize(14);
+            mark.setTextColor(TEXT);
+            mark.setOnCheckedChangeListener((buttonView,isChecked)->updateSelection.run());
+            checks.add(mark);
+            tile.addView(mark,new LinearLayout.LayoutParams(-1,-2));
+            TextView info=text(repository+" · "+formatAccountBytes(artifact.optLong("size_in_bytes",0))
+                    +(expired?" · срок истёк":" · "+buildTimeOrPending(artifact.optString("created_at",""))),
+                    11,false);
+            info.setTextColor(MUTED);
+            tile.addView(info);
+            LinearLayout actions=new LinearLayout(this);
+            Button download=button("Скачать ZIP");
+            download.setTextSize(12);
+            download.setEnabled(!expired);
+            download.setOnClickListener(v->startArtifactDownload(repository,artifact));
+            actions.addView(download,new LinearLayout.LayoutParams(0,dp(46),1f));
+            Button delete=button("Удалить");
+            delete.setTextSize(12);
+            delete.setTextColor(0xFFC34F48);
+            delete.setBackground(round(CARD,12,0xFFC34F48,1));
+            delete.setOnClickListener(v->{
+                List<JSONObject> single=new ArrayList<>();
+                single.add(artifact);
+                confirmArtifactsDeletion(single,this::showBuildHub);
+            });
+            LinearLayout.LayoutParams dpDelete=new LinearLayout.LayoutParams(0,dp(46),1f);
+            dpDelete.setMargins(dp(9),0,0,0);
+            actions.addView(delete,dpDelete);
+            tile.addView(actions);
+            LinearLayout.LayoutParams tileParams=new LinearLayout.LayoutParams(-1,-2);
+            tileParams.setMargins(0,dp(8),0,0);
+            host.addView(tile,tileParams);
+        }
+        if(matches>listed.size()){
+            Button more=button("Показать ещё · "+(matches-listed.size()));
+            more.setTextColor(GREEN);
+            more.setBackground(round(CARD,13,BORDER,1));
+            more.setOnClickListener(v->{
+                hubArtifactVisibleLimit+=60;
+                renderHubArtifacts(host,GlobalBuildHub.cached(this));
+            });
+            host.addView(more,new LinearLayout.LayoutParams(-1,dp(48)));
+        }
+        if(snapshot.partial){
+            TextView partial=text("Показаны найденные файлы. При ограничениях GitHub или лимите "+
+                    "индекса часть старых артефактов может отсутствовать. "+
+                    "Выделение не затрагивает скрытые и незагруженные файлы.",11,false);
+            partial.setTextColor(MUTED);
+            host.addView(partial);
         }
     }
 
@@ -1912,12 +2304,6 @@ public class MainActivity extends Activity {
                         :"Синхронизация ещё не выполнялась");
         if(cached.status==RepositoryStore.Status.ERROR || cached.status==RepositoryStore.Status.STALE)
             screen.setStatus("Последняя синхронизация завершилась ошибкой. Сохранённые данные доступны.");
-        Button buildCenter=button("◈  Центр сборок · APK и артефакты");
-        buildCenter.setContentDescription("Открыть центр сборок GitHub Actions");
-        buildCenter.setOnClickListener(v->navigate(this::showBuildCenter));
-        LinearLayout.LayoutParams buildsP=new LinearLayout.LayoutParams(-1,dp(48));
-        buildsP.setMargins(0,0,0,dp(10));
-        content.addView(buildCenter,0,buildsP);
         final boolean needsNetwork=forceNetwork || cached.lastSyncedAt==0L
                 || System.currentTimeMillis()-cached.lastSyncedAt>120000L;
         if(!needsNetwork)return;
@@ -2652,16 +3038,9 @@ public class MainActivity extends Activity {
                             ||!full.equals(currentTitle))return;
                     content.removeView(pb);
                     showRepositoryOverviewHero(r,full,desc,stars,forks,issues,branch,language,license);
-                    sectionTitle("GitHub Actions",null);
-                    addRepositoryActionsTabs(full,-1);
-                    TextView actionsHint=text("Сборки — история запусков · Артефакты — скачивание, удаление и правила хранения.",11,false);
-                    actionsHint.setTextColor(MUTED);
-                    content.addView(actionsHint,new LinearLayout.LayoutParams(-1,-2));
                     sectionTitle("Основные разделы",null);
                     GridLayout tabs=new GridLayout(this);tabs.setColumnCount(adaptiveColumns(3));
-                    repoActionCard(tabs,R.drawable.ic_home,"Обзор","О проекте",()->navigate(()->showRepository(full)));
                     repoActionCard(tabs,R.drawable.ic_repository,"Файлы","Код и структура",()->navigate(()->showRepositoryFiles(full,branch,"")));
-                    repoActionCard(tabs,R.drawable.ic_repository,"README","Документация",()->navigate(()->showReadme(full,finalReadme)));
                     repoActionCard(tabs,R.drawable.ic_issue,"Issues",issues+" открыто",()->navigate(()->showRepoIssues(full)));
                     repoActionCard(tabs,R.drawable.ic_pull_request,"Pull Requests","Изменения",()->navigate(()->showRepoPulls(full)));
                     repoActionCard(tabs,R.drawable.ic_discussion,"Обсуждения","Сообщество",()->navigate(()->showRepoDiscussions(full)));
@@ -2967,12 +3346,9 @@ public class MainActivity extends Activity {
         addAction(upload,"Загрузить файл/ZIP",()->startRepositoryFileImport(full,defaultBranch));
         addAction(upload,"Открыть файлы",()->navigate(()->showRepositoryFiles(full,defaultBranch,"")));content.addView(upload);
         sectionTitle("Git и публикация",null);GridLayout actions=new GridLayout(this);actions.setColumnCount(adaptiveColumns(2));
-        addAction(actions,"Создать fork",()->showForkDialog(full));addAction(actions,"Новая ветка",()->showCreateBranchDialog(full,defaultBranch));addAction(actions,"Новый тег",()->showCreateTagDialog(full,defaultBranch));addAction(actions,"Новый Release",()->showCreateReleaseDialog(full,defaultBranch));addAction(actions,"Actions / место",()->navigate(()->showActionsStorage(full)));addAction(actions,"Коммиты "+defaultBranch,()->navigate(()->showRepositoryCommits(full,defaultBranch)));content.addView(actions);
+        addAction(actions,"Создать fork",()->showForkDialog(full));addAction(actions,"Новая ветка",()->showCreateBranchDialog(full,defaultBranch));addAction(actions,"Новый тег",()->showCreateTagDialog(full,defaultBranch));addAction(actions,"Новый Release",()->showCreateReleaseDialog(full,defaultBranch));addAction(actions,"Коммиты "+defaultBranch,()->navigate(()->showRepositoryCommits(full,defaultBranch)));content.addView(actions);
         boolean isPrivate=repo!=null&&repo.optBoolean("private",false);boolean admin=repo==null||repo.optJSONObject("permissions")==null||repo.optJSONObject("permissions").optBoolean("admin",true);
         sectionTitle("Настройки репозитория",null);
-        Button retention=button("⚙  Хранилище Actions · срок и лимиты");
-        retention.setOnClickListener(v->navigate(()->showActionsStorage(full)));
-        content.addView(retention,new LinearLayout.LayoutParams(-1,dp(50)));
         GridLayout settings=new GridLayout(this);settings.setColumnCount(adaptiveColumns(2));
         if(admin){addAction(settings,"Имя и описание",()->showEditRepositoryDialog(full,repo));addAction(settings,isPrivate?"Сделать публичным":"Сделать приватным",()->showRepositoryVisibilityDialog(full,isPrivate));addAction(settings,"Удалить репозиторий",()->showDeleteRepositoryDialog(full));}
         else{TextView ro=text("У вашего аккаунта нет административных прав на этот репозиторий. Загрузка кода и обычные Git-операции остаются доступны в пределах выданных разрешений.",12,false);ro.setTextColor(MUTED);settings.addView(ro,new GridLayout.LayoutParams());}
@@ -3294,103 +3670,172 @@ public class MainActivity extends Activity {
     private void showRepoReleases(String full){rememberScreen("repo_releases",routeArgs("full",full));showRepoReleasesPage(full,1,true);}
     private void showRepoReleasesPage(String full,int page,boolean first){
         if(first){setCurrentScreen(()->showRepoReleases(full));shell("Релизы",true);repoSectionHeader(full,"Релизы","Версии и файлы",R.drawable.ic_release);}ProgressBar pb=new ProgressBar(this);content.addView(pb);
-        io.execute(()->{try{JSONArray releases=getArray("https://api.github.com/repos/"+full+"/releases?per_page=20&page="+page);runOnUiThread(()->{content.removeView(pb);if(releases.length()==0&&first){card(text("У репозитория пока нет релизов.",15,false));return;}for(int i=0;i<releases.length();i++){JSONObject release=releases.optJSONObject(i);if(release!=null)renderReleaseCard(release);}if(releases.length()==20)addLoadMoreButton("Показать ещё релизы",()->showRepoReleasesPage(full,page+1,false));});}catch(Exception e){runOnUiThread(()->{content.removeView(pb);errorCard("Не удалось загрузить релизы",e.getMessage());});}});
+        io.execute(()->{try{JSONArray releases=getArray("https://api.github.com/repos/"+full+"/releases?per_page=20&page="+page);runOnUiThread(()->{content.removeView(pb);if(releases.length()==0&&first){card(text("У репозитория пока нет релизов.",15,false));return;}for(int i=0;i<releases.length();i++){JSONObject release=releases.optJSONObject(i);if(release!=null)renderReleaseCard(full,release);}if(releases.length()==20)addLoadMoreButton("Показать ещё релизы",()->showRepoReleasesPage(full,page+1,false));});}catch(Exception e){runOnUiThread(()->{content.removeView(pb);errorCard("Не удалось загрузить релизы",e.getMessage());});}});
     }
 
-    private void renderReleaseCard(JSONObject release){
+    private void renderReleaseCard(String repository,JSONObject release){
         LinearLayout box=new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
-
-        String releaseName=cleanNullable(release.optString("name",""));
-        String tagName=cleanNullable(release.optString("tag_name",""));
-        if(releaseName.isEmpty())releaseName=tagName.isEmpty()?"Релиз":tagName;
-        TextView title=text(releaseName,17,true);
-        title.setPadding(dp(2),0,dp(2),dp(2));
-        box.addView(title);
-
-        StringBuilder metaText=new StringBuilder();
-        if(!tagName.isEmpty())metaText.append(tagName);
-        if(release.optBoolean("prerelease"))metaText.append(metaText.length()>0?" · prerelease":"prerelease");
-        if(release.optBoolean("draft"))metaText.append(metaText.length()>0?" · draft":"draft");
+        box.setPadding(dp(12),dp(12),dp(12),dp(12));
+        box.setBackground(round(CARD,18,BORDER,1));
+        String name=cleanNullable(release.optString("name",""));
+        String tag=cleanNullable(release.optString("tag_name",""));
+        if(name.isEmpty())name=tag.isEmpty()?"Релиз":tag;
+        LinearLayout heading=new LinearLayout(this);
+        heading.setGravity(Gravity.CENTER_VERTICAL);
+        TextView title=text(name,16,true);
+        title.setPadding(0,0,0,0);
+        title.setMaxLines(2);
+        title.setEllipsize(TextUtils.TruncateAt.END);
+        heading.addView(title,new LinearLayout.LayoutParams(0,-2,1));
+        if(release.optBoolean("prerelease")||release.optBoolean("draft")){
+            TextView badge=text(release.optBoolean("draft")?"Черновик":"beta",10,true);
+            badge.setTextColor(GREEN);
+            badge.setPadding(dp(8),dp(3),dp(8),dp(3));
+            badge.setBackground(round(SUBTLE,10,BORDER,1));
+            LinearLayout.LayoutParams bp=new LinearLayout.LayoutParams(-2,-2);
+            bp.setMargins(dp(8),0,0,0);
+            heading.addView(badge,bp);
+        }
+        box.addView(heading);
         String published=formatGitHubDate(release.optString("published_at",release.optString("created_at","")));
-        if(!published.isEmpty())metaText.append(metaText.length()>0?" · ":"").append(published);
-        if(metaText.length()>0){
-            TextView meta=text(metaText.toString(),11,false);
-            meta.setTextColor(MUTED);
-            meta.setPadding(dp(2),0,dp(2),dp(8));
-            box.addView(meta);
+        TextView meta=text(tag+(published.isEmpty()?"":" · "+published),11,false);
+        meta.setTextColor(MUTED);
+        meta.setSingleLine(true);
+        meta.setEllipsize(TextUtils.TruncateAt.END);
+        meta.setPadding(0,dp(4),0,dp(7));
+        box.addView(meta);
+        String body=release.optString("body","");
+        if(!body.trim().isEmpty()){
+            LinearLayout description=translatableMarkdownPanel("release:"+release.optLong("id",0),
+                    body,release.optString("updated_at",release.optString("published_at","")));
+            LinearLayout.LayoutParams descParams=new LinearLayout.LayoutParams(-1,-2);
+            descParams.setMargins(0,dp(4),0,dp(8));
+            box.addView(description,descParams);
         }
-
-        String bodyValue=release.optString("body","");
-        if(!bodyValue.trim().isEmpty()){
-            box.addView(translatableMarkdownPanel("release:"+release.optLong("id",0),bodyValue,release.optString("updated_at",release.optString("published_at",""))));
-        }
-
         JSONArray assets=release.optJSONArray("assets");
-        if(assets!=null&&assets.length()>0){
-            TextView files=text("Файлы релиза · "+assets.length(),13,true);
-            files.setPadding(dp(2),dp(4),dp(2),dp(3));
-            box.addView(files);
-            for(int j=0;j<assets.length();j++){
-                JSONObject asset=assets.optJSONObject(j);
-                if(asset!=null)addReleaseAssetRow(box,asset);
-            }
+        int count=assets==null?0:assets.length();
+        LinearLayout headingFiles=new LinearLayout(this);
+        headingFiles.setGravity(Gravity.CENTER_VERTICAL);
+        TextView label=text("Файлы релиза · "+count,13,true);
+        label.setPadding(0,dp(4),0,dp(4));
+        headingFiles.addView(label,new LinearLayout.LayoutParams(0,-2,1));
+        TextView toggle=text("Все файлы ("+count+")",11,true);
+        toggle.setTextColor(GREEN);
+        toggle.setGravity(Gravity.CENTER);
+        toggle.setMinHeight(dp(44));
+        if(count>3)headingFiles.addView(toggle);
+        box.addView(headingFiles);
+        if(count==0){
+            TextView empty=text("Прикреплённых файлов нет",12,false);
+            empty.setTextColor(MUTED);
+            box.addView(empty);
         }else{
-            TextView noFiles=text("Прикреплённых файлов нет",12,false);
-            noFiles.setTextColor(MUTED);
-            noFiles.setPadding(dp(2),dp(6),dp(2),dp(2));
-            box.addView(noFiles);
+            LinearLayout list=new LinearLayout(this);
+            list.setOrientation(LinearLayout.VERTICAL);
+            box.addView(list);
+            final boolean[] expanded={false};
+            Runnable render=()->{
+                list.removeAllViews();
+                int limit=expanded[0]?count:Math.min(count,3);
+                for(int i=0;i<limit;i++){
+                    JSONObject asset=assets.optJSONObject(i);
+                    if(asset!=null)addReleaseAssetRow(list,repository,asset);
+                }
+                toggle.setText(expanded[0]?"Свернуть":"Все файлы ("+count+")");
+            };
+            render.run();
+            if(count>3)toggle.setOnClickListener(v->{expanded[0]=!expanded[0];render.run();});
         }
-        card(box);
+        LinearLayout.LayoutParams cardParams=new LinearLayout.LayoutParams(-1,-2);
+        cardParams.setMargins(0,0,0,dp(11));
+        content.addView(box,cardParams);
     }
 
-    private void addReleaseAssetRow(LinearLayout parent,JSONObject asset){
-        String assetName=asset.optString("name","release.bin");
-        String url=asset.optString("browser_download_url","");
-        long size=asset.optLong("size",0L);
-        int downloads=asset.optInt("download_count",0);
-        String contentType=cleanNullable(asset.optString("content_type",""));
-
+    private void addReleaseAssetRow(LinearLayout parent,String repository,JSONObject asset){
+        String name=asset.optString("name","release.bin");
+        long id=asset.optLong("id",0L);
         LinearLayout row=new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(12),dp(10),dp(8),dp(10));
+        row.setPadding(dp(10),dp(5),dp(8),dp(5));
+        row.setMinimumHeight(dp(72));
         row.setBackground(round(SUBTLE,14,BORDER,1));
-
-        ImageView icon=imageIcon(R.drawable.ic_release,GREEN,22);
-        row.addView(icon,new LinearLayout.LayoutParams(dp(34),dp(34)));
-
+        row.addView(imageIcon(R.drawable.ic_release,GREEN,20),
+                new LinearLayout.LayoutParams(dp(28),dp(28)));
         LinearLayout info=new LinearLayout(this);
         info.setOrientation(LinearLayout.VERTICAL);
-        info.setPadding(dp(7),0,dp(7),0);
-        TextView fileName=text(assetName,13,true);
-        fileName.setPadding(0,0,0,dp(2));
-        fileName.setMaxLines(3);
-        info.addView(fileName);
-        StringBuilder details=new StringBuilder(formatAssetSize(size));
-        if(!contentType.isEmpty())details.append(" · ").append(shortContentType(contentType));
-        if(downloads>0)details.append(" · ").append(downloads).append(" загрузок");
-        TextView fileMeta=text(details.toString(),10,false);
-        fileMeta.setTextColor(MUTED);
-        fileMeta.setPadding(0,0,0,0);
-        info.addView(fileMeta);
+        info.setPadding(dp(7),0,dp(4),0);
+        TextView filename=text(name,12,true);
+        filename.setMaxLines(2);
+        filename.setEllipsize(TextUtils.TruncateAt.END);
+        filename.setPadding(0,0,0,0);
+        info.addView(filename);
+        String mime=cleanNullable(asset.optString("content_type",""));
+        String details=formatAssetSize(asset.optLong("size",0))+
+                (mime.isEmpty()?"":" · "+shortContentType(mime));
+        TextView sub=text(details,10,false);
+        sub.setTextColor(MUTED);
+        sub.setSingleLine(true);
+        sub.setEllipsize(TextUtils.TruncateAt.END);
+        sub.setPadding(0,dp(2),0,0);
+        info.addView(sub);
         row.addView(info,new LinearLayout.LayoutParams(0,-2,1));
-
-        Button download=new Button(this);
-        download.setText("Скачать");
-        download.setAllCaps(false);
+        Button download=compactButton("Скачать");
         download.setTextSize(12);
         download.setTextColor(GREEN);
-        download.setPadding(dp(10),0,dp(10),0);
-        download.setMinWidth(0);
-        download.setMinimumWidth(0);
-        download.setBackground(round(blend(CARD,GREEN,0.08f),12,GREEN,1));
-        download.setOnClickListener(v->enqueueReleaseDownload(assetName,url));
-        row.addView(download,new LinearLayout.LayoutParams(dp(102),dp(42)));
-
+        download.setPadding(dp(4),0,dp(4),0);
+        download.setMinHeight(dp(42));
+        download.setMinimumHeight(dp(42));
+        download.setBackground(round(blend(CARD,GREEN,0.06f),12,GREEN,1));
+        download.setEnabled(id>0L);
+        download.setOnClickListener(v->downloadReleaseAsset(repository,id,name));
+        LinearLayout.LayoutParams dpButton=new LinearLayout.LayoutParams(dp(100),dp(44));
+        dpButton.setMargins(dp(7),0,0,0);
+        row.addView(download,dpButton);
         LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,-2);
-        params.setMargins(0,dp(5),0,dp(5));
+        params.setMargins(0,0,0,dp(7));
         parent.addView(row,params);
+    }
+
+    /** Private release browser URLs return 404 in DownloadManager: fetch by authenticated asset ID. */
+    private void downloadReleaseAsset(String repository,long assetId,String fileName){
+        if(assetId<=0L){toast("Файл релиза недоступен");return;}
+        ProgressDialog dialog=new ProgressDialog(this);
+        dialog.setTitle("Скачивание релиза");
+        dialog.setMessage(fileName);
+        dialog.setProgressStyle(ProgressDialog.STYLE_HORIZONTAL);
+        dialog.setMax(100);
+        dialog.setIndeterminate(true);
+        dialog.setCancelable(false);
+        dialog.show();
+        final String account=currentAccountId();
+        io.execute(()->{
+            try{
+                Uri saved=ReleaseAssetDownloads.download(getApplicationContext(),repository,assetId,
+                        fileName,(transferred,total)->runOnUiThread(()->{
+                            if(!dialog.isShowing())return;
+                            if(total>0L){
+                                dialog.setIndeterminate(false);
+                                dialog.setProgress((int)Math.min(100,transferred*100L/total));
+                            }else dialog.setMessage(fileName+" · "+formatAccountBytes(transferred));
+                        }));
+                runOnUiThread(()->{
+                    dialog.dismiss();
+                    if(!account.equals(currentAccountId()))return;
+                    new AlertDialog.Builder(this).setTitle("Релиз скачан")
+                            .setMessage(Build.VERSION.SDK_INT>=29?
+                                    "Файл сохранён в Загрузки/GitHubble: "+fileName:
+                                    "Файл сохранён в папке приложения: "+fileName)
+                            .setPositiveButton("ОК",null).show();
+                });
+            }catch(Exception error){
+                runOnUiThread(()->{
+                    dialog.dismiss();
+                    if(account.equals(currentAccountId()))
+                        errorDialog("Не удалось скачать релиз",error.getMessage());
+                });
+            }
+        });
     }
 
     private String formatAssetSize(long bytes){
@@ -3777,25 +4222,211 @@ public class MainActivity extends Activity {
     private void addTranslatableMarkdownCard(String scopeKey,String source,String updateMarker){
         LinearLayout panel=translatableMarkdownPanel(scopeKey,source,updateMarker);LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,-2);params.setMargins(0,0,0,dp(12));content.addView(panel,params);
     }
+    private boolean isLocalTranslation(TranslationEngine.Config config){
+        return "mlkit".equals(config.provider)||"auto".equals(config.provider);
+    }
+
     private LinearLayout translatableMarkdownPanel(String scopeKey,String source,String updateMarker){
-        String safeSource=source==null?"":source;LinearLayout panel=new LinearLayout(this);panel.setOrientation(LinearLayout.VERTICAL);panel.setPadding(dp(12),dp(10),dp(12),dp(10));panel.setBackground(round(CARD,16,BORDER,1));panel.setElevation(dp(1));
-        renderTranslatablePanel(panel,scopeKey,safeSource,updateMarker,false);
-        if(prefs.getBoolean("translator_auto",false)&&LanguageDetector.needsRussianTranslation(safeSource)&&!translationConfig().endpoint.isEmpty()&&translationCache.get(safeSource,updateMarker,"ru",translationConfig().identity())==null)new Handler(Looper.getMainLooper()).postDelayed(()->startTranslation(panel,scopeKey,safeSource,updateMarker),180L);
+        String safeSource=source==null?"":source;
+        LinearLayout panel=new LinearLayout(this);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        boolean compactRelease=scopeKey.startsWith("release:");
+        panel.setPadding(dp(compactRelease?10:12),dp(compactRelease?8:10),
+                dp(compactRelease?10:12),dp(compactRelease?8:10));
+        panel.setBackground(round(compactRelease?SUBTLE:CARD,16,BORDER,1));
+        panel.setElevation(dp(1));
+        TranslationEngine.Config config=translationConfig();
+        renderTranslatablePanel(panel,scopeKey,safeSource,updateMarker,false,config);
+        // No implicit cloud requests, including when the user selected a cloud engine.
+        if(prefs.getBoolean("translator_auto",false)&&isLocalTranslation(config)&&
+                LanguageDetector.needsRussianTranslation(safeSource)&&
+                translationCache.get(safeSource,updateMarker,"ru",config.identity())==null){
+            io.execute(()->{
+                try{
+                    String detected=MlKitTranslation.detectSource(safeSource,config.sourceLanguage);
+                    if("ru".equals(detected)||!MlKitTranslation.modelExists("ru")||
+                            !MlKitTranslation.modelExists(detected))return;
+                    runOnUiThread(()->{
+                        if(panel.getParent()!=null)startTranslation(panel,scopeKey,safeSource,
+                                updateMarker,config,true);
+                    });
+                }catch(Exception ignored){/* No background model downloads or cloud fallback. */}
+            });
+        }
         return panel;
     }
 
-    private void renderTranslatablePanel(LinearLayout panel,String scopeKey,String source,String updateMarker,boolean russian){
-        panel.removeAllViews();TranslationEngine.Config config=translationConfig();LanguageDetector.Result detected=LanguageDetector.detect(source);TranslationCache.Entry cached=translationCache.get(source,updateMarker,"ru",config.identity());
-        LinearLayout header=new LinearLayout(this);header.setGravity(Gravity.CENTER_VERTICAL);TextView language=text(detected.displayName,10,true);language.setTextColor(detected.code.equals("ru")?GREEN:BLUE);language.setBackground(round(SUBTLE,10,Color.TRANSPARENT,0));language.setPadding(dp(8),dp(3),dp(8),dp(3));header.addView(language);TextView cacheState=text(cached==null?"":"  перевод сохранён",10,false);cacheState.setTextColor(MUTED);header.addView(cacheState,new LinearLayout.LayoutParams(0,-2,1));panel.addView(header);
-        String shown=russian&&cached!=null?cached.translated:source;TextView body=markdownView(shown,14);body.setPadding(0,dp(8),0,dp(8));panel.addView(body);
-        LinearLayout actions=new LinearLayout(this);Button original=compactButton("Оригинал");original.setEnabled(russian);original.setOnClickListener(v->renderTranslatablePanel(panel,scopeKey,source,updateMarker,false));actions.addView(original,new LinearLayout.LayoutParams(0,dp(44),1));
-        Button translate=compactButton(cached==null?"Перевести":"Русский");translate.setEnabled(!detected.code.equals("ru"));translate.setOnClickListener(v->{if(cached!=null)renderTranslatablePanel(panel,scopeKey,source,updateMarker,true);else startTranslation(panel,scopeKey,source,updateMarker);});LinearLayout.LayoutParams tp=new LinearLayout.LayoutParams(0,dp(44),1);tp.setMargins(dp(6),0,0,0);actions.addView(translate,tp);panel.addView(actions);
+    private void renderTranslatablePanel(LinearLayout panel,String scopeKey,String source,
+                                          String updateMarker,boolean russian,
+                                          TranslationEngine.Config config){
+        panel.removeAllViews();
+        LanguageDetector.Result detected=LanguageDetector.detect(source);
+        TranslationCache.Entry cached=translationCache.get(source,updateMarker,
+                "ru",config.identity());
+        LinearLayout header=new LinearLayout(this);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        TextView language=text(detected.displayName,10,true);
+        language.setTextColor(detected.code.equals("ru")?GREEN:BLUE);
+        language.setBackground(round(SUBTLE,10,Color.TRANSPARENT,0));
+        language.setPadding(dp(8),dp(3),dp(8),dp(3));
+        header.addView(language);
+        TextView cacheState=text(cached==null?"":"  перевод сохранён · "+
+                TranslationEngine.providerLabel(config.provider),10,false);
+        cacheState.setTextColor(MUTED);
+        header.addView(cacheState,new LinearLayout.LayoutParams(0,-2,1));
+        panel.addView(header);
+
+        String shown=russian&&cached!=null?cached.translated:source;
+        TextView body=markdownView(shown,14);
+        boolean compactRelease=scopeKey.startsWith("release:");
+        body.setPadding(0,dp(compactRelease?4:8),0,dp(compactRelease?5:8));
+        if(compactRelease){
+            body.setMaxLines(3);
+            body.setEllipsize(TextUtils.TruncateAt.END);
+        }
+        panel.addView(body);
+        if(compactRelease){
+            TextView expand=text("Развернуть описание  ⌄",12,true);
+            expand.setTextColor(GREEN);
+            expand.setGravity(Gravity.CENTER_VERTICAL);
+            expand.setPadding(0,dp(3),0,dp(3));
+            expand.setMinHeight(dp(40));
+            final boolean[] expanded={false};
+            expand.setOnClickListener(v->{
+                expanded[0]=!expanded[0];
+                body.setMaxLines(expanded[0]?Integer.MAX_VALUE:3);
+                body.setEllipsize(expanded[0]?null:TextUtils.TruncateAt.END);
+                expand.setText(expanded[0]?"Свернуть описание  ⌃":"Развернуть описание  ⌄");
+            });
+            panel.addView(expand);
+            // Measure the complete text once; do not show an expander for short releases.
+            TextView probe=markdownView(shown,14);
+            probe.setPadding(0,0,0,0);
+            panel.post(()->{
+                int width=body.getWidth()-body.getPaddingLeft()-body.getPaddingRight();
+                if(width<=0)return;
+                probe.measure(View.MeasureSpec.makeMeasureSpec(width,View.MeasureSpec.EXACTLY),
+                        View.MeasureSpec.makeMeasureSpec(0,View.MeasureSpec.UNSPECIFIED));
+                if(probe.getLayout()!=null&&probe.getLayout().getLineCount()<=3)
+                    expand.setVisibility(View.GONE);
+            });
+        }
+
+        LinearLayout actions=new LinearLayout(this);
+        Button original=compactButton("Оригинал");
+        original.setEnabled(russian);
+        original.setOnClickListener(v->renderTranslatablePanel(panel,scopeKey,source,
+                updateMarker,false,config));
+        original.setMinHeight(dp(42));original.setMinimumHeight(dp(42));
+        actions.addView(original,new LinearLayout.LayoutParams(0,dp(44),1));
+        Button translate=compactButton(cached==null?"Перевести":"Русский");
+        translate.setOnClickListener(v->{
+            if(cached!=null)renderTranslatablePanel(panel,scopeKey,source,updateMarker,true,config);
+            else startTranslation(panel,scopeKey,source,updateMarker,config,
+                    isLocalTranslation(config));
+        });
+        LinearLayout.LayoutParams tp=new LinearLayout.LayoutParams(0,dp(44),1);
+        tp.setMargins(dp(6),0,0,0);
+        translate.setMinHeight(dp(42));translate.setMinimumHeight(dp(42));
+        actions.addView(translate,tp);
+        panel.addView(actions);
+
+        if(isLocalTranslation(config)){
+            Button cloud=compactButton("Перевести облачным сервисом");
+            cloud.setOnClickListener(v->startTranslation(panel,scopeKey,source,updateMarker,
+                    translationController.cloudConfig(),false));
+            cloud.setMinHeight(dp(42));cloud.setMinimumHeight(dp(42));
+            LinearLayout.LayoutParams cloudParams=new LinearLayout.LayoutParams(-1,dp(44));
+            cloudParams.setMargins(0,dp(7),0,0);
+            panel.addView(cloud,cloudParams);
+        }
     }
 
-    private void startTranslation(LinearLayout panel,String scopeKey,String source,String updateMarker){
-        TranslationEngine.Config config=translationConfig();if(config.endpoint.isEmpty()){toast("Сначала настройте провайдер перевода");configureTranslatorSettings();return;}
-        panel.removeAllViews();TextView title=text("Переводим на русский…",14,true);panel.addView(title);ProgressBar progress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);progress.setMax(100);progress.setProgress(4);panel.addView(progress,new LinearLayout.LayoutParams(-1,dp(8)));TextView detail=text("Подготовка Markdown и защита технических фрагментов",11,false);detail.setTextColor(MUTED);panel.addView(detail);
-        io.execute(()->{try{String translated=translationEngine.translate(source,"ru",config,(done,total)->runOnUiThread(()->{progress.setProgress(Math.max(4,done*100/Math.max(1,total)));detail.setText("Переведено частей: "+done+"/"+total);}));LanguageDetector.Result detected=LanguageDetector.detect(source);translationCache.put(source,updateMarker,"ru",config.identity(),translated,detected.code);runOnUiThread(()->renderTranslatablePanel(panel,scopeKey,source,updateMarker,true));}catch(Exception e){runOnUiThread(()->{panel.removeAllViews();TextView error=text("Не удалось перевести: "+e.getMessage(),13,false);error.setTextColor(Color.rgb(190,55,60));panel.addView(error);Button retry=compactButton("Повторить");retry.setOnClickListener(v->startTranslation(panel,scopeKey,source,updateMarker));panel.addView(retry,new LinearLayout.LayoutParams(-1,dp(44)));});}});
+    private void startTranslation(LinearLayout panel,String scopeKey,String source,
+                                  String updateMarker){
+        TranslationEngine.Config config=translationConfig();
+        startTranslation(panel,scopeKey,source,updateMarker,config,isLocalTranslation(config));
+    }
+
+    private void startTranslation(LinearLayout panel,String scopeKey,String source,
+                                  String updateMarker,TranslationEngine.Config config,
+                                  boolean cloudConfirmed){
+        if(!isLocalTranslation(config)){
+            if(config.endpoint.isEmpty()){
+                toast("Настройте облачный переводчик.");
+                configureCloudTranslation();
+                return;
+            }
+            if(!cloudConfirmed){
+                String name=TranslationEngine.providerLabel(config.provider);
+                new AlertDialog.Builder(this).setTitle("Перевести через "+name+"?")
+                        .setMessage("Текст будет передан внешнему облачному сервису. "+
+                                "Он может содержать данные приватного репозитория. "+
+                                "Проверьте условия сервиса и возможную оплату.")
+                        .setNegativeButton("Отмена",null)
+                        .setPositiveButton("Передать и перевести",(d,w)->
+                                startTranslation(panel,scopeKey,source,updateMarker,config,true))
+                        .show();
+                return;
+            }
+        }
+        panel.removeAllViews();
+        TextView title=text("Переводим на русский · "+
+                TranslationEngine.providerLabel(config.provider),14,true);
+        panel.addView(title);
+        ProgressBar progress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);
+        progress.setMax(100);
+        progress.setProgress(4);
+        panel.addView(progress,new LinearLayout.LayoutParams(-1,dp(8)));
+        TextView detail=text("Обрабатываем Markdown, код и технические фрагменты",11,false);
+        detail.setTextColor(MUTED);
+        panel.addView(detail);
+        final String account=currentAccountId();
+        io.execute(()->{
+            try{
+                String translated=translationEngine.translate(source,"ru",config,
+                        (done,total)->runOnUiThread(()->{
+                            if(panel.getParent()==null)return;
+                            progress.setProgress(Math.max(4,done*100/Math.max(1,total)));
+                            detail.setText("Переведено частей: "+done+"/"+total);
+                        }));
+                LanguageDetector.Result detected=LanguageDetector.detect(source);
+                if(account.equals(currentAccountId()))
+                    translationCache.put(source,updateMarker,"ru",config.identity(),
+                            translated,detected.code);
+                runOnUiThread(()->{
+                    if(panel.getParent()!=null&&account.equals(currentAccountId()))
+                        renderTranslatablePanel(panel,scopeKey,source,updateMarker,true,config);
+                });
+            }catch(Exception error){
+                runOnUiThread(()->{
+                    if(panel.getParent()==null||!account.equals(currentAccountId()))return;
+                    panel.removeAllViews();
+                    TextView message=text("Не удалось перевести: "+error.getMessage(),13,false);
+                    message.setTextColor(Color.rgb(190,55,60));
+                    panel.addView(message);
+                    Button retry=compactButton("Повторить");
+                    retry.setOnClickListener(v->startTranslation(panel,scopeKey,source,
+                            updateMarker,config,isLocalTranslation(config)));
+                    LinearLayout.LayoutParams retryParams=new LinearLayout.LayoutParams(-1,dp(44));
+                    retryParams.setMargins(0,dp(8),0,0);
+                    panel.addView(retry,retryParams);
+                    if(isLocalTranslation(config)){
+                        Button models=compactButton("Управление языковыми моделями");
+                        models.setOnClickListener(v->navigate(this::showTranslationModels));
+                        LinearLayout.LayoutParams modelParams=new LinearLayout.LayoutParams(-1,dp(44));
+                        modelParams.setMargins(0,dp(7),0,0);
+                        panel.addView(models,modelParams);
+                        Button cloud=compactButton("Попробовать облачный перевод");
+                        cloud.setOnClickListener(v->startTranslation(panel,scopeKey,source,
+                                updateMarker,translationController.cloudConfig(),false));
+                        LinearLayout.LayoutParams cloudParams=new LinearLayout.LayoutParams(-1,dp(44));
+                        cloudParams.setMargins(0,dp(7),0,0);
+                        panel.addView(cloud,cloudParams);
+                    }
+                });
+            }
+        });
     }
 
     private void addAction(GridLayout g,String label,Runnable r){TextView v=text(label,14,true);v.setGravity(Gravity.CENTER);v.setTextColor(BLUE);v.setContentDescription(label);v.setMinHeight(dp(48));v.setBackground(round(CARD,14,BORDER,1));v.setOnClickListener(x->r.run());GridLayout.LayoutParams p=new GridLayout.LayoutParams();p.width=0;p.height=dp(isLargeText()?64:52);p.columnSpec=GridLayout.spec(GridLayout.UNDEFINED,1f);p.setMargins(dp(4),dp(4),dp(4),dp(4));g.addView(v,p);}
@@ -5114,6 +5745,102 @@ public class MainActivity extends Activity {
 
     /** Official billed cost; never calculate money by multiplying artifacts' current size. */
 
+
+    private void actionsSectionHeader(String title,String subtitle){
+        LinearLayout section=new LinearLayout(this);
+        section.setOrientation(LinearLayout.VERTICAL);
+        section.setPadding(dp(4),dp(12),dp(4),dp(9));
+        TextView heading=text(title,18,true);
+        heading.setPadding(0,0,0,0);
+        section.addView(heading,new LinearLayout.LayoutParams(-1,-2));
+        if(subtitle!=null&&!subtitle.isEmpty()){
+            TextView description=text(subtitle,12,false);
+            description.setTextColor(MUTED);
+            description.setPadding(0,dp(4),0,0);
+            section.addView(description,new LinearLayout.LayoutParams(-1,-2));
+        }
+        content.addView(section,new LinearLayout.LayoutParams(-1,-2));
+    }
+
+    private void actionsInfoRow(String title,String subtitle,Runnable action){
+        LinearLayout row=new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(14),dp(12),dp(12),dp(12));
+        row.setBackground(round(CARD,16,BORDER,1));
+        LinearLayout labels=new LinearLayout(this);
+        labels.setOrientation(LinearLayout.VERTICAL);
+        TextView heading=text(title,15,true);
+        heading.setPadding(0,0,0,0);
+        heading.setMaxLines(3);
+        labels.addView(heading);
+        TextView detail=text(subtitle,12,false);
+        detail.setTextColor(MUTED);
+        detail.setPadding(0,dp(4),0,0);
+        labels.addView(detail);
+        row.addView(labels,new LinearLayout.LayoutParams(0,-2,1f));
+        if(action!=null){
+            TextView arrow=text("›",24,false);
+            arrow.setTextColor(MUTED);
+            arrow.setGravity(Gravity.CENTER);
+            row.addView(arrow,new LinearLayout.LayoutParams(dp(28),dp(44)));
+            row.setOnClickListener(v->action.run());
+            row.setFocusable(true);
+        }
+        LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,-2);
+        params.setMargins(0,0,0,dp(9));
+        content.addView(row,params);
+    }
+
+    private void actionsNumberField(String title,String description,EditText field){
+        LinearLayout panel=new LinearLayout(this);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setPadding(dp(15),dp(12),dp(15),dp(10));
+        panel.setBackground(round(CARD,16,BORDER,1));
+        TextView heading=text(title,14,true);
+        heading.setPadding(0,0,0,0);
+        panel.addView(heading);
+        TextView hint=text(description,12,false);
+        hint.setTextColor(MUTED);
+        hint.setPadding(0,dp(3),0,dp(4));
+        panel.addView(hint);
+        field.setTextSize(16);
+        field.setTextColor(TEXT);
+        field.setSelectAllOnFocus(true);
+        field.setContentDescription(title+". "+description);
+        panel.addView(field,new LinearLayout.LayoutParams(-1,dp(48)));
+        LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,-2);
+        params.setMargins(0,0,0,dp(9));
+        content.addView(panel,params);
+    }
+
+    private Button actionsSecondaryButton(String label){
+        Button b=button(label);
+        b.setTextColor(GREEN);
+        b.setBackground(round(CARD,13,BORDER,1));
+        return b;
+    }
+
+    private void actionsShowError(TextView status,Exception error,String subject){
+        String detail=error.getMessage()==null?"":error.getMessage();
+        String message=detail.toLowerCase(Locale.ROOT);
+        String summary;
+        if(message.contains("402")||message.contains("payment method"))
+            summary="GitHub требует действующий способ оплаты для этой настройки.";
+        else if(message.contains("403")||message.contains("resource not accessible")||message.contains("permission"))
+            summary="Недостаточно разрешений GitHub для этой настройки.";
+        else if(message.contains("404"))
+            summary="Эта настройка недоступна для выбранного репозитория.";
+        else if(message.contains("429")||message.contains("rate limit"))
+            summary="Достигнут лимит запросов GitHub. Повторите позже.";
+        else summary="Не удалось получить данные GitHub.";
+        status.setText(subject+": "+summary+"\nНажмите для технических подробностей.");
+        status.setOnClickListener(v->new AlertDialog.Builder(this)
+                .setTitle(subject)
+                .setMessage(detail.isEmpty()?summary:detail)
+                .setPositiveButton("Закрыть",null).show());
+        status.setFocusable(true);
+    }
+
     private void showServerCacheSetting(String full,ActionsStorageManager manager,boolean duration){
         final String title=duration?"Срок хранения кэшей":"Размер кэшей";
         final String units=duration?"дней":"ГБ";
@@ -5122,7 +5849,7 @@ public class MainActivity extends Activity {
         final String account=currentAccountId();
         TextView status=text(title+": получаем настройки GitHub…",12,false);
         status.setTextColor(MUTED);card(status);
-        Button edit=button("Изменить · "+title);
+        Button edit=actionsSecondaryButton("Изменить · "+title);
         edit.setEnabled(false);
         content.addView(edit,new LinearLayout.LayoutParams(-1,dp(48)));
         edit.setOnClickListener(v->{
@@ -5152,7 +5879,7 @@ public class MainActivity extends Activity {
                                     });
                                 }catch(Exception ex){runOnUiThread(()->{
                                     if(generation!=screenGeneration.get()||host!=content)return;
-                                    status.setText(title+": "+ex.getMessage());edit.setEnabled(true);
+                                    actionsShowError(status,ex,title);edit.setEnabled(true);
                                 });}
                             });
                         };
@@ -5174,7 +5901,7 @@ public class MainActivity extends Activity {
                 });
             }catch(Exception ex){runOnUiThread(()->{
                 if(generation!=screenGeneration.get()||host!=content)return;
-                status.setText(title+": недоступно ("+ex.getMessage()+"). Нужны Administration и Actions.");
+                actionsShowError(status,ex,title);
             });}
         });
     }
@@ -5191,7 +5918,7 @@ public class MainActivity extends Activity {
         final String account=currentAccountId();
         final LinearLayout host=content;
         TextView status=text("Получаем официальный отчёт Billing…",12,false);status.setTextColor(MUTED);card(status);
-        settingsActionRow("Денежные бюджеты","Открыть Billing → Budgets and alerts",
+        actionsInfoRow("Денежные бюджеты","Открыть Billing → Budgets and alerts",
                 ()->openSecureGitHubPage("https://github.com/settings/billing"));
         TextView note=text("Этот отчёт показывает расход и скидки в USD, но не гарантирует точность будущего счёта. Бюджеты и запрет платного использования задаются только в GitHub Billing. Если API недоступен, сумма неизвестна, а не равна нулю.",11,false);
         note.setTextColor(MUTED);card(note);
@@ -5253,7 +5980,7 @@ public class MainActivity extends Activity {
         shell("Хранилище Actions",false);
         settingsPanelHeader("Менеджер Actions","Артефакты, правила хранения и управление по репозиториям",R.drawable.ic_settings);
         if(!isSignedIn()){accountRequiredCard("Подключите GitHub для управления хранилищем.");return;}
-        settingsActionRow("Billing и денежные бюджеты","Официальный расход и настройка расходов аккаунта",
+        actionsInfoRow("Billing и денежные бюджеты","Официальный расход и настройка расходов аккаунта",
                 ()->navigate(this::showAccountCenter));
         final long generation=screenGeneration.get();
         final String account=currentAccountId();
@@ -5279,7 +6006,7 @@ public class MainActivity extends Activity {
                             (partial?" · показаны первые 1000, список неполный":""));
                     if(names.isEmpty())card(text("Нет доступных репозиториев. Проверьте разрешения GitHub App.",12,false));
                     for(String full:names)
-                        settingsActionRow(full,"Артефакты · скачивание · удаление · правила",
+                        actionsInfoRow(full,"Артефакты · скачивание · удаление · правила",
                                 ()->navigate(()->showActionsStorage(full)));
                 });
             }catch(Exception e){
@@ -5300,7 +6027,6 @@ public class MainActivity extends Activity {
         setCurrentScreen(()->showActionsStorage(full));
         shell("Хранилище Actions",false);
         repoSectionHeader(full,"GitHub Actions","Артефакты и правила хранения",R.drawable.ic_android);
-        addRepositoryActionsTabs(full,1);
         if(!isSignedIn()){accountRequiredCard("Подключите GitHub для управления Actions.");return;}
         final ActionsStorageManager manager=new ActionsStorageManager(api,prefs);
         final long generation=screenGeneration.get();
@@ -5317,15 +6043,15 @@ public class MainActivity extends Activity {
         limitInput.setInputType(InputType.TYPE_CLASS_NUMBER);
         limitInput.setHint("Целевой размер, МБ · 0 = все старые");
         limitInput.setText(String.valueOf(policy.softLimitMb));
-        TextView warning=text("Срок хранения GitHub действует для новых файлов. Мягкий лимит и правила очистки на телефоне не являются квотой GitHub и не останавливают платное использование.",12,false);
+        TextView warning=text("Настройки GitHub действуют для новых файлов. Локальная очистка удаляет существующие артефакты, но не ограничивает расходы GitHub.",12,false);
         warning.setTextColor(MUTED);card(warning);
-        sectionTitle("Артефакты","APK/ZIP · скачать или удалить прямо здесь");
+        actionsSectionHeader("Артефакты","APK и ZIP · скачать или удалить");
         TextView status=text("Получаем артефакты…",12,false);status.setTextColor(MUTED);card(status);
         LinearLayout rows=new LinearLayout(this);rows.setOrientation(LinearLayout.VERTICAL);content.addView(rows);
         LinearLayout tools=new LinearLayout(this);
-        Button refresh=button("↻ Обновить");
+        Button refresh=actionsSecondaryButton("↻ Обновить");
         refresh.setOnClickListener(v->showActionsStorage(full));
-        Button oldCache=button("Кэш Actions");
+        Button oldCache=actionsSecondaryButton("Кэш Actions");
         oldCache.setOnClickListener(v->navigate(()->showActionsCleanup(full)));
         for(Button action:new Button[]{refresh,oldCache}){
             action.setTextSize(12);action.setTextColor(GREEN);
@@ -5459,11 +6185,11 @@ public class MainActivity extends Activity {
             }catch(Exception e){
                 runOnUiThread(()->{
                     if(generation!=screenGeneration.get()||host!=content)return;
-                    status.setText("Не удалось получить артефакты: "+e.getMessage());
+                    actionsShowError(status,e,"Артефакты");
                 });
             }
         });
-        sectionTitle("Срок хранения GitHub","Общая настройка репозитория · требует Administration: write");
+        actionsSectionHeader("Срок хранения GitHub","Настройка репозитория · требуется доступ Administration");
         TextView retentionStatus=text("Получаем текущую настройку GitHub…",12,false);
         retentionStatus.setTextColor(MUTED);card(retentionStatus);
         Button retentionButton=button("Изменить срок хранения");
@@ -5498,7 +6224,7 @@ public class MainActivity extends Activity {
                             }catch(Exception e){
                                 runOnUiThread(()->{
                                     if(generation!=screenGeneration.get()||host!=content)return;
-                                    retentionStatus.setText("Не удалось сохранить срок: "+e.getMessage());
+                                    actionsShowError(retentionStatus,e,"Срок хранения");
                                     retentionButton.setEnabled(true);
                                 });
                             }
@@ -5518,21 +6244,21 @@ public class MainActivity extends Activity {
             }catch(Exception e){
                 runOnUiThread(()->{
                     if(generation!=screenGeneration.get()||host!=content)return;
-                    retentionStatus.setText("Недоступно: "+e.getMessage()+"\nНужны права Administration: read/write. Файлы можно скачивать и удалять отдельно.");
+                    actionsShowError(retentionStatus,e,"Срок хранения");
                 });
             }
         });
-        settingsActionRow("Стоимость Actions для проекта","Официальный отчёт GitHub Billing · если разрешён",
+        actionsInfoRow("Стоимость Actions для проекта","Официальный отчёт GitHub Billing · если разрешён",
                 ()->navigate(()->showActionsBillingCost(full)));
-        settingsActionRow("Денежный бюджет GitHub","Настроить в официальном Billing → Budgets and alerts",
+        actionsInfoRow("Денежный бюджет GitHub","Настроить в официальном Billing → Budgets and alerts",
                 ()->openSecureGitHubPage("https://github.com/settings/billing"));
-        sectionTitle("Кэш Actions","Отдельная квота 10 ГБ на проект; не входит в 500 МБ артефактов");
+        actionsSectionHeader("Кэш Actions","Размер и срок хранения временных файлов сборки");
         showServerCacheSetting(full,manager,false);
         showServerCacheSetting(full,manager,true);
-        sectionTitle("Правила очистки на устройстве","Применяются только по нажатию «Предпросмотр», затем подтверждение");
-        card(keepInput);
-        card(ageInput);
-        card(limitInput);
+        actionsSectionHeader("Локальные правила очистки","Удаление запускается после предварительного просмотра и подтверждения");
+        actionsNumberField("Сохранять последние артефакты","Количество новых файлов, которые не удаляются",keepInput);
+        actionsNumberField("Минимальный возраст","Удалять файлы старше указанного количества дней",ageInput);
+        actionsNumberField("Целевой размер, МБ","0 — удалить все старые файлы, кроме сохраняемых",limitInput);
         Button save=button("Сохранить локальное правило");
         save.setOnClickListener(v->{
             try{
@@ -5551,7 +6277,7 @@ public class MainActivity extends Activity {
         setCurrentScreen(()->showActionsCleanup(full));
         shell("Кэш Actions",false);
         repoSectionHeader(full,"Кэш Actions","Временные файлы сборок",R.drawable.ic_history);
-        Button backToArtifacts=button("← Артефакты проекта");
+        Button backToArtifacts=actionsSecondaryButton("← Артефакты проекта");
         backToArtifacts.setTextColor(GREEN);
         backToArtifacts.setBackground(round(CARD,13,BORDER,1));
         backToArtifacts.setOnClickListener(v->navigate(()->showActionsStorage(full)));
@@ -5568,7 +6294,7 @@ public class MainActivity extends Activity {
                         TextView empty=text("Кэш Actions пуст.",13,false);empty.setTextColor(MUTED);card(empty);return;
                     }
                     long total=0L;for(AccountOperationsController.CleanupItem item:items)total+=Math.max(0L,item.sizeBytes);
-                    settingsRow("Найдено",items.size()+" объектов · "+formatAccountBytes(total));
+                    actionsInfoRow("Найдено",items.size()+" объектов · "+formatAccountBytes(total),null);
                     TextView note=text("Удаляется только кэш сборок; APK, исходники и Releases не затрагиваются.",11,false);note.setTextColor(MUTED);card(note);
                     List<CheckBox> checks=new ArrayList<>();
                     for(AccountOperationsController.CleanupItem item:items){
@@ -5579,7 +6305,7 @@ public class MainActivity extends Activity {
                         checks.add(box);card(box);
                     }
                     LinearLayout actions=new LinearLayout(this);
-                    Button all=button("Выбрать всё");all.setOnClickListener(v->{for(CheckBox b:checks)b.setChecked(true);});
+                    Button all=actionsSecondaryButton("Выбрать всё");all.setOnClickListener(v->{for(CheckBox b:checks)b.setChecked(true);});
                     Button delete=button("Удалить выбранное");delete.setOnClickListener(v->{
                         List<AccountOperationsController.CleanupItem> selected=new ArrayList<>();long bytes=0L;
                         for(int i=0;i<checks.size();i++)if(checks.get(i).isChecked()){selected.add(items.get(i));bytes+=items.get(i).sizeBytes;}
@@ -5947,7 +6673,8 @@ public class MainActivity extends Activity {
         settingsRow("Язык интерфейса","Русский · другие языки пока не поддерживаются");
         sectionTitle("Перевод",null);
         settingsActionRow("Как работает перевод","Защита кода и Markdown",this::showTranslationInfo);
-        settingsActionRow("Провайдер перевода",translatorDisplayName(),this::configureTranslatorSettings);
+        settingsActionRow("Перевод и языковые модели",translatorDisplayName(),
+                ()->navigate(this::configureTranslatorSettings));
         settingsToggleRow("Автоперевод","Переводить иностранный контент при открытии",
                 "translator_auto",false);
         settingsRow("Кэш переводов",translationCache.count()+" документов");
@@ -5963,9 +6690,6 @@ public class MainActivity extends Activity {
         settingsActionRow("Мониторинг сборок GitHub",
                 "APK, ZIP, завершение Actions и уведомления",
                 () -> navigate(this::showBuildMonitorSettings));
-        settingsActionRow("Центр сборок",
-                "Последние запуски и доступные артефакты",
-                () -> navigate(this::showBuildCenter));
         settingsActionRow("Фоновые проверки",
                 "Интервал и типы уведомлений",() -> navigate(this::showTrackingSettings));
         settingsActionRow("Диагностика фона","JobScheduler и ограничения системы",
@@ -5982,9 +6706,6 @@ public class MainActivity extends Activity {
         setCurrentScreen(this::showSettingsData);
         shell("Данные и синхронизация",false);
         settingsSubheader("Локальные данные","Кэш, офлайн и резервные копии",R.drawable.ic_repository);
-        settingsActionRow("Центр сборок и артефакты",
-                "Сборки, APK, скачивание и локальный архив",
-                () -> navigate(this::showBuildCenter));
         settingsActionRow("Хранилище Actions","Правила хранения, загрузки, удаление и квоты",
                 () -> navigate(this::showActionsStorageRepositories));
         settingsActionRow("Мониторинг сборок",
@@ -6186,15 +6907,324 @@ public class MainActivity extends Activity {
 
     private String compactBytes(long bytes){if(bytes<1024)return bytes+" Б";if(bytes<1024L*1024L)return String.format(Locale.ROOT,"%.1f КБ",bytes/1024.0);return String.format(Locale.ROOT,"%.1f МБ",bytes/(1024.0*1024.0));}
 
-    private String translatorDisplayName(){TranslationEngine.Config c=translationConfig();if(c.endpoint.isEmpty())return "Не настроен";String host="";try{host=Uri.parse(c.endpoint).getHost();}catch(Exception ignored){}return TranslationEngine.providerLabel(c.provider)+(host==null||host.isEmpty()?"":" · "+host);}
+    private String translatorDisplayName(){
+        String mode=secureStore.get("translator_provider");
+        if(mode.isEmpty())mode="mlkit";
+        return TranslationEngine.providerLabel(mode);
+    }
+
     private void configureTranslatorSettings(){
-        LinearLayout form=new LinearLayout(this);form.setOrientation(LinearLayout.VERTICAL);form.setPadding(dp(18),0,dp(18),0);
-        String[] providers={"Универсальный JSON","OpenAI-совместимый","LibreTranslate"};Spinner provider=new Spinner(this);provider.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,providers));String current=secureStore.get("translator_provider");provider.setSelection("openai".equals(current)?1:"libretranslate".equals(current)?2:0);form.addView(provider);
-        EditText endpoint=new EditText(this);endpoint.setSingleLine(true);endpoint.setHint("Endpoint API");endpoint.setText(secureStore.get("translator_endpoint"));form.addView(endpoint);
-        EditText apiKey=new EditText(this);apiKey.setSingleLine(true);apiKey.setHint("API-ключ (необязательно)");apiKey.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD);apiKey.setText(secureStore.get("translator_api_key"));form.addView(apiKey);
-        EditText model=new EditText(this);model.setSingleLine(true);model.setHint("Модель, например gpt-4.1-mini");model.setText(secureStore.get("translator_model"));form.addView(model);
-        TextView help=text("Generic: {text,target} → translatedText. OpenAI: /v1/chat/completions. LibreTranslate: /translate. Endpoint, ключ и модель хранятся зашифрованно через Android Keystore.",11,false);help.setTextColor(MUTED);form.addView(help);
-        new AlertDialog.Builder(this).setTitle("Провайдер перевода").setView(form).setPositiveButton("Сохранить",(d,w)->{String p=provider.getSelectedItemPosition()==1?"openai":provider.getSelectedItemPosition()==2?"libretranslate":"generic";secureStore.put("translator_provider",p);secureStore.put("translator_endpoint",endpoint.getText().toString().trim());secureStore.put("translator_api_key",apiKey.getText().toString().trim());secureStore.put("translator_model",model.getText().toString().trim());toast("Провайдер сохранён");if("Настройки".equals(currentTitle))showSettings();}).setNeutralButton("Очистить",(d,w)->{secureStore.remove("translator_provider");secureStore.remove("translator_endpoint");secureStore.remove("translator_api_key");secureStore.remove("translator_model");translationCache.clear();if("Настройки".equals(currentTitle))showSettings();}).setNegativeButton("Отмена",null).show();
+        setCurrentScreen(this::configureTranslatorSettings);
+        shell("Перевод",false);
+        settingsPanelHeader("Перевод",
+                "Google ML Kit на устройстве, специализированные API и нейросети",
+                R.drawable.ic_globe);
+        settingsActionRow("Основной способ",translatorDisplayName(),this::chooseTranslationMode);
+        settingsRow("Режим «Авто»","На устройстве; облако только по вашему подтверждению");
+        settingsActionRow("Исходный язык",
+                sourceLanguageLabel(prefs.getString("translator_source_language","auto")),
+                this::chooseTranslationLanguage);
+        settingsActionRow("Языковые модели ML Kit","Загрузка по Wi-Fi и удаление моделей",
+                this::showTranslationModels);
+        settingsActionRow("Облачный переводчик",
+                TranslationEngine.providerLabel(translationController.cloudConfig().provider),
+                this::configureCloudTranslation);
+        settingsToggleRow("Автоперевод на устройстве",
+                "Переводить иностранные материалы с уже загруженными моделями",
+                "translator_auto",false);
+        settingsRow("Кэш переводов",translationCache.count()+" документов");
+        TextView privacy=text("Для ML Kit не нужен ключ API. Модели скачиваются только по вашему "+
+                "запросу. Исходный текст репозитория не отправляется в облако без вашего действия. "+
+                "Для внешних API могут действовать тарифы и правила обработки данных сервиса.",12,false);
+        privacy.setTextColor(MUTED);card(privacy);
+    }
+
+    private String sourceLanguageLabel(String code){
+        if(code==null||"auto".equals(code))return "Определять автоматически · ML Kit";
+        return mlLanguageName(code);
+    }
+
+    private String mlLanguageName(String code){
+        String name=new Locale(code).getDisplayLanguage(new Locale("ru"));
+        if("zh".equals(code))return "Китайский (упрощённый)";
+        if("ko".equals(code))return "Корейский";
+        if(name==null||name.isEmpty()||name.equalsIgnoreCase(code))return code;
+        return name.substring(0,1).toUpperCase(new Locale("ru"))+name.substring(1);
+    }
+
+    private java.util.List<String> mlLanguageCodes(){
+        java.util.List<String> all=new ArrayList<>(MlKitTranslation.supportedLanguages());
+        final String[] featured={"ru","en","zh","ko","ja","de","fr","es","uk","pt",
+                "it","pl","tr","ar","hi","id","vi","th"};
+        java.util.List<String> sorted=new ArrayList<>();
+        for(String language:featured)if(all.remove(language))sorted.add(language);
+        all.sort((a,b)->{
+            int compare=java.text.Collator.getInstance(new Locale("ru")).compare(
+                    mlLanguageName(a),mlLanguageName(b));
+            return compare!=0?compare:a.compareTo(b);
+        });
+        sorted.addAll(all);
+        return sorted;
+    }
+
+    private void chooseTranslationLanguage(){
+        java.util.List<String> codes=new ArrayList<>();
+        codes.add("auto");
+        codes.addAll(mlLanguageCodes());
+        String[] labels=new String[codes.size()];
+        labels[0]="Автоматически";
+        for(int i=1;i<codes.size();i++)labels[i]=mlLanguageName(codes.get(i));
+        String current=prefs.getString("translator_source_language","auto");
+        int checked=Math.max(0,codes.indexOf(current));
+        new AlertDialog.Builder(this).setTitle("Исходный язык")
+                .setSingleChoiceItems(labels,checked,(dialog,which)->{
+                    prefs.edit().putString("translator_source_language",codes.get(which)).apply();
+                    dialog.dismiss();
+                    configureTranslatorSettings();
+                }).setNegativeButton("Отмена",null).show();
+    }
+
+    private void chooseTranslationMode(){
+        String[] modes={"Авто · локально, облако по подтверждению","Google ML Kit · локально",
+                "DeepL API","Google Cloud Translation","LibreTranslate",
+                "OpenAI-совместимая модель","Свой JSON API"};
+        String[] keys={"auto","mlkit","deepl","google","libretranslate","openai","generic"};
+        String current=secureStore.get("translator_provider");
+        if(current.isEmpty())current="mlkit";
+        int checked=1;
+        for(int i=0;i<keys.length;i++)if(keys[i].equals(current))checked=i;
+        new AlertDialog.Builder(this).setTitle("Основной способ перевода")
+                .setSingleChoiceItems(modes,checked,(dialog,which)->{
+                    secureStore.put("translator_provider",keys[which]);
+                    if(which>1)secureStore.put("translator_cloud_provider",keys[which]);
+                    dialog.dismiss();
+                    configureTranslatorSettings();
+                }).setNegativeButton("Отмена",null).show();
+    }
+
+    /**
+     * Compact catalogue of every language supported by the installed ML Kit SDK.
+     * Loaded models are checked in one batch, with no per-row network downloads.
+     */
+    private void showTranslationModels(){
+        setCurrentScreen(this::showTranslationModels);
+        shell("Модели ML Kit",false);
+        settingsPanelHeader("Локальные языковые модели",
+                "Перевод без API-ключа. Модели загружаются вручную по Wi-Fi.",
+                R.drawable.ic_globe);
+        final long generation=screenGeneration.get();
+        final LinearLayout destination=content;
+        final java.util.List<String> codes=mlLanguageCodes();
+        final java.util.Set<String> installed=new java.util.HashSet<>();
+        TextView summary=text("Проверяем загруженные языки…",12,false);
+        summary.setTextColor(MUTED);
+        LinearLayout.LayoutParams summaryParams=new LinearLayout.LayoutParams(-1,-2);
+        summaryParams.setMargins(dp(2),0,dp(2),dp(5));
+        content.addView(summary,summaryParams);
+        EditText search=new EditText(this);
+        search.setSingleLine(true);
+        search.setTextSize(14);
+        search.setHint("Поиск языка: китайский, корейский, English…");
+        search.setPadding(dp(11),0,dp(11),0);
+        search.setBackground(round(CARD,12,BORDER,1));
+        content.addView(search,new LinearLayout.LayoutParams(-1,dp(48)));
+        LinearLayout rows=new LinearLayout(this);
+        rows.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams rowsParams=new LinearLayout.LayoutParams(-1,-2);
+        rowsParams.setMargins(0,dp(8),0,0);
+        content.addView(rows,rowsParams);
+        final boolean[] loaded={false};
+        final Runnable[] render={null};
+        render[0]=()->{
+            if(generation!=screenGeneration.get()||destination!=content)return;
+            rows.removeAllViews();
+            String needle=search.getText().toString().trim().toLowerCase(new Locale("ru"));
+            int shown=0;
+            for(String code:codes){
+                String name=mlLanguageName(code);
+                String nativeName=new Locale(code).getDisplayLanguage(new Locale(code));
+                if(!needle.isEmpty()&&!name.toLowerCase(new Locale("ru")).contains(needle)
+                        &&!nativeName.toLowerCase(Locale.ROOT).contains(needle)
+                        &&!code.contains(needle))continue;
+                shown++;
+                boolean present=installed.contains(code);
+                LinearLayout row=new LinearLayout(this);
+                row.setOrientation(LinearLayout.HORIZONTAL);
+                row.setGravity(Gravity.CENTER_VERTICAL);
+                row.setPadding(dp(10),dp(6),dp(10),dp(6));
+                row.setBackground(round(CARD,14,BORDER,1));
+                row.setMinimumHeight(dp(62));
+                LinearLayout info=new LinearLayout(this);
+                info.setOrientation(LinearLayout.VERTICAL);
+                TextView nameView=text(name,13,true);
+                nameView.setMaxLines(2);
+                nameView.setPadding(0,0,0,0);
+                info.addView(nameView);
+                TextView status=text(!loaded[0]?"Проверяем…":
+                        present?"Загружена · доступна офлайн":"Не загружена · "+code,11,false);
+                status.setTextColor(present?GREEN:MUTED);
+                status.setPadding(0,dp(2),0,0);
+                info.addView(status);
+                row.addView(info,new LinearLayout.LayoutParams(0,-2,1));
+                Button action=compactButton(present?"Удалить":"Скачать");
+                action.setTextSize(12);
+                action.setMinHeight(dp(44));
+                action.setMinimumHeight(dp(44));
+                action.setPadding(dp(4),0,dp(4),0);
+                action.setTextColor(present?TEXT:GREEN);
+                action.setBackground(round(present?SUBTLE:blend(CARD,GREEN,0.07f),
+                        12,present?BORDER:GREEN,1));
+                action.setEnabled(loaded[0]);
+                LinearLayout.LayoutParams actionParams=
+                        new LinearLayout.LayoutParams(dp(94),dp(44));
+                actionParams.setMargins(dp(8),0,0,0);
+                row.addView(action,actionParams);
+                LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(-1,-2);
+                rp.setMargins(0,0,0,dp(7));
+                rows.addView(row,rp);
+                action.setOnClickListener(v->{
+                    Runnable execute=()->{
+                        action.setEnabled(false);
+                        action.setText("Подождите");
+                        status.setText(present?"Удаляем модель…":
+                                "Загрузка модели по Wi-Fi…");
+                        io.execute(()->{
+                            try{
+                                if(present)MlKitTranslation.deleteModel(code);
+                                else MlKitTranslation.downloadModel(code);
+                                java.util.Set<String> latest=MlKitTranslation.downloadedLanguages();
+                                runOnUiThread(()->{
+                                    if(generation!=screenGeneration.get()||destination!=content)return;
+                                    installed.clear();installed.addAll(latest);
+                                    summary.setText("Загружено: "+installed.size()+" из "+
+                                            codes.size()+" языков · модели сохраняются на устройстве");
+                                    render[0].run();
+                                });
+                            }catch(Exception ex){
+                                runOnUiThread(()->{
+                                    if(generation!=screenGeneration.get()||destination!=content)return;
+                                    action.setEnabled(true);
+                                    action.setText(present?"Удалить":"Скачать");
+                                    status.setText("Ошибка: "+ex.getMessage());
+                                });
+                            }
+                        });
+                    };
+                    if(present){
+                        new AlertDialog.Builder(this).setTitle("Удалить модель «"+name+"»?")
+                                .setMessage("После удаления офлайн-перевод с этим языком "+
+                                        "будет недоступен, пока не загрузите модель снова.")
+                                .setNegativeButton("Отмена",null)
+                                .setPositiveButton("Удалить",(d,w)->execute.run()).show();
+                    }else execute.run();
+                });
+            }
+            if(shown==0){
+                TextView empty=text("Ничего не найдено. Попробуйте другое название языка.",12,false);
+                empty.setTextColor(MUTED);
+                rows.addView(empty);
+            }
+        };
+        search.addTextChangedListener(new android.text.TextWatcher(){
+            @Override public void beforeTextChanged(CharSequence value,int start,int count,int after){}
+            @Override public void onTextChanged(CharSequence value,int start,int before,int count){
+                render[0].run();
+            }
+            @Override public void afterTextChanged(android.text.Editable value){}
+        });
+        render[0].run();
+        io.execute(()->{
+            try{
+                java.util.Set<String> found=MlKitTranslation.downloadedLanguages();
+                runOnUiThread(()->{
+                    if(generation!=screenGeneration.get()||destination!=content)return;
+                    installed.addAll(found);
+                    loaded[0]=true;
+                    summary.setText("Загружено: "+installed.size()+" из "+codes.size()+
+                            " языков · сначала показаны наиболее востребованные");
+                    render[0].run();
+                });
+            }catch(Exception ex){
+                runOnUiThread(()->{
+                    if(generation!=screenGeneration.get()||destination!=content)return;
+                    summary.setText("Не удалось проверить модели: "+ex.getMessage());
+                });
+            }
+        });
+    }
+
+    private void configureCloudTranslation(){
+        LinearLayout form=new LinearLayout(this);
+        form.setOrientation(LinearLayout.VERTICAL);
+        form.setPadding(dp(18),0,dp(18),0);
+        String[] providers={"DeepL API","Google Cloud Translation","LibreTranslate",
+                "OpenAI-совместимый","Свой JSON API"};
+        String[] ids={"deepl","google","libretranslate","openai","generic"};
+        Spinner provider=new Spinner(this);
+        provider.setAdapter(new ArrayAdapter<>(this,
+                android.R.layout.simple_spinner_dropdown_item,providers));
+        String current=secureStore.get("translator_cloud_provider");
+        if(current.isEmpty())current="libretranslate";
+        for(int i=0;i<ids.length;i++)if(ids[i].equals(current))provider.setSelection(i);
+        form.addView(provider);
+        EditText endpoint=new EditText(this);
+        endpoint.setSingleLine(true);
+        endpoint.setHint("HTTPS endpoint API");
+        endpoint.setText(secureStore.get("translator_cloud_endpoint").isEmpty()?
+                secureStore.get("translator_endpoint"):secureStore.get("translator_cloud_endpoint"));
+        form.addView(endpoint);
+        EditText key=new EditText(this);
+        key.setSingleLine(true);
+        key.setHint("API-ключ (для платного API обязателен)");
+        key.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        key.setText(secureStore.get("translator_cloud_api_key").isEmpty()?
+                secureStore.get("translator_api_key"):secureStore.get("translator_cloud_api_key"));
+        form.addView(key);
+        EditText model=new EditText(this);
+        model.setSingleLine(true);
+        model.setHint("Модель (для OpenAI-совместимого API)");
+        model.setText(secureStore.get("translator_cloud_model").isEmpty()?
+                secureStore.get("translator_model"):secureStore.get("translator_cloud_model"));
+        form.addView(model);
+        TextView help=text("DeepL Free: https://api-free.deepl.com/v2/translate"+
+                "\nDeepL Pro: https://api.deepl.com/v2/translate"+
+                "\nGoogle Cloud: https://translation.googleapis.com/language/translate/v2"+
+                "\nOpenAI-совместимый: адрес /v1/chat/completions"+
+                "\nLibreTranslate: адрес сервера /translate"+
+                "\nКлючи зашифрованы в Android Keystore. Используйте только HTTPS.",11,false);
+        help.setTextColor(MUTED);form.addView(help);
+        new AlertDialog.Builder(this).setTitle("Облачный переводчик").setView(form)
+                .setPositiveButton("Сохранить",(d,w)->{
+                    String selected=ids[provider.getSelectedItemPosition()];
+                    String url=endpoint.getText().toString().trim();
+                    if(url.isEmpty()){
+                        if("deepl".equals(selected))url="https://api-free.deepl.com/v2/translate";
+                        if("google".equals(selected))url="https://translation.googleapis.com/language/translate/v2";
+                    }
+                    if(!url.isEmpty()){
+                        try{
+                            Uri parsed=Uri.parse(url);
+                            if(!"https".equalsIgnoreCase(parsed.getScheme())||parsed.getHost()==null
+                                    ||parsed.getUserInfo()!=null)throw new IllegalArgumentException();
+                        }catch(Exception ex){
+                            errorDialog("Небезопасный endpoint",
+                                    "Укажите полный HTTPS адрес облачного сервиса.");
+                            return;
+                        }
+                    }
+                    secureStore.put("translator_cloud_provider",selected);
+                    secureStore.put("translator_cloud_endpoint",url);
+                    secureStore.put("translator_cloud_api_key",key.getText().toString().trim());
+                    secureStore.put("translator_cloud_model",model.getText().toString().trim());
+                    toast("Настройки облачного переводчика сохранены");
+                    configureTranslatorSettings();
+                }).setNeutralButton("Сбросить",(d,w)->{
+                    secureStore.remove("translator_cloud_provider");
+                    secureStore.remove("translator_cloud_endpoint");
+                    secureStore.remove("translator_cloud_api_key");
+                    secureStore.remove("translator_cloud_model");
+                    configureTranslatorSettings();
+                }).setNegativeButton("Отмена",null).show();
     }
 
     private String cacheSizeText(){long bytes=0;for(Map.Entry<String,?> entry:prefs.getAll().entrySet()){String key=entry.getKey();if(key.startsWith("cache_")||key.startsWith("translation_")||key.equals("github_profile_json")){Object value=entry.getValue();if(value!=null)bytes+=value.toString().getBytes(StandardCharsets.UTF_8).length;}}File avatar=new File(getFilesDir(),"github_avatar.png");if(avatar.isFile())bytes+=avatar.length();bytes+=translationCache.sizeBytes()+entityCache.sizeBytes();return bytes<1024?bytes+" Б":bytes<1024*1024?String.format(Locale.ROOT,"%.1f КБ",bytes/1024.0):String.format(Locale.ROOT,"%.1f МБ",bytes/(1024.0*1024.0));}
@@ -6662,6 +7692,7 @@ public class MainActivity extends Activity {
             case "profile": showProfile(); break;
             case "profile_editor": showNativeProfileEditor(); break;
             case "settings": showSettings(); break;
+            case "build_hub": showBuildHub(); break;
             case "privacy_data": showPrivacyAndData(); break;
             case "rc_status": showReleaseCandidateStatus(); break;
             case "tracking": showTracking(); break;
