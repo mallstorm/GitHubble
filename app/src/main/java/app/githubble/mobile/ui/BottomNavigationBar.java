@@ -14,25 +14,28 @@ import android.widget.TextView;
 import app.githubble.mobile.R;
 
 /**
- * RC4.2: one navigation contract for the five root destinations.
+ * RC4.2: one navigation contract for the six root destinations.
  * A root tab never adds itself to the previous tab's back stack.
- * Settings occupy the fifth bottom tab; Profile opens from the account avatar.
+ * Settings occupy the sixth bottom tab; Profile opens from the account avatar.
  */
 public final class BottomNavigationBar {
     public static final String[] DESTINATIONS =
-        {"Главная", "Репозитории", "Поиск", "Активность", "Настройки"};
+        {"Главная", "Репозитории", "Поиск", "Активность", "Центр сборок и артефактов", "Настройки"};
+    private static final String[] LABELS =
+        {"Главная", "Репо", "Поиск", "Активность", "Сборки", "Настройки"};
 
     public interface Actions {
         void openHome();
         void openRepositories();
         void openSearch();
         void openActivity();
+        void openBuildHub();
         void openSettings();
     }
 
     private static final int[] ICONS = {
         R.drawable.ic_home, R.drawable.ic_repository, R.drawable.ic_search,
-        R.drawable.ic_bell, R.drawable.ic_settings
+        R.drawable.ic_bell, R.drawable.ic_android, R.drawable.ic_settings
     };
 
     private BottomNavigationBar() {}
@@ -69,8 +72,8 @@ public final class BottomNavigationBar {
             symbol.setBackground(pill);
             cell.addView(symbol,new LinearLayout.LayoutParams(dp(activity,48),dp(activity,32)));
             TextView label=new TextView(activity);
-            label.setText(DESTINATIONS[index]);
-            label.setTextSize(activity.getResources().getConfiguration().fontScale>=1.25f?11:12);
+            label.setText(LABELS[index]);
+            label.setTextSize(activity.getResources().getConfiguration().fontScale>=1.25f?10:10);
             label.setTextColor(selected?accent:muted);
             label.setTypeface(null,selected?Typeface.BOLD:Typeface.NORMAL);
             label.setGravity(Gravity.CENTER);
@@ -82,7 +85,8 @@ public final class BottomNavigationBar {
                     case 1: actions.openRepositories(); break;
                     case 2: actions.openSearch(); break;
                     case 3: actions.openActivity(); break;
-                    case 4: actions.openSettings(); break;
+                    case 4: actions.openBuildHub(); break;
+                    case 5: actions.openSettings(); break;
                     default: break;
                 }
             });

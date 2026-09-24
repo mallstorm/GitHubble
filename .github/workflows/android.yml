@@ -34,9 +34,14 @@ jobs:
     env:
       HAS_RELEASE_SIGNING: ${{ secrets.GITHUBBLE_RELEASE_KEYSTORE_BASE64 != '' && secrets.GITHUBBLE_RELEASE_STORE_PASSWORD != '' && secrets.GITHUBBLE_RELEASE_KEY_PASSWORD != '' && secrets.GITHUBBLE_RELEASE_KEY_ALIAS != '' }}
     permissions:
-      contents: read
+      # Required only for the explicitly requested PR19 preview Release fallback.
+      # Fork pull requests still receive read-only GITHUB_TOKEN from GitHub.
+      contents: write
     steps:
       - uses: actions/checkout@v5
+        with:
+          # Pin PR19 preview to the exact head commit so APK and source ZIP match the Release tag.
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.number == 19 && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -115,13 +120,55 @@ jobs:
           printf '%s\n' "TEST DEBUG APK ONLY: PR validation, not a signed production Release." > dist-pr/SIGNING_INFO.txt
 
       - name: Publish PR test APK and sources
+        id: pr_artifact_upload
         if: github.event_name == 'pull_request'
+        continue-on-error: ${{ github.event.pull_request.number == 19 }}
         uses: actions/upload-artifact@v4
         with:
           name: githubble-pr${{ github.event.pull_request.number }}-${{ steps.version.outputs.name }}-${{ github.sha }}
           path: dist-pr/*
           if-no-files-found: error
           retention-days: 14
+
+      # Artifact quota can prevent uploading even a successfully built APK.
+      # For this user-requested internal PR only, use a GitHub prerelease as
+      # alternate transport; this does NOT sign or publish a production release.
+      - name: Publish PR19 test prerelease when Actions artifact storage is full
+        if: >-
+          ${{ github.event_name == 'pull_request' &&
+              github.event.pull_request.number == 19 &&
+              github.event.pull_request.head.repo.full_name == github.repository &&
+              steps.pr_artifact_upload.outcome == 'failure' }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          VERSION_NAME: ${{ steps.version.outputs.name }}
+        run: |
+          set -euo pipefail
+          test -s dist-pr/SOURCE_COMMIT.txt
+          test "$(cat dist-pr/SOURCE_COMMIT.txt)" = "$PR_HEAD_SHA"
+          sha256sum -c dist-pr/SHA256SUMS.txt
+          sha256sum -c dist-pr/SOURCE_SHA256.txt
+          tag="test-pr19-${PR_HEAD_SHA:0:12}"
+          cat > "$RUNNER_TEMP/pr19-notes.md" <<EOF
+          TEST BUILD ONLY. PR #19 compact release UI built from commit ${PR_HEAD_SHA}.
+
+          - This is a GitHubble Debug APK, package app.githubble.mobile.debug.
+          - This is NOT a signed production release and may not update an existing installation.
+          - GitHub Actions artifact storage quota prevented uploading the normal workflow artifact.
+          - This release includes the exact tested source ZIP, APK, SHA-256 checksums, and signing notice.
+          EOF
+          if gh release view "$tag" > /dev/null 2>&1; then
+            gh release upload "$tag" dist-pr/* --clobber
+          else
+            gh release create "$tag" dist-pr/* \
+              --target "$PR_HEAD_SHA" \
+              --title "GitHubble PR19 compact UI (test APK)" \
+              --notes-file "$RUNNER_TEMP/pr19-notes.md" \
+              --prerelease
+          fi
 
       - name: Sign release APK
         if: github.event_name == 'push' && github.ref == 'refs/heads/main' && env.HAS_RELEASE_SIGNING == 'true'
