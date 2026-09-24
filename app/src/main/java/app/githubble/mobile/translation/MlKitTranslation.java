@@ -104,7 +104,7 @@ public final class MlKitTranslation {
 
     /** The ML Kit SDK is the source of truth for all supported language codes. */
     public static java.util.Set<String> supportedLanguages(){
-        return TranslateLanguage.getAllLanguages();
+        return new java.util.HashSet<>(TranslateLanguage.getAllLanguages());
     }
 
     /** One request for all installed translation models; do not poll each row separately. */
