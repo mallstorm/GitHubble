@@ -1973,8 +1973,12 @@ public class MainActivity extends Activity {
             confirmArtifactsDeletion(chosen,()->showBuildRunDetail(repository,runId));
         });
         content.addView(selected);
-        content.addView(all,new LinearLayout.LayoutParams(-1,dp(48)));
-        content.addView(bulk,new LinearLayout.LayoutParams(-1,dp(48)));
+        LinearLayout.LayoutParams selectParams=new LinearLayout.LayoutParams(-1,dp(48));
+        selectParams.setMargins(0,dp(8),0,0);
+        content.addView(all,selectParams);
+        LinearLayout.LayoutParams bulkParams=new LinearLayout.LayoutParams(-1,dp(48));
+        bulkParams.setMargins(0,dp(8),0,dp(8));
+        content.addView(bulk,bulkParams);
     }
 
     private boolean hasLiveArtifacts(JSONArray artifacts){
@@ -4404,15 +4408,21 @@ public class MainActivity extends Activity {
                     Button retry=compactButton("Повторить");
                     retry.setOnClickListener(v->startTranslation(panel,scopeKey,source,
                             updateMarker,config,isLocalTranslation(config)));
-                    panel.addView(retry,new LinearLayout.LayoutParams(-1,dp(44)));
+                    LinearLayout.LayoutParams retryParams=new LinearLayout.LayoutParams(-1,dp(44));
+                    retryParams.setMargins(0,dp(8),0,0);
+                    panel.addView(retry,retryParams);
                     if(isLocalTranslation(config)){
                         Button models=compactButton("Управление языковыми моделями");
                         models.setOnClickListener(v->navigate(this::showTranslationModels));
-                        panel.addView(models,new LinearLayout.LayoutParams(-1,dp(44)));
+                        LinearLayout.LayoutParams modelParams=new LinearLayout.LayoutParams(-1,dp(44));
+                        modelParams.setMargins(0,dp(7),0,0);
+                        panel.addView(models,modelParams);
                         Button cloud=compactButton("Попробовать облачный перевод");
                         cloud.setOnClickListener(v->startTranslation(panel,scopeKey,source,
                                 updateMarker,translationController.cloudConfig(),false));
-                        panel.addView(cloud,new LinearLayout.LayoutParams(-1,dp(44)));
+                        LinearLayout.LayoutParams cloudParams=new LinearLayout.LayoutParams(-1,dp(44));
+                        cloudParams.setMargins(0,dp(7),0,0);
+                        panel.addView(cloud,cloudParams);
                     }
                 });
             }
