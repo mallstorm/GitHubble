@@ -3672,97 +3672,124 @@ public class MainActivity extends Activity {
     private void renderReleaseCard(String repository,JSONObject release){
         LinearLayout box=new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
-
-        String releaseName=cleanNullable(release.optString("name",""));
-        String tagName=cleanNullable(release.optString("tag_name",""));
-        if(releaseName.isEmpty())releaseName=tagName.isEmpty()?"Релиз":tagName;
-        TextView title=text(releaseName,17,true);
-        title.setPadding(dp(2),0,dp(2),dp(2));
-        box.addView(title);
-
-        StringBuilder metaText=new StringBuilder();
-        if(!tagName.isEmpty())metaText.append(tagName);
-        if(release.optBoolean("prerelease"))metaText.append(metaText.length()>0?" · prerelease":"prerelease");
-        if(release.optBoolean("draft"))metaText.append(metaText.length()>0?" · draft":"draft");
+        box.setPadding(dp(12),dp(12),dp(12),dp(12));
+        box.setBackground(round(CARD,18,BORDER,1));
+        String name=cleanNullable(release.optString("name",""));
+        String tag=cleanNullable(release.optString("tag_name",""));
+        if(name.isEmpty())name=tag.isEmpty()?"Релиз":tag;
+        LinearLayout heading=new LinearLayout(this);
+        heading.setGravity(Gravity.CENTER_VERTICAL);
+        TextView title=text(name,16,true);
+        title.setPadding(0,0,0,0);
+        title.setMaxLines(2);
+        title.setEllipsize(TextUtils.TruncateAt.END);
+        heading.addView(title,new LinearLayout.LayoutParams(0,-2,1));
+        if(release.optBoolean("prerelease")||release.optBoolean("draft")){
+            TextView badge=text(release.optBoolean("draft")?"Черновик":"beta",10,true);
+            badge.setTextColor(GREEN);
+            badge.setPadding(dp(8),dp(3),dp(8),dp(3));
+            badge.setBackground(round(SUBTLE,10,BORDER,1));
+            LinearLayout.LayoutParams bp=new LinearLayout.LayoutParams(-2,-2);
+            bp.setMargins(dp(8),0,0,0);
+            heading.addView(badge,bp);
+        }
+        box.addView(heading);
         String published=formatGitHubDate(release.optString("published_at",release.optString("created_at","")));
-        if(!published.isEmpty())metaText.append(metaText.length()>0?" · ":"").append(published);
-        if(metaText.length()>0){
-            TextView meta=text(metaText.toString(),11,false);
-            meta.setTextColor(MUTED);
-            meta.setPadding(dp(2),0,dp(2),dp(8));
-            box.addView(meta);
+        TextView meta=text(tag+(published.isEmpty()?"":" · "+published),11,false);
+        meta.setTextColor(MUTED);
+        meta.setSingleLine(true);
+        meta.setEllipsize(TextUtils.TruncateAt.END);
+        meta.setPadding(0,dp(4),0,dp(7));
+        box.addView(meta);
+        String body=release.optString("body","");
+        if(!body.trim().isEmpty()){
+            LinearLayout description=translatableMarkdownPanel("release:"+release.optLong("id",0),
+                    body,release.optString("updated_at",release.optString("published_at","")));
+            LinearLayout.LayoutParams descParams=new LinearLayout.LayoutParams(-1,-2);
+            descParams.setMargins(0,dp(4),0,dp(8));
+            box.addView(description,descParams);
         }
-
-        String bodyValue=release.optString("body","");
-        if(!bodyValue.trim().isEmpty()){
-            box.addView(translatableMarkdownPanel("release:"+release.optLong("id",0),bodyValue,release.optString("updated_at",release.optString("published_at",""))));
-        }
-
         JSONArray assets=release.optJSONArray("assets");
-        if(assets!=null&&assets.length()>0){
-            TextView files=text("Файлы релиза · "+assets.length(),13,true);
-            files.setPadding(dp(2),dp(4),dp(2),dp(3));
-            box.addView(files);
-            for(int j=0;j<assets.length();j++){
-                JSONObject asset=assets.optJSONObject(j);
-                if(asset!=null)addReleaseAssetRow(box,repository,asset);
-            }
+        int count=assets==null?0:assets.length();
+        LinearLayout headingFiles=new LinearLayout(this);
+        headingFiles.setGravity(Gravity.CENTER_VERTICAL);
+        TextView label=text("Файлы релиза · "+count,13,true);
+        label.setPadding(0,dp(4),0,dp(4));
+        headingFiles.addView(label,new LinearLayout.LayoutParams(0,-2,1));
+        TextView toggle=text("Все файлы ("+count+")",11,true);
+        toggle.setTextColor(GREEN);
+        toggle.setGravity(Gravity.CENTER);
+        toggle.setMinHeight(dp(44));
+        if(count>3)headingFiles.addView(toggle);
+        box.addView(headingFiles);
+        if(count==0){
+            TextView empty=text("Прикреплённых файлов нет",12,false);
+            empty.setTextColor(MUTED);
+            box.addView(empty);
         }else{
-            TextView noFiles=text("Прикреплённых файлов нет",12,false);
-            noFiles.setTextColor(MUTED);
-            noFiles.setPadding(dp(2),dp(6),dp(2),dp(2));
-            box.addView(noFiles);
+            LinearLayout list=new LinearLayout(this);
+            list.setOrientation(LinearLayout.VERTICAL);
+            box.addView(list);
+            final boolean[] expanded={false};
+            Runnable render=()->{
+                list.removeAllViews();
+                int limit=expanded[0]?count:Math.min(count,3);
+                for(int i=0;i<limit;i++){
+                    JSONObject asset=assets.optJSONObject(i);
+                    if(asset!=null)addReleaseAssetRow(list,repository,asset);
+                }
+                toggle.setText(expanded[0]?"Свернуть":"Все файлы ("+count+")");
+            };
+            render.run();
+            if(count>3)toggle.setOnClickListener(v->{expanded[0]=!expanded[0];render.run();});
         }
-        card(box);
+        LinearLayout.LayoutParams cardParams=new LinearLayout.LayoutParams(-1,-2);
+        cardParams.setMargins(0,0,0,dp(11));
+        content.addView(box,cardParams);
     }
 
     private void addReleaseAssetRow(LinearLayout parent,String repository,JSONObject asset){
-        String assetName=asset.optString("name","release.bin");
-        long assetId=asset.optLong("id",0L);
-        long size=asset.optLong("size",0L);
-        int downloads=asset.optInt("download_count",0);
-        String contentType=cleanNullable(asset.optString("content_type",""));
-
+        String name=asset.optString("name","release.bin");
+        long id=asset.optLong("id",0L);
         LinearLayout row=new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(12),dp(10),dp(8),dp(10));
+        row.setPadding(dp(10),dp(5),dp(8),dp(5));
+        row.setMinimumHeight(dp(72));
         row.setBackground(round(SUBTLE,14,BORDER,1));
-
-        ImageView icon=imageIcon(R.drawable.ic_release,GREEN,22);
-        row.addView(icon,new LinearLayout.LayoutParams(dp(34),dp(34)));
-
+        row.addView(imageIcon(R.drawable.ic_release,GREEN,20),
+                new LinearLayout.LayoutParams(dp(28),dp(28)));
         LinearLayout info=new LinearLayout(this);
         info.setOrientation(LinearLayout.VERTICAL);
-        info.setPadding(dp(7),0,dp(7),0);
-        TextView fileName=text(assetName,13,true);
-        fileName.setPadding(0,0,0,dp(2));
-        fileName.setMaxLines(3);
-        info.addView(fileName);
-        StringBuilder details=new StringBuilder(formatAssetSize(size));
-        if(!contentType.isEmpty())details.append(" · ").append(shortContentType(contentType));
-        if(downloads>0)details.append(" · ").append(downloads).append(" загрузок");
-        TextView fileMeta=text(details.toString(),10,false);
-        fileMeta.setTextColor(MUTED);
-        fileMeta.setPadding(0,0,0,0);
-        info.addView(fileMeta);
+        info.setPadding(dp(7),0,dp(4),0);
+        TextView filename=text(name,12,true);
+        filename.setMaxLines(2);
+        filename.setEllipsize(TextUtils.TruncateAt.END);
+        filename.setPadding(0,0,0,0);
+        info.addView(filename);
+        String mime=cleanNullable(asset.optString("content_type",""));
+        String details=formatAssetSize(asset.optLong("size",0))+
+                (mime.isEmpty()?"":" · "+shortContentType(mime));
+        TextView sub=text(details,10,false);
+        sub.setTextColor(MUTED);
+        sub.setSingleLine(true);
+        sub.setEllipsize(TextUtils.TruncateAt.END);
+        sub.setPadding(0,dp(2),0,0);
+        info.addView(sub);
         row.addView(info,new LinearLayout.LayoutParams(0,-2,1));
-
-        Button download=new Button(this);
-        download.setText("Скачать");
-        download.setAllCaps(false);
+        Button download=compactButton("Скачать");
         download.setTextSize(12);
         download.setTextColor(GREEN);
-        download.setPadding(dp(10),0,dp(10),0);
-        download.setMinWidth(0);
-        download.setMinimumWidth(0);
-        download.setBackground(round(blend(CARD,GREEN,0.08f),12,GREEN,1));
-        download.setEnabled(assetId>0L);
-        download.setOnClickListener(v->downloadReleaseAsset(repository,assetId,assetName));
-        row.addView(download,new LinearLayout.LayoutParams(dp(102),dp(42)));
-
+        download.setPadding(dp(4),0,dp(4),0);
+        download.setMinHeight(dp(42));
+        download.setMinimumHeight(dp(42));
+        download.setBackground(round(blend(CARD,GREEN,0.06f),12,GREEN,1));
+        download.setEnabled(id>0L);
+        download.setOnClickListener(v->downloadReleaseAsset(repository,id,name));
+        LinearLayout.LayoutParams dpButton=new LinearLayout.LayoutParams(dp(100),dp(44));
+        dpButton.setMargins(dp(7),0,0,0);
+        row.addView(download,dpButton);
         LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,-2);
-        params.setMargins(0,dp(5),0,dp(5));
+        params.setMargins(0,0,0,dp(7));
         parent.addView(row,params);
     }
 
