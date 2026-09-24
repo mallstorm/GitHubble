@@ -102,6 +102,21 @@ public final class MlKitTranslation {
                 .isModelDownloaded(model),30,TimeUnit.SECONDS));
     }
 
+    /** The ML Kit SDK is the source of truth for all supported language codes. */
+    public static java.util.Set<String> supportedLanguages(){
+        return TranslateLanguage.getAllLanguages();
+    }
+
+    /** One request for all installed translation models; do not poll each row separately. */
+    public static java.util.Set<String> downloadedLanguages()throws Exception{
+        java.util.Set<String> output=new java.util.HashSet<>();
+        java.util.Set<TranslateRemoteModel> models=Tasks.await(
+                RemoteModelManager.getInstance().getDownloadedModels(TranslateRemoteModel.class),
+                45,TimeUnit.SECONDS);
+        for(TranslateRemoteModel model:models)output.add(model.getLanguage());
+        return output;
+    }
+
     /** Explicit user action only: install missing models using Wi-Fi. */
     public static void downloadModel(String language)throws Exception{
         String normalized=TranslateLanguage.fromLanguageTag(language);
