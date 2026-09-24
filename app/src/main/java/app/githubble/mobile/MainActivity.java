@@ -4226,8 +4226,10 @@ public class MainActivity extends Activity {
         String safeSource=source==null?"":source;
         LinearLayout panel=new LinearLayout(this);
         panel.setOrientation(LinearLayout.VERTICAL);
-        panel.setPadding(dp(12),dp(10),dp(12),dp(10));
-        panel.setBackground(round(CARD,16,BORDER,1));
+        boolean compactRelease=scopeKey.startsWith("release:");
+        panel.setPadding(dp(compactRelease?10:12),dp(compactRelease?8:10),
+                dp(compactRelease?10:12),dp(compactRelease?8:10));
+        panel.setBackground(round(compactRelease?SUBTLE:CARD,16,BORDER,1));
         panel.setElevation(dp(1));
         TranslationEngine.Config config=translationConfig();
         renderTranslatablePanel(panel,scopeKey,safeSource,updateMarker,false,config);
@@ -4272,14 +4274,46 @@ public class MainActivity extends Activity {
 
         String shown=russian&&cached!=null?cached.translated:source;
         TextView body=markdownView(shown,14);
-        body.setPadding(0,dp(8),0,dp(8));
+        boolean compactRelease=scopeKey.startsWith("release:");
+        body.setPadding(0,dp(compactRelease?4:8),0,dp(compactRelease?5:8));
+        if(compactRelease){
+            body.setMaxLines(3);
+            body.setEllipsize(TextUtils.TruncateAt.END);
+        }
         panel.addView(body);
+        if(compactRelease){
+            TextView expand=text("Развернуть описание  ⌄",12,true);
+            expand.setTextColor(GREEN);
+            expand.setGravity(Gravity.CENTER_VERTICAL);
+            expand.setPadding(0,dp(3),0,dp(3));
+            expand.setMinHeight(dp(40));
+            final boolean[] expanded={false};
+            expand.setOnClickListener(v->{
+                expanded[0]=!expanded[0];
+                body.setMaxLines(expanded[0]?Integer.MAX_VALUE:3);
+                body.setEllipsize(expanded[0]?null:TextUtils.TruncateAt.END);
+                expand.setText(expanded[0]?"Свернуть описание  ⌃":"Развернуть описание  ⌄");
+            });
+            panel.addView(expand);
+            // Measure the complete text once; do not show an expander for short releases.
+            TextView probe=markdownView(shown,14);
+            probe.setPadding(0,0,0,0);
+            panel.post(()->{
+                int width=body.getWidth()-body.getPaddingLeft()-body.getPaddingRight();
+                if(width<=0)return;
+                probe.measure(View.MeasureSpec.makeMeasureSpec(width,View.MeasureSpec.EXACTLY),
+                        View.MeasureSpec.makeMeasureSpec(0,View.MeasureSpec.UNSPECIFIED));
+                if(probe.getLayout()!=null&&probe.getLayout().getLineCount()<=3)
+                    expand.setVisibility(View.GONE);
+            });
+        }
 
         LinearLayout actions=new LinearLayout(this);
         Button original=compactButton("Оригинал");
         original.setEnabled(russian);
         original.setOnClickListener(v->renderTranslatablePanel(panel,scopeKey,source,
                 updateMarker,false,config));
+        original.setMinHeight(dp(42));original.setMinimumHeight(dp(42));
         actions.addView(original,new LinearLayout.LayoutParams(0,dp(44),1));
         Button translate=compactButton(cached==null?"Перевести":"Русский");
         translate.setOnClickListener(v->{
@@ -4289,6 +4323,7 @@ public class MainActivity extends Activity {
         });
         LinearLayout.LayoutParams tp=new LinearLayout.LayoutParams(0,dp(44),1);
         tp.setMargins(dp(6),0,0,0);
+        translate.setMinHeight(dp(42));translate.setMinimumHeight(dp(42));
         actions.addView(translate,tp);
         panel.addView(actions);
 
@@ -4296,7 +4331,10 @@ public class MainActivity extends Activity {
             Button cloud=compactButton("Перевести облачным сервисом");
             cloud.setOnClickListener(v->startTranslation(panel,scopeKey,source,updateMarker,
                     translationController.cloudConfig(),false));
-            panel.addView(cloud,new LinearLayout.LayoutParams(-1,dp(44)));
+            cloud.setMinHeight(dp(42));cloud.setMinimumHeight(dp(42));
+            LinearLayout.LayoutParams cloudParams=new LinearLayout.LayoutParams(-1,dp(44));
+            cloudParams.setMargins(0,dp(7),0,0);
+            panel.addView(cloud,cloudParams);
         }
     }
 
