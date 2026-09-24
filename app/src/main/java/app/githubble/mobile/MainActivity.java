@@ -6930,28 +6930,45 @@ public class MainActivity extends Activity {
     }
 
     private String sourceLanguageLabel(String code){
-        switch(code){
-            case "en":return "Английский";
-            case "de":return "Немецкий";
-            case "fr":return "Французский";
-            case "es":return "Испанский";
-            case "uk":return "Украинский";
-            case "ja":return "Японский";
-            case "zh":return "Китайский";
-            default:return "Определять автоматически · ML Kit";
-        }
+        if(code==null||"auto".equals(code))return "Определять автоматически · ML Kit";
+        return mlLanguageName(code);
+    }
+
+    private String mlLanguageName(String code){
+        String name=new Locale(code).getDisplayLanguage(new Locale("ru"));
+        if("zh".equals(code))return "Китайский (упрощённый)";
+        if("ko".equals(code))return "Корейский";
+        if(name==null||name.isEmpty()||name.equalsIgnoreCase(code))return code;
+        return name.substring(0,1).toUpperCase(new Locale("ru"))+name.substring(1);
+    }
+
+    private java.util.List<String> mlLanguageCodes(){
+        java.util.List<String> all=new ArrayList<>(MlKitTranslation.supportedLanguages());
+        final String[] featured={"ru","en","zh","ko","ja","de","fr","es","uk","pt",
+                "it","pl","tr","ar","hi","id","vi","th"};
+        java.util.List<String> sorted=new ArrayList<>();
+        for(String language:featured)if(all.remove(language))sorted.add(language);
+        all.sort((a,b)->{
+            int compare=java.text.Collator.getInstance(new Locale("ru")).compare(
+                    mlLanguageName(a),mlLanguageName(b));
+            return compare!=0?compare:a.compareTo(b);
+        });
+        sorted.addAll(all);
+        return sorted;
     }
 
     private void chooseTranslationLanguage(){
-        String[] languages={"Автоматически","Английский","Немецкий","Французский",
-                "Испанский","Украинский","Японский","Китайский"};
-        String[] codes={"auto","en","de","fr","es","uk","ja","zh"};
-        String old=prefs.getString("translator_source_language","auto");
-        int checked=0;
-        for(int i=0;i<codes.length;i++)if(codes[i].equals(old))checked=i;
+        java.util.List<String> codes=new ArrayList<>();
+        codes.add("auto");
+        codes.addAll(mlLanguageCodes());
+        String[] labels=new String[codes.size()];
+        labels[0]="Автоматически";
+        for(int i=1;i<codes.size();i++)labels[i]=mlLanguageName(codes.get(i));
+        String current=prefs.getString("translator_source_language","auto");
+        int checked=Math.max(0,codes.indexOf(current));
         new AlertDialog.Builder(this).setTitle("Исходный язык")
-                .setSingleChoiceItems(languages,checked,(dialog,which)->{
-                    prefs.edit().putString("translator_source_language",codes[which]).apply();
+                .setSingleChoiceItems(labels,checked,(dialog,which)->{
+                    prefs.edit().putString("translator_source_language",codes.get(which)).apply();
                     dialog.dismiss();
                     configureTranslatorSettings();
                 }).setNegativeButton("Отмена",null).show();
@@ -6975,74 +6992,155 @@ public class MainActivity extends Activity {
                 }).setNegativeButton("Отмена",null).show();
     }
 
+    /**
+     * Compact catalogue of every language supported by the installed ML Kit SDK.
+     * Loaded models are checked in one batch, with no per-row network downloads.
+     */
     private void showTranslationModels(){
         setCurrentScreen(this::showTranslationModels);
         shell("Модели ML Kit",false);
         settingsPanelHeader("Локальные языковые модели",
-                "Каждую модель загружают отдельно. Скачивание разрешено только по Wi-Fi.",
+                "Перевод без API-ключа. Модели загружаются вручную по Wi-Fi.",
                 R.drawable.ic_globe);
-        final String[] names={"Русский","Английский","Немецкий","Французский",
-                "Испанский","Украинский","Японский","Китайский"};
-        final String[] codes={"ru","en","de","fr","es","uk","ja","zh"};
         final long generation=screenGeneration.get();
         final LinearLayout destination=content;
-        for(int i=0;i<codes.length;i++){
-            final String code=codes[i],name=names[i];
-            TextView row=text(name+" · проверяем модель…",14,false);
-            card(row);
-            Button download=compactButton("Скачать модель "+name+" по Wi-Fi");
-            Button delete=compactButton("Удалить модель "+name);
-            download.setEnabled(false);delete.setEnabled(false);
-            content.addView(download,new LinearLayout.LayoutParams(-1,dp(48)));
-            content.addView(delete,new LinearLayout.LayoutParams(-1,dp(48)));
-            Runnable check=()->io.execute(()->{
-                try{
-                    boolean installed=MlKitTranslation.modelExists(code);
-                    runOnUiThread(()->{
-                        if(generation!=screenGeneration.get()||destination!=content)return;
-                        row.setText(name+(installed?" · модель загружена":" · не загружена"));
-                        download.setEnabled(!installed);
-                        delete.setEnabled(installed);
-                    });
-                }catch(Exception ex){
-                    runOnUiThread(()->{if(generation==screenGeneration.get()&&destination==content)
-                        row.setText(name+" · не удалось проверить: "+ex.getMessage());});
-                }
-            });
-            download.setOnClickListener(v->{
-                download.setEnabled(false);
-                row.setText(name+" · ожидаем Wi-Fi и загрузку модели…");
-                io.execute(()->{
-                    try{
-                        MlKitTranslation.downloadModel(code);
-                        runOnUiThread(()->{
-                            if(generation==screenGeneration.get()&&destination==content)check.run();
+        final java.util.List<String> codes=mlLanguageCodes();
+        final java.util.Set<String> installed=new java.util.HashSet<>();
+        TextView summary=text("Проверяем загруженные языки…",12,false);
+        summary.setTextColor(MUTED);
+        LinearLayout.LayoutParams summaryParams=new LinearLayout.LayoutParams(-1,-2);
+        summaryParams.setMargins(dp(2),0,dp(2),dp(5));
+        content.addView(summary,summaryParams);
+        EditText search=new EditText(this);
+        search.setSingleLine(true);
+        search.setTextSize(14);
+        search.setHint("Поиск языка: китайский, корейский, English…");
+        search.setPadding(dp(11),0,dp(11),0);
+        search.setBackground(round(CARD,12,BORDER,1));
+        content.addView(search,new LinearLayout.LayoutParams(-1,dp(48)));
+        LinearLayout rows=new LinearLayout(this);
+        rows.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams rowsParams=new LinearLayout.LayoutParams(-1,-2);
+        rowsParams.setMargins(0,dp(8),0,0);
+        content.addView(rows,rowsParams);
+        final boolean[] loaded={false};
+        final Runnable[] render={null};
+        render[0]=()->{
+            if(generation!=screenGeneration.get()||destination!=content)return;
+            rows.removeAllViews();
+            String needle=search.getText().toString().trim().toLowerCase(new Locale("ru"));
+            int shown=0;
+            for(String code:codes){
+                String name=mlLanguageName(code);
+                String nativeName=new Locale(code).getDisplayLanguage(new Locale(code));
+                if(!needle.isEmpty()&&!name.toLowerCase(new Locale("ru")).contains(needle)
+                        &&!nativeName.toLowerCase(Locale.ROOT).contains(needle)
+                        &&!code.contains(needle))continue;
+                shown++;
+                boolean present=installed.contains(code);
+                LinearLayout row=new LinearLayout(this);
+                row.setOrientation(LinearLayout.HORIZONTAL);
+                row.setGravity(Gravity.CENTER_VERTICAL);
+                row.setPadding(dp(10),dp(6),dp(10),dp(6));
+                row.setBackground(round(CARD,14,BORDER,1));
+                row.setMinimumHeight(dp(62));
+                LinearLayout info=new LinearLayout(this);
+                info.setOrientation(LinearLayout.VERTICAL);
+                TextView nameView=text(name,13,true);
+                nameView.setMaxLines(2);
+                nameView.setPadding(0,0,0,0);
+                info.addView(nameView);
+                TextView status=text(!loaded[0]?"Проверяем…":
+                        present?"Загружена · доступна офлайн":"Не загружена · "+code,11,false);
+                status.setTextColor(present?GREEN:MUTED);
+                status.setPadding(0,dp(2),0,0);
+                info.addView(status);
+                row.addView(info,new LinearLayout.LayoutParams(0,-2,1));
+                Button action=compactButton(present?"Удалить":"Скачать");
+                action.setTextSize(12);
+                action.setMinHeight(dp(44));
+                action.setMinimumHeight(dp(44));
+                action.setPadding(dp(4),0,dp(4),0);
+                action.setTextColor(present?TEXT:GREEN);
+                action.setBackground(round(present?SUBTLE:blend(CARD,GREEN,0.07f),
+                        12,present?BORDER:GREEN,1));
+                action.setEnabled(loaded[0]);
+                LinearLayout.LayoutParams actionParams=
+                        new LinearLayout.LayoutParams(dp(94),dp(44));
+                actionParams.setMargins(dp(8),0,0,0);
+                row.addView(action,actionParams);
+                LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(-1,-2);
+                rp.setMargins(0,0,0,dp(7));
+                rows.addView(row,rp);
+                action.setOnClickListener(v->{
+                    Runnable execute=()->{
+                        action.setEnabled(false);
+                        action.setText("Подождите");
+                        status.setText(present?"Удаляем модель…":
+                                "Загрузка модели по Wi-Fi…");
+                        io.execute(()->{
+                            try{
+                                if(present)MlKitTranslation.deleteModel(code);
+                                else MlKitTranslation.downloadModel(code);
+                                java.util.Set<String> latest=MlKitTranslation.downloadedLanguages();
+                                runOnUiThread(()->{
+                                    if(generation!=screenGeneration.get()||destination!=content)return;
+                                    installed.clear();installed.addAll(latest);
+                                    summary.setText("Загружено: "+installed.size()+" из "+
+                                            codes.size()+" языков · модели сохраняются на устройстве");
+                                    render[0].run();
+                                });
+                            }catch(Exception ex){
+                                runOnUiThread(()->{
+                                    if(generation!=screenGeneration.get()||destination!=content)return;
+                                    action.setEnabled(true);
+                                    action.setText(present?"Удалить":"Скачать");
+                                    status.setText("Ошибка: "+ex.getMessage());
+                                });
+                            }
                         });
-                    }catch(Exception ex){
-                        runOnUiThread(()->{
-                            if(generation!=screenGeneration.get()||destination!=content)return;
-                            row.setText(name+" · загрузка не удалась: "+ex.getMessage());
-                            download.setEnabled(true);
-                        });
-                    }
+                    };
+                    if(present){
+                        new AlertDialog.Builder(this).setTitle("Удалить модель «"+name+"»?")
+                                .setMessage("После удаления офлайн-перевод с этим языком "+
+                                        "будет недоступен, пока не загрузите модель снова.")
+                                .setNegativeButton("Отмена",null)
+                                .setPositiveButton("Удалить",(d,w)->execute.run()).show();
+                    }else execute.run();
                 });
-            });
-            delete.setOnClickListener(v->new AlertDialog.Builder(this)
-                    .setTitle("Удалить модель "+name+"?")
-                    .setMessage("После удаления без сети перевод с этим языком будет недоступен.")
-                    .setNegativeButton("Отмена",null)
-                    .setPositiveButton("Удалить",(d,w)->io.execute(()->{
-                        try{
-                            MlKitTranslation.deleteModel(code);
-                            runOnUiThread(()->{
-                                if(generation==screenGeneration.get()&&destination==content)check.run();
-                            });
-                        }catch(Exception ex){
-                            runOnUiThread(()->errorDialog("Не удалось удалить модель",ex.getMessage()));
-                        }
-                    })).show());
-            check.run();
-        }
+            }
+            if(shown==0){
+                TextView empty=text("Ничего не найдено. Попробуйте другое название языка.",12,false);
+                empty.setTextColor(MUTED);
+                rows.addView(empty);
+            }
+        };
+        search.addTextChangedListener(new android.text.TextWatcher(){
+            @Override public void beforeTextChanged(CharSequence value,int start,int count,int after){}
+            @Override public void onTextChanged(CharSequence value,int start,int before,int count){
+                render[0].run();
+            }
+            @Override public void afterTextChanged(android.text.Editable value){}
+        });
+        render[0].run();
+        io.execute(()->{
+            try{
+                java.util.Set<String> found=MlKitTranslation.downloadedLanguages();
+                runOnUiThread(()->{
+                    if(generation!=screenGeneration.get()||destination!=content)return;
+                    installed.addAll(found);
+                    loaded[0]=true;
+                    summary.setText("Загружено: "+installed.size()+" из "+codes.size()+
+                            " языков · сначала показаны наиболее востребованные");
+                    render[0].run();
+                });
+            }catch(Exception ex){
+                runOnUiThread(()->{
+                    if(generation!=screenGeneration.get()||destination!=content)return;
+                    summary.setText("Не удалось проверить модели: "+ex.getMessage());
+                });
+            }
+        });
     }
 
     private void configureCloudTranslation(){
