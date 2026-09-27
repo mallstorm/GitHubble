@@ -33,6 +33,8 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import app.githubble.mobile.auth.OAuthManager;
+import app.githubble.mobile.auth.GitHubAccountStore;
+import app.githubble.mobile.auth.GitHubAppInstallationGate;
 import app.githubble.mobile.auth.DeviceCodeAssist;
 import app.githubble.mobile.network.GitHubApiClient;
 import app.githubble.mobile.network.GitHubGraphQlClient;
@@ -104,6 +106,7 @@ public class MainActivity extends Activity {
     private GitHubApiClient api;
     private GitHubGraphQlClient graphql;
     private OAuthManager oauth;
+    private GitHubAccountStore accountStore;
     private TrackingDatabase trackingDb;
     private TrackingEngine trackingEngine;
     private TranslationCache translationCache;
@@ -151,6 +154,8 @@ public class MainActivity extends Activity {
     private boolean registrationReturnDialogVisible = false;
     private boolean repositoryAccessBrowserActive = false;
     private boolean repositoryAccessBrowserWasPaused = false;
+    private boolean githubAppInstallBrowserActive = false;
+    private boolean githubAppInstallBrowserWasPaused = false;
     private static final String PREF_REGISTRATION_PENDING = "github_registration_pending";
     private static final String PREF_REGISTRATION_LAUNCHED_AT = "github_registration_launched_at";
     private static final String PREF_AUTH_JUST_COMPLETED = "github_auth_just_completed";
@@ -187,10 +192,13 @@ public class MainActivity extends Activity {
         repositoriesGrid = prefs.getBoolean("repositories_grid", false);
         repositoriesSort = prefs.getString("repositories_sort", "updated");
         secureStore = new SecureStore(this);
+        accountStore = new GitHubAccountStore(this, secureStore);
         entityCache = new EntityCache(this);
         api = new GitHubApiClient(secureStore, entityCache);
         graphql = new GitHubGraphQlClient(api);
         oauth = new OAuthManager(this, secureStore);
+        migrateLegacyAccountCache();
+        migrateLegacyPerAccountState();
         trackingDb = new TrackingDatabase(this);
         trackingEngine = new TrackingEngine(this, trackingDb, api);
         translationCache = new TranslationCache(this);
@@ -246,6 +254,7 @@ public class MainActivity extends Activity {
         super.onPause();
         if (registrationCustomTabActive) registrationCustomTabWasPaused = true;
         if (repositoryAccessBrowserActive) repositoryAccessBrowserWasPaused = true;
+        if (githubAppInstallBrowserActive) githubAppInstallBrowserWasPaused = true;
     }
 
     @Override protected void onResume() {
@@ -273,6 +282,11 @@ public class MainActivity extends Activity {
             new Handler(Looper.getMainLooper()).postDelayed(() -> {
                 if (isSignedIn()) openRoot(() -> showMyRepositories(true));
             }, 450L);
+        }
+        if (githubAppInstallBrowserActive && githubAppInstallBrowserWasPaused) {
+            githubAppInstallBrowserActive = false;
+            githubAppInstallBrowserWasPaused = false;
+            new Handler(Looper.getMainLooper()).postDelayed(this::verifyGitHubAppInstallationAfterReturn, 500L);
         }
     }
 
@@ -353,6 +367,7 @@ public class MainActivity extends Activity {
             ImageView account = createTopAccountIcon();
             account.setContentDescription("Личный профиль");
             account.setOnClickListener(v -> navigate(this::showProfile));
+            account.setOnLongClickListener(v -> { navigate(this::showAccountSwitcher); return true; });
             LinearLayout.LayoutParams ap = new LinearLayout.LayoutParams(dp(42),dp(42));
             ap.setMargins(dp(4),0,0,0);
             top.addView(account, ap);
@@ -538,7 +553,7 @@ public class MainActivity extends Activity {
                 else navigate(MainActivity.this::showNotifications);
             }
             @Override public void refreshDashboard() {
-                prefs.edit().putLong("home_dashboard_last_refresh", 0L).apply();
+                prefs.edit().putLong(accountStateKey("home_dashboard_last_refresh"), 0L).apply();
                 showHome();
             }
         };
@@ -546,12 +561,12 @@ public class MainActivity extends Activity {
     }
 
     private HomeScreen.DashboardData getHomeDashboardData() {
-        int issues = prefs.getInt("home_open_issues", -1);
-        int pullRequests = prefs.getInt("home_open_prs", -1);
-        int notifications = isSignedIn() ? prefs.getInt("activity_new_count", 0) + trackingDb.unreadCount() : -1;
+        String accountId = currentAccountId();
+        int issues = prefs.getInt(accountStateKey("home_open_issues",accountId), -1);
+        int pullRequests = prefs.getInt(accountStateKey("home_open_prs",accountId), -1);
+        int notifications = isSignedIn() ? prefs.getInt(accountStateKey("activity_new_count",accountId), 0) + trackingDb.unreadCount() : -1;
         List<HomeScreen.RepoPreview> recent = new ArrayList<>();
         int repositoryCount = -1;
-        String accountId = currentAccountId();
         repositoryStore.migrateLegacy(accountId);
         RepositoryStore.Snapshot snapshot = repositoryStore.read(accountId);
         if (snapshot.hasData()) {
@@ -629,34 +644,45 @@ public class MainActivity extends Activity {
 
     private void refreshHomeDashboard() {
         if (!isSignedIn()) return;
-        long lastRefresh = prefs.getLong("home_dashboard_last_refresh", 0L);
+        final String homeAccountId = currentAccountId();
+        final String homeLogin = getProfileLogin();
+        long lastRefresh = prefs.getLong(accountStateKey("home_dashboard_last_refresh",homeAccountId), 0L);
         if (System.currentTimeMillis() - lastRefresh < 120000L) return;
         if (!homeDashboardRefreshInFlight.compareAndSet(false, true)) return;
-        final String homeAccountId = currentAccountId();
         io.execute(() -> {
             SharedPreferences.Editor editor = prefs.edit();
             try {
                 JSONArray issues = getArray("https://api.github.com/issues?filter=all&state=open&sort=updated&per_page=100");
+                if(!homeAccountId.equals(currentAccountId())){homeDashboardRefreshInFlight.set(false);return;}
                 int count = 0;
                 for (int i = 0; i < issues.length(); i++) {
                     JSONObject item = issues.optJSONObject(i);
                     if (item != null && !item.has("pull_request")) count++;
                 }
-                editor.putInt("home_open_issues", count);
+                editor.putInt(accountStateKey("home_open_issues",homeAccountId), count);
             } catch (Exception ignored) {}
+            if(!homeAccountId.equals(currentAccountId())){homeDashboardRefreshInFlight.set(false);return;}
             try {
-                String login = getProfileLogin();
-                if (!login.isEmpty()) {
-                    String q = "is:pr is:open involves:" + login;
+                if (!homeLogin.isEmpty()) {
+                    String q = "is:pr is:open involves:" + homeLogin;
                     JSONObject result = getJson("https://api.github.com/search/issues?q=" + URLEncoder.encode(q, "UTF-8") + "&per_page=1");
-                    editor.putInt("home_open_prs", result.optInt("total_count", 0));
+                    if(!homeAccountId.equals(currentAccountId())){homeDashboardRefreshInFlight.set(false);return;}
+                    editor.putInt(accountStateKey("home_open_prs",homeAccountId), result.optInt("total_count", 0));
                 }
             } catch (Exception ignored) {}
-            try { repositoryStore.saveSuccess(currentAccountId(), repositoryAccess.sync(false).repositories); }
-            catch (Exception error) { repositoryStore.saveError(currentAccountId(), error); }
+            if(!homeAccountId.equals(currentAccountId())){homeDashboardRefreshInFlight.set(false);return;}
             try {
-                long seen = prefs.getLong("activity_last_seen_epoch", 0L);
+                RepositoryAccessController.SyncResult result=repositoryAccess.sync(false);
+                if(!homeAccountId.equals(currentAccountId())){homeDashboardRefreshInFlight.set(false);return;}
+                repositoryStore.saveSuccess(homeAccountId,result.repositories);
+            } catch (Exception error) {
+                if(homeAccountId.equals(currentAccountId()))repositoryStore.saveError(homeAccountId,error);
+            }
+            if(!homeAccountId.equals(currentAccountId())){homeDashboardRefreshInFlight.set(false);return;}
+            try {
+                long seen = prefs.getLong(accountStateKey("activity_last_seen_epoch",homeAccountId), 0L);
                 List<JSONObject> activity = loadSupportedActivityFeed();
+                if(!homeAccountId.equals(currentAccountId())){homeDashboardRefreshInFlight.set(false);return;}
                 int fresh = 0;
                 JSONArray preview = new JSONArray();
                 for (int i = 0; i < activity.size(); i++) {
@@ -665,9 +691,11 @@ public class MainActivity extends Activity {
                     if (i < 3) preview.put(item);
                 }
                 editor.putString("home_recent_activity_" + homeAccountId, preview.toString());
-                editor.putInt("activity_new_count", fresh);
+                editor.putInt(accountStateKey("activity_new_count",homeAccountId), fresh);
             } catch (Exception ignored) {}
-            editor.putLong("home_dashboard_last_refresh", System.currentTimeMillis()).apply();
+            if(homeAccountId.equals(currentAccountId())){
+                editor.putLong(accountStateKey("home_dashboard_last_refresh",homeAccountId), System.currentTimeMillis()).apply();
+            }
             homeDashboardRefreshInFlight.set(false);
             runOnUiThread(() -> { if ("Главная".equals(currentTitle) && homeAccountId.equals(currentAccountId())) showHome(); });
         });
@@ -844,8 +872,8 @@ public class MainActivity extends Activity {
                 for(JSONObject event:loaded)cache.put(event);
                 prefs.edit().putString("activity_feed_cache_"+account,cache.toString())
                         .putLong("activity_feed_refresh_"+account,System.currentTimeMillis())
-                        .putLong("activity_last_seen_epoch",System.currentTimeMillis())
-                        .putInt("activity_new_count",0).apply();
+                        .putLong(accountStateKey("activity_last_seen_epoch",account),System.currentTimeMillis())
+                        .putInt(accountStateKey("activity_new_count",account),0).apply();
                 List<JSONObject> ranking=RepositoryActivityFeed.rank(
                         repositories.repositories,loaded,prefs,account);
                 String coverage=commits.coverageLabel();
@@ -1091,17 +1119,22 @@ public class MainActivity extends Activity {
     }
 
     private int getUnreadNotificationCount() {
-        return prefs.getInt("activity_new_count",0) + (trackingDb == null ? 0 : trackingDb.unreadCount());
+        String account=currentAccountId();
+        return prefs.getInt(accountStateKey("activity_new_count",account),0)
+                + (trackingDb == null ? 0 : trackingDb.unreadCount());
     }
 
     private void refreshNotificationCount(){
         if(!isSignedIn()||!notificationRefreshInFlight.compareAndSet(false,true))return;
+        final String account=currentAccountId();
         io.execute(() -> {
             try{
-                long seen=prefs.getLong("activity_last_seen_epoch",0L);
+                long seen=prefs.getLong(accountStateKey("activity_last_seen_epoch",account),0L);
                 List<JSONObject> feed=loadSupportedActivityFeed();
-                int fresh=0;for(JSONObject item:feed)if(parseIsoEpoch(item.optString("updated_at",""))>seen)fresh++;
-                prefs.edit().putInt("activity_new_count",fresh).apply();
+                if(!account.equals(currentAccountId()))return;
+                int fresh=0;
+                for(JSONObject item:feed)if(parseIsoEpoch(item.optString("updated_at",""))>seen)fresh++;
+                prefs.edit().putInt(accountStateKey("activity_new_count",account),fresh).apply();
             }catch(Exception ignored){}finally{notificationRefreshInFlight.set(false);}
         });
     }
@@ -1926,8 +1959,8 @@ public class MainActivity extends Activity {
             try{
                 RepositoryAccessController.SyncResult result=repositoryAccess.sync(forceNetwork);
                 RepositoryStore.Snapshot fresh=repositoryStore.saveSuccess(accountId,result.repositories);
-                prefs.edit().putString("repository_access_settings_url",result.bestSettingsUrl())
-                        .putLong("repository_last_sync",System.currentTimeMillis()).apply();
+                prefs.edit().putString(accountStateKey("repository_access_settings_url",accountId),result.bestSettingsUrl())
+                        .putLong(accountStateKey("repository_last_sync",accountId),System.currentTimeMillis()).apply();
                 runOnUiThread(()->{
                     if(generation!=screenGeneration.get()||!accountId.equals(currentAccountId()))return;
                     screen.updateData(sortedRepositories(fresh.repositories));
@@ -2016,7 +2049,7 @@ public class MainActivity extends Activity {
                     installation.account.isEmpty()?"GitHub installation":installation.account,
                     detail,
                     () -> {
-                        prefs.edit().putString("repository_access_settings_url",installation.settingsUrl()).apply();
+                        prefs.edit().putString(accountStateKey("repository_access_settings_url"),installation.settingsUrl()).apply();
                         openPrivateRepositoryAccess();
                     }
             );
@@ -4474,22 +4507,37 @@ public class MainActivity extends Activity {
 
     private void refreshProfileData(boolean userInitiated){
         if(!isSignedIn()||!profileRefreshInFlight.compareAndSet(false,true))return;
+        final String requestedAccount=currentAccountId();
         io.execute(() -> {try{
             JSONObject user=profileController.current();
+            if(!requestedAccount.equals(currentAccountId())){profileRefreshInFlight.set(false);return;}
             cacheGitHubProfile(user);
             downloadAvatar(user.optString("avatar_url",""));
             try{
                 RepositoryAccessController.SyncResult result=repositoryAccess.sync(false);
-                repositoryStore.saveSuccess(currentAccountId(),result.repositories);
+                if(requestedAccount.equals(currentAccountId()))repositoryStore.saveSuccess(currentAccountId(),result.repositories);
             }catch(Exception ignored){
                 // The profile remains useful when repository access is temporarily unavailable.
             }
-            runOnUiThread(() -> {profileRefreshInFlight.set(false);if(userInitiated)toast("Профиль и репозитории обновлены");if("Профиль".equals(currentTitle))renderProfilePage(false);else if(currentScreen!=null&&!"Редактирование профиля".equals(currentTitle))currentScreen.run();});
-        }catch(Exception e){runOnUiThread(() -> {profileRefreshInFlight.set(false);if(userInitiated)toast("Не удалось обновить профиль: "+e.getMessage());});}});
+            runOnUiThread(() -> {profileRefreshInFlight.set(false);if(!requestedAccount.equals(currentAccountId()))return;if(userInitiated)toast("Профиль и репозитории обновлены");if("Профиль".equals(currentTitle))renderProfilePage(false);else if(currentScreen!=null&&!"Редактирование профиля".equals(currentTitle))currentScreen.run();});
+        }catch(Exception e){runOnUiThread(() -> {profileRefreshInFlight.set(false);if(userInitiated&&requestedAccount.equals(currentAccountId()))toast("Не удалось обновить профиль: "+e.getMessage());});}});
     }
 
-    private void cacheGitHubProfile(JSONObject user){prefs.edit().putString("github_profile_json",user.toString()).putString("github_avatar_url",user.optString("avatar_url","")).apply();secureStore.put("github_login",user.optString("login",""));secureStore.put("github_name",cleanNullable(user.optString("name","")));}
-    private JSONObject getCachedProfile(){try{return new JSONObject(prefs.getString("github_profile_json","{}"));}catch(Exception e){return new JSONObject();}}
+    private String currentGitHubCacheKey(){
+        if(!secureStore.get("github_token").isEmpty()&&secureStore.get("github_login").isEmpty())return "pending_"+api.accountScope();
+        return accountStore.activeCacheKey();
+    }
+    private String profileCacheKey(){return "github_profile_json_"+currentGitHubCacheKey();}
+    private String avatarUrlCacheKey(){return "github_avatar_url_"+currentGitHubCacheKey();}
+    private void cacheGitHubProfile(JSONObject user){
+        String login=user.optString("login","");
+        String name=cleanNullable(user.optString("name",""));
+        secureStore.put("github_login",login);
+        secureStore.put("github_name",name);
+        accountStore.captureCurrentSession(user.optLong("id",0L),login,name);
+        prefs.edit().putString(profileCacheKey(),user.toString()).putString(avatarUrlCacheKey(),user.optString("avatar_url","")).apply();
+    }
+    private JSONObject getCachedProfile(){try{return new JSONObject(prefs.getString(profileCacheKey(),"{}"));}catch(Exception e){return new JSONObject();}}
     private String getProfileLogin(){JSONObject p=getCachedProfile();String login=p.optString("login","");if(login.isEmpty())login=secureStore.get("github_login");return login;}
     private String cleanNullable(String value){return value==null||"null".equalsIgnoreCase(value.trim())?"":value.trim();}
 
@@ -4511,15 +4559,18 @@ public class MainActivity extends Activity {
                 if(custom!=null)return custom;
             }
         }
-        File remote=new File(getFilesDir(),"github_avatar.png");
+        File remote=remoteAvatarFile();
         return remote.isFile()?BitmapFactory.decodeFile(remote.getAbsolutePath()):null;
     }catch(Exception e){return null;}}
 
-    private File localAvatarFile(){
-        String account=currentAccountId();
+    private File remoteAvatarFile(){return remoteAvatarFile(currentGitHubCacheKey());}
+    private File remoteAvatarFile(String cacheKey){return new File(getFilesDir(),"github_avatar_"+cacheKey+".png");}
+
+    private File localAvatarFile(){return localAvatarFileForScope(currentAccountId());}
+    private File localAvatarFileForScope(String account){
         try{
             byte[] digest=java.security.MessageDigest.getInstance("SHA-256")
-                    .digest(account.getBytes(StandardCharsets.UTF_8));
+                    .digest((account==null?"":account).getBytes(StandardCharsets.UTF_8));
             StringBuilder key=new StringBuilder();
             for(int i=0;i<12;i++)key.append(String.format(Locale.ROOT,"%02x",digest[i]&0xff));
             return new File(getFilesDir(),"githubble_local_avatar_"+key+".png");
@@ -4607,7 +4658,7 @@ public class MainActivity extends Activity {
         });
     }
 
-    private void downloadAvatar(String url){if(url==null||url.isEmpty())return;try{URLConnection connection=new URL(url).openConnection();connection.setConnectTimeout(12000);connection.setReadTimeout(20000);connection.setRequestProperty("User-Agent","GitHubble-Android/0.25");try(InputStream in=connection.getInputStream();FileOutputStream out=new FileOutputStream(new File(getFilesDir(),"github_avatar.png"))){byte[] buffer=new byte[8192];int n;while((n=in.read(buffer))!=-1)out.write(buffer,0,n);}}catch(Exception ignored){}}
+    private void downloadAvatar(String url){if(url==null||url.isEmpty())return;String cacheKey=currentGitHubCacheKey();try{URLConnection connection=new URL(url).openConnection();connection.setConnectTimeout(12000);connection.setReadTimeout(20000);connection.setRequestProperty("User-Agent","GitHubble-Android/"+BuildConfig.VERSION_NAME);try(InputStream in=connection.getInputStream();FileOutputStream out=new FileOutputStream(remoteAvatarFile(cacheKey))){byte[] buffer=new byte[8192];int n;while((n=in.read(buffer))!=-1)out.write(buffer,0,n);}}catch(Exception ignored){}}
 
     private void showTracking(){ rememberScreen("tracking",null); showTrackingFiltered("ALL"); }
 
@@ -4918,7 +4969,7 @@ public class MainActivity extends Activity {
     private void openPrivateRepositoryAccess(){
         repositoryAccessBrowserActive = true;
         repositoryAccessBrowserWasPaused = false;
-        String url = prefs.getString("repository_access_settings_url", AccountOperationsController.INSTALLATIONS_PAGE);
+        String url = prefs.getString(accountStateKey("repository_access_settings_url"), AccountOperationsController.INSTALLATIONS_PAGE);
         openSecureGitHubPage(url);
     }
 
@@ -5928,6 +5979,9 @@ public class MainActivity extends Activity {
         settingsActionRow("Личный профиль",isSignedIn()?
                 (login.isEmpty()?"GitHub подключён":"@"+login):"Не подключён",
                 () -> navigate(this::showProfile));
+        settingsActionRow("Аккаунты GitHub",accountStore.count()+" из "+GitHubAccountStore.MAX_ACCOUNTS+
+                (login.isEmpty()?"":" · активен @"+login),
+                () -> navigate(this::showAccountSwitcher));
         settingsActionRow("GitHub App","Подключение, тариф и Actions",
                 () -> navigate(this::showAccountCenter));
         settingsActionRow("Менеджер хранилища Actions","Артефакты, срок хранения и очистка по проектам",
@@ -5936,6 +5990,168 @@ public class MainActivity extends Activity {
                 this::openPrivateRepositoryAccess);
         if(isSignedIn())settingsActionRow("Отключить аккаунт","Удалить локальный сеанс",
                 this::confirmSignOut);
+    }
+
+    private void showAccountSwitcher(){
+        setCurrentScreen(this::showAccountSwitcher);
+        shell("Аккаунты GitHub",false);
+        List<GitHubAccountStore.Account> accounts=accountStore.listAccounts();
+        settingsSubheader("Мультиаккаунт","Сохранено "+accounts.size()+" из "+GitHubAccountStore.MAX_ACCOUNTS,R.drawable.ic_profile);
+        TextView note=text("Нажмите «Переключить» — пароль и повторный вход не нужны. OAuth- и refresh-токены каждого аккаунта хранятся отдельно в Android Keystore.",12,false);
+        note.setTextColor(MUTED);card(note);
+        if(accounts.isEmpty()){
+            TextView empty=text("Сохранённых GitHub-аккаунтов пока нет.",14,false);empty.setTextColor(MUTED);card(empty);
+        }
+        for(GitHubAccountStore.Account account:accounts)renderSavedGitHubAccount(account);
+        Button add=button(accounts.size()>=GitHubAccountStore.MAX_ACCOUNTS?"Лимит: "+GitHubAccountStore.MAX_ACCOUNTS+" аккаунтов":"＋ Добавить GitHub-аккаунт");
+        add.setEnabled(accounts.size()<GitHubAccountStore.MAX_ACCOUNTS);
+        add.setOnClickListener(v->startSmartLogin());
+        LinearLayout.LayoutParams addParams=new LinearLayout.LayoutParams(-1,dp(50));
+        addParams.setMargins(0,dp(4),0,0);content.addView(add,addParams);
+    }
+
+    private void renderSavedGitHubAccount(GitHubAccountStore.Account account){
+        LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout header=new LinearLayout(this);header.setGravity(Gravity.CENTER_VERTICAL);
+        ImageView icon=imageIcon(R.drawable.ic_profile,account.active?Color.WHITE:GREEN,12);
+        icon.setBackground(round(account.active?GREEN:SUBTLE,20,account.active?GREEN:BORDER,1));
+        header.addView(icon,new LinearLayout.LayoutParams(dp(42),dp(42)));
+        LinearLayout labels=new LinearLayout(this);labels.setOrientation(LinearLayout.VERTICAL);labels.setPadding(dp(11),0,dp(8),0);
+        TextView login=text(account.displayName(),15,true);login.setPadding(0,0,0,0);labels.addView(login);
+        String subtitle=account.name.isEmpty()?"GitHub OAuth":account.name;
+        if(account.active)subtitle+=" · активный";
+        TextView name=text(subtitle,11,false);name.setTextColor(MUTED);name.setPadding(0,dp(2),0,0);labels.addView(name);
+        header.addView(labels,new LinearLayout.LayoutParams(0,-2,1));
+        if(account.active){TextView active=text("АКТИВЕН",10,true);active.setTextColor(GREEN);header.addView(active);}
+        box.addView(header);
+        LinearLayout actions=new LinearLayout(this);actions.setOrientation(LinearLayout.HORIZONTAL);actions.setPadding(0,dp(10),0,0);
+        Button use=button(account.active?"Текущий аккаунт":"Переключить");
+        use.setTextSize(12);use.setEnabled(!account.active);use.setOnClickListener(v->switchGitHubAccount(account));
+        actions.addView(use,new LinearLayout.LayoutParams(0,dp(44),1f));
+        Button remove=button("Удалить");remove.setTextSize(12);remove.setTextColor(0xFFC34F48);remove.setBackground(round(CARD,12,0xFFC34F48,1));
+        remove.setOnClickListener(v->confirmRemoveGitHubAccount(account));
+        LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(0,dp(44),0.55f);rp.setMargins(dp(8),0,0,0);actions.addView(remove,rp);
+        box.addView(actions);
+        card(box);
+    }
+
+    private void switchGitHubAccount(GitHubAccountStore.Account account){
+        if(account==null||account.active)return;
+        accountStore.persistActiveSession();
+        if(!accountStore.switchTo(account.id)){toast("Не удалось открыть сохранённую сессию @"+account.login);return;}
+        onActiveGitHubAccountChanged();
+        toast("Активный аккаунт: "+account.displayName());
+        showAccountSwitcher();
+        refreshActiveAccountAfterSwitch();
+    }
+
+    private void refreshActiveAccountAfterSwitch(){
+        if(oauth.hasUsableToken()){
+            loadAndStoreGitHubProfile(true);
+            refreshNotificationCount();
+            BuildMonitorJobService.checkSoon(this);
+            return;
+        }
+        if(oauth.canRefresh()){
+            io.execute(()->{try{
+                if(oauth.refreshIfNeeded(BuildConfig.GITHUB_CLIENT_ID))runOnUiThread(()->{loadAndStoreGitHubProfile(true);refreshNotificationCount();BuildMonitorJobService.checkSoon(this);});
+                else runOnUiThread(this::showReauthorizeActiveAccountDialog);
+            }catch(Exception ignored){runOnUiThread(this::showReauthorizeActiveAccountDialog);}});
+            return;
+        }
+        showReauthorizeActiveAccountDialog();
+    }
+
+    private void showReauthorizeActiveAccountDialog(){
+        GitHubAccountStore.Account active=accountStore.activeAccount();
+        String name=active==null?"GitHub":active.displayName();
+        new AlertDialog.Builder(this)
+                .setTitle("Нужно обновить вход")
+                .setMessage("Сохранённая сессия "+name+" истекла и не может быть обновлена автоматически. Пройдите Device Flow ещё раз для этого аккаунта.")
+                .setNegativeButton("Позже",null)
+                .setPositiveButton("Войти снова",(d,w)->{
+                    String clientId=effectiveGitHubClientId();
+                    if(clientId.isEmpty())errorDialog("Вход недоступен","Client ID приложения GiHubble не настроен в этой сборке.");
+                    else startGitHubDeviceFlow(clientId);
+                })
+                .show();
+    }
+
+    private void confirmRemoveGitHubAccount(GitHubAccountStore.Account account){
+        if(account==null)return;
+        String title=account.active?"Отключить активный аккаунт?":"Удалить сохранённый аккаунт?";
+        String message=account.displayName()+"\n\nOAuth-токены, приватный кэш и отложенные действия этого аккаунта будут удалены с устройства. Репозитории на GitHub не изменятся.";
+        new AlertDialog.Builder(this).setTitle(title).setMessage(message)
+                .setNegativeButton("Отмена",null)
+                .setPositiveButton("Удалить",(d,w)->removeGitHubAccount(account)).show();
+    }
+
+    private void removeGitHubAccount(GitHubAccountStore.Account account){
+        String scope=account.active?currentAccountId():accountScopeForLogin(account.login);
+        clearLocalDataForGitHubAccount(account,scope);
+        accountStore.remove(account.id);
+        onActiveGitHubAccountChanged();
+        showAccountSwitcher();
+        if(isSignedIn()||oauth.canRefresh())refreshActiveAccountAfterSwitch();
+    }
+
+    private void clearLocalDataForGitHubAccount(GitHubAccountStore.Account account,String scope){
+        if(scope!=null&&!scope.isEmpty()){
+            repositoryStore.clear(scope);
+            RepositoryActivityFeed.clearVisits(prefs,scope);
+            prefs.edit().remove("home_recent_activity_"+scope).remove("activity_feed_cache_"+scope).remove("activity_feed_refresh_"+scope).apply();
+            features.offlineQueue.clearAccount(scope);
+            entityCache.removePrefix("acct:"+scope+"|");
+            File local=localAvatarFileForScope(scope);if(local.isFile())local.delete();
+        }
+        String cacheKey=account.id.replaceAll("[^A-Za-z0-9_-]","_");
+        prefs.edit().remove("github_profile_json_"+cacheKey).remove("github_avatar_url_"+cacheKey).apply();
+        File remote=remoteAvatarFile(cacheKey);if(remote.isFile())remote.delete();
+    }
+
+    private void onActiveGitHubAccountChanged(){
+        screenGeneration.incrementAndGet();
+        profileRefreshInFlight.set(false);
+        notificationRefreshInFlight.set(false);
+        homeDashboardRefreshInFlight.set(false);
+        if(api!=null)api.resetInMemorySessionState();
+    }
+
+    private String accountStateKey(String base){return accountStateKey(base,currentAccountId());}
+    private String accountStateKey(String base,String account){
+        String scope=account==null||account.isEmpty()?"guest":account;
+        return base+"_"+scope;
+    }
+
+    private void migrateLegacyPerAccountState(){
+        if(api==null||accountStore==null||accountStore.count()==0)return;
+        String account=currentAccountId();
+        SharedPreferences.Editor editor=prefs.edit();
+        String[] ints={"home_open_issues","home_open_prs","activity_new_count"};
+        for(String key:ints){
+            String scoped=accountStateKey(key,account);
+            if(prefs.contains(key)&&!prefs.contains(scoped))editor.putInt(scoped,prefs.getInt(key,key.startsWith("home_open")?-1:0));
+            editor.remove(key);
+        }
+        String[] longs={"home_dashboard_last_refresh","activity_last_seen_epoch","repository_last_sync"};
+        for(String key:longs){
+            String scoped=accountStateKey(key,account);
+            if(prefs.contains(key)&&!prefs.contains(scoped))editor.putLong(scoped,prefs.getLong(key,0L));
+            editor.remove(key);
+        }
+        String legacyUrl=prefs.getString("repository_access_settings_url","");
+        if(!legacyUrl.isEmpty()&&!prefs.contains(accountStateKey("repository_access_settings_url",account)))
+            editor.putString(accountStateKey("repository_access_settings_url",account),legacyUrl);
+        editor.remove("repository_access_settings_url").apply();
+    }
+
+    private String accountScopeForLogin(String login){
+        if(login==null||login.trim().isEmpty())return "";
+        String identity="login:"+login.trim().toLowerCase(Locale.ROOT);
+        try{
+            byte[] digest=java.security.MessageDigest.getInstance("SHA-256").digest(identity.getBytes(StandardCharsets.UTF_8));
+            StringBuilder out=new StringBuilder();for(int i=0;i<12;i++)out.append(String.format(Locale.ROOT,"%02x",digest[i]&0xff));return out.toString();
+        }catch(Exception e){return Integer.toHexString(identity.hashCode());}
     }
 
     private void showSettingsInterface(){
@@ -6197,16 +6413,39 @@ public class MainActivity extends Activity {
         new AlertDialog.Builder(this).setTitle("Провайдер перевода").setView(form).setPositiveButton("Сохранить",(d,w)->{String p=provider.getSelectedItemPosition()==1?"openai":provider.getSelectedItemPosition()==2?"libretranslate":"generic";secureStore.put("translator_provider",p);secureStore.put("translator_endpoint",endpoint.getText().toString().trim());secureStore.put("translator_api_key",apiKey.getText().toString().trim());secureStore.put("translator_model",model.getText().toString().trim());toast("Провайдер сохранён");if("Настройки".equals(currentTitle))showSettings();}).setNeutralButton("Очистить",(d,w)->{secureStore.remove("translator_provider");secureStore.remove("translator_endpoint");secureStore.remove("translator_api_key");secureStore.remove("translator_model");translationCache.clear();if("Настройки".equals(currentTitle))showSettings();}).setNegativeButton("Отмена",null).show();
     }
 
-    private String cacheSizeText(){long bytes=0;for(Map.Entry<String,?> entry:prefs.getAll().entrySet()){String key=entry.getKey();if(key.startsWith("cache_")||key.startsWith("translation_")||key.equals("github_profile_json")){Object value=entry.getValue();if(value!=null)bytes+=value.toString().getBytes(StandardCharsets.UTF_8).length;}}File avatar=new File(getFilesDir(),"github_avatar.png");if(avatar.isFile())bytes+=avatar.length();bytes+=translationCache.sizeBytes()+entityCache.sizeBytes();return bytes<1024?bytes+" Б":bytes<1024*1024?String.format(Locale.ROOT,"%.1f КБ",bytes/1024.0):String.format(Locale.ROOT,"%.1f МБ",bytes/(1024.0*1024.0));}
-    private void showCacheDialog(){new AlertDialog.Builder(this).setTitle("Офлайн-кэш").setMessage("Сохранены профили, репозитории, Issues, Pull Requests, Releases, README, переводы и аватар. Сущностей: "+entityCache.count()+", переводов: "+translationCache.count()+". Общий объём: "+cacheSizeText()+".").setPositiveButton("Очистить всё",(d,w)->clearOfflineCache()).setNeutralButton("Только переводы",(d,w)->{translationCache.clear();toast("Кэш переводов очищен");showSettings();}).setNegativeButton("Отмена",null).show();}
-    private void clearOfflineCache(){SharedPreferences.Editor editor=prefs.edit();for(String key:prefs.getAll().keySet())if(key.startsWith("cache_")||key.startsWith("translation_")||key.equals("github_profile_json")||key.equals("github_avatar_url"))editor.remove(key);editor.apply();translationCache.clear();entityCache.clear();File avatar=new File(getFilesDir(),"github_avatar.png");if(avatar.isFile())avatar.delete();toast("Офлайн-кэш очищен");showSettings();}
+    private String cacheSizeText(){long bytes=0;for(Map.Entry<String,?> entry:prefs.getAll().entrySet()){String key=entry.getKey();if(key.startsWith("cache_")||key.startsWith("translation_")||key.startsWith("github_profile_json_")){Object value=entry.getValue();if(value!=null)bytes+=value.toString().getBytes(StandardCharsets.UTF_8).length;}}File[] files=getFilesDir().listFiles();if(files!=null)for(File file:files)if(file.isFile()&&file.getName().startsWith("github_avatar_")&&file.getName().endsWith(".png"))bytes+=file.length();bytes+=translationCache.sizeBytes()+entityCache.sizeBytes();return bytes<1024?bytes+" Б":bytes<1024*1024?String.format(Locale.ROOT,"%.1f КБ",bytes/1024.0):String.format(Locale.ROOT,"%.1f МБ",bytes/(1024.0*1024.0));}
+    private void showCacheDialog(){new AlertDialog.Builder(this).setTitle("Офлайн-кэш").setMessage("Сохранены профили, репозитории, Issues, Pull Requests, Releases, README, переводы и аватары аккаунтов. Сущностей: "+entityCache.count()+", переводов: "+translationCache.count()+". Общий объём: "+cacheSizeText()+".").setPositiveButton("Очистить всё",(d,w)->clearOfflineCache()).setNeutralButton("Только переводы",(d,w)->{translationCache.clear();toast("Кэш переводов очищен");showSettings();}).setNegativeButton("Отмена",null).show();}
+    private void clearOfflineCache(){SharedPreferences.Editor editor=prefs.edit();for(String key:prefs.getAll().keySet())if(key.startsWith("cache_")||key.startsWith("translation_")||key.startsWith("github_profile_json_")||key.startsWith("github_avatar_url_")||key.equals("github_profile_json")||key.equals("github_avatar_url"))editor.remove(key);editor.apply();translationCache.clear();entityCache.clear();File[] files=getFilesDir().listFiles();if(files!=null)for(File file:files)if(file.isFile()&&file.getName().startsWith("github_avatar_")&&file.getName().endsWith(".png"))file.delete();File legacy=new File(getFilesDir(),"github_avatar.png");if(legacy.isFile())legacy.delete();toast("Офлайн-кэш очищен");showSettings();}
 
     private void exportDiagnostics(){
         ProgressDialog progress=ProgressDialog.show(this,"Диагностика","Формируем безопасный ZIP…",true,false);
         io.execute(()->{try{DiagnosticsExporter.Result result=DiagnosticsExporter.export(this,prefs,entityCache,translationCache,trackingDb,api);runOnUiThread(()->{progress.dismiss();new AlertDialog.Builder(this).setTitle("Диагностика экспортирована").setMessage(result.displayName+" сохранён в Downloads/GitHubble. Токены, API-ключи, пароли и signing key не включены.").setPositiveButton("Поделиться",(d,w)->{try{Intent share=new Intent(Intent.ACTION_SEND);share.setType("application/zip");share.putExtra(Intent.EXTRA_STREAM,result.uri);share.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);startActivity(Intent.createChooser(share,"Отправить диагностику"));}catch(Exception e){toast("Файл сохранён в Downloads/GitHubble");}}).setNegativeButton("Закрыть",null).show();});}catch(Exception e){runOnUiThread(()->{progress.dismiss();errorDialog("Не удалось экспортировать диагностику",e.getMessage());});}});
     }
 
-    private void confirmSignOut(){new AlertDialog.Builder(this).setTitle("Выйти из GitHub?").setMessage("Токен, приватный кэш и отложенные действия этого аккаунта будут удалены. Локальное избранное останется.").setPositiveButton("Выйти",(d,w)->{String account=currentAccountId();repositoryStore.clear(account);RepositoryActivityFeed.clearVisits(prefs,account);prefs.edit().remove("home_recent_activity_" + account).remove("activity_feed_cache_"+account).remove("activity_feed_refresh_"+account).apply();features.offlineQueue.clearAccount(api.accountScope());api.clearSessionCaches();oauth.signOut();prefs.edit().remove("github_profile_json").remove("github_avatar_url").remove("home_open_issues").remove("home_open_prs").remove("home_dashboard_last_refresh").remove("repository_access_settings_url").putInt("activity_new_count",0).apply();File avatar=new File(getFilesDir(),"github_avatar.png");if(avatar.isFile())avatar.delete();openRoot(this::showSettings);}).setNegativeButton("Отмена",null).show();}
+    private void confirmSignOut(){
+        GitHubAccountStore.Account active=accountStore.activeAccount();
+        if(active!=null){confirmRemoveGitHubAccount(active);return;}
+        new AlertDialog.Builder(this).setTitle("Выйти из GitHub?")
+                .setMessage("Локальный OAuth-сеанс будет удалён. Репозитории на GitHub не изменятся.")
+                .setPositiveButton("Выйти",(d,w)->{oauth.signOut();onActiveGitHubAccountChanged();openRoot(this::showSettings);})
+                .setNegativeButton("Отмена",null).show();
+    }
+
+    private void migrateLegacyAccountCache(){
+        if(accountStore==null||accountStore.count()==0)return;
+        String cacheKey=accountStore.activeCacheKey();
+        String legacyProfile=prefs.getString("github_profile_json","");
+        String legacyAvatarUrl=prefs.getString("github_avatar_url","");
+        SharedPreferences.Editor editor=prefs.edit();
+        if(!legacyProfile.isEmpty()&&!prefs.contains("github_profile_json_"+cacheKey))editor.putString("github_profile_json_"+cacheKey,legacyProfile);
+        if(!legacyAvatarUrl.isEmpty()&&!prefs.contains("github_avatar_url_"+cacheKey))editor.putString("github_avatar_url_"+cacheKey,legacyAvatarUrl);
+        editor.remove("github_profile_json").remove("github_avatar_url").apply();
+        File legacyAvatar=new File(getFilesDir(),"github_avatar.png");
+        File target=remoteAvatarFile(cacheKey);
+        if(legacyAvatar.isFile()&&!target.isFile()){
+            if(!legacyAvatar.renameTo(target))try(FileInputStream in=new FileInputStream(legacyAvatar);FileOutputStream out=new FileOutputStream(target)){byte[] buf=new byte[8192];int n;while((n=in.read(buf))!=-1)out.write(buf,0,n);legacyAvatar.delete();}catch(Exception ignored){}
+        }else if(legacyAvatar.isFile())legacyAvatar.delete();
+    }
 
     private void migrateSecureSettings(){
         String legacy=prefs.getString("translator_endpoint","");
@@ -6356,6 +6595,11 @@ public class MainActivity extends Activity {
         String clientId=effectiveGitHubClientId();
         if(clientId.isEmpty()){
             errorDialog("Вход недоступен","Client ID приложения GiHubble не настроен в этой сборке.");
+            return;
+        }
+        accountStore.persistActiveSession();
+        if(!accountStore.canAddAccount()){
+            errorDialog("Лимит аккаунтов","Сохранено "+GitHubAccountStore.MAX_ACCOUNTS+" GitHub-аккаунтов. Удалите один аккаунт в разделе «Аккаунты GitHub», затем добавьте новый.");
             return;
         }
         startGitHubDeviceFlow(clientId);
@@ -6565,7 +6809,7 @@ public class MainActivity extends Activity {
                         DeviceCodeAssist.clear(this);
                         runOnUiThread(() -> {
                             if(dialog.isShowing())dialog.dismiss();
-                            loadAndStoreGitHubProfile();
+                            loadAndStoreGitHubProfile(true);
                             openRoot(this::showProfile);
                             toast("GitHub успешно подключён");
                             returnToGitHubbleAfterAuthorization();
@@ -6601,15 +6845,75 @@ public class MainActivity extends Activity {
         }catch(Exception ignored){}
     }
 
-    private void loadAndStoreGitHubProfile(){
+    private void loadAndStoreGitHubProfile(){loadAndStoreGitHubProfile(false);}
+
+    private void loadAndStoreGitHubProfile(boolean checkInstallation){
+        final String requestedToken=secureStore.get("github_token");
+        if(requestedToken.isEmpty())return;
         io.execute(() -> {
             try{
                 JSONObject user=api.getJson("https://api.github.com/user");
+                if(!requestedToken.equals(secureStore.get("github_token")))return;
                 cacheGitHubProfile(user);
                 downloadAvatar(user.optString("avatar_url",""));
                 refreshNotificationCount();
-                runOnUiThread(() -> {if("Профиль".equals(currentTitle))renderProfilePage(false);});
+                final String login=user.optString("login","");
+                boolean missingInstallation=false;
+                boolean installationCheckFailed=false;
+                if(checkInstallation&&!login.isEmpty()){
+                    try{
+                        api.invalidatePrefix("https://api.github.com/user/installations");
+                        JSONObject installations=api.getJson("https://api.github.com/user/installations?per_page=100");
+                        missingInstallation=!GitHubAppInstallationGate.hasInstallationForLogin(installations,login);
+                    }catch(Exception ignored){
+                        installationCheckFailed=true;
+                    }
+                }
+                final boolean openInstall=missingInstallation;
+                final boolean checkFailed=installationCheckFailed;
+                runOnUiThread(() -> {
+                    if(!requestedToken.equals(secureStore.get("github_token")))return;
+                    if("Профиль".equals(currentTitle))renderProfilePage(false);
+                    else if("Аккаунты GitHub".equals(currentTitle))showAccountSwitcher();
+                    if(checkInstallation&&openInstall){
+                        toast("GiHubble не установлен для @"+login+" — открываем установку");
+                        openGitHubAppInstallPage();
+                    }else if(checkInstallation&&checkFailed){
+                        toast("Не удалось проверить установку GiHubble. Проверим при следующем входе.");
+                    }
+                });
             }catch(Exception ignored){}
+        });
+    }
+
+    private void openGitHubAppInstallPage(){
+        githubAppInstallBrowserActive=true;
+        githubAppInstallBrowserWasPaused=false;
+        openSecureGitHubPage(GitHubAppInstallationGate.installUrl(BuildConfig.GITHUB_APP_SLUG));
+    }
+
+    private void verifyGitHubAppInstallationAfterReturn(){
+        if(!isSignedIn())return;
+        final String token=secureStore.get("github_token");
+        final String login=getProfileLogin();
+        if(token.isEmpty()||login.isEmpty())return;
+        io.execute(()->{
+            try{
+                api.invalidatePrefix("https://api.github.com/user/installations");
+                JSONObject installations=api.getJson("https://api.github.com/user/installations?per_page=100");
+                final boolean installed=GitHubAppInstallationGate.hasInstallationForLogin(installations,login);
+                runOnUiThread(()->{
+                    if(!token.equals(secureStore.get("github_token")))return;
+                    if(installed){
+                        toast("GiHubble установлен для @"+login);
+                        if("Аккаунты GitHub".equals(currentTitle))showAccountSwitcher();
+                    }else{
+                        toast("Установка GiHubble для @"+login+" не завершена");
+                    }
+                });
+            }catch(Exception e){
+                runOnUiThread(()->toast("Не удалось проверить установку GiHubble"));
+            }
         });
     }
 

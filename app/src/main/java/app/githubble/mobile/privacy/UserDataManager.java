@@ -4,6 +4,7 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.provider.Settings;
 import app.githubble.mobile.backup.PortableSettingsManager;
+import app.githubble.mobile.auth.GitHubAccountStore;
 import app.githubble.mobile.cache.EntityCache;
 import app.githubble.mobile.offline.OfflineActionQueue;
 import app.githubble.mobile.security.SecureStore;
@@ -72,7 +73,7 @@ public final class UserDataManager {
     }
 
     public void deleteAllLocalData() {
-        secureStore.remove("github_token");
+        new GitHubAccountStore(context, secureStore).clearAll();
         secureStore.remove("translator_provider");
         secureStore.remove("translator_endpoint");
         secureStore.remove("translator_api_key");

@@ -71,9 +71,11 @@ public final class OAuthManager {
     }
 
     private final SecureStore secureStore;
+    private final GitHubAccountStore accountStore;
 
     public OAuthManager(Context context, SecureStore secureStore) {
         this.secureStore = secureStore;
+        this.accountStore = new GitHubAccountStore(context, secureStore);
     }
 
     public DeviceSession beginDeviceFlow(String clientId, String scopes) throws Exception {
@@ -118,6 +120,10 @@ public final class OAuthManager {
             secureStore.put("github_token_expires_at", expiresIn > 0L ? String.valueOf(nowSeconds + expiresIn) : "");
             secureStore.put("github_refresh_token", response.optString("refresh_token", ""));
             secureStore.put("github_refresh_token_expires_at", refreshExpiresIn > 0L ? String.valueOf(nowSeconds + refreshExpiresIn) : "");
+            // The token may belong to a different saved account. Do not let the
+            // previous login scope cache /user under the wrong identity.
+            secureStore.remove("github_login");
+            secureStore.remove("github_name");
             secureStore.remove("github_reauth_required");
             return new PollResult(PollState.AUTHORIZED, "Готово", currentIntervalSeconds);
         }
@@ -141,15 +147,7 @@ public final class OAuthManager {
     }
 
     public void signOut() {
-        secureStore.remove("github_token");
-        secureStore.remove("github_token_scope");
-        secureStore.remove("github_token_type");
-        secureStore.remove("github_refresh_token");
-        secureStore.remove("github_token_expires_at");
-        secureStore.remove("github_refresh_token_expires_at");
-        secureStore.remove("github_reauth_required");
-        secureStore.remove("github_login");
-        secureStore.remove("github_name");
+        accountStore.removeActiveAccount();
     }
 
     public boolean hasUsableToken() {
@@ -189,6 +187,7 @@ public final class OAuthManager {
         long refreshTtl = response.optLong("refresh_token_expires_in", 0L);
         if (refreshTtl > 0L) secureStore.put("github_refresh_token_expires_at", String.valueOf(now+refreshTtl));
         secureStore.remove("github_reauth_required");
+        accountStore.persistActiveSession();
         return true;
     }
 

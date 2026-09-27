@@ -3,6 +3,9 @@ apply plugin: 'com.android.application'
 def configuredGithubClientId = (project.findProperty('GITHUB_CLIENT_ID') ?: System.getenv('GITHUB_CLIENT_ID') ?: '').toString().trim()
 def githubClientId = configuredGithubClientId.isEmpty() ? 'Iv23ligNq2gfjSk90Tn7' : configuredGithubClientId
 def escapedGithubClientId = githubClientId.replace('\\', '\\\\').replace('\"', '\\"')
+def configuredGithubAppSlug = (project.findProperty('GITHUB_APP_SLUG') ?: System.getenv('GITHUB_APP_SLUG') ?: '').toString().trim()
+def githubAppSlug = configuredGithubAppSlug.isEmpty() ? 'gihubble' : configuredGithubAppSlug
+def escapedGithubAppSlug = githubAppSlug.replace('\\', '\\\\').replace('\"', '\\\"')
 def releaseVersion = new Properties()
 file('../version.properties').withInputStream { releaseVersion.load(it) }
 def appVersionName = releaseVersion.getProperty('VERSION_NAME')
@@ -21,6 +24,7 @@ android {
         versionCode appVersionCode
         versionName appVersionName
         buildConfigField 'String', 'GITHUB_CLIENT_ID', '"' + escapedGithubClientId + '"'
+        buildConfigField 'String', 'GITHUB_APP_SLUG', '"' + escapedGithubAppSlug + '"'
         buildConfigField 'boolean', 'FEATURE_FREEZE', 'false'
         buildConfigField 'String', 'RC_CHANNEL', '"' + releaseChannel + '"'
         testInstrumentationRunner 'app.githubble.mobile.RcInstrumentationTest'

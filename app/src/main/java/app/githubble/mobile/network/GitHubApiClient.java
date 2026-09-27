@@ -40,6 +40,12 @@ public final class GitHubApiClient {
     public void invalidate(String url) { if(url==null)return; String key=cacheKey(url); etags.remove(key); cachedBodies.remove(key); if(entityCache!=null)entityCache.remove(key); }
     public void invalidatePrefix(String prefix) { if(prefix==null)return; String scoped=cacheKey(prefix); for(String key:new java.util.ArrayList<>(cachedBodies.keySet()))if(key.startsWith(scoped)){etags.remove(key);cachedBodies.remove(key);} if(entityCache!=null)entityCache.removePrefix(scoped); }
     public void clearSessionCaches() { etags.clear(); cachedBodies.clear(); if(entityCache!=null)entityCache.removePrefix("acct:"+accountScope()+"|"); }
+    public void resetInMemorySessionState() {
+        etags.clear();
+        cachedBodies.clear();
+        remaining = -1;
+        resetEpochSeconds = 0L;
+    }
 
     public JSONObject getJson(String url) throws Exception { return new JSONObject(getWithFallback(url, true)); }
     public JSONArray getArray(String url) throws Exception { return new JSONArray(getWithFallback(url, true)); }
