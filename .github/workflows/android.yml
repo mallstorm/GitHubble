@@ -121,7 +121,7 @@ jobs:
           name: githubble-pr${{ github.event.pull_request.number }}-${{ steps.version.outputs.name }}-${{ github.sha }}
           path: dist-pr/*
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 1
 
       - name: Sign release APK
         if: github.event_name == 'push' && github.ref == 'refs/heads/main' && env.HAS_RELEASE_SIGNING == 'true'
@@ -179,7 +179,7 @@ jobs:
           name: githubble-${{ steps.version.outputs.name }}-${{ github.sha }}
           path: dist/*
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 3
 
   publish-release:
     name: Publish tested APK to GitHub Releases
