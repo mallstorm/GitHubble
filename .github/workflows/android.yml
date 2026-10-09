@@ -2,7 +2,8 @@ name: GitHubble Android checks and release
 
 # STABLE RELEASE POLICY:
 # Fast path (RC3.9-style): unit tests plus Debug/Release compile, without an emulator.
-# Each PR publishes a TEST Debug APK and source ZIP; main publishes the final bundle.
+# PRs may publish a short-lived TEST artifact. Main publishes directly to GitHub Releases,
+# so a temporarily exhausted Actions artifact-storage quota cannot block production builds.
 # Use workflow_dispatch with full_validation=true for lint + emulator regressions.
 # PR builds never use release-signing secrets; release signing is main-only.
 # Working/backup branches do not publish builds.
@@ -19,7 +20,6 @@ on:
   pull_request:
     branches: [main]
 
-# Only the newest attempt for the same PR or branch is retained.
 concurrency:
   group: githubble-android-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -34,17 +34,21 @@ jobs:
     env:
       HAS_RELEASE_SIGNING: ${{ secrets.GITHUBBLE_RELEASE_KEYSTORE_BASE64 != '' && secrets.GITHUBBLE_RELEASE_STORE_PASSWORD != '' && secrets.GITHUBBLE_RELEASE_KEY_PASSWORD != '' && secrets.GITHUBBLE_RELEASE_KEY_ALIAS != '' }}
     permissions:
-      contents: read
+      contents: write
     steps:
       - uses: actions/checkout@v5
+
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
+
       - uses: android-actions/setup-android@v3
         with:
           packages: platform-tools
+
       - run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.5.1'
@@ -116,6 +120,7 @@ jobs:
 
       - name: Publish PR test APK and sources
         if: github.event_name == 'pull_request'
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: githubble-pr${{ github.event.pull_request.number }}-${{ steps.version.outputs.name }}-${{ github.sha }}
@@ -173,35 +178,13 @@ jobs:
           sha256sum "dist/GitHubble-${{ steps.version.outputs.name }}-main-sources.zip" > dist/SOURCE_SHA256.txt
           printf '%s\n' "$(git rev-parse HEAD)" > dist/SOURCE_COMMIT.txt
 
-      - uses: actions/upload-artifact@v4
+      - name: Verify and publish main bundle directly to GitHub Releases
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        with:
-          name: githubble-${{ steps.version.outputs.name }}-${{ github.sha }}
-          path: dist/*
-          if-no-files-found: error
-          retention-days: 3
-
-  publish-release:
-    name: Publish tested APK to GitHub Releases
-    needs: build
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: write
-    steps:
-      - name: Download exact APK and source bundle built on main
-        uses: actions/download-artifact@v4
-        with:
-          name: githubble-${{ needs.build.outputs.version_name }}-${{ github.sha }}
-          path: dist
-
-      - name: Verify bundle and create permanent prerelease
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
-          VERSION_NAME: ${{ needs.build.outputs.version_name }}
+          VERSION_NAME: ${{ steps.version.outputs.name }}
         run: |
           set -euo pipefail
           [[ "$VERSION_NAME" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "Invalid VERSION_NAME"; exit 1; }
@@ -234,6 +217,7 @@ jobs:
           - ${signing_note}
           - Unsigned Release APK is intentionally excluded because it cannot be installed as-is.
           - Source ZIP and SHA-256 checksums correspond to this exact main commit.
+          - Main releases are uploaded directly to GitHub Releases and do not consume Actions artifact storage.
           - The repository is private: downloading these assets requires authorized GitHub access.
           EOF
 
