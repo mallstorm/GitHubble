@@ -3,6 +3,7 @@ package app.githubble.mobile.agent;
 import static org.junit.Assert.*;
 import java.util.Map;
 import org.junit.Test;
+import org.json.JSONObject;
 
 /** Pure deterministic checks: no live credentials, requests, or device side effects. */
 public class OmniChatTransportTest {
@@ -36,6 +37,21 @@ public class OmniChatTransportTest {
         } catch (UnsupportedOperationException expected) {
             // Good.
         }
+    }
+
+    @Test public void parsesOpenAiResponsesMessageParts() throws Exception {
+        JSONObject json = new JSONObject("{\"output\":[{\"type\":\"reasoning\",\"summary\":[]},"
+                + "{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"Готово\"}]}]}");
+        assertEquals("Готово", OmniChatChatClient.responseOutput(json));
+    }
+
+    @Test public void parsesChatCompletionTextAndMultipart() throws Exception {
+        JSONObject simple = new JSONObject("{\"choices\":[{\"message\":{\"content\":\"Привет\"}}]}");
+        assertEquals("Привет", OmniChatChatClient.chatOutput(simple));
+        JSONObject multipart = new JSONObject("{\"choices\":[{\"message\":"
+                + "{\"content\":[{\"type\":\"text\",\"text\":\"Часть 1\"},"
+                + "{\"type\":\"text\",\"text\":\" и 2\"}]}}]}");
+        assertEquals("Часть 1 и 2", OmniChatChatClient.chatOutput(multipart));
     }
 
     @Test public void modelsAndResponseEndpointsAreDistinct() {
