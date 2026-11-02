@@ -121,7 +121,7 @@ public final class OmniChatChatClient {
         }
     }
 
-    private static String chatOutput(JSONObject result) {
+    static String chatOutput(JSONObject result) {
         JSONArray choices = result.optJSONArray("choices");
         JSONObject choice = choices == null ? null : choices.optJSONObject(0);
         JSONObject message = choice == null ? null : choice.optJSONObject("message");
@@ -141,7 +141,7 @@ public final class OmniChatChatClient {
         return "";
     }
 
-    private static String responseOutput(JSONObject result) {
+    static String responseOutput(JSONObject result) {
         String direct = result.optString("output_text", "").trim();
         if (!direct.isEmpty()) return direct;
         JSONArray output = result.optJSONArray("output");
