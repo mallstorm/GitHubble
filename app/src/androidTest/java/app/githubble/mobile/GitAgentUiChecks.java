@@ -92,6 +92,14 @@ final class GitAgentUiChecks {
         Activity activity=host.startActivitySync(intent);
         File directory=new File(context.getExternalFilesDir(null),"ui-screenshots");directory.mkdirs();
         try {
+            app.githubble.mobile.agent.WorkspaceHub workspaceHub=new app.githubble.mobile.agent.WorkspaceHub(context);
+            String smokeId=workspaceHub.create(account,"Local Workspace smoke").getString("id");
+            workspaceHub.saveFile(account,smokeId,"src/Smoke.kt","class Smoke { fun original() = 1 }\n");
+            if(!app.githubble.mobile.agent.WorkspaceEngine.search(context,workspaceHub.root(account,smokeId),smokeId,"original").contains("src/Smoke.kt"))throw new AssertionError("Workspace content search failed");
+            String checkpoint=app.githubble.mobile.agent.WorkspaceEngine.checkpoint(context,workspaceHub.root(account,smokeId),smokeId,"Before edit");
+            workspaceHub.saveFile(account,smokeId,"src/Smoke.kt","class Smoke { fun changed() = 2 }\n");
+            app.githubble.mobile.agent.WorkspaceEngine.restore(context,workspaceHub.root(account,smokeId),smokeId,checkpoint);
+            if(!workspaceHub.readFile(account,smokeId,"src/Smoke.kt").contains("original"))throw new AssertionError("Workspace checkpoint restoration failed");
             app.githubble.mobile.network.AiNetwork.importProfile("Self-test runtime","{\"outbounds\":[{\"protocol\":\"freedom\"}]}");
             org.json.JSONArray xrayProfiles=new org.json.JSONObject(app.githubble.mobile.network.AiNetwork.profiles()).getJSONArray("profiles");
             String testProfile="";for(int i=0;i<xrayProfiles.length();i++)if("Self-test runtime".equals(xrayProfiles.getJSONObject(i).optString("name")))testProfile=xrayProfiles.getJSONObject(i).getString("id");
