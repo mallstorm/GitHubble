@@ -1386,6 +1386,8 @@ public class MainActivity extends Activity {
         }else ui.note(body,"После подключения здесь появятся модели с поиском и фильтрами.");
         ui.action(body,"GitHub Copilot Cloud · задачи","Не чат: запускает Cloud Agent в GitHub-репозитории",0xFF2E9D68,
                 ()->agentSetMode(owner,2,dialog[0]));
+        ui.action(body,"Copilot Chat · официальный сайт","Открыть реальный разговорный Copilot на github.com/copilot",0xFF2863B8,
+                ()->{dialog[0].dismiss();openWeb("https://github.com/copilot");});
         ui.action(body,"GitHub Copilot Chat · SDK","Разговорные сессии требуют отдельного официального Copilot runtime",0xFF435B69,
                 ()->{dialog[0].dismiss();agentShowCopilotChatInfo();});
         ui.action(body,"Обновить список моделей","Загрузить каталог выбранного API-подключения",0xFF2863B8,()->{
@@ -8423,6 +8425,9 @@ public class MainActivity extends Activity {
         settingsActionRow("GitHub Copilot · Chat и задачи",
                 "Cloud Agent уже работает с задачами; Copilot Chat требует SDK runtime",
                 this::agentShowCopilotChatInfo);
+        settingsActionRow("Открыть Copilot Chat на GitHub",
+                "Официальный разговорный интерфейс в браузере",
+                ()->openWeb("https://github.com/copilot"));
         settingsActionRow("Google Antigravity OAuth",
                 "Устаревший Google Cloud Code не поддерживает личные тарифы 2026",
                 ()->agentShowAntigravityMigration(owner));
