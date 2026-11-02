@@ -1091,7 +1091,7 @@ public class MainActivity extends Activity {
         GitAgentUi ui=new GitAgentUi(this,BG);LinearLayout body=ui.body(proxy?"Subscription proxy":"Аккаунты и подписки",true);
         ui.note(body,"Вход через браузер и код устройства. Сессии зашифрованы и привязаны к выбранному GitHub-аккаунту.");
         final Dialog[] sheet={null};
-        for(String provider:new String[]{OAuthSubscriptions.OPENAI,OAuthSubscriptions.CLINE,OAuthSubscriptions.KIMI}){
+        for(String provider:new String[]{OAuthSubscriptions.OPENAI,OAuthSubscriptions.CLINE,OAuthSubscriptions.KIMI,OAuthSubscriptions.GROK}){
             boolean saved=!"guest".equals(owner)&&aiConnections.hasKey(owner,provider);
             String detail="Войти через OAuth · без API-ключа";
             if(saved){
@@ -1121,7 +1121,7 @@ public class MainActivity extends Activity {
                     }).setNegativeButton("Закрыть",null).show();
             });
         }
-        if(proxy)ui.note(body,"Gemini Web, Grok и Claude из Subscription Proxy пока не перенесены. Доступны три указанных OAuth-транспорта; доступ и лимиты определяет провайдер.");
+        if(proxy)ui.note(body,"Gemini Web и Claude из Subscription Proxy пока не перенесены. Доступны четыре указанных OAuth-транспорта; доступ и лимиты определяет провайдер.");
         sheet[0]=ui.present(body,true);
     }
 

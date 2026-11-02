@@ -32,6 +32,7 @@ public final class OmniChatConnectionStore {
         NAMES.put(OAuthSubscriptions.OPENAI,"OpenAI · подписка ChatGPT/Codex");
         NAMES.put(OAuthSubscriptions.CLINE,"Cline Account / Cline Pass");
         NAMES.put(OAuthSubscriptions.KIMI,"Kimi Code · OAuth");
+        NAMES.put(OAuthSubscriptions.GROK,"xAI Grok · OAuth");
     }
 
     public OmniChatConnectionStore(Context context, SecureStore vault) {
@@ -89,7 +90,7 @@ public final class OmniChatConnectionStore {
 
     public synchronized void saveSubscription(String account,String provider,org.json.JSONObject session,java.util.List<String> models){
         if(!OAuthSubscriptions.supports(provider))throw new IllegalArgumentException("Не OAuth-провайдер");
-        if(session.optString("access_token").isEmpty()||session.optString("refresh_token").isEmpty())throw new IllegalArgumentException("Нет подтверждённой OAuth-сессии");
+        if(session.optString("access_token").isEmpty()||!OAuthSubscriptions.GROK.equals(provider)&&session.optString("refresh_token").isEmpty())throw new IllegalArgumentException("Нет подтверждённой OAuth-сессии");
         try{session=new org.json.JSONObject(session.toString()).put("owner",account).put("provider",provider);
             vault.put(key(account,provider),session.toString());
             String scope=namespace(account);
@@ -178,4 +179,5 @@ public final class OmniChatConnectionStore {
         return NAMES.containsKey(provider) ? NAMES.get(provider) : "Не подключено";
     }
 }
+
 
