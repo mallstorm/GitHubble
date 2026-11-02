@@ -170,7 +170,7 @@ public final class AgentChatScreen {
         input.setMaxLines(6);
         input.setBackgroundColor(Color.TRANSPARENT);
         input.setPadding(dp(12),dp(9),dp(10),dp(5));
-        input.setHint("Спросить Git Agent");
+        input.setHint(selectedCopilot ? "Задача для Copilot: /copilot ..." : "Спросить Git Agent");
         input.setOnClickListener(v->input.post(()->{
             android.view.inputmethod.InputMethodManager keyboard=(android.view.inputmethod.InputMethodManager)
                     activity.getSystemService(Context.INPUT_METHOD_SERVICE);
@@ -211,13 +211,13 @@ public final class AgentChatScreen {
         LinearLayout model=new LinearLayout(activity);
         model.setOrientation(LinearLayout.VERTICAL);
         model.setGravity(Gravity.CENTER);
-        String modelTitle=selectedCopilot?"GitHub Copilot":connected?modelLabel:"Добавить подключение ▾";
+        String modelTitle=selectedCopilot?"Copilot · задачи":connected?modelLabel:"Добавить подключение ▾";
         TextView modelName=label(modelTitle,13,true,accent);
         modelName.setSingleLine();
         modelName.setEllipsize(TextUtils.TruncateAt.MIDDLE);
         modelName.setGravity(Gravity.CENTER);
         model.addView(modelName,new LinearLayout.LayoutParams(-1,-2));
-        TextView modelSub=label(selectedCopilot?"Cloud Agent ▾":
+        TextView modelSub=label(selectedCopilot?"Не чат · Cloud Agent ▾":
                 connected?providerLabel+" ▾":"",10,false,muted);
         modelSub.setGravity(Gravity.CENTER);
         modelSub.setSingleLine();
