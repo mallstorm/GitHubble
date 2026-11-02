@@ -34,6 +34,7 @@ public final class AgentChatScreen {
         void showCopilotTasks();
         void startWorkflow();
         void showBuildArtifacts();
+        void diagnoseBuild();
         void generateProjectCode();
         void selectExecutor(boolean copilot);
         void selectMode(boolean agentMode);
@@ -201,6 +202,11 @@ public final class AgentChatScreen {
             action(more, "APK / артефакты", actions::showBuildArtifacts);
         }
         root.addView(more, margin());
+        if (!project.repository.isEmpty()) {
+            LinearLayout diagnostics = buttons();
+            action(diagnostics, "Диагностика CI / исправить", actions::diagnoseBuild);
+            root.addView(diagnostics, margin());
+        }
     }
 
     private LinearLayout panel() {
