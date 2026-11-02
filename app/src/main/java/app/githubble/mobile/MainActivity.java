@@ -1056,6 +1056,18 @@ public class MainActivity extends Activity {
                                     + "\nФайлов: " + commit.optInt("files")
                                     + "\n" + commit.optString("url")
                                     + "\nТеперь можно запустить GitHub Actions.");
+                            runOnUiThread(() -> {
+                                agentRefreshIfCurrent(account);
+                                if (account.equals(accountStore.activeCacheKey())) {
+                                    new AlertDialog.Builder(this)
+                                            .setTitle("Коммит успешно создан")
+                                            .setMessage("GitHub подтвердил запись файлов в "
+                                                    + project.repository + ". Запустить сборку через Actions?")
+                                            .setPositiveButton("Выбрать workflow",
+                                                    (dialog, which) -> agentChooseWorkflow(account))
+                                            .setNegativeButton("Позже", null).show();
+                                }
+                            });
                         } catch (Exception error) {
                             agentProjects.append(account, "system",
                                     "Коммит не выполнен: " + error.getMessage());
