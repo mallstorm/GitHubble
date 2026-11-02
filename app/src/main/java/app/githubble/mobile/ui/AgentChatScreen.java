@@ -221,6 +221,7 @@ public final class AgentChatScreen {
             if(busy){actions.cancelRequest();return;}
             String value=input.getText().toString().trim();
             if(value.isEmpty()){input.setError("Введите сообщение");return;}
+            if(value.length()>4900){input.setError("Сообщение превышает 4900 символов. Разбейте его на части.");return;}
             actions.draftChanged("");
             actions.send(value,currentMode[0],selectedCopilot);
         });
