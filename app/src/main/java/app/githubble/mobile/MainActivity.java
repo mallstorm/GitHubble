@@ -1687,13 +1687,24 @@ public class MainActivity extends Activity {
                     String context=agentContext(expected,agentMode||!activeProject.workspaceId.isEmpty()
                         ?activeProject:new AgentProjectStore.Project(expected,"","","main",""),activeChat,message);
                     String response;
-                    if(imageUri!=null){
+                    if(imageUri==null&&agentMode&&!activeProject.workspaceId.isEmpty()){
+                        response=app.githubble.mobile.agent.AgentExecutionEngine.analyze(instructions->{
+                            JSONArray toolsPrompt=new JSONArray().put(new JSONObject().put("role","user").put("body",instructions));
+                            String generated=aiChatClient.complete(provider,model,credential,
+                                toolsPrompt,context,activeProject.repository);
+                            aiUsage.record(expected,provider,model,OmniChatChatClient.takeUsage());
+                            return generated;
+                        },agentWorkspaces,expected,activeProject.workspaceId,message,context);
+                    }else if(imageUri!=null){
                         String mime=getContentResolver().getType(imageUri);
                         response=aiChatClient.completeWithImage(provider,model,credential,snapshot,
                             context,agentMode?activeProject.repository:"",mime,agentReadImage(imageUri));
-                    }else response=aiChatClient.complete(provider,model,credential,snapshot,
-                        context,agentMode?activeProject.repository:"");
-                    aiUsage.record(expected,provider,model,OmniChatChatClient.takeUsage());
+                        aiUsage.record(expected,provider,model,OmniChatChatClient.takeUsage());
+                    }else {
+                        response=aiChatClient.complete(provider,model,credential,snapshot,
+                            context,agentMode?activeProject.repository:"");
+                        aiUsage.record(expected,provider,model,OmniChatChatClient.takeUsage());
+                    }
                     if (java.util.Objects.equals(aiRequestTickets.get(expected), ticket)
                             && !aiCanceledRequests.contains(expected)){
                         agentProjects.appendToConversation(expected, activeChat, "agent", response);
