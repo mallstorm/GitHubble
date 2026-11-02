@@ -118,7 +118,7 @@ class SubscriptionProxyGeminiClient {
                         email = email,
                         projectId = projectId
                     )
-                    writeHtml(it, 200, "OmniChat подключён к Google Gemini")
+                    writeHtml(it, 200, "GitHubble подключён к Google Gemini")
                     return@withContext credentials
                 }
             }
@@ -370,7 +370,7 @@ class SubscriptionProxyGeminiClient {
             }
             if (attempt < 4) delay(2000)
         }
-        throw ApiFailure("Google Cloud Code не вернул project ID")
+        throw ApiFailure("Legacy Cloud Code не вернул project ID. Персональный Gemini Code Assist больше не обслуживается; используйте официальный Antigravity SDK/CLI или прямое Gemini API-подключение.")
     }
 
     private fun projectId(json: JSONObject): String {
@@ -420,7 +420,7 @@ class SubscriptionProxyGeminiClient {
     private fun writeHtml(socket: java.net.Socket, status: Int, message: String) {
     val success = status == 200 && message.contains("подключ", ignoreCase = true)
     val safeMessage = htmlEscape(message)
-    val headline = if (success) "OmniChat подключён" else "Не удалось завершить вход"
+    val headline = if (success) "GitHubble подключён" else "Не удалось завершить вход"
     val detail = if (success) {
         "Google Gemini готов к работе через Subscription Proxy."
     } else {
@@ -429,9 +429,9 @@ class SubscriptionProxyGeminiClient {
     val statusMark = if (success) "✓" else "!"
     val statusClass = if (success) "status success" else "status error"
     val hint = if (success) {
-        "Можно закрыть эту вкладку и вернуться в OmniChat."
+        "Можно закрыть эту вкладку и вернуться в GitHubble."
     } else {
-        "Вернитесь в OmniChat и повторите подключение."
+        "Вернитесь в GitHubble и повторите подключение."
     }
     val body = """<!doctype html>
 <html lang="ru">
@@ -453,7 +453,7 @@ class SubscriptionProxyGeminiClient {
         <path d="M16 2.8c1.1 7.2 6 12.1 13.2 13.2C22 17.1 17.1 22 16 29.2 14.9 22 10 17.1 2.8 16 10 14.9 14.9 10 16 2.8Z" fill="url(#g)"/>
       </svg>
     </div>
-    <div class="brandText"><strong>OmniChat</strong><span>Google Gemini</span></div>
+    <div class="brandText"><strong>GitHubble</strong><span>Google Gemini</span></div>
   </div>
   <div class="$statusClass">$statusMark</div>
   <h1>$headline</h1>
