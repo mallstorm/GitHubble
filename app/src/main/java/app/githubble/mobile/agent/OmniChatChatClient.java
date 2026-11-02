@@ -17,7 +17,7 @@ import java.nio.charset.StandardCharsets;
 public final class OmniChatChatClient {
     private static final int MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
     private static final int MAX_HISTORY_TURNS = 28;
-    private static final int MAX_TEXT_CHARS = 5000;
+    private static final int MAX_TEXT_CHARS = 20000;
     private static final int MAX_INPUT_BYTES = 130 * 1024;
 
     static String endpoint(String provider) {
