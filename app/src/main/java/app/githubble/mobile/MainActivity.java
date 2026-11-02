@@ -221,6 +221,11 @@ public class MainActivity extends Activity {
     private String pendingAgentTextAccount = "";
     private String pendingAgentTextConversation = "";
     private static final int REQUEST_AGENT_TEXT_FILE = 2722;
+    private static final int REQUEST_AGENT_IMAGE_FILE = 2723;
+    private Uri pendingAgentImageUri;
+    private String pendingAgentImageOwner="",pendingAgentImageThread="";
+    private String selectingAgentImageOwner="",selectingAgentImageThread="";
+    private boolean selectingAgentImageOcr=false;
 
     @Override public void onCreate(Bundle b) {
         super.onCreate(b);
@@ -1350,12 +1355,13 @@ public class MainActivity extends Activity {
         final Dialog[] dialog={null};LinearLayout quick=ui.row();
         String unavailable="Мультимодальный транспорт ещё не подключён. Доступны текстовые файлы и GitHub-инструменты.";
         ui.tile(quick,"Камера",R.drawable.ic_agent_camera,0xFF1C9C76,()->agentUnavailable("Камера · недоступно",unavailable));
-        ui.tile(quick,"Фото",R.drawable.ic_agent_photo,0xFF347EE2,()->agentUnavailable("Фото · недоступно",unavailable));
+        ui.tile(quick,"Фото",R.drawable.ic_agent_photo,0xFF347EE2,()->{dialog[0].dismiss();agentPickImageAttachment(owner,false);});
         ui.tile(quick,"Файлы",R.drawable.ic_agent_attach,0xFFE5A126,()->{dialog[0].dismiss();agentPickTextAttachment(owner);});
-        ui.tile(quick,"Сканировать текст",R.drawable.ic_agent_scan,0xFF8E59DE,()->agentUnavailable("OCR · недоступно",unavailable));
+        ui.tile(quick,"Сканировать текст",R.drawable.ic_agent_scan,0xFF8E59DE,()->{dialog[0].dismiss();agentPickImageAttachment(owner,true);});
         body.addView(quick,new LinearLayout.LayoutParams(-1,ui.dp(106)));
         ui.section(body,"Инструменты с изображениями");
-        ui.note(body,"Для анализа, OCR и генерации требуется мультимодальное подключение.");
+        ui.note(body,"Фото и OCR работают через поддерживаемые Vision API (OpenAI, Gemini, OpenRouter). "+
+            "Изображение отправляется только после подтверждения и отправки сообщения. Live и генерация изображений ещё не подключены.");
         String[] titles={"Анализ фотографии","Вопрос по изображению","Создание изображения","Веб-поиск","Плагины"};
         int[] colors={0xFF8A42DC,0xFF179BB5,0xFFD957A3,0xFF3572DC,0xFF209F77};
         for(int i=0;i<titles.length;i++){String title=titles[i];
@@ -1428,6 +1434,38 @@ public class MainActivity extends Activity {
                         case 10: agentFeatures(owner).workspace(); break;
                     }
                 }).setNegativeButton("Закрыть", null).show();
+    }
+
+    /** Image stays in transient memory; no base64 or access token is saved in history. */
+    private void agentPickImageAttachment(String owner,boolean ocr){
+        if(!owner.equals(accountStore.activeCacheKey())||"guest".equals(owner)){
+            toast("Подключите GitHub-аккаунт и зрительную AI-модель");return;
+        }
+        String provider=aiConnections.selectedProvider(owner);
+        if(!OmniChatChatClient.supportsVision(provider)||!aiConnections.isConfigured(owner,provider)){
+            toast("Для фото нужны OpenAI API, Gemini API или OpenRouter с моделью Vision");return;
+        }
+        selectingAgentImageOwner=owner;
+        selectingAgentImageThread=agentProjects.activeConversation(owner);
+        selectingAgentImageOcr=ocr;
+        Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("image/*");
+        try{startActivityForResult(intent,REQUEST_AGENT_IMAGE_FILE);}
+        catch(Exception e){toast("Галерея недоступна: "+e.getMessage());}
+    }
+
+    private byte[] agentReadImage(Uri uri)throws IOException{
+        ByteArrayOutputStream out=new ByteArrayOutputStream();
+        try(InputStream in=getContentResolver().openInputStream(uri)){
+            if(in==null)throw new IOException("Изображение недоступно");
+            byte[] buffer=new byte[16384];int n;
+            while((n=in.read(buffer))!=-1){
+                if(out.size()+n>1024*1024)throw new IOException("Фото больше 1 МБ; уменьшите разрешение");
+                out.write(buffer,0,n);
+            }
+        }
+        return out.toByteArray();
     }
 
     private void agentPickTextAttachment(String owner) {
@@ -1556,11 +1594,19 @@ public class MainActivity extends Activity {
         if (!expected.equals(accountStore.activeCacheKey())) { toast("Аккаунт проекта изменился"); return; }
         if(aiRequestsInFlight.contains(expected)){toast("Предыдущий запрос ещё выполняется");return;}
         final String activeChat = agentProjects.activeConversation(expected);
+        final Uri imageUri=expected.equals(pendingAgentImageOwner)
+            &&activeChat.equals(pendingAgentImageThread)?pendingAgentImageUri:null;
+        if(imageUri!=null&&useCopilot){toast("Фото поддерживается только прямыми Vision API");return;}
+        if(imageUri!=null){
+            String selected=aiConnections.selectedProvider(expected);
+            if(!OmniChatChatClient.supportsVision(selected)){toast("Эта модель не поддерживает фото");return;}
+            pendingAgentImageUri=null;pendingAgentImageOwner="";pendingAgentImageThread="";
+        }
         agentProjects.appendToConversation(expected, activeChat, "user", message);
         java.util.regex.Matcher create = java.util.regex.Pattern.compile(
                 "(?iu)(?:создай|создать)\\s+(?:(приватный|публичный)\\s+)?репозиторий\\s+([A-Za-z0-9_.-]+)")
                 .matcher(message);
-        if (agentMode && !useCopilot && create.find()) {
+        if (imageUri==null && agentMode && !useCopilot && create.find()) {
             String visibility = create.group(1);
             agentRefreshIfCurrent(expected);
             agentCreateRepository(expected, create.group(2), !"публичный".equalsIgnoreCase(visibility));
@@ -1597,12 +1643,12 @@ public class MainActivity extends Activity {
                 .setPositiveButton("Закрепить",(d,w)->{if(expected.equals(accountStore.activeCacheKey())&&activeChat.equals(agentProjects.activeConversation(expected))){agentProjects.save(new AgentProjectStore.Project(expected,p.name,repo,p.branch,p.workspaceId));agentRefreshIfCurrent(expected);}}).setNegativeButton("Отмена",null).show();return;
         }
         String lower = message.toLowerCase(java.util.Locale.ROOT);
-        if (agentMode && !useCopilot && (lower.startsWith("/build") || lower.contains("собери проект") || lower.contains("запусти сборку"))) {
+        if (imageUri==null && agentMode && !useCopilot && (lower.startsWith("/build") || lower.contains("собери проект") || lower.contains("запусти сборку"))) {
             agentRefreshIfCurrent(expected);
             agentChooseWorkflow(expected);
             return;
         }
-        if (!useCopilot && agentMode && (lower.startsWith("/code ") || lower.startsWith("создай исходники") || lower.startsWith("создай файлы"))) {
+        if (imageUri==null && !useCopilot && agentMode && (lower.startsWith("/code ") || lower.startsWith("создай исходники") || lower.startsWith("создай файлы"))) {
             agentGenerateProjectCode(expected, lower.startsWith("/code ") ? message.substring(6) : message);
             return;
         }
@@ -1638,8 +1684,15 @@ public class MainActivity extends Activity {
             agentRefreshIfCurrent(expected);
             java.util.concurrent.Future<?> call = io.submit(() -> {
                 try {
-                    String response = aiChatClient.complete(provider, model, credential, snapshot,
-                            agentContext(expected,agentMode||!activeProject.workspaceId.isEmpty()?activeProject:new AgentProjectStore.Project(expected,"","","main",""),activeChat,message), agentMode?activeProject.repository:"");
+                    String context=agentContext(expected,agentMode||!activeProject.workspaceId.isEmpty()
+                        ?activeProject:new AgentProjectStore.Project(expected,"","","main",""),activeChat,message);
+                    String response;
+                    if(imageUri!=null){
+                        String mime=getContentResolver().getType(imageUri);
+                        response=aiChatClient.completeWithImage(provider,model,credential,snapshot,
+                            context,agentMode?activeProject.repository:"",mime,agentReadImage(imageUri));
+                    }else response=aiChatClient.complete(provider,model,credential,snapshot,
+                        context,agentMode?activeProject.repository:"");
                     aiUsage.record(expected,provider,model,OmniChatChatClient.takeUsage());
                     if (java.util.Objects.equals(aiRequestTickets.get(expected), ticket)
                             && !aiCanceledRequests.contains(expected)){
@@ -8449,6 +8502,36 @@ public class MainActivity extends Activity {
     @Override protected void onActivityResult(int requestCode,int resultCode,Intent data){
         super.onActivityResult(requestCode,resultCode,data);
         if(agentFeatures!=null&&agentFeatures.result(requestCode,resultCode,data))return;
+        if(requestCode==REQUEST_AGENT_IMAGE_FILE){
+            String owner=selectingAgentImageOwner,chat=selectingAgentImageThread;
+            boolean ocr=selectingAgentImageOcr;
+            selectingAgentImageOwner="";selectingAgentImageThread="";selectingAgentImageOcr=false;
+            if(resultCode==RESULT_OK&&data!=null&&data.getData()!=null
+                    &&owner.equals(accountStore.activeCacheKey())
+                    &&chat.equals(agentProjects.activeConversation(owner))){
+                Uri chosen=data.getData();
+                String mime=getContentResolver().getType(chosen);
+                if(!"image/jpeg".equals(mime)&&!"image/png".equals(mime)&&!"image/webp".equals(mime)){
+                    toast("Поддерживаются только JPEG, PNG и WebP");return;
+                }
+                new AlertDialog.Builder(this).setTitle(ocr?"Распознать текст на фото?":"Прикрепить фото?")
+                    .setMessage("Выбранное изображение (до 1 МБ) будет отправлено AI-провайдеру "+
+                        "только после нажатия кнопки отправки. Фото не сохраняется в переписке.")
+                    .setPositiveButton("Прикрепить",(d,w)->{
+                        if(!owner.equals(accountStore.activeCacheKey())
+                            ||!chat.equals(agentProjects.activeConversation(owner)))return;
+                        pendingAgentImageUri=chosen;pendingAgentImageOwner=owner;pendingAgentImageThread=chat;
+                        if(ocr){
+                            String key=agentDraftKey(owner,chat);
+                            if(prefs.getString(key,"").trim().isEmpty())
+                                prefs.edit().putString(key,"Распознай и выпиши весь текст на изображении.").apply();
+                        }
+                        toast("Фото прикреплено к следующему сообщению");
+                        agentRefreshIfCurrent(owner);
+                    }).setNegativeButton("Отмена",null).show();
+            }
+            return;
+        }
         if (requestCode == REQUEST_AGENT_TEXT_FILE) {
             String owner = pendingAgentTextAccount;
             String conversation = pendingAgentTextConversation;
