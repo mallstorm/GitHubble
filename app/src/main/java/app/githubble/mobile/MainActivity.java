@@ -355,6 +355,7 @@ public class MainActivity extends Activity {
         // The OmniChat surface owns its header, transcript scroll and anchored composer.
         // Skip the generic dashboard header and outer ScrollView only for the Chat tab.
         if ("Чат".equals(title)) {
+            getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
             content = new LinearLayout(this);
             content.setOrientation(LinearLayout.VERTICAL);
             currentScroll = new ScrollView(this);
