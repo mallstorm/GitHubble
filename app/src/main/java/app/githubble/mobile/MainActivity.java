@@ -195,6 +195,7 @@ public class MainActivity extends Activity {
     private String pendingRepositoryImportFull = "";
     private String pendingRepositoryImportBranch = "main";
     private final Set<String> smartSearchRendered = new HashSet<>();
+    private final Map<String,String> aiChatDrafts = new HashMap<>();
 
     @Override public void onCreate(Bundle b) {
         super.onCreate(b);
@@ -344,6 +345,19 @@ public class MainActivity extends Activity {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(BG);
+
+        // The OmniChat surface owns its header, transcript scroll and anchored composer.
+        // Skip the generic dashboard header and outer ScrollView only for the Chat tab.
+        if ("Чат".equals(title)) {
+            content = new LinearLayout(this);
+            content.setOrientation(LinearLayout.VERTICAL);
+            currentScroll = new ScrollView(this);
+            root.addView(content, new LinearLayout.LayoutParams(-1, 0, 1));
+            root.addView(bottomNav(title), new LinearLayout.LayoutParams(-1, dp(isLargeText()?82:68)));
+            AccessibilityAudit.prepareTree(root, dp(48));
+            setContentView(root);
+            return;
+        }
 
         if (!"Главная".equals(title)) {
         LinearLayout top = new LinearLayout(this);
@@ -540,6 +554,14 @@ public class MainActivity extends Activity {
             @Override public void showBuildArtifacts() { agentShowBuildArtifacts(owner); }
             @Override public void diagnoseBuild() { agentDiagnoseBuild(owner); }
             @Override public void generateProjectCode() { agentGenerateProjectCode(owner, ""); }
+            @Override public void showConversations() { agentShowConversations(owner); }
+            @Override public void openTools() { agentShowChatTools(owner); }
+            @Override public void voiceInput(EditText input, ImageView microphone) {
+                toggleVoiceInput(input, microphone);
+            }
+            @Override public void voiceSettings() { showVoiceLanguageChooser(); }
+            @Override public void cancelRequest() { agentCancelRequest(owner); }
+            @Override public void draftChanged(String value) { aiChatDrafts.put(owner, value); }
             @Override public void selectExecutor(boolean copilot) {
                 prefs.edit().putBoolean("ai_chat_copilot_" + owner, copilot).apply();
             }
@@ -552,11 +574,22 @@ public class MainActivity extends Activity {
         });
         String provider = "guest".equals(owner) ? "" : aiConnections.selectedProvider(owner);
         boolean connected = !provider.isEmpty() && aiConnections.isConfigured(owner, provider);
+        String title = "Новый диалог";
+        String selectedThread = agentProjects.activeConversation(owner);
+        JSONArray conversations = agentProjects.listConversations(owner);
+        for (int i=0; i<conversations.length(); i++) {
+            JSONObject entry = conversations.optJSONObject(i);
+            if (entry != null && selectedThread.equals(entry.optString("id"))) {
+                title = entry.optString("title", title);
+                break;
+            }
+        }
         screen.render(label, project, agentProjects.messages(owner), OmniChatProviderCatalog.load(this).length(),
                 prefs.getBoolean("ai_chat_copilot_" + owner, false),
                 prefs.getBoolean("ai_chat_agent_mode_" + owner, true),
                 connected ? aiConnections.displayName(provider) : "нет",
-                connected ? aiConnections.model(owner, provider) : "", connected);
+                connected ? aiConnections.model(owner, provider) : "", connected,
+                title, aiRequestsInFlight.contains(owner), aiChatDrafts.getOrDefault(owner, ""));
     }
 
     private void agentRefreshIfCurrent(String expectedAccount) {
@@ -808,18 +841,12 @@ public class MainActivity extends Activity {
     }
 
     private void agentClearConversation(String expected) {
-        if (aiRequestsInFlight.contains(expected)) {
-            toast("Сначала дождитесь ответа AI"); return;
-        }
-        new AlertDialog.Builder(this).setTitle("Новый диалог")
-                .setMessage("Очистить переписку текущего GitHub-аккаунта? Привязанный проект и подключения AI сохранятся.")
-                .setPositiveButton("Очистить", (d,w) -> {
-                    if (!expected.equals(accountStore.activeCacheKey())) {
-                        toast("Аккаунт изменился"); return;
-                    }
-                    agentProjects.clearConversation(expected);
-                    agentRefreshIfCurrent(expected);
-                }).setNegativeButton("Отмена", null).show();
+        if (!expected.equals(accountStore.activeCacheKey())) { toast("Аккаунт изменился"); return; }
+        try {
+            agentProjects.newConversation(expected);
+            aiChatDrafts.remove(expected);
+            agentRefreshIfCurrent(expected);
+        } catch (Exception error) { toast(error.getMessage()); }
     }
 
     private void agentShowProviderCatalog() {
