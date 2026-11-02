@@ -6,6 +6,13 @@ def escapedGithubClientId = githubClientId.replace('\\', '\\\\').replace('\"', '
 def configuredGithubAppSlug = (project.findProperty('GITHUB_APP_SLUG') ?: System.getenv('GITHUB_APP_SLUG') ?: '').toString().trim()
 def githubAppSlug = configuredGithubAppSlug.isEmpty() ? 'gihubble' : configuredGithubAppSlug
 def escapedGithubAppSlug = githubAppSlug.replace('\\', '\\\\').replace('\"', '\\\"')
+// Distributed GitHubble APKs contain ONLY arm64-v8a native binaries.
+// CI may compile a temporary x86_64 debug build solely to run the Android 13 emulator;
+// it is never published. Release and the final PR APK are always ARM64.
+def ciEmulatorAbi = (project.findProperty('GITHUBBLE_CI_EMULATOR_ABI') ?: '').toString().trim()
+if (!ciEmulatorAbi.isEmpty() && ciEmulatorAbi != 'x86_64') {
+    throw new GradleException('Unsupported CI emulator ABI override')
+}
 def releaseVersion = new Properties()
 file('../version.properties').withInputStream { releaseVersion.load(it) }
 def appVersionName = releaseVersion.getProperty('VERSION_NAME')
@@ -28,6 +35,9 @@ android {
         buildConfigField 'boolean', 'FEATURE_FREEZE', 'false'
         buildConfigField 'String', 'RC_CHANNEL', '"' + releaseChannel + '"'
         testInstrumentationRunner 'app.githubble.mobile.RcInstrumentationTest'
+        ndk {
+            abiFilters(ciEmulatorAbi.isEmpty() ? 'arm64-v8a' : ciEmulatorAbi)
+        }
     }
     buildTypes {
         debug { applicationIdSuffix '.debug'; versionNameSuffix '-debug' }
