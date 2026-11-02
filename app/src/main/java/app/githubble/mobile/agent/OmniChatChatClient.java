@@ -94,7 +94,7 @@ public final class OmniChatChatClient {
         byte[] requestBytes = body.toString().getBytes(StandardCharsets.UTF_8);
         if (requestBytes.length > MAX_INPUT_BYTES)
             throw new IllegalArgumentException("Контекст слишком большой для одного запроса");
-        HttpURLConnection connection = (HttpURLConnection) new URL(endpoint(provider)).openConnection();
+        HttpURLConnection connection = app.githubble.mobile.network.AiNetwork.open(endpoint(provider));
         try {
             connection.setRequestMethod("POST");
             connection.setConnectTimeout(15000);
@@ -194,7 +194,7 @@ public final class OmniChatChatClient {
         String modelsEndpoint = base.endsWith("/responses")
                 ? base.substring(0, base.length() - "/responses".length()) + "/models"
                 : base.substring(0, base.length() - "/chat/completions".length()) + "/models";
-        HttpURLConnection connection = (HttpURLConnection) new URL(modelsEndpoint).openConnection();
+        HttpURLConnection connection = app.githubble.mobile.network.AiNetwork.open(modelsEndpoint);
         try {
             connection.setRequestMethod("GET");
             connection.setConnectTimeout(15000);

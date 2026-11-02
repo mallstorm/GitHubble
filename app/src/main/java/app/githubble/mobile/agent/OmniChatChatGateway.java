@@ -149,7 +149,7 @@ public final class OmniChatChatGateway {
     }
 
     private static JSONObject doPost(String endpoint, String key, JSONObject payload) throws Exception {
-        HttpURLConnection c = (HttpURLConnection) new URL(endpoint).openConnection();
+        HttpURLConnection c = app.githubble.mobile.network.AiNetwork.open(endpoint);
         c.setConnectTimeout(20000);
         c.setReadTimeout(120000);
         c.setInstanceFollowRedirects(false);

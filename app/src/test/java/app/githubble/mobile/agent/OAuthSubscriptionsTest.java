@@ -46,7 +46,7 @@ public class OAuthSubscriptionsTest {
             .add(200,"{\"clinePass\":[{\"id\":\"cline-pass/live-model\"}],\"free\":[\"live-free\"]}");
         OAuthSubscriptions c=new OAuthSubscriptions(f);JSONObject session=c.poll(c.begin(OAuthSubscriptions.CLINE));
         assertTrue(f.urls.get(2).endsWith("/auth/register"));
-        assertEquals(Arrays.asList("model-a","cline-pass/live-model","live-free"),c.discover(OAuthSubscriptions.CLINE,session.toString()));
+        assertEquals(Arrays.asList("live-free","cline-pass/live-model","model-a"),c.discover(OAuthSubscriptions.CLINE,session.toString()));
         assertEquals("Bearer workos:account-access",f.headers.get(3).get("Authorization"));
     }
     @Test public void refreshedSessionsRetainOwnerAndRotatedRefreshToken()throws Exception{

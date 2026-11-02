@@ -124,6 +124,20 @@ public class MainActivity extends Activity {
     private OmniChatConnectionStore aiConnections;
     private OmniChatChatClient aiChatClient;
     private OAuthSubscriptions oauthSubscriptions;
+    private app.githubble.mobile.memory.MemoryHub agentMemory;
+    private app.githubble.mobile.agent.WorkspaceHub agentWorkspaces;
+    private app.githubble.mobile.ui.AgentFeatureScreens agentFeatures;
+    private app.githubble.mobile.ui.AgentFeatureScreens agentFeatures(String owner){
+        agentFeatures=new app.githubble.mobile.ui.AgentFeatureScreens(this,owner,()->accountStore.activeCacheKey(),agentProjects,agentMemory,io,BG,()->agentRefreshIfCurrent(owner));
+        return agentFeatures;
+    }
+    private String agentContext(String owner,AgentProjectStore.Project project,String thread,String query){
+        String result=project.name;
+        result+=agentMemory.recall(owner,project.workspaceId==null?"":project.workspaceId,thread,query);
+        if(project.workspaceId!=null&&!project.workspaceId.isEmpty())try{result+=agentWorkspaces.context(owner,project.workspaceId);}catch(Exception e){result+="\nКонтекст Workspace недоступен: "+e.getMessage();}
+        return result;
+    }
+
     private final Map<String,AtomicBoolean> subscriptionAttempts=new ConcurrentHashMap<>();
     private final java.util.Set<String> aiRequestsInFlight = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private TrackingDatabase trackingDb;
@@ -225,6 +239,9 @@ public class MainActivity extends Activity {
         api = new GitHubApiClient(secureStore, entityCache);
         graphql = new GitHubGraphQlClient(api);
         agentProjects = new AgentProjectStore(this);
+        agentMemory=new app.githubble.mobile.memory.MemoryHub(this);
+        agentWorkspaces=new app.githubble.mobile.agent.WorkspaceHub(this);
+        app.githubble.mobile.network.AiNetwork.initialize(this);
         aiGithub = new GitHubAgentBridge(accountStore, secureStore, api);
         aiConnections = new OmniChatConnectionStore(this, secureStore);
         oauthSubscriptions=new OAuthSubscriptions(this,aiConnections);
@@ -618,7 +635,7 @@ public class MainActivity extends Activity {
         }
         screen.render(label, project, agentProjects.messages(owner), OmniChatProviderCatalog.load(this).length(),
                 prefs.getBoolean("ai_chat_copilot_" + owner, false),
-                prefs.getBoolean("ai_chat_agent_mode_" + owner, true),
+                prefs.getBoolean("ai_chat_agent_mode_" + owner, false),
                 connected ? aiConnections.displayName(provider) : "нет",
                 connected ? aiConnections.model(owner, provider) : "", connected,
                 title, aiRequestsInFlight.contains(owner), prefs.getString(agentDraftKey(owner, agentProjects.activeConversation(owner)), ""));
@@ -630,20 +647,7 @@ public class MainActivity extends Activity {
     }
 
     private void agentNewProject(String expected) {
-        if (!isSignedIn()) { toast("Подключите GitHub-аккаунт"); return; }
-        EditText name = new EditText(this);
-        name.setSingleLine(true);
-        name.setHint("Название проекта");
-        name.setTextColor(TEXT);
-        new AlertDialog.Builder(this).setTitle("Новый проект GitHubble")
-                .setMessage("Проект будет привязан к текущему GitHub-аккаунту. Репозиторий можно создать позже.")
-                .setView(name).setPositiveButton("Создать", (d, w) -> {
-                    String value = name.getText().toString().trim();
-                    if (value.isEmpty()) { toast("Введите название"); return; }
-                    agentProjects.save(new AgentProjectStore.Project(expected, value, "", "main"));
-                    agentProjects.append(expected, "system", "Создан локальный проект «" + value + "». Репозиторий ещё не создан.");
-                    agentRefreshIfCurrent(expected);
-                }).setNegativeButton("Отмена", null).show();
+        if(expected.equals(accountStore.activeCacheKey()))agentFeatures(expected).workspace();
     }
 
     /** Requires explicit confirmation of both name and visibility. */
@@ -1013,6 +1017,10 @@ public class MainActivity extends Activity {
                             }).show();
         });
         panel.addView(projectLink);
+        for(String section:new String[]{"Workspace","Память","Маршрутизация и DNS"}){
+            TextView link=ui.label(section,14,true);link.setPadding(dp(10),dp(10),dp(10),dp(10));
+            link.setOnClickListener(v->{drawer.dismiss();if("Workspace".equals(section))agentFeatures(owner).workspace();else if("Память".equals(section))agentFeatures(owner).memory();else agentFeatures(owner).network();});panel.addView(link);
+        }
         TextView settings = text("⚙  Подключения и настройки", 14, false);
         settings.setPadding(dp(10), dp(14), dp(10), dp(14));
         settings.setOnClickListener(v -> {
@@ -1091,7 +1099,7 @@ public class MainActivity extends Activity {
         GitAgentUi ui=new GitAgentUi(this,BG);LinearLayout body=ui.body(proxy?"Subscription proxy":"Аккаунты и подписки",true);
         ui.note(body,"Вход через браузер и код устройства. Сессии зашифрованы и привязаны к выбранному GitHub-аккаунту.");
         final Dialog[] sheet={null};
-        for(String provider:new String[]{OAuthSubscriptions.OPENAI,OAuthSubscriptions.CLINE,OAuthSubscriptions.KIMI,OAuthSubscriptions.GROK}){
+        for(String provider:new String[]{OAuthSubscriptions.OPENAI,OAuthSubscriptions.CLINE,OAuthSubscriptions.KIMI,OAuthSubscriptions.GROK,"gemini-antigravity","claude-subscription"}){
             boolean saved=!"guest".equals(owner)&&aiConnections.hasKey(owner,provider);
             String detail="Войти через OAuth · без API-ключа";
             if(saved){
@@ -1121,7 +1129,8 @@ public class MainActivity extends Activity {
                     }).setNegativeButton("Закрыть",null).show();
             });
         }
-        if(proxy)ui.note(body,"Gemini Web и Claude из Subscription Proxy пока не перенесены. Доступны четыре указанных OAuth-транспорта; доступ и лимиты определяет провайдер.");
+        ui.action(body,"Маршрутизация и DNS","Общий сетевой движок API и подписок · Xray",0xFF14846C,()->{sheet[0].dismiss();agentFeatures(owner).network();});
+        if(proxy)ui.note(body,"Gemini Antigravity / Cloud Code и Claude Code используют браузерный OAuth с возвратом в приложение. Gemini Web с cookie-сессией — отдельный, пока не перенесённый транспорт.");
         sheet[0]=ui.present(body,true);
     }
 
@@ -1131,6 +1140,7 @@ public class MainActivity extends Activity {
     }
 
     private void agentBeginSubscription(String owner,String provider){
+        if(app.githubble.mobile.network.BrowserSubscriptions.supports(provider)){agentBeginBrowserSubscription(owner,provider);return;}
         if("guest".equals(owner)||!owner.equals(accountStore.activeCacheKey())){toast("Сначала подключите GitHub-аккаунт");return;}
         AtomicBoolean cancelled=new AtomicBoolean(false),old=subscriptionAttempts.put(owner,cancelled);if(old!=null)old.set(true);
         ProgressDialog progress=ProgressDialog.show(this,aiConnections.displayName(provider),"Получаем код входа…",true,true);
@@ -1187,6 +1197,74 @@ public class MainActivity extends Activity {
         },login.interval);
     }
 
+    private void agentBeginBrowserSubscription(String owner,String provider){
+        if("guest".equals(owner)||!owner.equals(accountStore.activeCacheKey())){toast("Подключите GitHub-аккаунт");return;}
+        AtomicBoolean cancelled=new AtomicBoolean(false),old=subscriptionAttempts.put(owner,cancelled);if(old!=null)old.set(true);
+        ProgressDialog progress=ProgressDialog.show(this,aiConnections.displayName(provider),"Готовим браузерный вход…",true,true);
+        progress.setOnCancelListener(d->cancelled.set(true));
+        io.execute(()->{
+            try{
+                app.githubble.mobile.network.BrowserSubscriptions.Login login=app.githubble.mobile.network.BrowserSubscriptions.begin(provider);
+                runOnUiThread(()->{
+                    progress.dismiss();if(!subscriptionAttemptCurrent(owner,cancelled)){login.cancel();return;}
+                    java.util.concurrent.atomic.AtomicReference<java.util.concurrent.Future<?>> waiting=new java.util.concurrent.atomic.AtomicReference<>();
+                    AlertDialog dialog=new AlertDialog.Builder(this).setTitle(aiConnections.displayName(provider))
+                        .setMessage("Откройте браузер и подтвердите вход. Возврат на localhost завершит подключение автоматически. Код API не требуется.")
+                        .setPositiveButton("Открыть браузер",null).setNegativeButton("Отмена",null).create();
+                    dialog.setOnDismissListener(d->{cancelled.set(true);subscriptionAttempts.remove(owner,cancelled);login.cancel();java.util.concurrent.Future<?> f=waiting.get();if(f!=null)f.cancel(true);});
+                    dialog.setOnShowListener(d->dialog.getButton(-1).setOnClickListener(v->{if(subscriptionAttemptCurrent(owner,cancelled))openWeb(login.getUrl());}));dialog.show();
+                    waiting.set(io.submit(()->{
+                        try{
+                            JSONObject session=app.githubble.mobile.network.BrowserSubscriptions.await(login);session.put("owner",owner);
+                            java.util.List<String> models=new ArrayList<>();String failure="";
+                            try{models=app.githubble.mobile.network.BrowserSubscriptions.discoverInitial(provider,session);}catch(Exception catalog){failure=catalog.getMessage();}
+                            final java.util.List<String> catalog=models;final String warning=failure;
+                            runOnUiThread(()->{
+                                if(!subscriptionAttemptCurrent(owner,cancelled)){dialog.dismiss();return;}
+                                aiConnections.saveSubscription(owner,provider,session,catalog);dialog.dismiss();agentRefreshIfCurrent(owner);
+                                if(catalog.isEmpty())errorDialog("Вход выполнен, каталог недоступен",warning+"\nПовторите «Обновить модели» в подписках.");else agentChooseComposerModel(owner);
+                            });
+                        }catch(Exception error){runOnUiThread(()->{if(subscriptionAttemptCurrent(owner,cancelled)){dialog.dismiss();errorDialog("OAuth не завершён",error.getMessage());}});}
+                    }));
+                    new Handler(Looper.getMainLooper()).postDelayed(new Runnable(){public void run(){if(!subscriptionAttemptCurrent(owner,cancelled)){login.cancel();dialog.dismiss();}else new Handler(Looper.getMainLooper()).postDelayed(this,1000);}},1000);
+                });
+            }catch(Exception error){runOnUiThread(()->{progress.dismiss();if(subscriptionAttemptCurrent(owner,cancelled)){cancelled.set(true);subscriptionAttempts.remove(owner,cancelled);errorDialog("OAuth",error.getMessage());}});}
+        });
+    }
+
+    private void agentGenerateLocalCode(String owner,AgentProjectStore.Project project,String initial){
+        if(project.workspaceId.isEmpty()){agentFeatures(owner).workspace();toast("Создайте или выберите Workspace, затем повторите задачу");return;}
+        String provider=aiConnections.selectedProvider(owner);if(provider.isEmpty()||!aiConnections.isConfigured(owner,provider)){agentChooseComposerModel(owner);return;}
+        final String thread=agentProjects.activeConversation(owner),model=aiConnections.model(owner,provider),credential=aiConnections.credential(owner,provider);
+        EditText task=new EditText(this);task.setHint("Что создать или изменить в локальном Workspace?");task.setMinLines(4);task.setText(initial);
+        new AlertDialog.Builder(this).setTitle("Код в Workspace — без репозитория").setView(task)
+            .setPositiveButton("Подготовить файлы",(d,w)->{
+                String request=task.getText().toString().trim();if(request.length()<5){toast("Опишите задачу подробнее");return;}
+                if(!owner.equals(accountStore.activeCacheKey())||!thread.equals(agentProjects.activeConversation(owner)))return;
+                if(!aiRequestsInFlight.add(owner)){toast("Предыдущий запрос ещё выполняется");return;}
+                agentRefreshIfCurrent(owner);io.execute(()->{
+                    try{
+                        String prompt="Return only strict JSON with summary, commit_message, files:[{path,content}]. 1 to 12 UTF-8 text files, at most 80KB each/240KB total, no secrets, no binary data or deletion. Task: "+request;
+                        JSONArray history=new JSONArray().put(new JSONObject().put("role","user").put("body",prompt));
+                        String output=aiChatClient.complete(provider,model,credential,history,agentContext(owner,project,thread,request),"");
+                        AgentFilePlan plan=AgentFilePlan.parse(output);
+                        runOnUiThread(()->{
+                            if(!owner.equals(accountStore.activeCacheKey())||!thread.equals(agentProjects.activeConversation(owner))||!project.workspaceId.equals(agentProjects.project(owner).workspaceId))return;
+                            new AlertDialog.Builder(this).setTitle("Записать файлы в локальный Workspace?").setMessage(plan.preview())
+                                .setPositiveButton("Записать локально",(x,y)->{
+                                    if(!owner.equals(accountStore.activeCacheKey())||!thread.equals(agentProjects.activeConversation(owner)))return;
+                                    io.execute(()->{int saved=0;try{for(int i=0;i<plan.files.length();i++){JSONObject file=plan.files.getJSONObject(i);agentWorkspaces.saveFile(owner,project.workspaceId,file.getString("path"),file.getString("content"));saved++;}
+                                        agentProjects.appendToConversation(owner,thread,"system","В Workspace записано файлов: "+saved+". GitHub-репозиторий не требуется.");
+                                    }catch(Exception e){agentProjects.appendToConversation(owner,thread,"system","Записано файлов: "+saved+"; ошибка: "+e.getMessage());}
+                                    runOnUiThread(()->agentRefreshIfCurrent(owner));});
+                                }).setNeutralButton("Содержимое",(x,y)->new AlertDialog.Builder(this).setMessage(plan.files.toString()).setPositiveButton("ОК",null).show()).setNegativeButton("Отмена",null).show();
+                        });
+                    }catch(Exception e){agentProjects.appendToConversation(owner,thread,"system","Workspace: "+e.getMessage());}
+                    finally{aiRequestsInFlight.remove(owner);runOnUiThread(()->agentRefreshIfCurrent(owner));}
+                });
+            }).setNegativeButton("Отмена",null).show();
+    }
+
     private void agentChooseComposerModel(String owner) {
         if (!owner.equals(accountStore.activeCacheKey())) return;
         GitAgentUi ui=new GitAgentUi(this,BG);LinearLayout body=ui.body("Выбор модели",true);
@@ -1215,11 +1293,13 @@ public class MainActivity extends Activity {
                     boolean subscription=OAuthSubscriptions.supports(provider);
                     if("Подписки".equals(filter[0])&&!subscription || "API".equals(filter[0])&&subscription)continue;
                     for(String model:aiConnections.models(owner,provider)){
+                        String category=aiConnections.modelGroup(owner,provider,model);
+                        if(java.util.Arrays.asList("Free","Pass","Billing").contains(filter[0])&&!filter[0].equals(category))continue;
                         String label=aiConnections.displayName(provider)+" · "+model;
                         if(!query.isEmpty()&&!label.toLowerCase(Locale.ROOT).contains(query))continue;
                         boolean selected=provider.equals(aiConnections.selectedProvider(owner))
                                 &&model.equals(aiConnections.model(owner,provider))&&!prefs.getBoolean("ai_chat_copilot_"+owner,false);
-                        ui.action(list,(selected?"✓  ":"")+model,aiConnections.displayName(provider),0xFF435B69,()->{
+                        ui.action(list,(selected?"✓  ":"")+model,aiConnections.displayName(provider)+(category.isEmpty()?"":" · "+category),0xFF435B69,()->{
                             if(!owner.equals(accountStore.activeCacheKey()))return;
                             aiConnections.save(owner,provider,model,"");prefs.edit().putBoolean("ai_chat_copilot_"+owner,false).apply();
                             dialog[0].dismiss();agentRefreshIfCurrent(owner);
@@ -1228,12 +1308,12 @@ public class MainActivity extends Activity {
                 }
                 if(list.getChildCount()==0)ui.note(list,"Модели не найдены");
             };
-            for(String scope:new String[]{"Все","API","Подписки"})ui.chip(filters,scope,scope.equals(filter[0]),()->{
+            for(String scope:new String[]{"Все","API","Подписки","Free","Pass","Billing"})ui.chip(filters,scope,scope.equals(filter[0]),()->{
                 filter[0]=scope;for(int i=0;i<filters.getChildCount();i++){
-                    TextView chip=(TextView)filters.getChildAt(i);String value=new String[]{"Все","API","Подписки"}[i];
+                    TextView chip=(TextView)filters.getChildAt(i);String value=new String[]{"Все","API","Подписки","Free","Pass","Billing"}[i];
                     chip.setText((value.equals(scope)?"✓  ":"")+value);}
                 refresh[0].run();});
-            body.addView(filters);body.addView(list);refresh[0].run();
+            HorizontalScrollView priceScroll=new HorizontalScrollView(this);priceScroll.setHorizontalScrollBarEnabled(false);priceScroll.addView(filters);body.addView(priceScroll);body.addView(list);refresh[0].run();
             search.addTextChangedListener(new android.text.TextWatcher(){
                 public void beforeTextChanged(CharSequence s,int st,int count,int after){}
                 public void onTextChanged(CharSequence s,int st,int before,int count){refresh[0].run();}
@@ -1291,7 +1371,10 @@ public class MainActivity extends Activity {
                         "▶  GitHub Actions",
                         "↓  APK / артефакты",
                         "⚑  Диагностика CI",
-                        "○  Настройки диктовки"
+                        "○  Настройки диктовки",
+                        "⇄  Маршрутизация / DNS / Xray",
+                        "◉  Память",
+                        "▣  Workspace — локальные проекты"
                 }, (d, index) -> {
                     switch (index) {
                         case 0: agentPickTextAttachment(owner); break;
@@ -1339,6 +1422,9 @@ public class MainActivity extends Activity {
                         case 8: agentShowBuildArtifacts(owner); break;
                         case 9: agentDiagnoseBuild(owner); break;
                         case 10: showVoiceLanguageChooser(); break;
+                        case 11: agentFeatures(owner).network(); break;
+                        case 12: agentFeatures(owner).memory(); break;
+                        case 13: agentFeatures(owner).workspace(); break;
                     }
                 }).setNegativeButton("Закрыть", null).show();
     }
@@ -1480,6 +1566,15 @@ public class MainActivity extends Activity {
             return;
         }
         AgentProjectStore.Project p = agentProjects.project(expected);
+        String explicitMemory;
+        try{explicitMemory=agentMemory.explicit(expected,p.workspaceId,activeChat,message);}catch(Exception e){explicitMemory="Память: "+e.getMessage();}
+        if(explicitMemory!=null){agentProjects.appendToConversation(expected,activeChat,"system",explicitMemory);agentRefreshIfCurrent(expected);return;}
+        java.util.regex.Matcher attach=java.util.regex.Pattern.compile("(?iu)^(?:/repo|закрепи репозиторий|привяжи репозиторий)\\s+([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)\\s*$").matcher(message.trim());
+        if(agentMode&&!useCopilot&&attach.matches()){
+            final String repo=attach.group(1);
+            new AlertDialog.Builder(this).setTitle("Закрепить репозиторий за этим диалогом?").setMessage(repo)
+                .setPositiveButton("Закрепить",(d,w)->{if(expected.equals(accountStore.activeCacheKey())&&activeChat.equals(agentProjects.activeConversation(expected))){agentProjects.save(new AgentProjectStore.Project(expected,p.name,repo,p.branch,p.workspaceId));agentRefreshIfCurrent(expected);}}).setNegativeButton("Отмена",null).show();return;
+        }
         String lower = message.toLowerCase(java.util.Locale.ROOT);
         if (agentMode && !useCopilot && (lower.startsWith("/build") || lower.contains("собери проект") || lower.contains("запусти сборку"))) {
             agentRefreshIfCurrent(expected);
@@ -1523,10 +1618,16 @@ public class MainActivity extends Activity {
             java.util.concurrent.Future<?> call = io.submit(() -> {
                 try {
                     String response = aiChatClient.complete(provider, model, credential, snapshot,
-                            activeProject.name, activeProject.repository);
+                            agentContext(expected,activeProject,activeChat,message), agentMode?activeProject.repository:"");
                     if (java.util.Objects.equals(aiRequestTickets.get(expected), ticket)
-                            && !aiCanceledRequests.contains(expected))
+                            && !aiCanceledRequests.contains(expected)){
                         agentProjects.appendToConversation(expected, activeChat, "agent", response);
+                        if(agentMemory.shouldLearn(expected,activeProject.workspaceId,message))try{
+                            JSONArray extract=new JSONArray().put(new JSONObject().put("role","user").put("body",agentMemory.extractionPrompt(message,response,activeProject.name)));
+                            String learned=aiChatClient.complete(provider,model,credential,extract,"Memory extraction","");
+                            if(java.util.Objects.equals(aiRequestTickets.get(expected),ticket)&&!aiCanceledRequests.contains(expected))agentMemory.learn(expected,activeProject.workspaceId,activeChat,learned);
+                        }catch(Exception memoryError){/* The answer succeeds independently of memory extraction. */}
+                    }
                 } catch (Exception error) {
                     if (java.util.Objects.equals(aiRequestTickets.get(expected), ticket)
                             && !aiCanceledRequests.contains(expected))
@@ -1580,8 +1681,7 @@ public class MainActivity extends Activity {
         }
         AgentProjectStore.Project p = agentProjects.project(expected);
         if (p.repository.isEmpty()) {
-            agentProjects.append(expected, "system", "Сначала привяжите репозиторий к AI-проекту.");
-            agentRefreshIfCurrent(expected); return;
+            agentGenerateLocalCode(expected,p,initialTask);return;
         }
         String provider = aiConnections.selectedProvider(expected);
         if (provider.isEmpty() || !aiConnections.isConfigured(expected, provider)) {
@@ -1651,7 +1751,7 @@ public class MainActivity extends Activity {
                                     .put(new JSONObject().put("role", "user").put("body", instructions));
                             String output = aiChatClient.complete(provider,
                                     pinnedModel, pinnedCredential, messages,
-                                    p.name, p.repository);
+                                    agentContext(expected,p,agentProjects.activeConversation(expected),request), p.repository);
                             AgentFilePlan plan = AgentFilePlan.parse(output);
                             runOnUiThread(() -> {
                                 if (!expected.equals(accountStore.activeCacheKey())) return;
@@ -8208,6 +8308,7 @@ public class MainActivity extends Activity {
 
     @Override protected void onActivityResult(int requestCode,int resultCode,Intent data){
         super.onActivityResult(requestCode,resultCode,data);
+        if(agentFeatures!=null&&agentFeatures.result(requestCode,resultCode,data))return;
         if (requestCode == REQUEST_AGENT_TEXT_FILE) {
             String owner = pendingAgentTextAccount;
             String conversation = pendingAgentTextConversation;

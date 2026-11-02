@@ -33,6 +33,8 @@ public final class OmniChatConnectionStore {
         NAMES.put(OAuthSubscriptions.CLINE,"Cline Account / Cline Pass");
         NAMES.put(OAuthSubscriptions.KIMI,"Kimi Code · OAuth");
         NAMES.put(OAuthSubscriptions.GROK,"xAI Grok · OAuth");
+        NAMES.put("claude-subscription","Claude Code · OAuth");
+        NAMES.put("gemini-antigravity","Gemini Antigravity · OAuth");
     }
 
     public OmniChatConnectionStore(Context context, SecureStore vault) {
@@ -86,6 +88,21 @@ public final class OmniChatConnectionStore {
         LinkedHashMap<String,String> result=new LinkedHashMap<>();
         for(Map.Entry<String,String> e:NAMES.entrySet())if(!OAuthSubscriptions.supports(e.getKey()))result.put(e.getKey(),e.getValue());
         return Collections.unmodifiableMap(result);
+    }
+
+    public synchronized void cacheModelGroups(String account,String provider,org.json.JSONObject groups){
+        prefs.edit().putString(namespace(account)+"_groups_"+provider,groups.toString()).apply();
+    }
+    public synchronized String modelGroup(String account,String provider,String model){
+        try{org.json.JSONObject groups=new org.json.JSONObject(prefs.getString(namespace(account)+"_groups_"+provider,"{}"));
+            for(String group:new String[]{"Free","Pass","Billing"}){
+                org.json.JSONArray a=groups.optJSONArray(group);if(a==null)continue;
+                for(int i=0;i<a.length();i++)if(model.equals(a.optString(i)))return group;
+            }
+        }catch(Exception ignored){}
+        if(ClineModelGroups.isFree(model))return "Free";
+        if(model.startsWith("cline-pass/"))return "Pass";
+        return "";
     }
 
     public synchronized void saveSubscription(String account,String provider,org.json.JSONObject session,java.util.List<String> models){
@@ -145,7 +162,7 @@ public final class OmniChatConnectionStore {
         vault.remove(key(account, provider));
         String scope = namespace(account);
         SharedPreferences.Editor change = prefs.edit().remove(scope + "_model_" + provider)
-                .remove(scope + "_models_" + provider);
+                .remove(scope + "_models_" + provider).remove(scope+"_groups_"+provider);
         if (provider.equals(selectedProvider(account))) change.remove(scope + "_provider");
         change.apply();
     }

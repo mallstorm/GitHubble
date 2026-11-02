@@ -47,7 +47,7 @@ public final class OAuthSubscriptions {
     }
     /** Pure protocol fixture entry point: tests never connect to real accounts. */
     public OAuthSubscriptions(Transport transport){this.store=null;this.device="test-device";this.transport=transport;}
-    public static boolean supports(String id){return OPENAI.equals(id)||CLINE.equals(id)||KIMI.equals(id)||GROK.equals(id);}
+    public static boolean supports(String id){return OPENAI.equals(id)||CLINE.equals(id)||KIMI.equals(id)||GROK.equals(id)||app.githubble.mobile.network.BrowserSubscriptions.supports(id);}
     private Map<String,String> headers(String provider){
         Map<String,String> h=new LinkedHashMap<>();h.put("User-Agent","GitHubble-GitAgent/1.0");
         if(KIMI.equals(provider)){
@@ -162,21 +162,26 @@ public final class OAuthSubscriptions {
         return fresh;
     }
     public List<String> discover(String p,String raw)throws Exception{
+        if(app.githubble.mobile.network.BrowserSubscriptions.supports(p))return app.githubble.mobile.network.BrowserSubscriptions.discover(p,raw,store);
         JSONObject session=current(p,raw);LinkedHashSet<String> ids=new LinkedHashSet<>();
         String url=OPENAI.equals(p)?"https://chatgpt.com/backend-api/codex/models?client_version=1.0.1":
             CLINE.equals(p)?"https://api.cline.bot/api/v1/models":GROK.equals(p)?GROK_BASE+"/models":"https://api.kimi.ai/coding/v1/models";
-        extractModels(success(call(p,url,"GET",null,false,session),p),ids);
         if(CLINE.equals(p)){
-            try{
-                Reply recommended=call(p,"https://api.cline.bot/api/v1/ai/cline/recommended-models","GET",null,false,session);
-                if(recommended.status==200){JSONObject j=recommended.json();extractModels(j.opt("clinePass"),ids);extractModels(j.opt("free"),ids);}
-            }catch(InterruptedException cancelled){throw cancelled;}catch(Exception unavailable){/* Retain only models verified by the generic endpoint. */}
-        }
+            Object generic=null;JSONObject recommended=null;Exception failure=null;
+            try{generic=success(call(p,url,"GET",null,false,session),p);}catch(InterruptedException e){throw e;}catch(Exception e){failure=e;}
+            try{recommended=success(call(p,"https://api.cline.bot/api/v1/ai/cline/recommended-models","GET",null,false,session),p);}
+            catch(InterruptedException e){throw e;}catch(Exception e){failure=e;}
+            JSONObject groups=ClineModelGroups.classify(generic,recommended);
+            for(String group:new String[]{"Free","Pass","Billing"})ClineModelGroups.extract(groups.opt(group),ids);
+            if(store!=null&&!session.optString("owner").isEmpty())store.cacheModelGroups(session.getString("owner"),p,groups);
+            if(ids.isEmpty()&&failure!=null)throw failure;
+        }else extractModels(success(call(p,url,"GET",null,false,session),p),ids);
         if(GROK.equals(p))ids.removeIf(id->!id.toLowerCase(Locale.ROOT).startsWith("grok"));
         if(ids.isEmpty())throw new IOException("Сервер не вернул доступные модели. Подключение не объявлено готовым.");
         return new ArrayList<>(ids);
     }
     public String complete(String p,String model,String raw,JSONArray history,String project,String repository)throws Exception{
+        if(app.githubble.mobile.network.BrowserSubscriptions.supports(p))return app.githubble.mobile.network.BrowserSubscriptions.complete(p,model,raw,history,project,repository,store);
         if(model==null||model.isBlank())throw new IOException("Не выбрана модель");
         JSONObject session=current(p,raw);JSONArray input=new JSONArray();
         for(int i=Math.max(0,history.length()-28);i<history.length();i++){
@@ -286,7 +291,7 @@ public final class OAuthSubscriptions {
     private static String form(JSONObject j)throws Exception{StringBuilder s=new StringBuilder();Iterator<String> keys=j.keys();while(keys.hasNext()){String k=keys.next();if(s.length()>0)s.append('&');s.append(URLEncoder.encode(k,"UTF-8")).append('=').append(URLEncoder.encode(j.getString(k),"UTF-8"));}return s.toString();}
     private static String errorCode(String raw){try{JSONObject j=new JSONObject(raw);Object e=j.opt("error");String code=e instanceof JSONObject?((JSONObject)e).optString("code"):e instanceof String?(String)e:"request_failed";return code.matches("[a-zA-Z0-9_:-]{1,80}")?code:"request_failed";}catch(Exception e){return "request_failed";}}
     private static Reply http(String url,String method,String body,boolean form,Map<String,String> headers)throws Exception{
-        validateUrl(url);HttpURLConnection c=(HttpURLConnection)new URL(url).openConnection();
+        validateUrl(url);HttpURLConnection c=app.githubble.mobile.network.AiNetwork.open(url);
         c.setRequestMethod(method);c.setConnectTimeout(15000);c.setReadTimeout(90000);c.setInstanceFollowRedirects(false);c.setUseCaches(false);
         c.setRequestProperty("Accept","application/json");for(Map.Entry<String,String> h:headers.entrySet())c.setRequestProperty(h.getKey(),h.getValue());
         try{

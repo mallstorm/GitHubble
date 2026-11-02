@@ -27,8 +27,13 @@ public final class AgentProjectStore {
         public final String name;
         public final String repository;
         public final String branch;
+        public final String workspaceId;
 
         public Project(String accountId, String name, String repository, String branch) {
+            this(accountId,name,repository,branch,null);
+        }
+        public Project(String accountId,String name,String repository,String branch,String workspaceId){
+            this.workspaceId=workspaceId;
             this.accountId = safe(accountId);
             this.name = safe(name);
             this.repository = safe(repository);
@@ -57,14 +62,19 @@ public final class AgentProjectStore {
     }
 
     public synchronized Project project(String accountId) {
-        String raw = prefs.getString(key(accountId, "project"), "");
+        String scoped=key(accountId,"project_"+conversations.activeId(accountId));
+        String raw = prefs.getString(scoped, "");
+        if(raw.isEmpty()&&prefs.contains(key(accountId,"project"))){
+            raw=prefs.getString(key(accountId,"project"),"");
+            prefs.edit().putString(scoped,raw).remove(key(accountId,"project")).apply();
+        }
         try {
             JSONObject value = new JSONObject(raw);
-            if (!accountId.equals(value.optString("account_id"))) return new Project(accountId, "", "", "main");
+            if (!accountId.equals(value.optString("account_id"))) return new Project(accountId, "", "", "main", "");
             return new Project(accountId, value.optString("name"), value.optString("repository"),
-                    value.optString("branch", "main"));
+                    value.optString("branch", "main"),value.optString("workspace_id"));
         } catch (Exception ignored) {
-            return new Project(accountId, "", "", "main");
+            return new Project(accountId, "", "", "main", "");
         }
     }
 
@@ -75,8 +85,9 @@ public final class AgentProjectStore {
                     .put("account_id", project.accountId)
                     .put("name", project.name)
                     .put("repository", project.repository)
-                    .put("branch", project.branch);
-            prefs.edit().putString(key(project.accountId, "project"), value.toString()).apply();
+                    .put("branch", project.branch)
+                    .put("workspace_id",project.workspaceId==null?project(project.accountId).workspaceId:project.workspaceId);
+            prefs.edit().putString(key(project.accountId, "project_"+conversations.activeId(project.accountId)), value.toString()).apply();
         } catch (Exception error) {
             throw new IllegalStateException("Не удалось сохранить проект", error);
         }
@@ -87,7 +98,7 @@ public final class AgentProjectStore {
     public synchronized JSONArray messages(String accountId, String chatId) { return conversations.messages(accountId, chatId); }
     public synchronized JSONArray listConversations(String accountId) { return conversations.list(accountId); }
     public synchronized String activeConversation(String accountId) { return conversations.activeId(accountId); }
-    public synchronized String newConversation(String accountId) { return conversations.newConversation(accountId); }
+    public synchronized String newConversation(String accountId) { project(accountId); return conversations.newConversation(accountId); }
     public synchronized void switchConversation(String accountId, String id) { conversations.open(accountId, id); }
     public synchronized void renameConversation(String accountId, String id, String title) { conversations.rename(accountId, id, title); }
     public synchronized void deleteConversation(String accountId, String id) { conversations.delete(accountId, id); }
