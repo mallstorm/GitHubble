@@ -8239,8 +8239,16 @@ public class MainActivity extends Activity {
                 "Единый центр настроек AI, рабочих пространств и подключений",
                 R.drawable.ic_agent_link);
         final String owner=accountStore.activeCacheKey();
-        final String provider=aiConnections.selectedProvider(owner);
+        final boolean accountReady=owner!=null&&!owner.isBlank()&&!"guest".equals(owner);
+        // The Keystore-backed AI credential namespace intentionally rejects guest.
+        // Local workspaces, memories and networking remain available when signed out.
+        final String provider=accountReady?aiConnections.selectedProvider(owner):"";
         final AgentProjectStore.Project project=agentProjects.project(owner);
+        if(!accountReady) {
+            TextView hint=text("Гостевой режим: локальные Workspace, память и сеть доступны. "+
+                    "Для подключения AI-моделей и подписок нужен GitHub-аккаунт.",12,false);
+            hint.setTextColor(MUTED);card(hint);
+        }
 
         sectionTitle("Агент и модели",null);
         settingsActionRow("Режим и исполнитель",
