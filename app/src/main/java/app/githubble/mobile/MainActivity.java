@@ -1051,7 +1051,7 @@ public class MainActivity extends Activity {
         GitAgentUi ui=new GitAgentUi(this,BG);
         LinearLayout body=ui.body("Агент и оркестрация",false);
         ui.section(body,"Режим выполнения");
-        boolean enabled=prefs.getBoolean("ai_chat_agent_mode_"+owner,true);
+        boolean enabled=prefs.getBoolean("ai_chat_agent_mode_"+owner,false);
         boolean copilot=prefs.getBoolean("ai_chat_copilot_"+owner,false);
         final Dialog[] dialog={null};
         LinearLayout modes=ui.row();
@@ -1311,7 +1311,7 @@ public class MainActivity extends Activity {
             for(String scope:new String[]{"Все","API","Подписки","Free","Pass","Billing"})ui.chip(filters,scope,scope.equals(filter[0]),()->{
                 filter[0]=scope;for(int i=0;i<filters.getChildCount();i++){
                     TextView chip=(TextView)filters.getChildAt(i);String value=new String[]{"Все","API","Подписки","Free","Pass","Billing"}[i];
-                    chip.setText((value.equals(scope)?"✓  ":"")+value);}
+                    chip.setText((value.equals(scope)?"✓  ":"")+value);chip.setBackground(ui.shape(value.equals(scope)?(ui.dark?0xFF515963:0xFFE9EFF3):Color.TRANSPARENT,9,value.equals(scope)?0:ui.line));}
                 refresh[0].run();});
             HorizontalScrollView priceScroll=new HorizontalScrollView(this);priceScroll.setHorizontalScrollBarEnabled(false);priceScroll.addView(filters);body.addView(priceScroll);body.addView(list);refresh[0].run();
             search.addTextChangedListener(new android.text.TextWatcher(){
@@ -1622,6 +1622,7 @@ public class MainActivity extends Activity {
                     if (java.util.Objects.equals(aiRequestTickets.get(expected), ticket)
                             && !aiCanceledRequests.contains(expected)){
                         agentProjects.appendToConversation(expected, activeChat, "agent", response);
+                        try{agentMemory.recordEpisode(expected,activeProject.workspaceId,activeChat,message,response);}catch(Exception ignored){}
                         if(agentMemory.shouldLearn(expected,activeProject.workspaceId,message))try{
                             JSONArray extract=new JSONArray().put(new JSONObject().put("role","user").put("body",agentMemory.extractionPrompt(message,response,activeProject.name)));
                             String learned=aiChatClient.complete(provider,model,credential,extract,"Memory extraction","");

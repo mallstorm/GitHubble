@@ -69,12 +69,35 @@ final class GitAgentUiChecks {
         try{connections.replaceSubscription(account,subscription,refreshed,rotated);throw new AssertionError("Disconnected OAuth session was resurrected");}
         catch(IllegalStateException expected){}
         }
+        String scoped=account+"-project-scope";
+        String scopedChat=projects.activeConversation(scoped);
+        projects.appendToConversation(scoped,scopedChat,"user","Project A");
+        projects.save(new AgentProjectStore.Project(scoped,"Project A","owner/repository","main",""));
+        String independent=projects.newConversation(scoped);
+        if(!projects.project(scoped).repository.isEmpty()||!projects.project(scoped).workspaceId.isEmpty())
+            throw new AssertionError("New chat inherited a repository/workspace");
+        projects.switchConversation(scoped,scopedChat);
+        if(!"owner/repository".equals(projects.project(scoped).repository))throw new AssertionError("Explicit repository binding was lost");
+        app.githubble.mobile.memory.MemoryHub memory=new app.githubble.mobile.memory.MemoryHub(context);
+        memory.add(account,"","chat-A","Предпочитаю компактный интерфейс","preference","density",true,90);
+        memory.add(account,"workspace-A","chat-A","Проект использует Kotlin","project","language",false,80);
+        if(memory.list(other,"workspace-A").length()!=0||memory.list(account,"workspace-B").length()!=1)
+            throw new AssertionError("Memory leaked across accounts or workspaces");
+        if(!memory.recall(account,"workspace-A","chat-B","интерфейс").contains("компактный"))throw new AssertionError("Memory recall not wired");
+        try{memory.add(account,"","chat-A","api_key = sk-1234567890abcdefghijklmnop","fact","secret",false,70);throw new AssertionError("Secret entered memory");}catch(IllegalArgumentException expected){}
+        memory.clear(account);memory.close();
         AgentProjectStore restored=new AgentProjectStore(context);
         if(!first.equals(restored.activeConversation(account)))throw new AssertionError("Active thread not restored");
         Intent intent=new Intent(context,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         Activity activity=host.startActivitySync(intent);
         File directory=new File(context.getExternalFilesDir(null),"ui-screenshots");directory.mkdirs();
         try {
+            app.githubble.mobile.network.AiNetwork.importProfile("Self-test runtime","{\"outbounds\":[{\"protocol\":\"freedom\"}]}");
+            org.json.JSONArray xrayProfiles=new org.json.JSONObject(app.githubble.mobile.network.AiNetwork.profiles()).getJSONArray("profiles");
+            String testProfile="";for(int i=0;i<xrayProfiles.length();i++)if("Self-test runtime".equals(xrayProfiles.getJSONObject(i).optString("name")))testProfile=xrayProfiles.getJSONObject(i).getString("id");
+            try{app.githubble.mobile.network.AiNetwork.enable(testProfile);
+                if(!new org.json.JSONObject(app.githubble.mobile.network.AiNetwork.profiles()).getBoolean("enabled"))throw new AssertionError("Native Xray did not start");
+            }finally{app.githubble.mobile.network.AiNetwork.disable();app.githubble.mobile.network.AiNetwork.removeProfile(testProfile);}
             for(boolean dark:new boolean[]{false,true}){
                 onMain(host,()->{
                     LinearLayout root=new LinearLayout(activity);root.setOrientation(1);activity.setContentView(root);
@@ -140,6 +163,13 @@ final class GitAgentUiChecks {
             });
             host.waitForIdleSync();Thread.sleep(250);screenshot(host,directory,"subscriptions.png");
             host.sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK);host.waitForIdleSync();
+            for(String section:new String[]{"network","memory","workspace","xray"}){
+                onMain(host,()->{try{
+                    java.lang.reflect.Method method=MainActivity.class.getDeclaredMethod("agentFeatures",String.class);method.setAccessible(true);
+                    Object screens=method.invoke(activity,"guest");screens.getClass().getMethod(section).invoke(screens);
+                }catch(Exception e){throw new RuntimeException(e);}});
+                host.waitForIdleSync();Thread.sleep(250);screenshot(host,directory,section+".png");host.sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK);host.waitForIdleSync();
+            }
             final float[] touch=new float[2];
             onMain(host,()->{
                 EditText input=(EditText)find(activity.getWindow().getDecorView(),"Спросить Git Agent");

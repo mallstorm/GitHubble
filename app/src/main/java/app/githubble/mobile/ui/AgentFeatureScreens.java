@@ -15,7 +15,7 @@ import java.util.function.Supplier;
 
 /** Native controls over the migrated engines; each project edit retains its account/chat binding. */
 public final class AgentFeatureScreens {
-    public static final int IMPORT_XRAY=2750,IMPORT_ZIP=2751,EXPORT_ZIP=2752,IMPORT_MEMORY=2753,EXPORT_MEMORY=2754;
+    public static final int IMPORT_XRAY=2750,IMPORT_ZIP=2751,EXPORT_ZIP=2752,IMPORT_MEMORY=2753,EXPORT_MEMORY=2754,LINK_FOLDER=2755;
     private final Activity a;private final String owner,chat;private final Supplier<String> active;private final AgentProjectStore projects;
     private final MemoryHub memory;private final WorkspaceHub workspaces;private final ExecutorService io;private final GitAgentUi ui;private final Runnable refresh;
     private String pendingWorkspace="";
@@ -80,7 +80,9 @@ public final class AgentFeatureScreens {
         LinearLayout body=ui.body("Память",true);final Dialog[] d={null};
         String[] keys={"enabled","auto_learn","cross_chat","episodes","project_scope"};String[] labels={"Память включена","Автообучение — дополнительный запрос к модели","Вспоминать из других чатов","Эпизодическая память","Память проектов"};
         for(int i=0;i<keys.length;i++){final String key=keys[i];Switch toggle=new Switch(a);toggle.setText(labels[i]);toggle.setTextColor(ui.text);toggle.setChecked(memory.enabled(owner,key));toggle.setOnCheckedChangeListener((b,on)->{if(current())memory.set(owner,key,on);});body.addView(toggle);}
-        ui.note(body,"В модель передаются до 8 подходящих воспоминаний. Пароли и токены исключаются. Память разделена по аккаунтам и проектам.");
+        ui.note(body,"В модель передаются до "+memory.maxRecall(owner)+" подходящих воспоминаний. Пароли и токены исключаются. Память разделена по аккаунтам и проектам.");
+        ui.action(body,"Объём вспоминания",memory.maxRecall(owner)+" записей · лимит контекста 7000 символов",0xFF435B69,()->form("Память",new String[]{"Число записей 4–16"},new String[]{String.valueOf(memory.maxRecall(owner))},v->{memory.setMaxRecall(owner,Integer.parseInt(v[0]));d[0].dismiss();memory();}));
+        ui.action(body,"Очистить память аккаунта","Переписки и файлы Workspace сохранятся",0xFF713CB3,()->new AlertDialog.Builder(a).setTitle("Удалить все воспоминания аккаунта?").setPositiveButton("Очистить",(x,n)->run(()->{memory.clear(owner);d[0].dismiss();memory();})).setNegativeButton("Отмена",null).show());
         ui.action(body,"Добавить воспоминание","Глобально или для текущего Workspace",0xFF14846C,()->form("Запомнить",new String[]{"Содержание","Область: global или project"},new String[]{"",wid().isEmpty()?"global":"project"},v->{memory.add(owner,"project".equals(v[1])?wid():"",chat,v[0],"fact","",false,70);d[0].dismiss();memory();}));
         ui.action(body,"Экспорт памяти","JSON в выбранный файл",0xFF435B69,()->pick(EXPORT_MEMORY,"application/json",true,"GitAgent-memory.json"));
         ui.action(body,"Импорт памяти","JSON · ключи и секреты будут отклонены",0xFF435B69,()->pick(IMPORT_MEMORY,"application/json",false,""));
@@ -109,22 +111,41 @@ public final class AgentFeatureScreens {
     public void files(){run(()->{
         String id=wid();if(id.isEmpty()){workspace();return;}JSONObject meta=workspaces.info(owner,id);LinearLayout body=ui.body(meta.optString("name"),true);final Dialog[] d={null};
         ui.action(body,"Контекст и архитектура",meta.optString("state"),0xFF435B69,()->form("Проект",new String[]{"Название","CREATED / PLANNING / ARCHITECTURE_SELECTED / DEVELOPMENT / READY","Инструкции проекта"},new String[]{meta.optString("name"),meta.optString("state"),meta.optString("instructions")},v->{workspaces.configure(owner,id,v[0],v[1],v[2]);AgentProjectStore.Project p=projects.project(owner);projects.save(new AgentProjectStore.Project(owner,v[0],p.repository,p.branch,id));d[0].dismiss();refresh.run();files();}));
+        ui.action(body,"Поиск по проекту","Текст во всех файлах Workspace",0xFF435B69,()->form("Поиск",new String[]{"Текст"},new String[]{""},v->async("Поиск",()->{String result=WorkspaceEngine.search(a,workspaces.root(owner,id),id,v[0]);a.runOnUiThread(()->{if(current())new AlertDialog.Builder(a).setTitle("Результаты").setMessage(result).setPositiveButton("ОК",null).show();});},()->{})));
+        ui.action(body,"Карта и индекс символов","Структура проекта, функции и определения",0xFF435B69,()->form("Символы проекта",new String[]{"Имя / часть имени"},new String[]{""},v->async("Индекс",()->{String result=WorkspaceEngine.index(a,workspaces.root(owner,id),id,v[0]);a.runOnUiThread(()->{if(current())new AlertDialog.Builder(a).setTitle("Индекс проекта").setMessage(result).setPositiveButton("ОК",null).show();});},()->{})));
+        ui.action(body,"Контрольные точки","Снимки проекта и восстановление",0xFF14846C,()->run(()->{
+            JSONArray points=WorkspaceEngine.checkpoints(a,workspaces.root(owner,id),id);String[] labels=new String[points.length()+1];labels[0]="Создать снимок";for(int i=0;i<points.length();i++)labels[i+1]=points.getJSONObject(i).optString("label");
+            new AlertDialog.Builder(a).setTitle("Контрольные точки").setItems(labels,(x,n)->{
+                if(n==0)async("Снимок",()->WorkspaceEngine.checkpoint(a,workspaces.root(owner,id),id,"Снимок "+System.currentTimeMillis()),()->Toast.makeText(a,"Снимок создан",Toast.LENGTH_SHORT).show());
+                else new AlertDialog.Builder(a).setTitle("Восстановить снимок?").setMessage("Текущие файлы проекта будут заменены.").setPositiveButton("Восстановить",(y,z)->async("Восстановление",()->WorkspaceEngine.restore(a,workspaces.root(owner,id),id,points.getJSONObject(n-1).getString("id")),()->{d[0].dismiss();files();})).setNegativeButton("Отмена",null).show();
+            }).show();
+        }));
+        ui.action(body,"Операции с файлами","Создать каталог · переместить · удалить · переименовать символ",0xFF435B69,()->form("Операция Workspace",new String[]{"mkdir / move / delete / rename_symbol","Путь или имя символа","Новое имя / путь (для move/rename_symbol)"},new String[]{"mkdir","",""},v->new AlertDialog.Builder(a).setTitle("Выполнить операцию?").setMessage(v[0]+": "+v[1]+" → "+v[2]).setPositiveButton("Выполнить",(x,n)->async("Workspace",()->{
+            if(v[1].endsWith(".workspace.json")||v[2].endsWith(".workspace.json"))throw new IOException("Метаданные Workspace защищены");
+            WorkspaceEngine.operation(a,workspaces.root(owner,id),id,v[0],v[1],v[2]);
+        },()->{d[0].dismiss();files();})).setNegativeButton("Отмена",null).show()));
+        ui.action(body,"Связать папку устройства (SAF)",meta.optString("storage_uri").isEmpty()?"Android выберет папку с доступом к файлам":"Связана живая папка",0xFF2863B8,()->{pendingWorkspace=id;pick(LINK_FOLDER,"",false,"");});
         ui.action(body,"Создать текстовый файл","Путь относительно Workspace",0xFF14846C,()->form("Файл",new String[]{"Путь","Содержимое"},new String[]{"",""},v->{workspaces.saveFile(owner,id,v[0],v[1]);d[0].dismiss();files();}));
         ui.action(body,"Импорт ZIP","Заменяет одноимённые файлы · до 64 МБ после распаковки",0xFF2863B8,()->{pendingWorkspace=id;pick(IMPORT_ZIP,"application/zip",false,"");});
         ui.action(body,"Экспорт ZIP","Файлы текущего Workspace",0xFF2863B8,()->{pendingWorkspace=id;pick(EXPORT_ZIP,"application/zip",true,"Workspace.zip");});
         JSONArray list=workspaces.files(owner,id);for(int i=0;i<list.length();i++){JSONObject f=list.getJSONObject(i);String path=f.getString("path");ui.action(body,path,f.optLong("size")+" байт",0xFF435B69,()->run(()->form(path,new String[]{"Содержимое"},new String[]{workspaces.readFile(owner,id,path)},v->{workspaces.saveFile(owner,id,path,v[0]);d[0].dismiss();files();})));}
         d[0]=ui.present(body,true);
     });}
-    private void pick(int request,String type,boolean create,String name){if(!current())return;Intent i=new Intent(create?Intent.ACTION_CREATE_DOCUMENT:Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType(type);if(create)i.putExtra(Intent.EXTRA_TITLE,name);a.startActivityForResult(i,request);}
+    private void pick(int request,String type,boolean create,String name){if(!current())return;Intent i=request==LINK_FOLDER?new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE):new Intent(create?Intent.ACTION_CREATE_DOCUMENT:Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType(type);if(create)i.putExtra(Intent.EXTRA_TITLE,name);a.startActivityForResult(i,request);}
     public boolean result(int request,int result,Intent data){
-        if(request<IMPORT_XRAY||request>EXPORT_MEMORY)return false;if(result!=Activity.RESULT_OK||data==null||data.getData()==null||!current())return true;
+        if(request<IMPORT_XRAY||request>LINK_FOLDER)return false;if(result!=Activity.RESULT_OK||data==null||data.getData()==null||!current())return true;
         Uri uri=data.getData();String workspace=pendingWorkspace;
         async("Импорт / экспорт",()->{
             if(request==IMPORT_XRAY){String raw=read(uri,512*1024);AiNetwork.importProfile("Загруженный профиль",raw);}
-            else if(request==IMPORT_ZIP){try(InputStream in=a.getContentResolver().openInputStream(uri)){if(in==null)throw new IOException("Файл недоступен");workspaces.importZip(owner,workspace,in);}}
+            else if(request==IMPORT_ZIP){WorkspaceEngine.importUri(a,workspaces.root(owner,workspace),workspace,uri);}
             else if(request==EXPORT_ZIP){try(OutputStream out=a.getContentResolver().openOutputStream(uri)){if(out==null)throw new IOException("Файл недоступен");workspaces.exportZip(owner,workspace,out);}}
             else if(request==EXPORT_MEMORY){try(OutputStream out=a.getContentResolver().openOutputStream(uri)){if(out==null)throw new IOException("Файл недоступен");out.write(memory.list(owner,wid()).toString(2).getBytes(StandardCharsets.UTF_8));}}
-            else {JSONArray items=new JSONArray(read(uri,2*1024*1024));for(int i=0;i<Math.min(1000,items.length());i++){JSONObject j=items.getJSONObject(i);memory.add(owner,"",chat,j.getString("content"),j.optString("kind","fact"),j.optString("key"),j.optBoolean("pinned"),j.optInt("importance",70));}}
+            else if(request==LINK_FOLDER){
+                a.getContentResolver().takePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+                File metaFile=new File(workspaces.root(owner,workspace),".workspace.json");JSONObject meta=workspaces.info(owner,workspace);meta.put("storage_uri",uri.toString());
+                try(OutputStream out=new FileOutputStream(metaFile)){out.write(meta.toString().getBytes(StandardCharsets.UTF_8));}
+            }
+            else {JSONArray items=new JSONArray(read(uri,2*1024*1024));for(int i=0;i<Math.min(1000,items.length());i++){JSONObject j=items.getJSONObject(i);String target=j.optString("workspace").isEmpty()?"":wid();if(!j.optString("workspace").isEmpty()&&target.isEmpty())throw new IOException("Для импорта проектной памяти выберите Workspace");memory.add(owner,target,chat,j.getString("content"),j.optString("kind","fact"),j.optString("key"),j.optBoolean("pinned"),j.optInt("importance",70));}}
         },()->{Toast.makeText(a,"Готово",Toast.LENGTH_SHORT).show();refresh.run();});return true;
     }
     private String read(Uri uri,int max)throws Exception{try(InputStream in=a.getContentResolver().openInputStream(uri);ByteArrayOutputStream out=new ByteArrayOutputStream()){if(in==null)throw new IOException("Файл недоступен");byte[] b=new byte[4096];int n;while((n=in.read(b))!=-1){if(out.size()+n>max)throw new IOException("Файл слишком большой");out.write(b,0,n);}return out.toString("UTF-8");}}

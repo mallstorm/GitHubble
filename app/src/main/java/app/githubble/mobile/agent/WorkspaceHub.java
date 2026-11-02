@@ -10,8 +10,9 @@ import java.util.zip.*;
 /** Repository-independent local projects with bounded, traversal-safe filesystem/ZIP operations. */
 public final class WorkspaceHub {
     private final File base;
-    public WorkspaceHub(Context c){base=new File(c.getFilesDir(),"git-agent-workspaces");}
-    public WorkspaceHub(File isolatedRoot){base=isolatedRoot;}
+    private final Context context;
+    public WorkspaceHub(Context c){context=c.getApplicationContext();base=new File(c.getFilesDir(),"git-agent-workspaces");}
+    public WorkspaceHub(File isolatedRoot){context=null;base=isolatedRoot;}
     private File account(String owner)throws Exception{
         String hash=java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(MessageDigest.getInstance("SHA-256").digest(owner.getBytes(StandardCharsets.UTF_8)));
         File f=new File(base,hash);if(!f.exists()&&!f.mkdirs())throw new IOException("Не создать папку проектов");return f;
@@ -42,10 +43,11 @@ public final class WorkspaceHub {
         if(!canonical.startsWith(r.getCanonicalPath()+File.separator)||f.getName().equals(".workspace.json"))throw new IOException("Путь вне Workspace");return f;
     }
     public void saveFile(String owner,String id,String path,String text)throws Exception{
+        file(owner,id,path);if(context!=null){WorkspaceEngine.write(context,root(owner,id),id,path,text);return;}
         if(text.getBytes(StandardCharsets.UTF_8).length>1024*1024)throw new IOException("Текст больше 1 МБ");write(file(owner,id,path),text);
     }
-    public String readFile(String owner,String id,String path)throws Exception{return read(file(owner,id,path),1024*1024);}
-    public JSONArray files(String owner,String id)throws Exception{JSONArray a=new JSONArray();walk(root(owner,id),"",a,0);return a;}
+    public String readFile(String owner,String id,String path)throws Exception{file(owner,id,path);return context==null?read(file(owner,id,path),1024*1024):WorkspaceEngine.read(context,root(owner,id),id,path);}
+    public JSONArray files(String owner,String id)throws Exception{if(context!=null)return WorkspaceEngine.files(context,root(owner,id),id);JSONArray a=new JSONArray();walk(root(owner,id),"",a,0);return a;}
     private void walk(File dir,String prefix,JSONArray a,int depth)throws Exception{
         if(depth>20||a.length()>2000)return;File[] files=dir.listFiles();if(files==null)return;Arrays.sort(files,Comparator.comparing(File::getName));
         for(File f:files){if(f.getName().equals(".workspace.json"))continue;String p=prefix+f.getName();if(f.isDirectory())walk(f,p+"/",a,depth+1);else a.put(new JSONObject().put("path",p).put("size",f.length()));}
@@ -53,7 +55,7 @@ public final class WorkspaceHub {
     public String context(String owner,String id)throws Exception{
         if(id.isEmpty())return "";JSONObject meta=info(owner,id);StringBuilder s=new StringBuilder("\nWORKSPACE: "+meta.optString("name")+"\nСостояние: "+meta.optString("state")+"\nИнструкции проекта: "+meta.optString("instructions")+"\nФайлы:\n");
         JSONArray files=files(owner,id);for(int i=0;i<files.length()&&i<120;i++)s.append(files.getJSONObject(i).optString("path")).append('\n');
-        for(String p:new String[]{"docs/CONTEXT.md","README.md"}){File f=file(owner,id,p);if(f.isFile())s.append('\n').append(p).append(":\n").append(read(f,12000));}
+        for(String p:new String[]{"docs/CONTEXT.md","README.md"}){try{String text=readFile(owner,id,p);s.append('\n').append(p).append(":\n").append(text.substring(0,Math.min(12000,text.length())));}catch(Exception ignored){}}
         return s.substring(0,Math.min(18000,s.length()));
     }
     public void importZip(String owner,String id,InputStream source)throws Exception{
@@ -67,6 +69,7 @@ public final class WorkspaceHub {
         }}
     }
     public void exportZip(String owner,String id,OutputStream target)throws Exception{
+        if(context!=null){WorkspaceEngine.exportZip(context,root(owner,id),id,target);return;}
         JSONArray entries=files(owner,id);try(ZipOutputStream z=new ZipOutputStream(target)) {for(int i=0;i<entries.length();i++){
             String path=entries.getJSONObject(i).getString("path");z.putNextEntry(new ZipEntry(path));try(InputStream in=new FileInputStream(file(owner,id,path))){byte[] buf=new byte[8192];int n;while((n=in.read(buf))!=-1)z.write(buf,0,n);}z.closeEntry();}}
     }

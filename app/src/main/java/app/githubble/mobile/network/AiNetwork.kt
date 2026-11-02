@@ -2,7 +2,6 @@ package app.githubble.mobile.network
 
 import android.content.Context
 import okhttp3.OkHttpClient
-import okhttp3.OkUrlFactory
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -25,7 +24,7 @@ object AiNetwork {
         .followRedirects(false).followSslRedirects(false)
         .connectTimeout(15,TimeUnit.SECONDS).readTimeout(90,TimeUnit.SECONDS)
         .build()
-    @JvmStatic fun open(url: String): HttpURLConnection = OkUrlFactory(client()).open(URL(url))
+    @JvmStatic fun open(url: String): HttpURLConnection = AiHttpConnection(URL(url))
     @JvmStatic fun settings(): String = JSONObject().put("mode",NetworkDnsPolicy.current().mode)
         .put("endpoint",NetworkDnsPolicy.current().endpoint).toString()
     @JvmStatic fun save(mode: String, endpoint: String) { NetworkDnsPolicy.save(mode,endpoint) }
