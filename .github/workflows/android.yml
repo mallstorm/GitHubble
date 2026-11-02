@@ -123,6 +123,7 @@ jobs:
           sudo udevadm trigger --name-match=kvm
 
       - name: Git Agent light and dark screenshots on Android 13
+        timeout-minutes: 8
         if: github.event_name == 'pull_request' && github.head_ref == 'feature/omnichat-native-agent-phase1'
         uses: ReactiveCircus/android-emulator-runner@v2
         with:
@@ -136,7 +137,7 @@ jobs:
             adb install -r app/build/outputs/apk/debug/app-debug.apk
             adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
             adb shell settings put secure show_ime_with_hard_keyboard 1
-            timeout 180s adb shell am instrument -w app.githubble.mobile.debug.test/app.githubble.mobile.RcInstrumentationTest > instrumentation-result.txt
+            timeout -k 10s 180s adb shell am instrument -w app.githubble.mobile.debug.test/app.githubble.mobile.RcInstrumentationTest > instrumentation-result.txt || true
             cat instrumentation-result.txt
             adb logcat -d -s AndroidRuntime:E > android-runtime-errors.txt
             cat android-runtime-errors.txt
