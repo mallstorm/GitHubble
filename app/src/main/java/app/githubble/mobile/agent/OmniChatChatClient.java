@@ -74,8 +74,28 @@ public final class OmniChatChatClient {
         return messages;
     }
 
+    public static boolean supportsVision(String provider){
+        return "openai".equals(provider)||"gemini".equals(provider)||"openrouter".equals(provider);
+    }
+
+    public String completeWithImage(String provider,String model,String credential,
+            JSONArray transcript,String project,String repository,String mime,byte[] image)throws Exception{
+        if(!supportsVision(provider))throw new IllegalArgumentException(
+            "Выбранная модель/подключение не поддерживает передачу изображений в Git Agent");
+        if(image==null||image.length==0||image.length>1024*1024)
+            throw new IllegalArgumentException("Фото должно быть не больше 1 МБ");
+        if(!"image/jpeg".equals(mime)&&!"image/png".equals(mime)&&!"image/webp".equals(mime))
+            throw new IllegalArgumentException("Поддерживаются JPEG, PNG и WebP");
+        return completeInternal(provider,model,credential,transcript,project,repository,mime,image);
+    }
+
     public String complete(String provider, String model, String credential,
                            JSONArray transcript, String project, String repository) throws Exception {
+        return completeInternal(provider,model,credential,transcript,project,repository,null,null);
+    }
+
+    private String completeInternal(String provider,String model,String credential,
+            JSONArray transcript,String project,String repository,String imageMime,byte[] image)throws Exception {
         LAST_USAGE.remove();
         if(OAuthSubscriptions.supports(provider)){
             if(subscriptions==null)throw new IllegalStateException("OAuth-транспорт не инициализирован");
@@ -87,6 +107,28 @@ public final class OmniChatChatClient {
             throw new IllegalStateException("Не выбрана модель");
         JSONArray messages = conversation(transcript);
         if (messages.length() == 0) throw new IllegalArgumentException("Нет сообщений пользователя");
+        if(image!=null){
+            String imageUrl="data:"+imageMime+";base64,"+
+                java.util.Base64.getEncoder().encodeToString(image);
+            boolean appended=false;
+            for(int i=messages.length()-1;i>=0;i--){
+                JSONObject entry=messages.getJSONObject(i);
+                if(!"user".equals(entry.optString("role")))continue;
+                String text=entry.optString("content");
+                JSONArray parts=new JSONArray();
+                if("openai".equals(provider)){
+                    parts.put(new JSONObject().put("type","input_text").put("text",text));
+                    parts.put(new JSONObject().put("type","input_image").put("image_url",imageUrl));
+                }else{
+                    parts.put(new JSONObject().put("type","text").put("text",text));
+                    parts.put(new JSONObject().put("type","image_url")
+                        .put("image_url",new JSONObject().put("url",imageUrl)));
+                }
+                entry.put("content",parts);
+                appended=true;break;
+            }
+            if(!appended)throw new IllegalArgumentException("Нет сообщения для изображения");
+        }
 
         String context = "Вы AI-помощник в приложении GitHubble. Отвечайте на языке пользователя. "
                 + "Помогайте анализировать архитектуру, писать код и планировать проект. "
@@ -111,7 +153,7 @@ public final class OmniChatChatClient {
         }
 
         byte[] requestBytes = body.toString().getBytes(StandardCharsets.UTF_8);
-        if (requestBytes.length > MAX_INPUT_BYTES)
+        if (requestBytes.length > (image==null?MAX_INPUT_BYTES:3*1024*1024))
             throw new IllegalArgumentException("Контекст слишком большой для одного запроса");
         HttpURLConnection connection = app.githubble.mobile.network.AiNetwork.open(endpoint(provider));
         try {
