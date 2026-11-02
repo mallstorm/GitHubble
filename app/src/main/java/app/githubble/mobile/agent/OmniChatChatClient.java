@@ -18,6 +18,24 @@ public final class OmniChatChatClient {
     private final OAuthSubscriptions subscriptions;
     public OmniChatChatClient(){this.subscriptions=null;}
     public OmniChatChatClient(OAuthSubscriptions subscriptions){this.subscriptions=subscriptions;}
+    /** Reported by an AI API for the current worker thread; not a subscription quota. */
+    public static final class Usage {
+        public final long inputTokens,outputTokens;
+        public final boolean reported;
+        Usage(long input,long output,boolean reported){
+            inputTokens=Math.max(0,input);outputTokens=Math.max(0,output);this.reported=reported;
+        }
+    }
+    private static final ThreadLocal<Usage> LAST_USAGE=new ThreadLocal<>();
+    public static Usage takeUsage(){Usage usage=LAST_USAGE.get();LAST_USAGE.remove();return usage;}
+    private static void captureUsage(JSONObject response){
+        JSONObject usage=response.optJSONObject("usage");
+        if(usage==null){LAST_USAGE.set(new Usage(0,0,false));return;}
+        long input=usage.has("input_tokens")?usage.optLong("input_tokens"):usage.optLong("prompt_tokens");
+        long output=usage.has("output_tokens")?usage.optLong("output_tokens"):usage.optLong("completion_tokens");
+        LAST_USAGE.set(new Usage(input,output,true));
+    }
+
     private static final int MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
     private static final int MAX_HISTORY_TURNS = 28;
     private static final int MAX_TEXT_CHARS = 20000;
@@ -58,6 +76,7 @@ public final class OmniChatChatClient {
 
     public String complete(String provider, String model, String credential,
                            JSONArray transcript, String project, String repository) throws Exception {
+        LAST_USAGE.remove();
         if(OAuthSubscriptions.supports(provider)){
             if(subscriptions==null)throw new IllegalStateException("OAuth-транспорт не инициализирован");
             return subscriptions.complete(provider,model,credential,transcript,project,repository);
@@ -119,6 +138,7 @@ public final class OmniChatChatClient {
             if (!ok) throw new IllegalStateException(
                     "AI API (" + provider + ") HTTP " + status + ": " + apiError(raw, credential));
             JSONObject result = new JSONObject(raw);
+            captureUsage(result);
             String reply = "openai".equals(provider) ? responseOutput(result) : chatOutput(result);
             if (reply.isEmpty()) throw new IllegalStateException(
                     "AI API не вернул текст. Проверьте модель, тариф и поддержку текстового чата.");
