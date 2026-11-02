@@ -283,17 +283,14 @@ public final class RcInstrumentationTest extends Instrumentation {
     private static void testDeviceCodeAssist(Context context) {
         DeviceCodeAssist.begin(context, "ab12-CD34", System.currentTimeMillis()+90_000L);
         eq("AB12CD34", DeviceCodeAssist.currentCode(context));
-        no(DeviceCodeAssist.isArmed(context));
-        yes(DeviceCodeAssist.arm(context));
-        yes(DeviceCodeAssist.isArmed(context));
-        DeviceCodeAssist.disarm(context);
-        no(DeviceCodeAssist.isArmed(context));
         DeviceCodeAssist.clear(context);
         eq("", DeviceCodeAssist.currentCode(context));
         // Expired codes must never be copied or used for autofill.
         DeviceCodeAssist.begin(context, "AB12-CD34", System.currentTimeMillis()-1);
         eq("", DeviceCodeAssist.currentCode(context));
-        no(DeviceCodeAssist.arm(context));
+        no(DeviceCodeAssist.copy(context));
+        DeviceCodeAssist.begin(context, "invalid", System.currentTimeMillis()+90_000L);
+        eq("", DeviceCodeAssist.currentCode(context));
     }
 
     private static void testPagination() {
