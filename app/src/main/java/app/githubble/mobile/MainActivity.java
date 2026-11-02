@@ -149,7 +149,12 @@ public class MainActivity extends Activity {
             result+="Linked repository: "+project.repository+
                 " (branch "+project.branch+").\n";
         result+=agentMemory.recall(owner,project.workspaceId==null?"":project.workspaceId,thread,query);
-        if(project.workspaceId!=null&&!project.workspaceId.isEmpty())try{result+=agentWorkspaces.context(owner,project.workspaceId);}catch(Exception e){result+="\nКонтекст Workspace недоступен: "+e.getMessage();}
+        if(project.workspaceId!=null&&!project.workspaceId.isEmpty()){
+            if(prefs.getBoolean("ai_tool_file_read_"+owner,false))
+                try{result+=agentWorkspaces.context(owner,project.workspaceId);}
+                catch(Exception e){result+="\nКонтекст Workspace недоступен: "+e.getMessage();}
+            else result+="\nWorkspace выбран, но передача файлов модели отключена в настройках.";
+        }
         return result;
     }
 
@@ -690,7 +695,11 @@ public class MainActivity extends Activity {
                     (repositories.optBoolean("truncated")?" (показаны только первые 1000)":"")+
                     "\nАктивный проект: "+agentProjects.project(expected).repository+
                     "\nGitHub-авторизация независима от OpenAI, Gemini, Cline и других AI-подписок."+
-                    "\nДля записи нужны соответствующие права GitHub App; для удаления — отдельное разрешение.";
+                    "\nДля просмотра приватных репозиториев нужны Metadata: read и доступ установки GitHub App. "+
+                    "Для записи файлов — Contents: write, создания — Repository creation: write "+
+                    "(или Administration: write), удаления — Administration: write. "+
+                    "Эти разрешения настраиваются в GitHub App и подтверждаются через GitHub, "+
+                    "нейросеть ими самостоятельно не распоряжается.";
             }catch(Exception error){message="Проверка GitHub не прошла: "+error.getMessage()+
                     "\nПроверьте авторизацию, разрешения GitHub App и доступ к приватным репозиториям.";}
             final String report=message;
