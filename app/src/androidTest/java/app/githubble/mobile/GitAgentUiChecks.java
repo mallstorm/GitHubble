@@ -88,6 +88,20 @@ final class GitAgentUiChecks {
                     if(find(root,"OmniChat")!=null)throw new AssertionError("Old branding visible");
                     EditText input=(EditText)find(root,"Спросить Git Agent");
                     if(!"Сохранённый черновик".equals(input.getText().toString()))throw new AssertionError("Draft missing");
+                    app.githubble.mobile.ui.GitAgentUi design=new app.githubble.mobile.ui.GitAgentUi(activity,dark?0xFF343941:0xFFFFFFFF);
+                    LinearLayout controls=design.row();
+                    for(String title:new String[]{"Выкл","Авто","Один агент","Оркестрация"})
+                        design.modeChip(controls,title,title.equals("Один агент"),!title.equals("Авто")&&!title.equals("Оркестрация"),()->{});
+                    controls.measure(View.MeasureSpec.makeMeasureSpec(design.dp(300),View.MeasureSpec.EXACTLY),
+                        View.MeasureSpec.makeMeasureSpec(design.dp(80),View.MeasureSpec.AT_MOST));
+                    controls.layout(0,0,controls.getMeasuredWidth(),controls.getMeasuredHeight());
+                    for(int i=0;i<controls.getChildCount();i++){
+                        TextView button=(TextView)controls.getChildAt(i);
+                        if(button.getTop()!=controls.getChildAt(0).getTop()||button.getBottom()!=controls.getChildAt(0).getBottom())
+                            throw new AssertionError("Execution controls are not aligned in one row");
+                        if(button.getPaint().measureText(button.getText().toString())>button.getWidth()-button.getPaddingLeft()-button.getPaddingRight()+1)
+                            throw new AssertionError("Execution mode label is clipped: "+button.getText());
+                    }
                 });
                 host.waitForIdleSync();
                 onMain(host,()->{
