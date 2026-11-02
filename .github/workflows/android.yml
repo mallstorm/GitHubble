@@ -108,6 +108,13 @@ jobs:
         if: github.event_name == 'pull_request' && github.head_ref == 'feature/omnichat-native-agent-phase1'
         run: gradle --no-daemon assembleDebugAndroidTest
 
+      - name: Free temporary runner disk for Android 13 userdata
+        if: github.event_name == 'pull_request' && github.head_ref == 'feature/omnichat-native-agent-phase1'
+        shell: bash
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          df -h .
+
       - name: Enable KVM for Git Agent Android 13 checks
         if: github.event_name == 'pull_request' && github.head_ref == 'feature/omnichat-native-agent-phase1'
         run: |
