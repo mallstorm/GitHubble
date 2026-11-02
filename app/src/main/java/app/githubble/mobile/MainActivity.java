@@ -1144,8 +1144,8 @@ public class MainActivity extends Activity {
                     byte[] data = new byte[4096];
                     int size;
                     while ((size = input.read(data)) != -1) {
-                        if (output.size() + size > 24000)
-                            throw new IOException("Для текстового контекста выберите файл до 24 КБ");
+                        if (output.size() + size > 4096)
+                            throw new IOException("Для текущего текстового чата выберите файл до 4 КБ");
                         output.write(data,0,size);
                     }
                 }
@@ -1168,6 +1168,10 @@ public class MainActivity extends Activity {
                                 if (!owner.equals(accountStore.activeCacheKey())) return;
                                 String old = aiChatDrafts.getOrDefault(owner, "");
                                 String appended = old + "\n\nФайл: " + title + "\n" + body;
+                                if (appended.length() > 4900) {
+                                    toast("Черновик превысит лимит 4900 символов. Сократите сообщение.");
+                                    return;
+                                }
                                 aiChatDrafts.put(owner, appended);
                                 agentRefreshIfCurrent(owner);
                             }).setNegativeButton("Отмена",null).show();
