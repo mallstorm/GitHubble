@@ -137,10 +137,12 @@ jobs:
           script: |
             adb install -r app/build/outputs/apk/debug/app-debug.apk
             adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+            adb shell ime list -s
+            adb shell settings get secure default_input_method
             adb shell settings put secure show_ime_with_hard_keyboard 1
             timeout -k 10s 180s adb shell am instrument -w app.githubble.mobile.debug.test/app.githubble.mobile.RcInstrumentationTest > instrumentation-result.txt || true
             cat instrumentation-result.txt
-            if ! grep -q 'PASS: RC instrumentation suite' instrumentation-result.txt; then timeout -k 5s 15s adb logcat -d -s AndroidRuntime:E || true; exit 1; fi
+            if ! grep -q 'PASS: RC instrumentation suite' instrumentation-result.txt; then timeout -k 5s 15s adb logcat -d -s AndroidRuntime:E || true; timeout -k 5s 10s adb shell dumpsys input_method || true; exit 1; fi
             mkdir -p dist-pr/screenshots
             timeout -k 5s 30s adb pull /sdcard/Android/data/app.githubble.mobile.debug/files/ui-screenshots/. dist-pr/screenshots/
 

@@ -104,7 +104,16 @@ final class GitAgentUiChecks {
             android.view.MotionEvent press=android.view.MotionEvent.obtain(down,down,android.view.MotionEvent.ACTION_DOWN,touch[0],touch[1],0);
             android.view.MotionEvent release=android.view.MotionEvent.obtain(down,down+60,android.view.MotionEvent.ACTION_UP,touch[0],touch[1],0);
             host.sendPointerSync(press);host.sendPointerSync(release);press.recycle();release.recycle();
-            host.waitForIdleSync();Thread.sleep(1000);
+            host.waitForIdleSync();
+            final boolean[] imeReady={false};
+            long imeDeadline=android.os.SystemClock.uptimeMillis()+10000;
+            while(!imeReady[0]&&android.os.SystemClock.uptimeMillis()<imeDeadline){
+                onMain(host,()->{
+                    android.view.WindowInsets insets=activity.getWindow().getDecorView().getRootWindowInsets();
+                    imeReady[0]=insets!=null&&insets.isVisible(android.view.WindowInsets.Type.ime());
+                });
+                if(!imeReady[0])Thread.sleep(100);
+            }
             onMain(host,()->{
                 View decor=activity.getWindow().getDecorView();
                 android.view.WindowInsets insets=decor.getRootWindowInsets();
