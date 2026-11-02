@@ -20,18 +20,18 @@ import app.githubble.mobile.R;
  */
 public final class BottomNavigationBar {
     public static final String[] DESTINATIONS =
-        {"Главная", "Репозитории", "Поиск", "Активность", "Настройки"};
+        {"Главная", "Репозитории", "Чат", "Активность", "Настройки"};
 
     public interface Actions {
         void openHome();
         void openRepositories();
-        void openSearch();
+        void openChat();
         void openActivity();
         void openSettings();
     }
 
     private static final int[] ICONS = {
-        R.drawable.ic_home, R.drawable.ic_repository, R.drawable.ic_search,
+        R.drawable.ic_home, R.drawable.ic_repository, R.drawable.ic_ai,
         R.drawable.ic_bell, R.drawable.ic_settings
     };
 
@@ -80,7 +80,7 @@ public final class BottomNavigationBar {
                 switch(destination) {
                     case 0: actions.openHome(); break;
                     case 1: actions.openRepositories(); break;
-                    case 2: actions.openSearch(); break;
+                    case 2: actions.openChat(); break;
                     case 3: actions.openActivity(); break;
                     case 4: actions.openSettings(); break;
                     default: break;
