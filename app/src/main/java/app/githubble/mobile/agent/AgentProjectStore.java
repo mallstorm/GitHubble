@@ -103,6 +103,25 @@ public final class AgentProjectStore {
     public synchronized JSONArray messages(String accountId) { return conversations.messages(accountId); }
     public synchronized JSONArray messages(String accountId, String chatId) { return conversations.messages(accountId, chatId); }
     public synchronized JSONArray listConversations(String accountId) { return conversations.list(accountId); }
+    public synchronized JSONArray fullHistory(String accountId,String chatId,int max) {
+        return conversations.fullHistory(accountId,chatId,max);
+    }
+    public synchronized JSONArray searchHistory(String accountId,String phrase,int limit) {
+        return conversations.searchHistory(accountId,phrase,limit);
+    }
+    public synchronized long archivedCount(String accountId){return conversations.archivedCount(accountId);}
+    public synchronized JSONObject exportHistory(String accountId)throws org.json.JSONException {
+        JSONArray threads=listConversations(accountId);
+        JSONArray records=new JSONArray();
+        for(int i=0;i<threads.length();i++){
+            JSONObject metadata=threads.getJSONObject(i);
+            String id=metadata.getString("id");
+            records.put(new JSONObject().put("id",id).put("title",metadata.optString("title"))
+                .put("messages",fullHistory(accountId,id,10000)));
+        }
+        return new JSONObject().put("schema_version",1).put("exported_at",System.currentTimeMillis())
+            .put("threads",records);
+    }
     public synchronized String activeConversation(String accountId) { return conversations.activeId(accountId); }
     public synchronized String newConversation(String accountId) { project(accountId); return conversations.newConversation(accountId); }
     public synchronized void switchConversation(String accountId, String id) { conversations.open(accountId, id); }
