@@ -155,6 +155,41 @@ final class GitAgentUiChecks {
                 }catch(Exception error){throw new RuntimeException(error);}
             });
             host.waitForIdleSync();Thread.sleep(300);screenshot(host,directory,"integrated-chat.png");
+            // Settings must expose all AI controls in one native section, directly
+            // below Data and synchronization and above Security.
+            onMain(host,()->{
+                try{
+                    java.lang.reflect.Method settings=MainActivity.class.getDeclaredMethod("showSettings");
+                    settings.setAccessible(true);settings.invoke(activity);
+                    View root=activity.getWindow().getDecorView();
+                    View data=find(root,"Данные и синхронизация");
+                    View agent=find(root,"Git Agent и Workspace");
+                    View security=find(root,"Безопасность");
+                    if(data==null||agent==null||security==null)
+                        throw new AssertionError("Central AI settings category missing");
+                    int[] a=new int[2],b=new int[2],c=new int[2];
+                    data.getLocationOnScreen(a);agent.getLocationOnScreen(b);security.getLocationOnScreen(c);
+                    if(!(a[1]<b[1] && b[1]<c[1]))
+                        throw new AssertionError("Git Agent settings category has wrong dashboard order");
+                    java.lang.reflect.Method open=MainActivity.class.getDeclaredMethod("showSettingsGitAgentWorkspace");
+                    open.setAccessible(true);open.invoke(activity);
+                    root=activity.getWindow().getDecorView();
+                    for(String label:new String[]{"Режим и исполнитель","Подключения API",
+                            "Аккаунты и подписки","Рабочие пространства","Память Git Agent",
+                            "DNS и Smart Routing","Xray / VLESS","Диктовка"}){
+                        if(find(root,label)==null)throw new AssertionError("Missing AI settings row: "+label);
+                    }
+                }catch(Exception error){throw new RuntimeException(error);}
+            });
+            host.waitForIdleSync();screenshot(host,directory,"git-agent-workspace-settings.png");
+            onMain(host,()->{
+                try{
+                    java.lang.reflect.Method chat=MainActivity.class.getDeclaredMethod("showAgentChat");
+                    chat.setAccessible(true);chat.invoke(activity);
+                }catch(Exception error){throw new RuntimeException(error);}
+            });
+            host.waitForIdleSync();
+
             for(String methodName:new String[]{"agentChooseComposerModel","agentShowAttachments","agentShowAgentSettings","agentShowConversations"}){
                 onMain(host,()->{
                     try{
