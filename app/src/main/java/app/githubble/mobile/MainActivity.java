@@ -780,6 +780,11 @@ public class MainActivity extends Activity {
                        ||lower.contains("token")||lower.contains("secret")||lower.contains("password")
                        ||lower.contains("keystore")||lower.contains("credential")||lower.endsWith(".env")
                        ||lower.endsWith(".jks")||lower.endsWith(".p12")
+                       ||lower.endsWith(".pem")||lower.endsWith(".key")
+                       ||lower.endsWith(".p8")||lower.endsWith(".der")
+                       ||lower.endsWith(".mobileprovision")||lower.endsWith(".npmrc")
+                       ||lower.endsWith("id_rsa")||lower.endsWith("id_ed25519")
+                       ||lower.equals("local.properties")||lower.endsWith("/local.properties")
                        ||lower.equals("gradle.properties")||lower.endsWith("/gradle.properties")
                        ||file.optLong("size",1000000)>80*1024){
                         rejected++;continue;
@@ -787,7 +792,11 @@ public class MainActivity extends Activity {
                     try{
                         app.githubble.mobile.agent.AgentFilePlan.validatePath(filePath);
                         String contents=agentWorkspaces.readFile(expected,captured.workspaceId,filePath);
-                        if(contents.isEmpty()||contents.indexOf('\u0000')>=0){rejected++;continue;}
+                        if(contents.isEmpty()||contents.indexOf('\u0000')>=0
+                            ||contents.matches("(?s).*(?:github_pat_[A-Za-z0-9_]{10,}"+
+                                 "|gh[pousr]_[A-Za-z0-9_]{18,}"+
+                                 "|-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"+
+                                 "|sk-[A-Za-z0-9_-]{32,}).*")){rejected++;continue;}
                         entries.put(new JSONObject().put("path",filePath).put("content",contents));
                     }catch(Exception skipped){rejected++;}
                 }
@@ -1996,7 +2005,9 @@ public class MainActivity extends Activity {
                     String response;
                     boolean githubIntent=message.toLowerCase(java.util.Locale.ROOT)
                         .matches("(?s).*(?:github|репозитор|ветк[аиу]|pull request|workflow|git action|issue).*");
-                    if(imageUri==null && githubIntent && agentMode
+                    // Read-only GitHub tools work in both Chat and Agent modes once
+                    // the user explicitly enables the permission for this account.
+                    if(imageUri==null && githubIntent
                             && prefs.getBoolean("ai_tool_github_read_"+expected,false)){
                         response=app.githubble.mobile.agent.GitHubReadLoop.analyze(instructions->{
                             JSONArray toolsPrompt=new JSONArray()
