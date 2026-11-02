@@ -91,14 +91,30 @@ final class GitAgentUiChecks {
                 host.waitForIdleSync();Thread.sleep(300);screenshot(host,directory,methodName+".png");
                 host.sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK);host.waitForIdleSync();
             }
+            final float[] touch=new float[2];
             host.runOnMainSync(()->{
                 EditText input=(EditText)find(activity.getWindow().getDecorView(),"Спросить Git Agent");
                 if(input==null)throw new AssertionError("Integrated composer missing");
                 input.requestFocus();input.setText("Черновик перед перезапуском экрана");
-                ((android.view.inputmethod.InputMethodManager)activity.getSystemService(Context.INPUT_METHOD_SERVICE))
-                    .showSoftInput(input,android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);
+                int[] location=new int[2];input.getLocationOnScreen(location);
+                touch[0]=location[0]+input.getWidth()/2f;touch[1]=location[1]+input.getHeight()/2f;
             });
-            host.waitForIdleSync();Thread.sleep(350);screenshot(host,directory,"keyboard.png");
+            host.waitForIdleSync();
+            long down=android.os.SystemClock.uptimeMillis();
+            android.view.MotionEvent press=android.view.MotionEvent.obtain(down,down,android.view.MotionEvent.ACTION_DOWN,touch[0],touch[1],0);
+            android.view.MotionEvent release=android.view.MotionEvent.obtain(down,down+60,android.view.MotionEvent.ACTION_UP,touch[0],touch[1],0);
+            host.sendPointerSync(press);host.sendPointerSync(release);press.recycle();release.recycle();
+            host.waitForIdleSync();Thread.sleep(1000);
+            host.runOnMainSync(()->{
+                View decor=activity.getWindow().getDecorView();
+                android.view.WindowInsets insets=decor.getRootWindowInsets();
+                if(insets==null||!insets.isVisible(android.view.WindowInsets.Type.ime()))
+                    throw new AssertionError("Soft keyboard did not open after tapping composer");
+                View editor=find(decor,"Спросить Git Agent");android.graphics.Rect visible=new android.graphics.Rect();
+                if(!editor.getGlobalVisibleRect(visible)||visible.height()<editor.getHeight()/2)
+                    throw new AssertionError("Composer covered by keyboard");
+            });
+            screenshot(host,directory,"keyboard.png");
             host.sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK);
             host.runOnMainSync(()->{
                 try{java.lang.reflect.Method chat=MainActivity.class.getDeclaredMethod("showAgentChat");chat.setAccessible(true);chat.invoke(activity);}

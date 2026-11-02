@@ -43,7 +43,7 @@ public final class GitAgentUi {
     public Dialog present(LinearLayout body,boolean bottom){
         Dialog dialog=new Dialog(activity);ScrollView scroll=new ScrollView(activity);
         scroll.setFillViewport(false);scroll.setVerticalScrollBarEnabled(false);scroll.addView(body);
-        scroll.setBackground(shape(background,bottom?28:28,0));scroll.setClipToOutline(true);
+        scroll.setBackground(shape(!bottom&&!dark?0xFFEDE7F0:background,28,0));scroll.setClipToOutline(true);
         dialog.setContentView(scroll);dialog.setCanceledOnTouchOutside(true);
         Window w=dialog.getWindow();
         if(w!=null){w.setBackgroundDrawableResource(android.R.color.transparent);
@@ -68,6 +68,19 @@ public final class GitAgentUi {
         LinearLayout row=row();row.setPadding(dp(14),dp(12),dp(14),dp(12));
         int fill=dark?0xFF515963:blend(background,tint,.055f);
         row.setBackground(shape(fill,16,dark?line:blend(background,tint,.20f)));
+        int icon=0;
+        if(title.equals("Анализ фотографии"))icon=app.githubble.mobile.R.drawable.ic_agent_auto_awesome;
+        else if(title.equals("Вопрос по изображению"))icon=app.githubble.mobile.R.drawable.ic_agent_question_answer;
+        else if(title.equals("Создание изображения"))icon=app.githubble.mobile.R.drawable.ic_agent_photo;
+        else if(title.equals("Веб-поиск"))icon=app.githubble.mobile.R.drawable.ic_agent_travel_explore;
+        else if(title.equals("Плагины"))icon=app.githubble.mobile.R.drawable.ic_agent_extension;
+        if(icon!=0){
+            ImageView symbol=new ImageView(activity);symbol.setImageResource(icon);symbol.setColorFilter(tint);
+            symbol.setPadding(dp(10),dp(10),dp(10),dp(10));
+            symbol.setBackground(shape(blend(background,tint,.18f),50,0));
+            LinearLayout.LayoutParams iconLp=new LinearLayout.LayoutParams(dp(40),dp(40));iconLp.rightMargin=dp(12);
+            row.addView(symbol,iconLp);
+        }
         LinearLayout words=column();TextView name=label(title,14,true);words.addView(name);
         if(!detail.isEmpty()){TextView sub=label(detail,12,false);sub.setTextColor(muted);words.addView(sub);}
         row.addView(words,new LinearLayout.LayoutParams(0,-2,1));
@@ -83,7 +96,7 @@ public final class GitAgentUi {
         ImageView image=new ImageView(activity);image.setImageResource(icon);image.setColorFilter(tint);
         image.setPadding(dp(10),dp(10),dp(10),dp(10));image.setBackground(shape(blend(background,tint,.15f),50,0));
         tile.addView(image,new LinearLayout.LayoutParams(dp(42),dp(42)));
-        TextView caption=label(title,12,true);caption.setGravity(Gravity.CENTER);
+        TextView caption=label(title,title.startsWith("Добавить")||title.startsWith("Subscription")?14:12,true);caption.setGravity(Gravity.CENTER);
         caption.setPadding(0,dp(7),0,0);tile.addView(caption);
         LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-1,1);lp.setMargins(dp(2),0,dp(2),0);
         row.addView(tile,lp);tile.setOnClickListener(v->action.run());tile.setContentDescription(title);

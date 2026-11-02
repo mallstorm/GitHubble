@@ -56,3 +56,9 @@ Screenshots include the keyboard, model sheet, tools sheet, agent dialog and
 drawer. They are included with the test build for visual inspection.
 CI completion, screenshot inspection and final delivery status must be reported
 separately; adding these checks alone is not proof that they passed.
+
+Material toolbar/tool icons are vector paths from google/material-design-icons
+(Apache License 2.0, included in MATERIAL_ICONS_LICENSE.txt); these are the same
+Material icon families used by the reference Compose screen.
+The keyboard regression requires visible IME insets after a real injected tap,
+and checks that the composer remains visible while the IME is open.

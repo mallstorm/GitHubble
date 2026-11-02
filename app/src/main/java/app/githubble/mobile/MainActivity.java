@@ -1090,11 +1090,11 @@ public class MainActivity extends Activity {
             if(!"guest".equals(owner)&&aiConnections.isConfigured(owner,id))any=true;
         ui.note(body,any?"Выберите подключённую модель":"Подключений пока нет. Выберите способ подключения.");
         LinearLayout onboarding=ui.row();
-        ui.tile(onboarding,"Добавить API",android.R.drawable.ic_menu_share,0xFF2863B8,()->{
+        ui.tile(onboarding,"Добавить API",R.drawable.ic_agent_link,0xFF2863B8,()->{
             dialog[0].dismiss();agentConfigureAiProvider(owner);});
         ui.tile(onboarding,"Добавить подписку",android.R.drawable.star_big_on,0xFF713CB3,
                 ()->agentUnavailable("Подписки","OAuth-подключения подписок ещё не перенесены. API-ключ не является входом по подписке."));
-        ui.tile(onboarding,"Subscription proxy",android.R.drawable.ic_menu_compass,0xFF14846C,
+        ui.tile(onboarding,"Subscription proxy",R.drawable.ic_agent_public,0xFF14846C,
                 ()->agentUnavailable("Subscription proxy","Транспорт Subscription Proxy ещё не подключён. Авторизация не выполнялась."));
         body.addView(onboarding,new LinearLayout.LayoutParams(-1,ui.dp(112)));
         if(any){

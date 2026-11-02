@@ -135,6 +135,7 @@ jobs:
           script: |
             adb install -r app/build/outputs/apk/debug/app-debug.apk
             adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+            adb shell settings put secure show_ime_with_hard_keyboard 1
             timeout 180s adb shell am instrument -w app.githubble.mobile.debug.test/app.githubble.mobile.RcInstrumentationTest > instrumentation-result.txt
             cat instrumentation-result.txt
             grep -q 'PASS: RC instrumentation suite' instrumentation-result.txt
