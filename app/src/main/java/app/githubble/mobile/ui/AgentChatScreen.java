@@ -29,6 +29,8 @@ public final class AgentChatScreen {
         void configureProvider();
         void selectProvider();
         void disconnectProvider();
+        void discoverModels();
+        void clearConversation();
         void showCopilotTasks();
         void startWorkflow();
         void selectExecutor(boolean copilot);
@@ -98,6 +100,7 @@ public final class AgentChatScreen {
         action(extraProviderActions, "Все провайдеры", actions::showProviderCatalog);
         action(extraProviderActions, "Отключить", actions::disconnectProvider);
         providers.addView(extraProviderActions);
+        action(providers, "Получить список моделей", actions::discoverModels);
         root.addView(providers, margin());
 
         LinearLayout mode = panel();
@@ -135,7 +138,11 @@ public final class AgentChatScreen {
         root.addView(mode, margin());
 
         LinearLayout history = panel();
-        history.addView(label("Диалог проекта", 16, true));
+        LinearLayout historyHeader = buttons();
+        historyHeader.addView(label("Диалог проекта", 16, true),
+                new LinearLayout.LayoutParams(0, -2, 1));
+        action(historyHeader, "Новый диалог", actions::clearConversation);
+        history.addView(historyHeader);
         if (messages.length() == 0) {
             history.addView(label("Создайте проект, привяжите репозиторий или поручите задачу Copilot.", 12, false));
         } else {
