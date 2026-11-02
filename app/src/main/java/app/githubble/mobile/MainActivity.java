@@ -1070,8 +1070,10 @@ public class MainActivity extends Activity {
         ui.note(body,enabled?"Анализ и генерация файлов. Записи в GitHub требуют подтверждения.":"Обычный чат без файловых инструментов.");
         ui.action(body,"GitHubble AI Agent",enabled&&!copilot?"Выбран":"Собственный исполнитель",0xFF2E9D68,
                 ()->agentSetMode(owner,1,dialog[0]));
-        ui.action(body,"GitHub Copilot Cloud Agent",copilot?"Выбран":"Отдельный облачный исполнитель GitHub",0xFF435B69,
+        ui.action(body,"GitHub Copilot Cloud · задачи",copilot?"Выбран · не разговорный Copilot Chat":"Запуск задач и создание PR в привязанном репозитории",0xFF435B69,
                 ()->agentSetMode(owner,2,dialog[0]));
+        ui.action(body,"Copilot Chat SDK · диалоги","Отдельное подключение через официальный runtime; ещё не настроено",0xFF435B69,
+                ()->{dialog[0].dismiss();agentShowCopilotChatInfo();});
         LinearLayout approval=ui.row();approval.setPadding(ui.dp(12),ui.dp(12),ui.dp(12),ui.dp(12));
         approval.setBackground(ui.shape(ui.dark?0xFF515963:0xFFF0EBF3,18,0));
         TextView caption=ui.label("Автоодобрение проекта\nGitHub-записи всегда требуют подтверждения",14,true);
@@ -1104,7 +1106,8 @@ public class MainActivity extends Activity {
     private void agentShowSubscriptions(String owner,boolean proxy){
         if(!owner.equals(accountStore.activeCacheKey()))return;
         GitAgentUi ui=new GitAgentUi(this,BG);LinearLayout body=ui.body(proxy?"Subscription proxy":"Аккаунты и подписки",true);
-        ui.note(body,"Вход через браузер и код устройства. Сессии зашифрованы и привязаны к выбранному GitHub-аккаунту.");
+        ui.note(body,"OAuth-сессии хранятся отдельно для каждого GitHub-аккаунта. "+
+            "Google Antigravity использует новый официальный вход; устаревший Cloud Code OAuth для личных тарифов больше не поддерживается.");
         final Dialog[] sheet={null};
         for(String provider:new String[]{OAuthSubscriptions.OPENAI,OAuthSubscriptions.CLINE,OAuthSubscriptions.KIMI,OAuthSubscriptions.GROK,"gemini-antigravity","claude-subscription"}){
             boolean saved=!"guest".equals(owner)&&aiConnections.hasKey(owner,provider);
@@ -1147,6 +1150,9 @@ public class MainActivity extends Activity {
     }
 
     private void agentBeginSubscription(String owner,String provider){
+        if("gemini-antigravity".equals(provider)){
+            agentShowAntigravityMigration(owner);return;
+        }
         if(app.githubble.mobile.network.BrowserSubscriptions.supports(provider)){agentBeginBrowserSubscription(owner,provider);return;}
         if("guest".equals(owner)||!owner.equals(accountStore.activeCacheKey())){toast("Сначала подключите GitHub-аккаунт");return;}
         AtomicBoolean cancelled=new AtomicBoolean(false),old=subscriptionAttempts.put(owner,cancelled);if(old!=null)old.set(true);
@@ -1202,6 +1208,40 @@ public class MainActivity extends Activity {
                 });}
             });
         },login.interval);
+    }
+
+    /**
+     * The copied Cloud Code loadCodeAssist/onboardUser project discovery is the
+     * discontinued personal Gemini Code Assist flow, not the official 2026
+     * Antigravity SDK. Never invent a GCP project ID or mark login as successful.
+     */
+    private void agentShowAntigravityMigration(String owner){
+        new AlertDialog.Builder(this)
+            .setTitle("Google Antigravity · обновление подключения")
+            .setMessage("Старый клиент Cloud Code проходит OAuth, но не получает project ID. "+
+                "Google прекратил поддержку прежнего персонального Gemini Code Assist 18 июня 2026 г. "+
+                "Новый Antigravity использует собственный официальный runtime и OAuth. "+
+                "Для полноценного входа без API необходим его SDK/CLI; старую схему не будем "+
+                "выдавать за работающую. Сейчас доступен прямой Gemini API.")
+            .setPositiveButton("Подключить Gemini API",(d,w)->agentEditAiProvider(owner,"gemini"))
+            .setNeutralButton("Документация Google",(d,w)->
+                openWeb("https://antigravity.google/docs/cli/install"))
+            .setNegativeButton("Закрыть",null).show();
+    }
+
+    private void agentShowCopilotChatInfo(){
+        new AlertDialog.Builder(this)
+            .setTitle("GitHub Copilot: Chat и Cloud Agent")
+            .setMessage("Cloud Agent создаёт задачи и Pull Request в репозитории. "+
+                "Для обычной переписки нужен GitHub Copilot SDK: многотуровая сессия, "+
+                "Copilot runtime и пользовательская GitHub OAuth-авторизация. "+
+                "В Android пока нет совместимого Copilot runtime, поэтому этот чат "+
+                "не выдаётся за подключённый. Можно пользоваться обычным Git Agent Chat "+
+                "через уже подключённую модель или ставить GitHub-задачи через Cloud Agent.")
+            .setPositiveButton("Понятно",null)
+            .setNeutralButton("Copilot SDK",(d,w)->
+                openWeb("https://docs.github.com/en/copilot/how-tos/copilot-sdk/setup"))
+            .show();
     }
 
     private void agentBeginBrowserSubscription(String owner,String provider){
@@ -1342,8 +1382,10 @@ public class MainActivity extends Activity {
                 public void afterTextChanged(android.text.Editable s){}
             });
         }else ui.note(body,"После подключения здесь появятся модели с поиском и фильтрами.");
-        ui.action(body,"GitHub Copilot Cloud Agent","Отдельный исполнитель · доступ проверяется GitHub при запуске",0xFF2E9D68,
+        ui.action(body,"GitHub Copilot Cloud · задачи","Не чат: запускает Cloud Agent в GitHub-репозитории",0xFF2E9D68,
                 ()->agentSetMode(owner,2,dialog[0]));
+        ui.action(body,"GitHub Copilot Chat · SDK","Разговорные сессии требуют отдельного официального Copilot runtime",0xFF435B69,
+                ()->{dialog[0].dismiss();agentShowCopilotChatInfo();});
         ui.action(body,"Обновить список моделей","Загрузить каталог выбранного API-подключения",0xFF2863B8,()->{
             dialog[0].dismiss();agentDiscoverAiModels(owner);});
         dialog[0]=ui.present(body,true);
@@ -1602,6 +1644,22 @@ public class MainActivity extends Activity {
             if(!OmniChatChatClient.supportsVision(selected)){toast("Эта модель не поддерживает фото");return;}
             pendingAgentImageUri=null;pendingAgentImageOwner="";pendingAgentImageThread="";
         }
+        if(useCopilot && (!agentMode ||
+                !app.githubble.mobile.agent.CopilotModePolicy.isExplicitCloudTask(message))){
+            new AlertDialog.Builder(this).setTitle("Copilot Cloud — не чат")
+                .setMessage("GitHub Copilot Cloud запускает задачи разработки в репозитории; "+
+                    "не отвечает на приветствия или обычные вопросы. "+
+                    "Для диалога выберите AI-модель. Чтобы запустить реальную задачу, "+
+                    "включите режим «Агент» и начните сообщение с /copilot.")
+                .setPositiveButton("Выбрать модель для чата",(d,w)->{
+                    prefs.edit().putBoolean("ai_chat_copilot_"+expected,false)
+                        .putBoolean("ai_chat_agent_mode_"+expected,false).apply();
+                    agentChooseComposerModel(expected);agentRefreshIfCurrent(expected);
+                })
+                .setNeutralButton("Как включить Copilot Chat",(d,w)->agentShowCopilotChatInfo())
+                .setNegativeButton("Отмена",null).show();
+            return;
+        }
         agentProjects.appendToConversation(expected, activeChat, "user", message);
         java.util.regex.Matcher create = java.util.regex.Pattern.compile(
                 "(?iu)(?:создай|создать)\\s+(?:(приватный|публичный)\\s+)?репозиторий\\s+([A-Za-z0-9_.-]+)")
@@ -1734,16 +1792,20 @@ public class MainActivity extends Activity {
             return;
         }
         if (!isSignedIn() || p.repository.isEmpty()) {
-            agentProjects.append(expected, "system", "Для запуска Copilot сначала подключите GitHub и привяжите репозиторий.");
+            agentProjects.append(expected, "system",
+                "Copilot Cloud Tasks требует GitHub-авторизацию, подписку Copilot "+
+                "и привязанный репозиторий. Для обычного чата выберите AI-модель.");
             agentRefreshIfCurrent(expected); return;
         }
         new AlertDialog.Builder(this).setTitle("Запустить GitHub Copilot Cloud Agent?")
-                .setMessage("Официальная задача будет создана в " + p.repository
-                        + " от активного GitHub-аккаунта. Copilot может создать изменения и Pull Request.")
+                .setMessage("Это не чат. Copilot получит задачу разработки в " + p.repository
+                        + " и может изменять код, создавать ветку и Pull Request. "+
+                        "Операция начнётся только после подтверждения.")
                 .setPositiveButton("Запустить", (d, w) -> {
                     io.execute(() -> {
                         try {
-                            JSONObject result = aiGithub.startCopilot(expected, p.repository, message, p.branch);
+                            JSONObject result = aiGithub.startCopilot(expected, p.repository,
+                                    app.githubble.mobile.agent.CopilotModePolicy.taskBody(message), p.branch);
                             String id = result.optString("id", "");
                             agentProjects.append(expected, "agent", "GitHub Copilot принял задачу"
                                     + (id.isEmpty() ? "." : " #" + id)
