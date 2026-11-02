@@ -167,9 +167,17 @@ final class GitAgentUiChecks {
                     View security=find(root,"Безопасность");
                     if(data==null||agent==null||security==null)
                         throw new AssertionError("Central AI settings category missing");
-                    int[] a=new int[2],b=new int[2],c=new int[2];
-                    data.getLocationOnScreen(a);agent.getLocationOnScreen(b);security.getLocationOnScreen(c);
-                    if(!(a[1]<b[1] && b[1]<c[1]))
+                    // Check actual child order instead of screen coordinates:
+                    // the first layout pass may not have run inside runOnMainSync.
+                    ViewGroup dataRow=(ViewGroup)((View)data.getParent()).getParent();
+                    ViewGroup agentRow=(ViewGroup)((View)agent.getParent()).getParent();
+                    ViewGroup securityRow=(ViewGroup)((View)security.getParent()).getParent();
+                    if(dataRow.getParent()!=agentRow.getParent()
+                            || dataRow.getParent()!=securityRow.getParent())
+                        throw new AssertionError("Settings cards are not in the same list");
+                    ViewGroup list=(ViewGroup)dataRow.getParent();
+                    if(!(list.indexOfChild(dataRow)<list.indexOfChild(agentRow)
+                            && list.indexOfChild(agentRow)<list.indexOfChild(securityRow)))
                         throw new AssertionError("Git Agent settings category has wrong dashboard order");
                     java.lang.reflect.Method open=MainActivity.class.getDeclaredMethod("showSettingsGitAgentWorkspace");
                     open.setAccessible(true);open.invoke(activity);
