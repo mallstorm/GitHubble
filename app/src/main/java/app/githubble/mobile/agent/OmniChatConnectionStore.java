@@ -110,12 +110,39 @@ public final class OmniChatConnectionStore {
         checkProvider(provider);
         vault.remove(key(account, provider));
         String scope = namespace(account);
-        SharedPreferences.Editor change = prefs.edit().remove(scope + "_model_" + provider);
+        SharedPreferences.Editor change = prefs.edit().remove(scope + "_model_" + provider)
+                .remove(scope + "_models_" + provider);
         if (provider.equals(selectedProvider(account))) change.remove(scope + "_provider");
         change.apply();
+    }
+
+    /** Last server catalog is retained across restarts; it never implies model entitlement. */
+    public synchronized void cacheModels(String account, String provider, java.util.List<String> models) {
+        checkProvider(provider);
+        org.json.JSONArray values = new org.json.JSONArray();
+        for (String model : models) if (model != null && !model.isBlank() && model.length() <= 160)
+            values.put(model);
+        prefs.edit().putString(namespace(account) + "_models_" + provider, values.toString()).apply();
+    }
+
+    public synchronized java.util.List<String> models(String account, String provider) {
+        checkProvider(provider);
+        java.util.LinkedHashSet<String> result = new java.util.LinkedHashSet<>();
+        String selected = model(account, provider);
+        if (!selected.isEmpty()) result.add(selected);
+        try {
+            org.json.JSONArray values = new org.json.JSONArray(prefs.getString(
+                    namespace(account) + "_models_" + provider, "[]"));
+            for (int i=0;i<values.length();i++) {
+                String value=values.optString(i);
+                if(!value.isEmpty())result.add(value);
+            }
+        } catch (Exception ignored) { /* An invalid cache must not break the current connection. */ }
+        return new java.util.ArrayList<>(result);
     }
 
     public String displayName(String provider) {
         return NAMES.containsKey(provider) ? NAMES.get(provider) : "Не подключено";
     }
 }
+

@@ -15,6 +15,9 @@ import org.json.JSONObject;
  * one atomic tree/commit/ref operation after the user explicitly approves.
  */
 public final class AgentGitWorkspace {
+    // Serializes approved plans across workspace instances, so a second tap rechecks the
+    // advanced HEAD before it can create another commit from the same proposal.
+    private static final Object COMMIT_LOCK = new Object();
     private final GitHubAccountStore accounts;
     private final SecureStore vault;
 
@@ -132,6 +135,13 @@ public final class AgentGitWorkspace {
 
     public JSONObject commitApprovedPlan(String account, String repository, String branch,
                                          String expectedHead, AgentFilePlan plan) throws Exception {
+        synchronized (COMMIT_LOCK) {
+            return commitPlanLocked(account, repository, branch, expectedHead, plan);
+        }
+    }
+
+    private JSONObject commitPlanLocked(String account, String repository, String branch,
+                                         String expectedHead, AgentFilePlan plan) throws Exception {
         validateRepository(repository, branch);
         if (plan == null || !expectedHead.matches("[a-fA-F0-9]{40}"))
             throw new IllegalArgumentException("Не подтверждён исходный коммит");
@@ -169,3 +179,4 @@ public final class AgentGitWorkspace {
                 .put("files", plan.files.length());
     }
 }
+

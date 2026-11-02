@@ -64,6 +64,7 @@ public final class RcInstrumentationTest extends Instrumentation {
             testRepositoryActivityRanking(context);
             testPrivateCommitCard();
             testNativeCommitDetail();
+            GitAgentUiChecks.run(this);
             result.putString("result", "PASS: RC instrumentation suite");
             finish(0, result);
         } catch (Throwable error) {
@@ -421,3 +422,4 @@ public final class RcInstrumentationTest extends Instrumentation {
     private static void no(boolean value){if(value)throw new AssertionError("Expected false");}
     private static void eq(Object expected,Object actual){if(expected==null?actual!=null:!expected.equals(actual))throw new AssertionError("Expected "+expected+", got "+actual);}
 }
+

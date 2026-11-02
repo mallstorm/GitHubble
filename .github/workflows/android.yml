@@ -104,6 +104,34 @@ jobs:
             adb shell pm list instrumentation
             adb shell am instrument -w app.githubble.mobile.debug.test/app.githubble.mobile.RcInstrumentationTest
 
+      - name: Git Agent Android 13 UI and state regression
+        if: github.event_name == 'pull_request' && github.head_ref == 'feature/omnichat-native-agent-phase1'
+        run: gradle --no-daemon assembleDebugAndroidTest
+
+      - name: Enable KVM for Git Agent Android 13 checks
+        if: github.event_name == 'pull_request' && github.head_ref == 'feature/omnichat-native-agent-phase1'
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-git-agent-kvm.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Git Agent light and dark screenshots on Android 13
+        if: github.event_name == 'pull_request' && github.head_ref == 'feature/omnichat-native-agent-phase1'
+        uses: ReactiveCircus/android-emulator-runner@v2
+        with:
+          api-level: 33
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          script: |
+            adb install -r app/build/outputs/apk/debug/app-debug.apk
+            adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+            adb shell am instrument -w app.githubble.mobile.debug.test/app.githubble.mobile.RcInstrumentationTest > instrumentation-result.txt
+            cat instrumentation-result.txt
+            grep -q 'PASS: RC instrumentation suite' instrumentation-result.txt
+            mkdir -p dist-pr/screenshots
+            adb pull /sdcard/Android/data/app.githubble.mobile.debug/files/ui-screenshots/. dist-pr/screenshots/
+
       - name: Export PR test APK and exact tested source tree
         if: github.event_name == 'pull_request'
         shell: bash
@@ -231,3 +259,4 @@ jobs:
               --notes-file "$RUNNER_TEMP/release-notes.md" \
               --prerelease
           fi
+

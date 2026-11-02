@@ -42,6 +42,7 @@ import app.githubble.mobile.security.SecureStore;
 import app.githubble.mobile.ui.HomeScreen;
 import app.githubble.mobile.ui.BottomNavigationBar;
 import app.githubble.mobile.ui.AgentChatScreen;
+import app.githubble.mobile.ui.GitAgentUi;
 import app.githubble.mobile.agent.AgentProjectStore;
 import app.githubble.mobile.agent.GitHubAgentBridge;
 import app.githubble.mobile.agent.AgentBuildArtifactController;
@@ -195,12 +196,12 @@ public class MainActivity extends Activity {
     private String pendingRepositoryImportFull = "";
     private String pendingRepositoryImportBranch = "main";
     private final Set<String> smartSearchRendered = new HashSet<>();
-    private final Map<String,String> aiChatDrafts = new HashMap<>();
     private final Map<String,java.util.concurrent.Future<?>> aiActiveFutures = new java.util.concurrent.ConcurrentHashMap<>();
     private final Set<String> aiCanceledRequests = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private final Map<String,Long> aiRequestTickets = new java.util.concurrent.ConcurrentHashMap<>();
     private final java.util.concurrent.atomic.AtomicLong aiTicketCounter = new java.util.concurrent.atomic.AtomicLong();
     private String pendingAgentTextAccount = "";
+    private String pendingAgentTextConversation = "";
     private static final int REQUEST_AGENT_TEXT_FILE = 2722;
 
     @Override public void onCreate(Bundle b) {
@@ -532,6 +533,12 @@ public class MainActivity extends Activity {
     }
 
     /** Phase-one native AI Workspace. All project/repository actions use the active GitHub account. */
+    private String agentDraftKey(String owner, String thread) {
+        return "git_agent_draft_" + android.util.Base64.encodeToString(
+                (owner + ":" + thread).getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                android.util.Base64.URL_SAFE | android.util.Base64.NO_WRAP);
+    }
+
     private void showAgentChat() {
         rememberScreen("ai_chat", null);
         setCurrentScreen(this::showAgentChat);
@@ -541,6 +548,7 @@ public class MainActivity extends Activity {
         GitHubAccountStore.Account active = accountStore.activeAccount();
         String label = active == null ? (isSignedIn() ? secureStore.get("github_login") : "не подключён")
                 : active.displayName();
+        final String renderedThread = agentProjects.activeConversation(owner);
         AgentChatScreen screen = new AgentChatScreen(this, content,
                 BG, CARD, SUBTLE, TEXT, MUTED, GREEN, BORDER, new AgentChatScreen.Actions() {
             @Override public void newProject() { agentNewProject(owner); }
@@ -570,7 +578,7 @@ public class MainActivity extends Activity {
             }
             @Override public void voiceSettings() { showVoiceLanguageChooser(); }
             @Override public void cancelRequest() { agentCancelRequest(owner); }
-            @Override public void draftChanged(String value) { aiChatDrafts.put(owner, value); }
+            @Override public void draftChanged(String value) { prefs.edit().putString(agentDraftKey(owner, renderedThread), value).apply(); }
             @Override public void selectExecutor(boolean copilot) {
                 prefs.edit().putBoolean("ai_chat_copilot_" + owner, copilot).apply();
             }
@@ -598,7 +606,7 @@ public class MainActivity extends Activity {
                 prefs.getBoolean("ai_chat_agent_mode_" + owner, true),
                 connected ? aiConnections.displayName(provider) : "нет",
                 connected ? aiConnections.model(owner, provider) : "", connected,
-                title, aiRequestsInFlight.contains(owner), aiChatDrafts.getOrDefault(owner, ""));
+                title, aiRequestsInFlight.contains(owner), prefs.getString(agentDraftKey(owner, agentProjects.activeConversation(owner)), ""));
     }
 
     private void agentRefreshIfCurrent(String expectedAccount) {
@@ -716,8 +724,7 @@ public class MainActivity extends Activity {
             names[i] = OmniChatConnectionStore.supported().get(id)
                     + (aiConnections.isConfigured(expected, id) ? " · подключено" : "");
         }
-        new AlertDialog.Builder(this).setTitle("Подключить OmniChat API")
-                .setMessage("Поддерживаются прямые API-ключи. Вход через подписку ChatGPT/OAuth будет интегрирован отдельно.")
+        new AlertDialog.Builder(this).setTitle("Подключить Git Agent API")
                 .setItems(names, (d, item) -> agentEditAiProvider(expected, ids.get(item)))
                 .setNegativeButton("Отмена", null).show();
     }
@@ -807,7 +814,7 @@ public class MainActivity extends Activity {
         if (provider.isEmpty() || !aiConnections.isConfigured(expected, provider)) {
             agentConfigureAiProvider(expected); return;
         }
-        ProgressDialog loading = ProgressDialog.show(this, "OmniChat",
+        ProgressDialog loading = ProgressDialog.show(this, "Git Agent",
                 "Загружаем модели с сервера " + aiConnections.displayName(provider), true, false);
         String key = aiConnections.credential(expected, provider);
         io.execute(() -> {
@@ -816,6 +823,7 @@ public class MainActivity extends Activity {
                 runOnUiThread(() -> {
                     loading.dismiss();
                     if (!expected.equals(accountStore.activeCacheKey())) return;
+                    aiConnections.cacheModels(expected, provider, models);
                     if (models.isEmpty()) {
                         new AlertDialog.Builder(this).setTitle("Модели не найдены")
                                 .setMessage("Провайдер не вернул каталог. ID модели можно указать вручную.")
@@ -824,7 +832,6 @@ public class MainActivity extends Activity {
                     }
                     new AlertDialog.Builder(this).setTitle("Модели " + aiConnections.displayName(provider)
                                     + " · " + models.size())
-                            .setMessage("Каталог не гарантирует доступ к конкретной модели по вашему тарифу.")
                             .setItems(models.toArray(new String[0]), (d, which) -> {
                                 if (!expected.equals(accountStore.activeCacheKey())) {
                                     toast("Аккаунт изменился"); return;
@@ -853,15 +860,16 @@ public class MainActivity extends Activity {
     /** OmniChat-style left navigation drawer: independent conversations per GitHub account. */
     private void agentShowConversations(String owner) {
         if (!owner.equals(accountStore.activeCacheKey())) return;
+        GitAgentUi ui=new GitAgentUi(this,BG);
         final Dialog drawer = new Dialog(this);
         LinearLayout panel = new LinearLayout(this);
         panel.setOrientation(LinearLayout.VERTICAL);
         panel.setPadding(dp(14), dp(22), dp(14), dp(17));
-        panel.setBackgroundColor(SURFACE);
+        panel.setBackgroundColor(ui.dark?0xFF343941:Color.WHITE);
 
         LinearLayout heading = new LinearLayout(this);
         heading.setGravity(Gravity.CENTER_VERTICAL);
-        TextView title = text("OmniChat", 21, true);
+        TextView title = ui.label("Git Agent", 21, true);
         heading.addView(title, new LinearLayout.LayoutParams(0, dp(48), 1));
         TextView newChat = text("+", 29, false);
         newChat.setGravity(Gravity.CENTER);
@@ -875,12 +883,12 @@ public class MainActivity extends Activity {
 
         EditText search = new EditText(this);
         search.setSingleLine(true);
-        search.setTextColor(TEXT);
-        search.setHintTextColor(MUTED);
+        search.setTextColor(ui.text);
+        search.setHintTextColor(ui.muted);
         search.setTextSize(13);
         search.setHint("Поиск диалогов");
         search.setPadding(dp(14), dp(10), dp(14), dp(10));
-        search.setBackground(round(SUBTLE, 20, BORDER, 1));
+        search.setBackground(ui.shape(ui.dark?0xFF515963:0xFFF2F4F6,28,ui.line));
         LinearLayout.LayoutParams searchLp = new LinearLayout.LayoutParams(-1, dp(49));
         searchLp.bottomMargin = dp(15);
         panel.addView(search, searchLp);
@@ -897,8 +905,9 @@ public class MainActivity extends Activity {
             String filter = search.getText().toString().trim().toLowerCase(Locale.ROOT);
             JSONArray conversations = agentProjects.listConversations(owner);
             String active = agentProjects.activeConversation(owner);
-            TextView section = text("Все диалоги · " + conversations.length(), 12, true);
-            section.setTextColor(MUTED);
+            TextView section = ui.label("Все диалоги · " + conversations.length(), 12, true);
+            section.setTextColor(ui.muted);
+            section.setPadding(0,dp(5),0,dp(10));
             list.addView(section);
             for (int i = 0; i < conversations.length(); i++) {
                 JSONObject chat = conversations.optJSONObject(i);
@@ -906,19 +915,19 @@ public class MainActivity extends Activity {
                 String id = chat.optString("id");
                 String name = chat.optString("title", "Диалог");
                 if (!filter.isEmpty() && !name.toLowerCase(Locale.ROOT).contains(filter)) continue;
-                TextView item = text((id.equals(active) ? "●  " : "     ") + name, 14, id.equals(active));
+                TextView item = ui.label((id.equals(active) ? "●  " : "     ") + name, 14, id.equals(active));
                 item.setSingleLine();
                 item.setEllipsize(TextUtils.TruncateAt.END);
                 item.setGravity(Gravity.CENTER_VERTICAL);
                 item.setPadding(dp(9), dp(9), dp(9), dp(9));
-                item.setBackground(round(id.equals(active) ? SUBTLE : SURFACE, 13, BORDER, id.equals(active) ? 1 : 0));
+                item.setBackground(ui.shape(id.equals(active)?(ui.dark?0xFF515963:0xFFE9EFF3):Color.TRANSPARENT,16,0));
                 LinearLayout.LayoutParams row = new LinearLayout.LayoutParams(-1, dp(52));
                 row.bottomMargin = dp(4);
                 list.addView(item, row);
                 item.setOnClickListener(v -> {
                     if (!owner.equals(accountStore.activeCacheKey())) return;
                     agentProjects.switchConversation(owner, id);
-                    aiChatDrafts.remove(owner);
+                    // Draft remains stored with its own thread.
                     drawer.dismiss();
                     agentRefreshIfCurrent(owner);
                 });
@@ -1013,147 +1022,145 @@ public class MainActivity extends Activity {
     /** Long press on the gray/green robot mirrors OmniChat's agent configuration shortcut. */
     private void agentShowAgentSettings(String owner) {
         if (!owner.equals(accountStore.activeCacheKey())) return;
-        boolean agent = prefs.getBoolean("ai_chat_agent_mode_" + owner, true);
-        boolean copilot = prefs.getBoolean("ai_chat_copilot_" + owner, false);
-        int selected = copilot ? 2 : agent ? 1 : 0;
-        String[] choices = {
-                "Чат · робот серый\nОбычные запросы к выбранной AI-модели.",
-                "GitHubble AI Agent · робот зелёный\nАнализ и генерация файлов с подтверждением GitHub-операций.",
-                "GitHub Copilot Cloud · робот зелёный\nОфициальный облачный исполнитель GitHub."
-        };
-        new AlertDialog.Builder(this).setTitle("Режим OmniChat")
-                .setSingleChoiceItems(choices, selected, (dialog, which) -> {
-                    if (!owner.equals(accountStore.activeCacheKey())) return;
-                    prefs.edit()
-                            .putBoolean("ai_chat_agent_mode_" + owner, which != 0)
-                            .putBoolean("ai_chat_copilot_" + owner, which == 2)
-                            .apply();
-                    dialog.dismiss();
-                    agentRefreshIfCurrent(owner);
-                }).setNeutralButton("Инструменты агента",
-                        (d,w) -> agentShowChatTools(owner))
-                .setNegativeButton("Закрыть", null).show();
+        GitAgentUi ui=new GitAgentUi(this,BG);
+        LinearLayout body=ui.body("Агент и оркестрация",false);
+        ui.section(body,"Режим выполнения");
+        boolean enabled=prefs.getBoolean("ai_chat_agent_mode_"+owner,true);
+        boolean copilot=prefs.getBoolean("ai_chat_copilot_"+owner,false);
+        final Dialog[] dialog={null};
+        LinearLayout modes=ui.row();
+        ui.chip(modes,"Выкл",!enabled,()->agentSetMode(owner,0,dialog[0]));
+        TextView auto=ui.chip(modes,"Авто",false,()->{});auto.setEnabled(false);auto.setAlpha(.45f);
+        body.addView(modes);
+        LinearLayout agents=ui.row();
+        ui.chip(agents,"Один агент",enabled,()->agentSetMode(owner,1,dialog[0]));
+        TextView orchestration=ui.chip(agents,"Оркестрация",false,()->{});
+        orchestration.setEnabled(false);orchestration.setAlpha(.45f);body.addView(agents);
+        ui.note(body,enabled?"Анализ и генерация файлов. Записи в GitHub требуют подтверждения.":"Обычный чат без файловых инструментов.");
+        ui.action(body,"GitHubble AI Agent",enabled&&!copilot?"Выбран":"Собственный исполнитель",0xFF2E9D68,
+                ()->agentSetMode(owner,1,dialog[0]));
+        ui.action(body,"GitHub Copilot Cloud Agent",copilot?"Выбран":"Отдельный облачный исполнитель GitHub",0xFF435B69,
+                ()->agentSetMode(owner,2,dialog[0]));
+        LinearLayout approval=ui.row();approval.setPadding(ui.dp(12),ui.dp(12),ui.dp(12),ui.dp(12));
+        approval.setBackground(ui.shape(ui.dark?0xFF515963:0xFFF0EBF3,18,0));
+        TextView caption=ui.label("Автоодобрение проекта\nGitHub-записи всегда требуют подтверждения",14,true);
+        approval.addView(caption,new LinearLayout.LayoutParams(0,-2,1));
+        Switch toggle=new Switch(this);toggle.setChecked(false);toggle.setEnabled(false);approval.addView(toggle);body.addView(approval);
+        ui.section(body,"Роли оркестрации");
+        for(String role:new String[]{"Архитектор","Исполнитель","Ревьюер","Отладчик"}){
+            LinearLayout row=ui.row();row.setPadding(0,ui.dp(8),0,ui.dp(8));
+            Switch active=new Switch(this);active.setChecked("Исполнитель".equals(role));active.setEnabled(false);
+            row.addView(active);TextView name=ui.label(role+"\n"+("Исполнитель".equals(role)?"Текущая модель":"Не подключено"),13,true);
+            row.addView(name,new LinearLayout.LayoutParams(0,-2,1));
+            TextView model=ui.label("Модель",12,false);model.setTextColor(ui.muted);row.addView(model);body.addView(row);
+        }
+        ui.note(body,"Авто и несколько ролей пока недоступны. Работает один исполнитель с выбранной моделью.");
+        TextView done=ui.label("Готово",14,true);done.setGravity(Gravity.END);done.setPadding(0,ui.dp(12),0,ui.dp(8));
+        done.setOnClickListener(v->dialog[0].dismiss());body.addView(done);dialog[0]=ui.present(body,false);
+    }
+
+    private void agentSetMode(String owner,int mode,Dialog dialog){
+        if(!owner.equals(accountStore.activeCacheKey()))return;
+        prefs.edit().putBoolean("ai_chat_agent_mode_"+owner,mode!=0)
+                .putBoolean("ai_chat_copilot_"+owner,mode==2).apply();
+        if(dialog!=null)dialog.dismiss();agentRefreshIfCurrent(owner);
+    }
+
+    private void agentUnavailable(String title,String reason){
+        new AlertDialog.Builder(this).setTitle(title).setMessage(reason).setPositiveButton("Понятно",null).show();
     }
 
     private void agentChooseComposerModel(String owner) {
         if (!owner.equals(accountStore.activeCacheKey())) return;
-        boolean copilot = prefs.getBoolean("ai_chat_copilot_" + owner, false);
-        new AlertDialog.Builder(this).setTitle("Выбрать модель")
-                .setItems(new String[]{
-                        (copilot ? "○ " : "● ") + "OmniChat · подключённые модели",
-                        (copilot ? "● " : "○ ") + "GitHub Copilot Cloud Agent",
-                        "Добавить AI-подключение",
-                        "Обновить список моделей"
-                }, (d, option) -> {
-                    switch (option) {
-                        case 0:
-                            prefs.edit().putBoolean("ai_chat_copilot_" + owner, false).apply();
-                            agentSelectAiProvider(owner);
-                            agentRefreshIfCurrent(owner);
-                            break;
-                        case 1:
-                            prefs.edit().putBoolean("ai_chat_copilot_" + owner, true)
-                                    .putBoolean("ai_chat_agent_mode_" + owner, true).apply();
-                            agentRefreshIfCurrent(owner);
-                            break;
-                        case 2: agentConfigureAiProvider(owner); break;
-                        case 3: agentDiscoverAiModels(owner); break;
+        GitAgentUi ui=new GitAgentUi(this,BG);LinearLayout body=ui.body("Выбор модели",true);
+        final Dialog[] dialog={null};
+        boolean any=false;
+        for(String id:OmniChatConnectionStore.supported().keySet())
+            if(!"guest".equals(owner)&&aiConnections.isConfigured(owner,id))any=true;
+        ui.note(body,any?"Выберите подключённую модель":"Подключений пока нет. Выберите способ подключения.");
+        LinearLayout onboarding=ui.row();
+        ui.tile(onboarding,"Добавить API",android.R.drawable.ic_menu_share,0xFF2863B8,()->{
+            dialog[0].dismiss();agentConfigureAiProvider(owner);});
+        ui.tile(onboarding,"Добавить подписку",android.R.drawable.star_big_on,0xFF713CB3,
+                ()->agentUnavailable("Подписки","OAuth-подключения подписок ещё не перенесены. API-ключ не является входом по подписке."));
+        ui.tile(onboarding,"Subscription proxy",android.R.drawable.ic_menu_compass,0xFF14846C,
+                ()->agentUnavailable("Subscription proxy","Транспорт Subscription Proxy ещё не подключён. Авторизация не выполнялась."));
+        body.addView(onboarding,new LinearLayout.LayoutParams(-1,ui.dp(112)));
+        if(any){
+            EditText search=new EditText(this);search.setSingleLine(true);search.setHint("Поиск моделей и подключений");
+            search.setTextColor(ui.text);search.setHintTextColor(ui.muted);search.setTextSize(14);body.addView(search);
+            final String[] filter={"Все"};LinearLayout filters=ui.row();
+            LinearLayout list=ui.column();final Runnable[] refresh={null};
+            refresh[0]=()->{
+                list.removeAllViews();String query=search.getText().toString().trim().toLowerCase(Locale.ROOT);
+                for(String provider:OmniChatConnectionStore.supported().keySet()){
+                    if(!aiConnections.isConfigured(owner,provider)||"Подписки".equals(filter[0]))continue;
+                    for(String model:aiConnections.models(owner,provider)){
+                        String label=aiConnections.displayName(provider)+" · "+model;
+                        if(!query.isEmpty()&&!label.toLowerCase(Locale.ROOT).contains(query))continue;
+                        boolean selected=provider.equals(aiConnections.selectedProvider(owner))
+                                &&model.equals(aiConnections.model(owner,provider))&&!prefs.getBoolean("ai_chat_copilot_"+owner,false);
+                        ui.action(list,(selected?"✓  ":"")+model,aiConnections.displayName(provider),0xFF435B69,()->{
+                            if(!owner.equals(accountStore.activeCacheKey()))return;
+                            aiConnections.save(owner,provider,model,"");prefs.edit().putBoolean("ai_chat_copilot_"+owner,false).apply();
+                            dialog[0].dismiss();agentRefreshIfCurrent(owner);
+                        });
                     }
-                }).setNegativeButton("Закрыть", null).show();
+                }
+                if(list.getChildCount()==0)ui.note(list,"Модели не найдены");
+            };
+            for(String scope:new String[]{"Все","API","Подписки"})ui.chip(filters,scope,scope.equals(filter[0]),()->{
+                filter[0]=scope;for(int i=0;i<filters.getChildCount();i++){
+                    TextView chip=(TextView)filters.getChildAt(i);String value=new String[]{"Все","API","Подписки"}[i];
+                    chip.setText((value.equals(scope)?"✓  ":"")+value);}
+                refresh[0].run();});
+            body.addView(filters);body.addView(list);refresh[0].run();
+            search.addTextChangedListener(new android.text.TextWatcher(){
+                public void beforeTextChanged(CharSequence s,int st,int count,int after){}
+                public void onTextChanged(CharSequence s,int st,int before,int count){refresh[0].run();}
+                public void afterTextChanged(android.text.Editable s){}
+            });
+        }else ui.note(body,"После подключения здесь появятся модели с поиском и фильтрами.");
+        ui.action(body,"GitHub Copilot Cloud Agent","Отдельный исполнитель · доступ проверяется GitHub при запуске",0xFF2E9D68,
+                ()->agentSetMode(owner,2,dialog[0]));
+        ui.action(body,"Обновить список моделей","Загрузить каталог выбранного API-подключения",0xFF2863B8,()->{
+            dialog[0].dismiss();agentDiscoverAiModels(owner);});
+        dialog[0]=ui.present(body,true);
     }
 
-    /** OmniChat's composer + and top overflow now expose tools without dominating the chat. */
-
-    /** Native OmniChat attachment sheet: compact four-way quick actions plus useful GitHub tools. */
     private void agentShowAttachments(String owner) {
-        if (!owner.equals(accountStore.activeCacheKey())) return;
-        final Dialog sheet = new Dialog(this);
-        LinearLayout body = new LinearLayout(this);
-        body.setOrientation(LinearLayout.VERTICAL);
-        body.setPadding(dp(15), dp(15), dp(15), dp(24));
-        body.setBackground(round(SURFACE, 25, BORDER, 1));
-        TextView heading = text("Добавить", 19, true);
-        heading.setPadding(dp(5), dp(4), dp(5), dp(14));
-        body.addView(heading);
-
-        LinearLayout quick = new LinearLayout(this);
-        quick.setGravity(Gravity.CENTER_VERTICAL);
-        String[] labels = {"Камера", "Фото", "Файлы", "OCR"};
-        String[] icons = {"📷", "▧", "▤", "▣"};
-        int[] colors = {0xFFB85D46, 0xFF6488CB, 0xFF54A980, 0xFF8F75BE};
-        for (int i=0;i<labels.length;i++) {
-            final int selected=i;
-            LinearLayout tile=new LinearLayout(this);
-            tile.setOrientation(LinearLayout.VERTICAL);
-            tile.setGravity(Gravity.CENTER);
-            tile.setPadding(dp(2),dp(8),dp(2),dp(8));
-            tile.setBackground(round(SUBTLE,16,BORDER,1));
-            TextView symbol=text(icons[i],25,false);
-            symbol.setTextColor(colors[i]);
-            symbol.setGravity(Gravity.CENTER);
-            tile.addView(symbol);
-            TextView name=text(labels[i],11,true);
-            name.setGravity(Gravity.CENTER);
-            tile.addView(name);
-            tile.setOnClickListener(v->{
-                sheet.dismiss();
-                if (selected==2) agentPickTextAttachment(owner);
-                else new AlertDialog.Builder(this).setTitle(labels[selected]+" · OmniChat")
-                        .setMessage("Сейчас в GitHubble перенесён текстовый AI-транспорт. "
-                                +"Мультимодальный импорт и распознавание изображений подключаются отдельным этапом.")
-                        .setPositiveButton("ОК",null).show();
-            });
-            LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(94),1);
-            lp.setMargins(dp(3),0,dp(3),0);
-            quick.addView(tile,lp);
-        }
-        body.addView(quick);
-        TextView subtitle=text("Инструменты проекта",12,true);
-        subtitle.setTextColor(MUTED);
-        subtitle.setPadding(dp(6),dp(18),dp(6),dp(9));
-        body.addView(subtitle);
-
-        String[] actions = {"◈  Создать или изменить код", "▣  Привязать репозиторий",
-                "▶  GitHub Actions", "◇  AI-подключения", "⋯  Все инструменты"};
-        for(int i=0;i<actions.length;i++) {
-            final int selected=i;
-            TextView option=text(actions[i],15,false);
-            option.setGravity(Gravity.CENTER_VERTICAL);
-            option.setPadding(dp(12),dp(9),dp(12),dp(9));
-            option.setBackground(round(SUBTLE,13,BORDER,1));
-            LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,dp(46));
-            p.bottomMargin=dp(6);
-            body.addView(option,p);
-            option.setOnClickListener(v->{
-                sheet.dismiss();
-                switch(selected){
-                    case 0: agentGenerateProjectCode(owner,"");break;
-                    case 1: agentAttachRepository(owner);break;
-                    case 2: agentChooseWorkflow(owner);break;
-                    case 3: agentConfigureAiProvider(owner);break;
-                    default: agentShowChatTools(owner);break;
-                }
-            });
-        }
-        sheet.setContentView(body);
-        android.view.Window w=sheet.getWindow();
-        if(w!=null)w.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
-        sheet.show();
-        if(w!=null){
-            w.setGravity(Gravity.BOTTOM);
-            w.setLayout(android.view.WindowManager.LayoutParams.MATCH_PARENT,
-                    android.view.WindowManager.LayoutParams.WRAP_CONTENT);
-            w.addFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND);
-            android.view.WindowManager.LayoutParams params=w.getAttributes();
-            params.dimAmount=.38f;
-            w.setAttributes(params);
-        }
+        if(!owner.equals(accountStore.activeCacheKey()))return;
+        GitAgentUi ui=new GitAgentUi(this,BG);LinearLayout body=ui.body("Добавить",true);
+        final Dialog[] dialog={null};LinearLayout quick=ui.row();
+        String unavailable="Мультимодальный транспорт ещё не подключён. Доступны текстовые файлы и GitHub-инструменты.";
+        ui.tile(quick,"Камера",R.drawable.ic_agent_camera,0xFF1C9C76,()->agentUnavailable("Камера · недоступно",unavailable));
+        ui.tile(quick,"Фото",R.drawable.ic_agent_photo,0xFF347EE2,()->agentUnavailable("Фото · недоступно",unavailable));
+        ui.tile(quick,"Файлы",R.drawable.ic_agent_attach,0xFFE5A126,()->{dialog[0].dismiss();agentPickTextAttachment(owner);});
+        ui.tile(quick,"Сканировать текст",R.drawable.ic_agent_scan,0xFF8E59DE,()->agentUnavailable("OCR · недоступно",unavailable));
+        body.addView(quick,new LinearLayout.LayoutParams(-1,ui.dp(94)));
+        ui.section(body,"Инструменты с изображениями");
+        ui.note(body,"Для анализа, OCR и генерации требуется мультимодальное подключение.");
+        String[] titles={"Анализ фотографии","Вопрос по изображению","Создание изображения","Веб-поиск","Плагины"};
+        int[] colors={0xFF8A42DC,0xFF179BB5,0xFFD957A3,0xFF3572DC,0xFF209F77};
+        for(int i=0;i<titles.length;i++){String title=titles[i];
+            ui.action(body,title,"Пока недоступно",colors[i],()->agentUnavailable(title,"Этот инструмент ещё не подключён в Git Agent."));}
+        ui.section(body,"Инструменты GitHubble");
+        String[] tools={"Создать или изменить код","Привязать репозиторий","GitHub Actions","APK и артефакты","Проекты","AI-подключения","Все инструменты"};
+        for(int i=0;i<tools.length;i++){final int action=i;
+            ui.action(body,tools[i],i==0?"Предпросмотр файлов и подтверждение коммита":"",0xFF435B69,()->{
+                dialog[0].dismiss();if(!owner.equals(accountStore.activeCacheKey()))return;
+                switch(action){case 0:agentGenerateProjectCode(owner,"");break;
+                    case 1:agentAttachRepository(owner);break;case 2:agentChooseWorkflow(owner);break;
+                    case 3:agentShowBuildArtifacts(owner);break;case 4:agentShowConversations(owner);break;
+                    case 5:agentChooseComposerModel(owner);break;default:agentShowChatTools(owner);}
+            });}
+        dialog[0]=ui.present(body,true);
     }
 
     private void agentShowChatTools(String owner) {
         if (!owner.equals(accountStore.activeCacheKey())) return;
         AgentProjectStore.Project project = agentProjects.project(owner);
-        new AlertDialog.Builder(this).setTitle("OmniChat · инструменты")
+        new AlertDialog.Builder(this).setTitle("Git Agent · инструменты")
                 .setItems(new String[]{
                         "📎  Прикрепить текстовый файл",
                         "🖼  Фото и мультимедиа",
@@ -1170,7 +1177,7 @@ public class MainActivity extends Activity {
                     switch (index) {
                         case 0: agentPickTextAttachment(owner); break;
                         case 1:
-                            new AlertDialog.Builder(this).setTitle("Мультимедиа OmniChat")
+                            new AlertDialog.Builder(this).setTitle("Мультимедиа Git Agent")
                                     .setMessage("Галерея, камера, изображения и видео будут подключены к "
                                             + "мультимодальному движку отдельно. Текущий AI API-транспорт "
                                             + "поддерживает текст, поэтому отправлять изображение как текст нельзя.")
@@ -1220,6 +1227,7 @@ public class MainActivity extends Activity {
     private void agentPickTextAttachment(String owner) {
         if (!owner.equals(accountStore.activeCacheKey())) return;
         pendingAgentTextAccount = owner;
+        pendingAgentTextConversation = agentProjects.activeConversation(owner);
         Intent choose = new Intent(Intent.ACTION_OPEN_DOCUMENT);
         choose.addCategory(Intent.CATEGORY_OPENABLE);
         choose.setType("*/*");
@@ -1236,7 +1244,7 @@ public class MainActivity extends Activity {
 
 
     /** Explicitly chosen local text attachment is previewed before joining the unsent chat draft. */
-    private void agentReadTextAttachment(String owner, Uri uri) {
+    private void agentReadTextAttachment(String owner, String conversation, Uri uri) {
         io.execute(() -> {
             try {
                 String filename = uri.getLastPathSegment();
@@ -1281,13 +1289,13 @@ public class MainActivity extends Activity {
                             .setView(scroll)
                             .setPositiveButton("Добавить в сообщение", (d,w) -> {
                                 if (!owner.equals(accountStore.activeCacheKey())) return;
-                                String old = aiChatDrafts.getOrDefault(owner, "");
+                                String old = prefs.getString(agentDraftKey(owner, conversation), "");
                                 String appended = old + "\n\nФайл: " + title + "\n" + body;
                                 if (appended.length() > 4900) {
                                     toast("Черновик превысит лимит 4900 символов. Сократите сообщение.");
                                     return;
                                 }
-                                aiChatDrafts.put(owner, appended);
+                                prefs.edit().putString(agentDraftKey(owner, conversation), appended).apply();
                                 agentRefreshIfCurrent(owner);
                             }).setNegativeButton("Отмена",null).show();
                 });
@@ -1314,7 +1322,7 @@ public class MainActivity extends Activity {
         if (!expected.equals(accountStore.activeCacheKey())) { toast("Аккаунт изменился"); return; }
         try {
             agentProjects.newConversation(expected);
-            aiChatDrafts.remove(expected);
+            // New thread has its own empty draft; existing drafts are preserved.
             agentRefreshIfCurrent(expected);
         } catch (Exception error) { toast(error.getMessage()); }
     }
@@ -1326,11 +1334,11 @@ public class MainActivity extends Activity {
             JSONObject entry = entries.optJSONObject(i);
             labels[i] = entry == null ? "Unknown" : entry.optString("name", entry.optString("id", "Provider"));
         }
-        new AlertDialog.Builder(this).setTitle("Каталог OmniChat · " + labels.length)
+        new AlertDialog.Builder(this).setTitle("Каталог Git Agent · " + labels.length)
                 .setItems(labels, (d, i) -> {
                     JSONObject item = entries.optJSONObject(i);
                     if (item != null) new AlertDialog.Builder(this)
-                            .setTitle(item.optString("name", "OmniChat"))
+                            .setTitle(item.optString("name", "Git Agent"))
                             .setMessage("Тип: " + item.optString("category", "—")
                                     + "\nАвторизация: " + item.optString("auth_type", "—")
                                     + "\nСетевой движок перенесём на следующем этапе. Это пока не активное подключение.")
@@ -1340,12 +1348,13 @@ public class MainActivity extends Activity {
 
     private void agentSend(String expected, String message, boolean agentMode, boolean useCopilot) {
         if (!expected.equals(accountStore.activeCacheKey())) { toast("Аккаунт проекта изменился"); return; }
+        if(aiRequestsInFlight.contains(expected)){toast("Предыдущий запрос ещё выполняется");return;}
         final String activeChat = agentProjects.activeConversation(expected);
         agentProjects.appendToConversation(expected, activeChat, "user", message);
         java.util.regex.Matcher create = java.util.regex.Pattern.compile(
                 "(?iu)(?:создай|создать)\\s+(?:(приватный|публичный)\\s+)?репозиторий\\s+([A-Za-z0-9_.-]+)")
                 .matcher(message);
-        if (create.find()) {
+        if (agentMode && !useCopilot && create.find()) {
             String visibility = create.group(1);
             agentRefreshIfCurrent(expected);
             agentCreateRepository(expected, create.group(2), !"публичный".equalsIgnoreCase(visibility));
@@ -1353,7 +1362,7 @@ public class MainActivity extends Activity {
         }
         AgentProjectStore.Project p = agentProjects.project(expected);
         String lower = message.toLowerCase(java.util.Locale.ROOT);
-        if (lower.startsWith("/build") || lower.contains("собери проект") || lower.contains("запусти сборку")) {
+        if (agentMode && !useCopilot && (lower.startsWith("/build") || lower.contains("собери проект") || lower.contains("запусти сборку"))) {
             agentRefreshIfCurrent(expected);
             agentChooseWorkflow(expected);
             return;
@@ -1488,6 +1497,9 @@ public class MainActivity extends Activity {
                 .setOnClickListener(v -> {
                     String request = task.getText().toString().trim();
                     if (request.length() < 5) { task.setError("Опишите задачу подробнее"); return; }
+                    if(!expected.equals(accountStore.activeCacheKey())){dialog.dismiss();return;}
+                    final String pinnedModel=aiConnections.model(expected,provider);
+                    final String pinnedCredential=aiConnections.credential(expected,provider);
                     boolean sendPaths = paths.isChecked();
                     boolean sendSource = sources.isChecked();
                     dialog.dismiss();
@@ -1519,8 +1531,7 @@ public class MainActivity extends Activity {
                             JSONArray messages = new JSONArray()
                                     .put(new JSONObject().put("role", "user").put("body", instructions));
                             String output = aiChatClient.complete(provider,
-                                    aiConnections.model(expected, provider),
-                                    aiConnections.credential(expected, provider), messages,
+                                    pinnedModel, pinnedCredential, messages,
                                     p.name, p.repository);
                             AgentFilePlan plan = AgentFilePlan.parse(output);
                             runOnUiThread(() -> {
@@ -8080,10 +8091,12 @@ public class MainActivity extends Activity {
         super.onActivityResult(requestCode,resultCode,data);
         if (requestCode == REQUEST_AGENT_TEXT_FILE) {
             String owner = pendingAgentTextAccount;
+            String conversation = pendingAgentTextConversation;
             pendingAgentTextAccount = "";
+            pendingAgentTextConversation = "";
             if (resultCode == RESULT_OK && data != null && data.getData() != null
                     && owner.equals(accountStore.activeCacheKey()))
-                agentReadTextAttachment(owner, data.getData());
+                agentReadTextAttachment(owner, conversation, data.getData());
             return;
         }
         if(requestCode==REQUEST_LOCAL_AVATAR){
@@ -8789,3 +8802,4 @@ public class MainActivity extends Activity {
     private void errorDialog(String title,String message){new AlertDialog.Builder(this).setTitle(title).setMessage(message==null?"Неизвестная ошибка":message).setPositiveButton("ОК",null).show();}
     private void toast(String s){Toast.makeText(this,s,Toast.LENGTH_SHORT).show();}
 }
+
