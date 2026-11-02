@@ -563,6 +563,7 @@ public class MainActivity extends Activity {
             @Override public void generateProjectCode() { agentGenerateProjectCode(owner, ""); }
             @Override public void showConversations() { agentShowConversations(owner); }
             @Override public void openTools() { agentShowChatTools(owner); }
+            @Override public void openAttachments() { agentShowAttachments(owner); }
             @Override public void openAgentSettings() { agentShowAgentSettings(owner); }
             @Override public void voiceInput(EditText input, ImageView microphone) {
                 toggleVoiceInput(input, microphone);
@@ -1062,6 +1063,93 @@ public class MainActivity extends Activity {
     }
 
     /** OmniChat's composer + and top overflow now expose tools without dominating the chat. */
+
+    /** Native OmniChat attachment sheet: compact four-way quick actions plus useful GitHub tools. */
+    private void agentShowAttachments(String owner) {
+        if (!owner.equals(accountStore.activeCacheKey())) return;
+        final Dialog sheet = new Dialog(this);
+        LinearLayout body = new LinearLayout(this);
+        body.setOrientation(LinearLayout.VERTICAL);
+        body.setPadding(dp(15), dp(15), dp(15), dp(24));
+        body.setBackground(round(SURFACE, 25, BORDER, 1));
+        TextView heading = text("Добавить", 19, true);
+        heading.setPadding(dp(5), dp(4), dp(5), dp(14));
+        body.addView(heading);
+
+        LinearLayout quick = new LinearLayout(this);
+        quick.setGravity(Gravity.CENTER_VERTICAL);
+        String[] labels = {"Камера", "Фото", "Файлы", "OCR"};
+        String[] icons = {"📷", "▧", "▤", "▣"};
+        int[] colors = {0xFFB85D46, 0xFF6488CB, 0xFF54A980, 0xFF8F75BE};
+        for (int i=0;i<labels.length;i++) {
+            final int selected=i;
+            LinearLayout tile=new LinearLayout(this);
+            tile.setOrientation(LinearLayout.VERTICAL);
+            tile.setGravity(Gravity.CENTER);
+            tile.setPadding(dp(2),dp(8),dp(2),dp(8));
+            tile.setBackground(round(SUBTLE,16,BORDER,1));
+            TextView symbol=text(icons[i],25,false);
+            symbol.setTextColor(colors[i]);
+            symbol.setGravity(Gravity.CENTER);
+            tile.addView(symbol);
+            TextView name=text(labels[i],11,true);
+            name.setGravity(Gravity.CENTER);
+            tile.addView(name);
+            tile.setOnClickListener(v->{
+                sheet.dismiss();
+                if (selected==2) agentPickTextAttachment(owner);
+                else new AlertDialog.Builder(this).setTitle(labels[selected]+" · OmniChat")
+                        .setMessage("Сейчас в GitHubble перенесён текстовый AI-транспорт. "
+                                +"Мультимодальный импорт и распознавание изображений подключаются отдельным этапом.")
+                        .setPositiveButton("ОК",null).show();
+            });
+            LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(94),1);
+            lp.setMargins(dp(3),0,dp(3),0);
+            quick.addView(tile,lp);
+        }
+        body.addView(quick);
+        TextView subtitle=text("Инструменты проекта",12,true);
+        subtitle.setTextColor(MUTED);
+        subtitle.setPadding(dp(6),dp(18),dp(6),dp(9));
+        body.addView(subtitle);
+
+        String[] actions = {"◈  Создать или изменить код", "▣  Привязать репозиторий",
+                "▶  GitHub Actions", "◇  AI-подключения", "⋯  Все инструменты"};
+        for(int i=0;i<actions.length;i++) {
+            final int selected=i;
+            TextView option=text(actions[i],15,false);
+            option.setGravity(Gravity.CENTER_VERTICAL);
+            option.setPadding(dp(12),dp(9),dp(12),dp(9));
+            option.setBackground(round(SUBTLE,13,BORDER,1));
+            LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,dp(46));
+            p.bottomMargin=dp(6);
+            body.addView(option,p);
+            option.setOnClickListener(v->{
+                sheet.dismiss();
+                switch(selected){
+                    case 0: agentGenerateProjectCode(owner,"");break;
+                    case 1: agentAttachRepository(owner);break;
+                    case 2: agentChooseWorkflow(owner);break;
+                    case 3: agentConfigureAiProvider(owner);break;
+                    default: agentShowChatTools(owner);break;
+                }
+            });
+        }
+        sheet.setContentView(body);
+        android.view.Window w=sheet.getWindow();
+        if(w!=null)w.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
+        sheet.show();
+        if(w!=null){
+            w.setGravity(Gravity.BOTTOM);
+            w.setLayout(android.view.WindowManager.LayoutParams.MATCH_PARENT,
+                    android.view.WindowManager.LayoutParams.WRAP_CONTENT);
+            w.addFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+            android.view.WindowManager.LayoutParams params=w.getAttributes();
+            params.dimAmount=.38f;
+            w.setAttributes(params);
+        }
+    }
+
     private void agentShowChatTools(String owner) {
         if (!owner.equals(accountStore.activeCacheKey())) return;
         AgentProjectStore.Project project = agentProjects.project(owner);
