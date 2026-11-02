@@ -15,9 +15,11 @@ public final class AgentProjectStore {
     private static final int MAX_MESSAGES = 80;
     private static final int MAX_CONTENT_CHARS = 6000;
     private final SharedPreferences prefs;
+    private final AgentConversationStore conversations;
 
     public AgentProjectStore(Context context) {
         prefs = context.getApplicationContext().getSharedPreferences("githubble_ai_workspace_v1", Context.MODE_PRIVATE);
+        conversations = new AgentConversationStore(context);
     }
 
     public static final class Project {
@@ -80,38 +82,18 @@ public final class AgentProjectStore {
         }
     }
 
-    public synchronized JSONArray messages(String accountId) {
-        try {
-            JSONArray result = new JSONArray(prefs.getString(key(accountId, "messages"), "[]"));
-            return result;
-        } catch (Exception ignored) {
-            return new JSONArray();
-        }
-    }
-
-    public synchronized void clearConversation(String accountId) {
-        prefs.edit().remove(key(accountId, "messages")).apply();
-    }
-
-    public synchronized void append(String accountId, String role, String body) {
-        String text = safe(body);
-        if (text.isEmpty()) return;
-        if (!"user".equals(role) && !"agent".equals(role) && !"system".equals(role))
-            throw new IllegalArgumentException("Недопустимая роль сообщения");
-        try {
-            JSONArray prior = messages(accountId);
-            JSONArray next = new JSONArray();
-            int start = Math.max(0, prior.length() - MAX_MESSAGES + 1);
-            for (int index = start; index < prior.length(); index++) {
-                JSONObject entry = prior.optJSONObject(index);
-                if (entry != null) next.put(entry);
-            }
-            next.put(new JSONObject().put("role", role)
-                    .put("body", text.substring(0, Math.min(MAX_CONTENT_CHARS, text.length())))
-                    .put("at", System.currentTimeMillis()));
-            prefs.edit().putString(key(accountId, "messages"), next.toString()).apply();
-        } catch (Exception error) {
-            throw new IllegalStateException("Не удалось сохранить сообщение", error);
-        }
+    /** Multi-conversation repository (legacy messages are migrated once). */
+    public synchronized JSONArray messages(String accountId) { return conversations.messages(accountId); }
+    public synchronized JSONArray messages(String accountId, String chatId) { return conversations.messages(accountId, chatId); }
+    public synchronized JSONArray listConversations(String accountId) { return conversations.list(accountId); }
+    public synchronized String activeConversation(String accountId) { return conversations.activeId(accountId); }
+    public synchronized String newConversation(String accountId) { return conversations.newConversation(accountId); }
+    public synchronized void switchConversation(String accountId, String id) { conversations.open(accountId, id); }
+    public synchronized void renameConversation(String accountId, String id, String title) { conversations.rename(accountId, id, title); }
+    public synchronized void deleteConversation(String accountId, String id) { conversations.delete(accountId, id); }
+    public synchronized void clearConversation(String accountId) { conversations.newConversation(accountId); }
+    public synchronized void append(String accountId, String role, String body) { conversations.append(accountId, role, body); }
+    public synchronized void appendToConversation(String accountId, String id, String role, String body) {
+        conversations.append(accountId, id, role, body);
     }
 }
