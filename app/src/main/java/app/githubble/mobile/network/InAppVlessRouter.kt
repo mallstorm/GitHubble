@@ -44,7 +44,8 @@ object InAppVlessRouter {
     private const val KEY_ENABLED = "enabled"
 
     private val lock = Any()
-    private val vault = KeyVault()
+    // Avoid AndroidKeyStore initialization during JVM-only network unit tests.
+    private val vault by lazy { KeyVault() }
     private val statusRef = AtomicReference(VlessRouteStatus())
     @Volatile private var appContext: Context? = null
     @Volatile private var installedSelector = false
