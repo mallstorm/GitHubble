@@ -562,6 +562,7 @@ public class MainActivity extends Activity {
             @Override public void generateProjectCode() { agentGenerateProjectCode(owner, ""); }
             @Override public void showConversations() { agentShowConversations(owner); }
             @Override public void openTools() { agentShowChatTools(owner); }
+            @Override public void openAgentSettings() { agentShowAgentSettings(owner); }
             @Override public void voiceInput(EditText input, ImageView microphone) {
                 toggleVoiceInput(input, microphone);
             }
@@ -1005,6 +1006,31 @@ public class MainActivity extends Activity {
             window.setLayout(Math.min(dp(360), (int)(getResources().getDisplayMetrics().widthPixels * .88f)),
                     android.view.WindowManager.LayoutParams.MATCH_PARENT);
         }
+    }
+
+    /** Long press on the gray/green robot mirrors OmniChat's agent configuration shortcut. */
+    private void agentShowAgentSettings(String owner) {
+        if (!owner.equals(accountStore.activeCacheKey())) return;
+        boolean agent = prefs.getBoolean("ai_chat_agent_mode_" + owner, true);
+        boolean copilot = prefs.getBoolean("ai_chat_copilot_" + owner, false);
+        int selected = copilot ? 2 : agent ? 1 : 0;
+        String[] choices = {
+                "Чат · робот серый\nОбычные запросы к выбранной AI-модели.",
+                "GitHubble AI Agent · робот зелёный\nАнализ и генерация файлов с подтверждением GitHub-операций.",
+                "GitHub Copilot Cloud · робот зелёный\nОфициальный облачный исполнитель GitHub."
+        };
+        new AlertDialog.Builder(this).setTitle("Режим OmniChat")
+                .setSingleChoiceItems(choices, selected, (dialog, which) -> {
+                    if (!owner.equals(accountStore.activeCacheKey())) return;
+                    prefs.edit()
+                            .putBoolean("ai_chat_agent_mode_" + owner, which != 0)
+                            .putBoolean("ai_chat_copilot_" + owner, which == 2)
+                            .apply();
+                    dialog.dismiss();
+                    agentRefreshIfCurrent(owner);
+                }).setNeutralButton("Инструменты агента",
+                        (d,w) -> agentShowChatTools(owner))
+                .setNegativeButton("Закрыть", null).show();
     }
 
     private void agentChooseComposerModel(String owner) {
