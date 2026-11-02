@@ -81,8 +81,8 @@ importance and confidence are integers 0..100. Use project scope only for inform
     )
 
     private val secretPatterns = listOf(
-        Regex("(?iuU)\\b(?:api[_ -]?key|access[_ -]?token|refresh[_ -]?token|password|token|пароль|токен)\\b\\s*[:=]\\s*[^\\s,;]{8,}"),
-        Regex("(?iuU)\\bBearer\\s+[A-Za-z0-9._~+/-]{8,}"),
+        Regex("(?iu)(?<![\\p{L}\\p{N}_])(?:api[_ -]?key|access[_ -]?token|refresh[_ -]?token|password|token|пароль|токен)(?![\\p{L}\\p{N}_])\\s*[:=]\\s*[^\\s,;]{8,}"),
+        Regex("(?iu)\\bBearer\\s+[A-Za-z0-9._~+/-]{8,}"),
         Regex("\\bsk-[A-Za-z0-9_-]{12,}\\b"),
         Regex("\\beyJ[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{8,}\\b"),
         Regex("-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----")
@@ -124,14 +124,14 @@ importance and confidence are integers 0..100. Use project scope only for inform
 
     fun explicitRememberText(text: String): String? {
         val match = Regex(
-            "(?isuU)^\\s*(?:запомни|запомни\\s+это|сохрани\\s+в\\s+памят(?:ь|и)|remember|remember\\s+this)\\s*[:—,-]?\\s*(.+)$"
+            "(?isu)^\\s*(?:запомни|запомни\\s+это|сохрани\\s+в\\s+памят(?:ь|и)|remember|remember\\s+this)\\s*[:—,-]?\\s*(.+)$"
         ).find(text) ?: return null
         return match.groupValues[1].trim().takeIf { it.length >= 3 }
     }
 
     fun explicitForgetTarget(text: String): String? {
         val match = Regex(
-            "(?isuU)^\\s*(?:забудь|удали\\s+из\\s+памят(?:и|ь)|не\\s+помни|forget|remove\\s+from\\s+memory)\\s*[:—,-]?\\s*(.*)$"
+            "(?isu)^\\s*(?:забудь|удали\\s+из\\s+памят(?:и|ь)|не\\s+помни|forget|remove\\s+from\\s+memory)\\s*[:—,-]?\\s*(.*)$"
         ).find(text) ?: return null
         return match.groupValues[1].trim()
     }
@@ -208,7 +208,7 @@ importance and confidence are integers 0..100. Use project scope only for inform
         // even without shared topic words. Do not relax matching for other queries.
         val recentContinuation = item.kind == MemoryKind.EPISODE &&
             (now - item.updatedAt).coerceAtLeast(0L) <= 7L * 86_400_000L &&
-            Regex("""(?iuU)^(?:продолж(?:и|им|аем|ать|ить)\b|на\s+ч[её]м\s+остановились\b|continue\b)""")
+            Regex("""(?iu)^(?:продолж(?:и|им|аем|ать|ить)(?![\p{L}\p{N}_])|на\s+ч[её]м\s+остановились(?![\p{L}\p{N}_])|continue(?![\p{L}\p{N}_]))""")
                 .containsMatchIn(normalizedQuery)
         if (queryTokens.isNotEmpty() && overlap == 0 && !recentContinuation && !item.pinned && item.importance < 90) return -1.0
         if (item.kind == MemoryKind.EPISODE && queryTokens.isNotEmpty() && overlap == 0 && !recentContinuation) return -1.0
