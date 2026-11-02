@@ -174,6 +174,50 @@ public final class OmniChatChatClient {
         return message.replace("\n", " ").replace("\r", " ");
     }
 
+    /** Discovers model IDs through a selected provider's fixed official HTTPS endpoint. */
+    public java.util.List<String> discoverModels(String provider, String credential) throws Exception {
+        if (credential == null || credential.trim().isEmpty())
+            throw new IllegalStateException("Сначала сохраните API-ключ");
+        String base = endpoint(provider);
+        String modelsEndpoint = base.endsWith("/responses")
+                ? base.substring(0, base.length() - "/responses".length()) + "/models"
+                : base.substring(0, base.length() - "/chat/completions".length()) + "/models";
+        HttpURLConnection connection = (HttpURLConnection) new URL(modelsEndpoint).openConnection();
+        try {
+            connection.setRequestMethod("GET");
+            connection.setConnectTimeout(15000);
+            connection.setReadTimeout(30000);
+            connection.setInstanceFollowRedirects(false);
+            connection.setRequestProperty("Accept", "application/json");
+            connection.setRequestProperty("Authorization", "Bearer " + credential.trim());
+            connection.setRequestProperty("User-Agent", "GitHubble-AI-Workspace/1");
+            int status = connection.getResponseCode();
+            String response;
+            try (InputStream input = status >= 200 && status < 300
+                    ? connection.getInputStream() : connection.getErrorStream()) {
+                response = readLimited(input);
+            }
+            if (status < 200 || status >= 300)
+                throw new IllegalStateException("Каталог моделей HTTP " + status + ": " + apiError(response, credential));
+            JSONObject result = new JSONObject(response);
+            JSONArray entries = result.optJSONArray("data");
+            if (entries == null) entries = result.optJSONArray("models");
+            if (entries == null) return java.util.Collections.emptyList();
+            java.util.TreeSet<String> models = new java.util.TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+            for (int i = 0; i < entries.length() && models.size() < 500; i++) {
+                JSONObject item = entries.optJSONObject(i);
+                if (item == null) continue;
+                String id = item.optString("id", "");
+                if (id.isEmpty()) id = item.optString("name", "");
+                if (id.startsWith("models/")) id = id.substring("models/".length());
+                if (!id.isEmpty() && id.length() <= 160) models.add(id);
+            }
+            return new java.util.ArrayList<>(models);
+        } finally {
+            connection.disconnect();
+        }
+    }
+
     private static String readLimited(InputStream input) throws Exception {
         if (input == null) return "";
         try (ByteArrayOutputStream output = new ByteArrayOutputStream()) {
