@@ -1665,10 +1665,39 @@ public class MainActivity extends Activity {
             return;
         }
         agentProjects.appendToConversation(expected, activeChat, "user", message);
+        // Answer repo inventory via the user's authenticated GitHub session.
+        // Do not ask a subscription model to guess the account or repository count.
+        if(!useCopilot && imageUri==null &&
+            app.githubble.mobile.agent.GitHubReadLoop.isDirectRepositoryQuestion(message)){
+            if("guest".equals(expected)||!isSignedIn()){
+                agentProjects.appendToConversation(expected,activeChat,"system",
+                    "Для списка репозиториев подключите GitHub в разделе «Аккаунт и доступ». "+
+                    "Подписка AI не предоставляет GitHub OAuth-разрешения.");
+                agentRefreshIfCurrent(expected);return;
+            }
+            if(!aiRequestsInFlight.add(expected)){toast("GitHub-запрос уже выполняется");return;}
+            agentRefreshIfCurrent(expected);
+            io.execute(()->{
+                try{
+                    String answer=app.githubble.mobile.agent.GitHubReadLoop.directAnswer(
+                        aiGithub,expected,message);
+                    if(expected.equals(accountStore.activeCacheKey())
+                        &&activeChat.equals(agentProjects.activeConversation(expected)))
+                        agentProjects.appendToConversation(expected,activeChat,"agent",answer);
+                }catch(Exception error){
+                    agentProjects.appendToConversation(expected,activeChat,"system",
+                        "GitHub API: "+error.getMessage()+
+                        ". Проверьте активный аккаунт и разрешения GitHub App.");
+                }finally{
+                    aiRequestsInFlight.remove(expected);
+                    runOnUiThread(()->agentRefreshIfCurrent(expected));
+                }
+            });return;
+        }
         java.util.regex.Matcher create = java.util.regex.Pattern.compile(
                 "(?iu)(?:создай|создать)\\s+(?:(приватный|публичный)\\s+)?репозиторий\\s+([A-Za-z0-9_.-]+)")
                 .matcher(message);
-        if (imageUri==null && agentMode && !useCopilot && create.find()) {
+        if (imageUri==null && !useCopilot && create.find()) {
             String visibility = create.group(1);
             agentRefreshIfCurrent(expected);
             agentCreateRepository(expected, create.group(2), !"публичный".equalsIgnoreCase(visibility));
@@ -1705,6 +1734,15 @@ public class MainActivity extends Activity {
                 .setPositiveButton("Закрепить",(d,w)->{if(expected.equals(accountStore.activeCacheKey())&&activeChat.equals(agentProjects.activeConversation(expected))){agentProjects.save(new AgentProjectStore.Project(expected,p.name,repo,p.branch,p.workspaceId));agentRefreshIfCurrent(expected);}}).setNegativeButton("Отмена",null).show();return;
         }
         String lower = message.toLowerCase(java.util.Locale.ROOT);
+        if(imageUri==null&&!useCopilot&&(lower.matches("(?s)^(?:/repo delete|удали репозиторий)\\s+[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\\s*$"))){
+            String target=message.trim().substring(message.trim().lastIndexOf(' ')+1);
+            agentDeleteRepository(expected,target);return;
+        }
+        if(imageUri==null&&!useCopilot&&(lower.equals("/workspace push")
+                ||lower.contains("загрузи workspace в github")
+                ||lower.contains("опубликуй workspace в github"))){
+            agentPublishWorkspace(expected);return;
+        }
         if (imageUri==null && agentMode && !useCopilot && (lower.startsWith("/build") || lower.contains("собери проект") || lower.contains("запусти сборку"))) {
             agentRefreshIfCurrent(expected);
             agentChooseWorkflow(expected);
@@ -1749,7 +1787,19 @@ public class MainActivity extends Activity {
                     String context=agentContext(expected,agentMode||!activeProject.workspaceId.isEmpty()
                         ?activeProject:new AgentProjectStore.Project(expected,"","","main",""),activeChat,message);
                     String response;
-                    if(imageUri==null&&agentMode&&!activeProject.workspaceId.isEmpty()
+                    boolean githubIntent=message.toLowerCase(java.util.Locale.ROOT)
+                        .matches("(?s).*(?:github|репозитор|ветк[аиу]|pull request|workflow|git action|issue).*");
+                    if(imageUri==null && githubIntent && agentMode
+                            && prefs.getBoolean("ai_tool_github_read_"+expected,false)){
+                        response=app.githubble.mobile.agent.GitHubReadLoop.analyze(instructions->{
+                            JSONArray toolsPrompt=new JSONArray()
+                                .put(new JSONObject().put("role","user").put("body",instructions));
+                            String generated=aiChatClient.complete(provider,model,credential,
+                                toolsPrompt,context,activeProject.repository);
+                            aiUsage.record(expected,provider,model,OmniChatChatClient.takeUsage());
+                            return generated;
+                        },aiGithub,expected,activeProject.repository,activeProject.branch,message,context);
+                    }else if(imageUri==null&&agentMode&&!activeProject.workspaceId.isEmpty()
                             &&prefs.getBoolean("ai_tool_file_read_"+expected,false)){
                         response=app.githubble.mobile.agent.AgentExecutionEngine.analyze(instructions->{
                             JSONArray toolsPrompt=new JSONArray().put(new JSONObject().put("role","user").put("body",instructions));
@@ -8451,6 +8501,25 @@ public class MainActivity extends Activity {
         settingsToggleRow("Доступ AI к файлам Workspace",
                 "При включении выбранный AI-провайдер сможет читать файлы и искать по проекту. Выключено по умолчанию.",
                 "ai_tool_file_read_"+owner,false);
+        settingsToggleRow("Чтение GitHub моделью",
+                "Разрешить AI-провайдеру получать через Git Agent список репозиториев, ветки и метаданные. "+
+                "GitHub OAuth-токен модели не передаётся. Выключено по умолчанию.",
+                "ai_tool_github_read_"+owner,false);
+        settingsActionRow("Проверить GitHub-подключение",
+                "Авторизованный аккаунт, видимые репозитории и доступ API",
+                ()->agentShowGitHubConnection(owner));
+        settingsActionRow("Репозитории GitHub",
+                "Показать доступные репозитории активного аккаунта",
+                ()->agentListRepositories(owner));
+        settingsActionRow("Создать репозиторий",
+                "GitHub API · запросит подтверждение имени и приватности",
+                ()->agentCreateRepository(owner,"",true));
+        settingsActionRow("Опубликовать Workspace в GitHub",
+                "Проверить файлы, выбрать ветку и создать подтверждённый коммит",
+                ()->agentPublishWorkspace(owner));
+        settingsActionRow("Удалить свой репозиторий",
+                "Опасная операция: двойное подтверждение и проверка прав",
+                ()->agentDeleteRepository(owner,""));
         settingsActionRow("Автоматическая разработка",
                 "План AI, подтверждение и точка восстановления",
                 ()->agentGenerateProjectCode(owner,""));
