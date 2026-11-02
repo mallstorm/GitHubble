@@ -84,6 +84,108 @@ public final class GitHubAgentBridge {
                 + "/actions/workflows/" + workflowId + "/dispatches", body.toString(), true);
     }
 
+
+    /** Repository list comes from the active user's OAuth token, never from the AI model. */
+    public JSONObject listAccessibleRepositories(String expected) throws Exception {
+        GitHubApiClient api = scopedApi(expected);
+        JSONArray result = new JSONArray();
+        int pages = 0;
+        boolean truncated = false;
+        for (int page=1; page<=10; page++) {
+            JSONArray batch=api.getArray("https://api.github.com/user/repos?affiliation=owner,collaborator,organization_member&per_page=100&page="+page+"&sort=full_name");
+            pages++;
+            for(int i=0;i<batch.length();i++){
+                JSONObject repo=batch.getJSONObject(i);
+                result.put(new JSONObject()
+                    .put("full_name",repo.optString("full_name"))
+                    .put("private",repo.optBoolean("private"))
+                    .put("default_branch",repo.optString("default_branch"))
+                    .put("permissions",repo.optJSONObject("permissions")==null
+                        ?new JSONObject():repo.optJSONObject("permissions")));
+            }
+            if(batch.length()<100)break;
+            if(page==10)truncated=true;
+        }
+        return new JSONObject().put("account",accounts.activeAccount()==null?"":accounts.activeAccount().login)
+            .put("count",result.length()).put("truncated",truncated)
+            .put("pages",pages).put("repositories",result);
+    }
+
+    public JSONObject activeIdentity(String expected) throws Exception {
+        GitHubApiClient api=scopedApi(expected);
+        JSONObject who=api.getJson("https://api.github.com/user");
+        return new JSONObject().put("login",who.optString("login"))
+            .put("id",who.optLong("id"))
+            .put("public_repos",who.optInt("public_repos"))
+            .put("private_repos",who.optInt("total_private_repos"));
+    }
+
+    public JSONObject repositoryDetails(String expected,String fullName)throws Exception{
+        verifyRepo(fullName);
+        JSONObject src=scopedApi(expected).getJson("https://api.github.com/repos/"+fullName);
+        JSONObject perms=src.optJSONObject("permissions");
+        return new JSONObject()
+            .put("full_name",src.optString("full_name"))
+            .put("private",src.optBoolean("private"))
+            .put("default_branch",src.optString("default_branch"))
+            .put("description",src.optString("description"))
+            .put("size_kb",src.optLong("size"))
+            .put("permissions",perms==null?new JSONObject():perms);
+    }
+
+    public JSONObject repositoryTree(String expected,String fullName,String branch)throws Exception{
+        AgentGitWorkspace.validateRepository(fullName,branch);
+        AgentGitWorkspace.Snapshot snapshot=new AgentGitWorkspace(accounts,secrets).inspect(expected,fullName,branch);
+        return new JSONObject().put("repository",fullName).put("branch",branch)
+            .put("head",snapshot.head).put("files_overview",snapshot.overview);
+    }
+
+    /** Only the owner of a repository may delete via Git Agent; UI requires typed confirmation. */
+    public void deleteOwnRepository(String expected,String fullName)throws Exception{
+        verifyRepo(fullName);
+        GitHubApiClient api=scopedApi(expected);
+        JSONObject who=api.getJson("https://api.github.com/user");
+        String login=who.optString("login","");
+        if(login.isEmpty()||!fullName.substring(0,fullName.indexOf('/')).equalsIgnoreCase(login))
+            throw new SecurityException("Удаление допускается только для собственного репозитория");
+        JSONObject repo=api.getJson("https://api.github.com/repos/"+fullName);
+        JSONObject permissions=repo.optJSONObject("permissions");
+        if(permissions==null||!permissions.optBoolean("admin"))
+            throw new SecurityException("У токена нет административного доступа к репозиторию");
+        new RepositoryAdminController(api).deleteRepository(fullName);
+    }
+
+    /** Model-visible read tools: no mutation endpoints or access token disclosure. */
+    public JSONObject executeReadOnly(String expected,String name,JSONObject args,String linkedRepo,String branch)throws Exception{
+        if(args==null)args=new JSONObject();
+        switch(name){
+            case "github_account":return activeIdentity(expected);
+            case "list_repositories":return listAccessibleRepositories(expected);
+            case "repository_info":{
+                String repo=args.optString("repository",linkedRepo);
+                return repositoryDetails(expected,repo);
+            }
+            case "repository_files":{
+                String repo=args.optString("repository",linkedRepo);
+                return repositoryTree(expected,repo,args.optString("branch",branch));
+            }
+            case "repository_workflows":{
+                String repo=args.optString("repository",linkedRepo);
+                JSONObject workflows=listWorkflows(expected,repo),compact=new JSONObject();
+                JSONArray items=workflows.optJSONArray("workflows"),listed=new JSONArray();
+                for(int i=0;items!=null&&i<items.length()&&i<30;i++){
+                    JSONObject item=items.optJSONObject(i);
+                    if(item!=null)listed.put(new JSONObject()
+                        .put("name",item.optString("name"))
+                        .put("path",item.optString("path"))
+                        .put("state",item.optString("state")));
+                }
+                return compact.put("repository",repo).put("workflows",listed);
+            }
+            default:throw new SecurityException("GitHub-инструмент не разрешён: "+name);
+        }
+    }
+
     private static void verifyRepo(String fullName) {
         if (fullName == null || !fullName.matches("[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}"))
             throw new IllegalArgumentException("Ожидается репозиторий OWNER/REPO");
