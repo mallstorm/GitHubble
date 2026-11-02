@@ -147,7 +147,7 @@ jobs:
             timeout -k 5s 30s adb pull /sdcard/Android/data/app.githubble.mobile.debug/files/ui-screenshots/. dist-pr/screenshots/
 
       - name: Export PR test APK and exact tested source tree
-        if: github.event_name == 'pull_request'
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -161,7 +161,7 @@ jobs:
           printf '%s\n' "TEST DEBUG APK ONLY: PR validation, not a signed production Release." > dist-pr/SIGNING_INFO.txt
 
       - name: Publish PR test APK and sources
-        if: github.event_name == 'pull_request'
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
