@@ -41,6 +41,10 @@ import app.githubble.mobile.network.GitHubGraphQlClient;
 import app.githubble.mobile.security.SecureStore;
 import app.githubble.mobile.ui.HomeScreen;
 import app.githubble.mobile.ui.BottomNavigationBar;
+import app.githubble.mobile.ui.AgentChatScreen;
+import app.githubble.mobile.agent.AgentProjectStore;
+import app.githubble.mobile.agent.GitHubAgentBridge;
+import app.githubble.mobile.agent.OmniChatProviderCatalog;
 import app.githubble.mobile.build.BuildRunFilter;
 import app.githubble.mobile.ui.SearchScreen;
 import app.githubble.mobile.tracking.TrackingDatabase;
@@ -107,6 +111,8 @@ public class MainActivity extends Activity {
     private GitHubGraphQlClient graphql;
     private OAuthManager oauth;
     private GitHubAccountStore accountStore;
+    private AgentProjectStore agentProjects;
+    private GitHubAgentBridge aiGithub;
     private TrackingDatabase trackingDb;
     private TrackingEngine trackingEngine;
     private TranslationCache translationCache;
@@ -196,6 +202,8 @@ public class MainActivity extends Activity {
         entityCache = new EntityCache(this);
         api = new GitHubApiClient(secureStore, entityCache);
         graphql = new GitHubGraphQlClient(api);
+        agentProjects = new AgentProjectStore(this);
+        aiGithub = new GitHubAgentBridge(accountStore, secureStore, api);
         oauth = new OAuthManager(this, secureStore);
         migrateLegacyAccountCache();
         migrateLegacyPerAccountState();
@@ -358,8 +366,10 @@ public class MainActivity extends Activity {
         titles.addView(page);
         top.addView(titles, new LinearLayout.LayoutParams(0, dp(52), 1));
 
-        // Global search and notifications are available only in the bottom navigation.
-        // No top search or bell on any screen, regardless of showSearchAction/title.
+        // AI Workspace occupies the third root tab; keep GitHub search available globally.
+        ImageView globalSearch = iconButton(R.drawable.ic_search, "Поиск GitHub");
+        globalSearch.setOnClickListener(v -> navigate(this::showSearch));
+        top.addView(globalSearch, new LinearLayout.LayoutParams(dp(42), dp(42)));
 
         // Account avatar opens Profile from every root tab. Profile has no
         // duplicate gear: Settings live in the fifth bottom navigation tab.
@@ -405,7 +415,7 @@ public class MainActivity extends Activity {
                 new BottomNavigationBar.Actions() {
                     @Override public void openHome(){openRoot(MainActivity.this::showHome);}
                     @Override public void openRepositories(){openRoot(MainActivity.this::showMyRepositories);}
-                    @Override public void openSearch(){openRoot(MainActivity.this::showSearch);}
+                    @Override public void openChat(){openRoot(MainActivity.this::showAgentChat);}
                     @Override public void openActivity(){openRoot(MainActivity.this::showNotifications);}
                     @Override public void openSettings(){openRoot(MainActivity.this::showSettings);}
                 });
@@ -487,6 +497,256 @@ public class MainActivity extends Activity {
         box.addView(v);
         LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, -2);
         p.setMargins(0, 0, 0, dp(12)); content.addView(box, p);
+    }
+
+    /** Phase-one native AI Workspace. All project/repository actions use the active GitHub account. */
+    private void showAgentChat() {
+        rememberScreen("ai_chat", null);
+        setCurrentScreen(this::showAgentChat);
+        shell("Чат", true);
+        final String owner = accountStore.activeCacheKey();
+        AgentProjectStore.Project project = agentProjects.project(owner);
+        GitHubAccountStore.Account active = accountStore.activeAccount();
+        String label = active == null ? (isSignedIn() ? secureStore.get("github_login") : "не подключён")
+                : active.displayName();
+        AgentChatScreen screen = new AgentChatScreen(this, content,
+                BG, CARD, SUBTLE, TEXT, MUTED, GREEN, BORDER, new AgentChatScreen.Actions() {
+            @Override public void newProject() { agentNewProject(owner); }
+            @Override public void createRepository() { agentCreateRepository(owner, "", true); }
+            @Override public void attachRepository() { agentAttachRepository(owner); }
+            @Override public void openRepository() {
+                AgentProjectStore.Project p = agentProjects.project(owner);
+                if (!p.repository.isEmpty()) navigate(() -> showRepository(p.repository));
+            }
+            @Override public void showProviderCatalog() { agentShowProviderCatalog(); }
+            @Override public void showCopilotTasks() { navigate(MainActivity.this::showCopilotTasks); }
+            @Override public void startWorkflow() { agentChooseWorkflow(owner); }
+            @Override public void send(String prompt, boolean copilot) { agentSend(owner, prompt, copilot); }
+        });
+        screen.render(label, project, agentProjects.messages(owner), OmniChatProviderCatalog.load(this).length());
+    }
+
+    private void agentRefreshIfCurrent(String expectedAccount) {
+        if ("Чат".equals(currentTitle) && expectedAccount.equals(accountStore.activeCacheKey()))
+            showAgentChat();
+    }
+
+    private void agentNewProject(String expected) {
+        if (!isSignedIn()) { toast("Подключите GitHub-аккаунт"); return; }
+        EditText name = new EditText(this);
+        name.setSingleLine(true);
+        name.setHint("Название проекта");
+        name.setTextColor(TEXT);
+        new AlertDialog.Builder(this).setTitle("Новый проект GitHubble")
+                .setMessage("Проект будет привязан к текущему GitHub-аккаунту. Репозиторий можно создать позже.")
+                .setView(name).setPositiveButton("Создать", (d, w) -> {
+                    String value = name.getText().toString().trim();
+                    if (value.isEmpty()) { toast("Введите название"); return; }
+                    agentProjects.save(new AgentProjectStore.Project(expected, value, "", "main"));
+                    agentProjects.append(expected, "system", "Создан локальный проект «" + value + "». Репозиторий ещё не создан.");
+                    agentRefreshIfCurrent(expected);
+                }).setNegativeButton("Отмена", null).show();
+    }
+
+    /** Requires explicit confirmation of both name and visibility. */
+    private void agentCreateRepository(String expected, String suggested, boolean defaultPrivate) {
+        if (!isSignedIn() || !expected.equals(accountStore.activeCacheKey())) {
+            toast("Подключите нужный GitHub-аккаунт"); return;
+        }
+        AgentProjectStore.Project project = agentProjects.project(expected);
+        LinearLayout fields = new LinearLayout(this);
+        fields.setOrientation(LinearLayout.VERTICAL);
+        fields.setPadding(dp(20), dp(4), dp(20), dp(4));
+        EditText name = new EditText(this);
+        name.setHint("Имя репозитория");
+        name.setSingleLine(true);
+        name.setText(suggested.isEmpty() ? project.name.replaceAll("[^A-Za-z0-9_.-]", "-") : suggested);
+        fields.addView(name);
+        CheckBox privateBox = new CheckBox(this);
+        privateBox.setText("Приватный репозиторий");
+        privateBox.setChecked(defaultPrivate);
+        fields.addView(privateBox);
+        new AlertDialog.Builder(this)
+                .setTitle("Создать репозиторий в активном GitHub")
+                .setMessage("Операция создаёт реальный репозиторий. Проверьте видимость и имя перед подтверждением.")
+                .setView(fields).setPositiveButton("Создать на GitHub", (dialog, which) -> {
+                    final String repoName = name.getText().toString().trim();
+                    final boolean isPrivate = privateBox.isChecked();
+                    if (!repoName.matches("[A-Za-z0-9_.-]{1,100}")) {
+                        agentProjects.append(expected, "system", "Некорректное имя репозитория: " + repoName);
+                        agentRefreshIfCurrent(expected); return;
+                    }
+                    io.execute(() -> {
+                        try {
+                            JSONObject result = aiGithub.createRepository(expected, repoName,
+                                    "Project created via GitHubble AI Workspace", isPrivate);
+                            String full = result.optString("full_name", "");
+                            if (full.isEmpty()) throw new IllegalStateException("GitHub не вернул имя созданного репозитория");
+                            if (expected.equals(accountStore.activeCacheKey())) {
+                                AgentProjectStore.Project existing = agentProjects.project(expected);
+                                agentProjects.save(new AgentProjectStore.Project(expected,
+                                        existing.name.isEmpty() ? repoName : existing.name,
+                                        full, result.optString("default_branch", "main")));
+                            }
+                            agentProjects.append(expected, "agent", "GitHub подтвердил создание "
+                                    + (isPrivate ? "приватного" : "публичного") + " репозитория: " + full);
+                        } catch (Exception error) {
+                            agentProjects.append(expected, "system", "Ошибка GitHub при создании репозитория: " + error.getMessage());
+                        }
+                        runOnUiThread(() -> agentRefreshIfCurrent(expected));
+                    });
+                }).setNegativeButton("Отмена", null).show();
+    }
+
+    private void agentAttachRepository(String expected) {
+        if (!isSignedIn()) { toast("Подключите GitHub"); return; }
+        EditText repo = new EditText(this);
+        repo.setSingleLine(true);
+        repo.setHint("OWNER/REPO");
+        repo.setTextColor(TEXT);
+        new AlertDialog.Builder(this).setTitle("Привязать существующий репозиторий")
+                .setView(repo).setPositiveButton("Проверить и привязать", (d, w) -> {
+                    String full = repo.getText().toString().trim();
+                    if (!full.matches("[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}")) {
+                        toast("Введите OWNER/REPO"); return;
+                    }
+                    io.execute(() -> {
+                        try {
+                            aiGithub.requireAccount(expected);
+                            JSONObject response = api.getJson("https://api.github.com/repos/" + full);
+                            aiGithub.requireAccount(expected);
+                            AgentProjectStore.Project old = agentProjects.project(expected);
+                            agentProjects.save(new AgentProjectStore.Project(expected,
+                                    old.name.isEmpty() ? response.optString("name", full) : old.name,
+                                    response.optString("full_name", full),
+                                    response.optString("default_branch", "main")));
+                            agentProjects.append(expected, "agent", "К проекту привязан репозиторий " + full);
+                        } catch (Exception error) {
+                            agentProjects.append(expected, "system", "Не удалось привязать репозиторий: " + error.getMessage());
+                        }
+                        runOnUiThread(() -> agentRefreshIfCurrent(expected));
+                    });
+                }).setNegativeButton("Отмена", null).show();
+    }
+
+    private void agentShowProviderCatalog() {
+        JSONArray entries = OmniChatProviderCatalog.load(this);
+        String[] labels = new String[entries.length()];
+        for (int i = 0; i < labels.length; i++) {
+            JSONObject entry = entries.optJSONObject(i);
+            labels[i] = entry == null ? "Unknown" : entry.optString("name", entry.optString("id", "Provider"));
+        }
+        new AlertDialog.Builder(this).setTitle("Каталог OmniChat · " + labels.length)
+                .setItems(labels, (d, i) -> {
+                    JSONObject item = entries.optJSONObject(i);
+                    if (item != null) new AlertDialog.Builder(this)
+                            .setTitle(item.optString("name", "OmniChat"))
+                            .setMessage("Тип: " + item.optString("category", "—")
+                                    + "\nАвторизация: " + item.optString("auth_type", "—")
+                                    + "\nСетевой движок перенесём на следующем этапе. Это пока не активное подключение.")
+                            .setPositiveButton("ОК", null).show();
+                }).setNegativeButton("Закрыть", null).show();
+    }
+
+    private void agentSend(String expected, String message, boolean useCopilot) {
+        if (!expected.equals(accountStore.activeCacheKey())) { toast("Аккаунт проекта изменился"); return; }
+        agentProjects.append(expected, "user", message);
+        java.util.regex.Matcher create = java.util.regex.Pattern.compile(
+                "(?iu)(?:создай|создать)\\s+(?:(приватный|публичный)\\s+)?репозиторий\\s+([A-Za-z0-9_.-]+)")
+                .matcher(message);
+        if (create.find()) {
+            String visibility = create.group(1);
+            agentRefreshIfCurrent(expected);
+            agentCreateRepository(expected, create.group(2), !"публичный".equalsIgnoreCase(visibility));
+            return;
+        }
+        AgentProjectStore.Project p = agentProjects.project(expected);
+        String lower = message.toLowerCase(java.util.Locale.ROOT);
+        if (lower.startsWith("/build") || lower.contains("собери проект") || lower.contains("запусти сборку")) {
+            agentRefreshIfCurrent(expected);
+            agentChooseWorkflow(expected);
+            return;
+        }
+        if (!useCopilot) {
+            agentProjects.append(expected, "system",
+                    "Официальный AI-транспорт OmniChat / ChatGPT OAuth ещё не подключён в GitHubble. "
+                    + "Сообщение сохранено в проекте; для запуска доступного облачного агента выберите GitHub Copilot.");
+            agentRefreshIfCurrent(expected);
+            return;
+        }
+        if (!isSignedIn() || p.repository.isEmpty()) {
+            agentProjects.append(expected, "system", "Для запуска Copilot сначала подключите GitHub и привяжите репозиторий.");
+            agentRefreshIfCurrent(expected); return;
+        }
+        new AlertDialog.Builder(this).setTitle("Запустить GitHub Copilot Cloud Agent?")
+                .setMessage("Официальная задача будет создана в " + p.repository
+                        + " от активного GitHub-аккаунта. Copilot может создать изменения и Pull Request.")
+                .setPositiveButton("Запустить", (d, w) -> {
+                    io.execute(() -> {
+                        try {
+                            JSONObject result = aiGithub.startCopilot(expected, p.repository, message, p.branch);
+                            String id = result.optString("id", "");
+                            agentProjects.append(expected, "agent", "GitHub Copilot принял задачу"
+                                    + (id.isEmpty() ? "." : " #" + id)
+                                    + ". Состояние и Pull Request доступны в разделе «Задачи Copilot».");
+                            CopilotTaskMonitorJobService.runNow(this);
+                        } catch (Exception error) {
+                            agentProjects.append(expected, "system", "Copilot не запущен: " + error.getMessage());
+                        }
+                        runOnUiThread(() -> agentRefreshIfCurrent(expected));
+                    });
+                }).setNegativeButton("Отмена", null).show();
+        agentRefreshIfCurrent(expected);
+    }
+
+    private void agentChooseWorkflow(String expected) {
+        AgentProjectStore.Project p = agentProjects.project(expected);
+        if (p.repository.isEmpty()) {
+            agentProjects.append(expected, "system", "Сначала создайте или привяжите репозиторий.");
+            agentRefreshIfCurrent(expected); return;
+        }
+        io.execute(() -> {
+            try {
+                JSONObject workflows = aiGithub.listWorkflows(expected, p.repository);
+                JSONArray list = workflows.optJSONArray("workflows");
+                if (list == null || list.length() == 0) {
+                    agentProjects.append(expected, "system", "GitHub Actions: нет доступных workflows в " + p.repository);
+                    runOnUiThread(() -> agentRefreshIfCurrent(expected)); return;
+                }
+                String[] choices = new String[list.length()];
+                for (int i = 0; i < choices.length; i++) {
+                    JSONObject wf = list.optJSONObject(i);
+                    choices[i] = wf == null ? "Unknown" : wf.optString("name", "Workflow");
+                }
+                runOnUiThread(() -> {
+                    if (!expected.equals(accountStore.activeCacheKey())) return;
+                    new AlertDialog.Builder(this).setTitle("GitHub Actions · " + p.repository)
+                            .setItems(choices, (d, selected) -> {
+                                JSONObject workflow = list.optJSONObject(selected);
+                                if (workflow == null) return;
+                                String id = workflow.optString("id");
+                                new AlertDialog.Builder(this).setTitle("Запустить workflow?")
+                                        .setMessage(choices[selected] + "\nВетка: " + p.branch
+                                                + "\nТребуется workflow_dispatch в YAML.")
+                                        .setPositiveButton("Запустить", (confirm, which) -> io.execute(() -> {
+                                            try {
+                                                aiGithub.dispatchWorkflow(expected, p.repository, id, p.branch);
+                                                agentProjects.append(expected, "agent",
+                                                        "GitHub подтвердил отправку workflow «" + choices[selected]
+                                                                + "» на выполнение. Статус и APK проверяйте в «Центре сборок».");
+                                            } catch (Exception error) {
+                                                agentProjects.append(expected, "system", "Ошибка запуска Actions: " + error.getMessage());
+                                            }
+                                            runOnUiThread(() -> agentRefreshIfCurrent(expected));
+                                        }))
+                                        .setNegativeButton("Отмена", null).show();
+                            }).setNegativeButton("Отмена", null).show();
+                });
+            } catch (Exception error) {
+                agentProjects.append(expected, "system", "Не удалось загрузить workflows: " + error.getMessage());
+                runOnUiThread(() -> agentRefreshIfCurrent(expected));
+            }
+        });
     }
 
     private void showHome() {
@@ -7342,6 +7602,7 @@ public class MainActivity extends Activity {
         JSONObject a=screenState.args();String route=screenState.route();
         switch(route){
             case "search": showSearch(); break;
+            case "ai_chat": showAgentChat(); break;
             case "profile": showProfile(); break;
             case "profile_editor": showNativeProfileEditor(); break;
             case "settings": showSettings(); break;
