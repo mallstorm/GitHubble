@@ -1121,7 +1121,9 @@ public class MainActivity extends Activity {
                 if(!aiConnections.isConfigured(owner,provider))detail="Сессия сохранена · требуется загрузить модели";
             }
             final boolean connected=saved;
-            ui.action(body,aiConnections.displayName(provider),detail,0xFF276D8A,()->{
+            ui.action(body,"gemini-antigravity".equals(provider)
+                ?"Google Antigravity · старый Cloud Code (не поддерживается)"
+                :aiConnections.displayName(provider),detail,0xFF276D8A,()->{
                 sheet[0].dismiss();if(!owner.equals(accountStore.activeCacheKey()))return;
                 if(!connected){agentBeginSubscription(owner,provider);return;}
                 new AlertDialog.Builder(this).setTitle(aiConnections.displayName(provider))
@@ -8418,6 +8420,12 @@ public class MainActivity extends Activity {
         settingsActionRow("Каталог провайдеров",
                 "Информация о поддерживаемых и планируемых сервисах",
                 this::agentShowProviderCatalog);
+        settingsActionRow("GitHub Copilot · Chat и задачи",
+                "Cloud Agent уже работает с задачами; Copilot Chat требует SDK runtime",
+                this::agentShowCopilotChatInfo);
+        settingsActionRow("Google Antigravity OAuth",
+                "Устаревший Google Cloud Code не поддерживает личные тарифы 2026",
+                ()->agentShowAntigravityMigration(owner));
         settingsActionRow("Использование и квоты",
                 "Токены из ответов API и локальные запросы",
                 ()->agentShowUsage(owner));
