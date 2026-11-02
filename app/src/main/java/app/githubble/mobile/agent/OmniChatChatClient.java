@@ -36,7 +36,7 @@ public final class OmniChatChatClient {
         }
     }
 
-    private static JSONArray conversation(JSONArray transcript) {
+    private static JSONArray conversation(JSONArray transcript) throws org.json.JSONException {
         JSONArray messages = new JSONArray();
         int since = Math.max(0, transcript.length() - MAX_HISTORY_TURNS);
         for (int i = since; i < transcript.length(); i++) {
