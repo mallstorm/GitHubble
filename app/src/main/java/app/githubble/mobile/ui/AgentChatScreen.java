@@ -167,6 +167,12 @@ public final class AgentChatScreen {
         input.setBackgroundColor(Color.TRANSPARENT);
         input.setPadding(dp(12),dp(9),dp(10),dp(5));
         input.setHint("Спросить Git Agent");
+        input.setOnClickListener(v->input.post(()->{
+            android.view.inputmethod.InputMethodManager keyboard=(android.view.inputmethod.InputMethodManager)
+                    activity.getSystemService(Context.INPUT_METHOD_SERVICE);
+            if(keyboard!=null&&input.hasWindowFocus())keyboard.showSoftInput(input,
+                    android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);
+        }));
         input.setText(draft==null?"":draft);
         input.setSelection(input.length());
         input.addTextChangedListener(new TextWatcher(){

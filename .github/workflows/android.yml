@@ -138,6 +138,8 @@ jobs:
             adb shell settings put secure show_ime_with_hard_keyboard 1
             timeout 180s adb shell am instrument -w app.githubble.mobile.debug.test/app.githubble.mobile.RcInstrumentationTest > instrumentation-result.txt
             cat instrumentation-result.txt
+            adb logcat -d -s AndroidRuntime:E > android-runtime-errors.txt
+            cat android-runtime-errors.txt
             grep -q 'PASS: RC instrumentation suite' instrumentation-result.txt
             mkdir -p dist-pr/screenshots
             adb pull /sdcard/Android/data/app.githubble.mobile.debug/files/ui-screenshots/. dist-pr/screenshots/
