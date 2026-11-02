@@ -529,6 +529,8 @@ public class MainActivity extends Activity {
             @Override public void configureProvider() { agentConfigureAiProvider(owner); }
             @Override public void selectProvider() { agentSelectAiProvider(owner); }
             @Override public void disconnectProvider() { agentDisconnectAiProvider(owner); }
+            @Override public void discoverModels() { agentDiscoverAiModels(owner); }
+            @Override public void clearConversation() { agentClearConversation(owner); }
             @Override public void showCopilotTasks() { navigate(MainActivity.this::showCopilotTasks); }
             @Override public void startWorkflow() { agentChooseWorkflow(owner); }
             @Override public void selectExecutor(boolean copilot) {
@@ -744,6 +746,71 @@ public class MainActivity extends Activity {
                         toast("GitHub-аккаунт изменился"); return;
                     }
                     aiConnections.disconnect(expected, provider);
+                    agentRefreshIfCurrent(expected);
+                }).setNegativeButton("Отмена", null).show();
+    }
+
+    private void agentDiscoverAiModels(String expected) {
+        if ("guest".equals(expected) || !expected.equals(accountStore.activeCacheKey())) {
+            toast("Подключите GitHub"); return;
+        }
+        String provider = aiConnections.selectedProvider(expected);
+        if (provider.isEmpty() || !aiConnections.isConfigured(expected, provider)) {
+            agentConfigureAiProvider(expected); return;
+        }
+        ProgressDialog loading = ProgressDialog.show(this, "OmniChat",
+                "Загружаем модели с сервера " + aiConnections.displayName(provider), true, false);
+        String key = aiConnections.credential(expected, provider);
+        io.execute(() -> {
+            try {
+                java.util.List<String> models = aiChatClient.discoverModels(provider, key);
+                runOnUiThread(() -> {
+                    loading.dismiss();
+                    if (!expected.equals(accountStore.activeCacheKey())) return;
+                    if (models.isEmpty()) {
+                        new AlertDialog.Builder(this).setTitle("Модели не найдены")
+                                .setMessage("Провайдер не вернул каталог. ID модели можно указать вручную.")
+                                .setPositiveButton("ОК", null).show();
+                        return;
+                    }
+                    new AlertDialog.Builder(this).setTitle("Модели " + aiConnections.displayName(provider)
+                                    + " · " + models.size())
+                            .setMessage("Каталог не гарантирует доступ к конкретной модели по вашему тарифу.")
+                            .setItems(models.toArray(new String[0]), (d, which) -> {
+                                if (!expected.equals(accountStore.activeCacheKey())) {
+                                    toast("Аккаунт изменился"); return;
+                                }
+                                try {
+                                    aiConnections.save(expected, provider, models.get(which), "");
+                                    toast("Выбрана модель " + models.get(which));
+                                    agentRefreshIfCurrent(expected);
+                                } catch (Exception error) {
+                                    toast("Не удалось выбрать модель: " + error.getMessage());
+                                }
+                            }).setNegativeButton("Отмена", null).show();
+                });
+            } catch (Exception error) {
+                runOnUiThread(() -> {
+                    loading.dismiss();
+                    new AlertDialog.Builder(this).setTitle("Ошибка каталога моделей")
+                            .setMessage(error.getMessage())
+                            .setPositiveButton("ОК", null).show();
+                });
+            }
+        });
+    }
+
+    private void agentClearConversation(String expected) {
+        if (aiRequestsInFlight.contains(expected)) {
+            toast("Сначала дождитесь ответа AI"); return;
+        }
+        new AlertDialog.Builder(this).setTitle("Новый диалог")
+                .setMessage("Очистить переписку текущего GitHub-аккаунта? Привязанный проект и подключения AI сохранятся.")
+                .setPositiveButton("Очистить", (d,w) -> {
+                    if (!expected.equals(accountStore.activeCacheKey())) {
+                        toast("Аккаунт изменился"); return;
+                    }
+                    agentProjects.clearConversation(expected);
                     agentRefreshIfCurrent(expected);
                 }).setNegativeButton("Отмена", null).show();
     }
