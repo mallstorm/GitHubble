@@ -26,6 +26,8 @@ public final class GitHubApiClient {
     }
 
     private final SecureStore secureStore;
+    // Immutable token for account-bound agent tools; null retains normal active-account behavior.
+    private final String fixedToken;
     private final EntityCache entityCache;
     private final Map<String,String> etags = new ConcurrentHashMap<>();
     private final Map<String,String> cachedBodies = new ConcurrentHashMap<>();
@@ -33,10 +35,16 @@ public final class GitHubApiClient {
     private volatile long resetEpochSeconds = 0;
 
     public GitHubApiClient(SecureStore secureStore) { this(secureStore, null); }
-    public GitHubApiClient(SecureStore secureStore, EntityCache entityCache) { this.secureStore = secureStore; this.entityCache = entityCache; }
+    public GitHubApiClient(SecureStore secureStore, EntityCache entityCache) { this(secureStore, entityCache, null); }
+    public GitHubApiClient(SecureStore secureStore, EntityCache entityCache, String fixedToken) {
+        this.secureStore = secureStore;
+        this.entityCache = entityCache;
+        this.fixedToken = fixedToken;
+    }
+    private String authToken() { return fixedToken == null ? secureStore.get("github_token") : fixedToken; }
     public int getRemaining() { return remaining; }
     public long getResetEpochSeconds() { return resetEpochSeconds; }
-    public String accountScope() { String login=secureStore.get("github_login"); return scopeForToken(login.isEmpty()?secureStore.get("github_token"):"login:"+login.toLowerCase(java.util.Locale.ROOT)); }
+    public String accountScope() { String login=fixedToken==null?secureStore.get("github_login"):""; return scopeForToken(login.isEmpty()?authToken():"login:"+login.toLowerCase(java.util.Locale.ROOT)); }
     public void invalidate(String url) { if(url==null)return; String key=cacheKey(url); etags.remove(key); cachedBodies.remove(key); if(entityCache!=null)entityCache.remove(key); }
     public void invalidatePrefix(String prefix) { if(prefix==null)return; String scoped=cacheKey(prefix); for(String key:new java.util.ArrayList<>(cachedBodies.keySet()))if(key.startsWith(scoped)){etags.remove(key);cachedBodies.remove(key);} if(entityCache!=null)entityCache.removePrefix(scoped); }
     public void clearSessionCaches() { etags.clear(); cachedBodies.clear(); if(entityCache!=null)entityCache.removePrefix("acct:"+accountScope()+"|"); }
@@ -82,7 +90,7 @@ public final class GitHubApiClient {
         c.setRequestProperty("X-GitHub-Api-Version", "2026-03-10");
         c.setRequestProperty("User-Agent", "GitHubble-Android/" + app.githubble.mobile.BuildConfig.VERSION_NAME);
         c.setRequestProperty("Content-Type", "application/json; charset=utf-8");
-        String token = secureStore.get("github_token");
+        String token = authToken();
         if (!token.isEmpty()) c.setRequestProperty("Authorization", "Bearer " + token);
         long copied = 0;
         try (OutputStream raw = c.getOutputStream()) {
@@ -153,7 +161,7 @@ public final class GitHubApiClient {
             c.setRequestProperty("Accept", "application/vnd.github+json");
             c.setRequestProperty("X-GitHub-Api-Version", "2026-03-10");
             c.setRequestProperty("User-Agent", "GitHubble-Android/" + app.githubble.mobile.BuildConfig.VERSION_NAME);
-            String token = secureStore.get("github_token");
+            String token = authToken();
             if (authenticated && !token.isEmpty()) c.setRequestProperty("Authorization", "Bearer " + token);
             if ("GET".equals(method)) {
                 String key = cacheKey(url);
