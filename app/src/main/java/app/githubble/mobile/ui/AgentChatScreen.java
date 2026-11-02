@@ -26,6 +26,9 @@ public final class AgentChatScreen {
         void attachRepository();
         void openRepository();
         void showProviderCatalog();
+        void configureProvider();
+        void selectProvider();
+        void disconnectProvider();
         void showCopilotTasks();
         void startWorkflow();
         void selectExecutor(boolean copilot);
@@ -54,7 +57,8 @@ public final class AgentChatScreen {
     }
 
     public void render(String accountLabel, AgentProjectStore.Project project,
-                       JSONArray messages, int providerCount, boolean selectedCopilot, boolean agentMode) {
+                       JSONArray messages, int providerCount, boolean selectedCopilot, boolean agentMode,
+                       String providerLabel, String modelLabel, boolean connected) {
         root.removeAllViews();
         root.setPadding(dp(4), dp(4), dp(4), dp(18));
 
@@ -83,8 +87,17 @@ public final class AgentChatScreen {
 
         LinearLayout providers = panel();
         providers.addView(label("Подключения OmniChat: каталог " + providerCount + " провайдеров", 13, true));
-        providers.addView(label("На этапе 1 перенесены описания. ChatGPT OAuth и AI-транспорт подключаются далее.", 11, false));
-        action(providers, "Каталог подключений", actions::showProviderCatalog);
+        providers.addView(label(connected ? "Активно: " + providerLabel + " · " + modelLabel
+                : "AI API не подключён. Выберите провайдера и сохраните ключ/модель.", 12, connected));
+        providers.addView(label("API-подключения работают напрямую. ChatGPT OAuth и Subscription Proxy переносятся отдельно.", 11, false));
+        LinearLayout connectionActions = buttons();
+        action(connectionActions, "Подключить AI", actions::configureProvider);
+        action(connectionActions, "Выбрать AI", actions::selectProvider);
+        providers.addView(connectionActions);
+        LinearLayout extraProviderActions = buttons();
+        action(extraProviderActions, "Все провайдеры", actions::showProviderCatalog);
+        action(extraProviderActions, "Отключить", actions::disconnectProvider);
+        providers.addView(extraProviderActions);
         root.addView(providers, margin());
 
         LinearLayout mode = panel();
@@ -104,7 +117,7 @@ public final class AgentChatScreen {
         mode.addView(label("Исполнитель", 14, true));
         Spinner engine = new Spinner(activity);
         String[] options = {
-                "GitHubble AI · OmniChat (подключение в разработке)",
+                "GitHubble AI · OmniChat API",
                 "GitHub Copilot Cloud (официальный API)"
         };
         ArrayAdapter<String> adapter = new ArrayAdapter<>(activity,
@@ -118,7 +131,7 @@ public final class AgentChatScreen {
             @Override public void onNothingSelected(android.widget.AdapterView<?> parent) {}
         });
         mode.addView(engine, new LinearLayout.LayoutParams(-1, dp(48)));
-        mode.addView(label("Команды «создай репозиторий NAME» и «собери проект» выполняются через GitHub после подтверждения.", 11, false));
+        mode.addView(label("AI отвечает через настроенную модель. Команды GitHub выполняются отдельными подтверждаемыми действиями.", 11, false));
         root.addView(mode, margin());
 
         LinearLayout history = panel();
