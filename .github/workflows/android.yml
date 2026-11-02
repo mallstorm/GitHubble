@@ -75,6 +75,21 @@ jobs:
           GITHUB_CLIENT_ID: ${{ secrets.GITHUB_CLIENT_ID }}
         run: gradle --no-daemon test assembleDebug assembleRelease
 
+      - name: Verify Debug/Release distributions contain ARM64 native libraries only
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from zipfile import ZipFile
+          for path in ("app/build/outputs/apk/debug/app-debug.apk",
+                       "app/build/outputs/apk/release/app-release-unsigned.apk"):
+              with ZipFile(path) as apk:
+                  libs = [name for name in apk.namelist() if name.startswith("lib/") and name.endswith(".so")]
+                  assert libs, f"{path}: no native libraries; missing Xray!"
+                  assert "lib/arm64-v8a/libgojni.so" in libs, f"{path}: ARM64 libxray missing"
+                  assert all(name.startswith("lib/arm64-v8a/") for name in libs), f"{path}: non-ARM64 libraries: {libs}"
+                  print(f"ARM64 ONLY: {path}, {len(libs)} native libraries")
+          PY
+
       - name: Extended lint and instrumentation APK (manual only)
         if: github.event_name == 'workflow_dispatch' && inputs.full_validation == true
         env:
@@ -82,7 +97,8 @@ jobs:
         shell: bash
         run: |
           set +e
-          gradle --no-daemon lintRelease assembleDebugAndroidTest
+          gradle --no-daemon lintRelease
+          [ "$?" -eq 0 ] && gradle --no-daemon -PGITHUBBLE_CI_EMULATOR_ABI=x86_64 assembleDebug assembleDebugAndroidTest
           result=$?
           if [ "$result" -ne 0 ]; then
             report="app/build/intermediates/lint_intermediate_text_report/release/lintReportRelease/lint-results-release.txt"
@@ -106,7 +122,7 @@ jobs:
 
       - name: Git Agent Android 13 UI and state regression
         if: github.event_name == 'pull_request' && github.head_ref == 'feature/omnichat-native-agent-phase1'
-        run: gradle --no-daemon assembleDebugAndroidTest
+        run: gradle --no-daemon -PGITHUBBLE_CI_EMULATOR_ABI=x86_64 assembleDebug assembleDebugAndroidTest
 
       - name: Free temporary runner disk for Android 13 userdata
         if: github.event_name == 'pull_request' && github.head_ref == 'feature/omnichat-native-agent-phase1'
@@ -151,6 +167,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # The emulator used a temporary x86_64 binary. Restore the actual ARM64 distribution.
+          gradle --no-daemon assembleDebug
+          python3 - <<'PY'
+          from zipfile import ZipFile
+          path = "app/build/outputs/apk/debug/app-debug.apk"
+          with ZipFile(path) as apk:
+              libs = [name for name in apk.namelist() if name.startswith("lib/") and name.endswith(".so")]
+              assert "lib/arm64-v8a/libgojni.so" in libs and all(name.startswith("lib/arm64-v8a/") for name in libs), libs
+          print("Final PR APK: arm64-v8a only")
+          PY
           mkdir -p dist-pr
           cp app/build/outputs/apk/debug/app-debug.apk "dist-pr/GitHubble-${{ steps.version.outputs.name }}-pr${{ github.event.pull_request.number }}-debug.apk"
           git archive --format=zip --output="dist-pr/GitHubble-${{ steps.version.outputs.name }}-pr${{ github.event.pull_request.number }}-sources.zip" HEAD
