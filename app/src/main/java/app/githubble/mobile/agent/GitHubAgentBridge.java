@@ -13,16 +13,10 @@ import org.json.JSONObject;
 public final class GitHubAgentBridge {
     private final GitHubAccountStore accounts;
     private final SecureStore secrets;
-    private final GitHubApiClient api;
-    private final RepositoryAdminController repositories;
-    private final CopilotAgentController copilot;
 
     public GitHubAgentBridge(GitHubAccountStore accounts, SecureStore secrets, GitHubApiClient api) {
         this.accounts = accounts;
         this.secrets = secrets;
-        this.api = api;
-        this.repositories = new RepositoryAdminController(api);
-        this.copilot = new CopilotAgentController(api, new GitHubGraphQlClient(api));
     }
 
     public String captureAccount() {
@@ -40,42 +34,53 @@ public final class GitHubAgentBridge {
         }
     }
 
+    /** Immutable network credentials are captured under the account switch lock. */
+    private GitHubApiClient scopedApi(String expected) {
+        synchronized (accounts) {
+            requireAccount(expected);
+            String token = secrets.get("github_token");
+            if (token.isEmpty()) throw new IllegalStateException("Токен GitHub отсутствует");
+            return new GitHubApiClient(secrets, null, token);
+        }
+    }
+
     public JSONObject createRepository(String expected, String name, String description, boolean privateRepo)
             throws Exception {
-        requireAccount(expected);
+        GitHubApiClient bound = scopedApi(expected);
         if (name == null || !name.matches("[A-Za-z0-9_.-]{1,100}") || ".".equals(name) || "..".equals(name))
             throw new IllegalArgumentException("Недопустимое имя репозитория");
-        return repositories.createRepository(name, description, privateRepo, true);
+        return new RepositoryAdminController(bound).createRepository(name, description, privateRepo, true);
     }
 
     /** Explicit user approval is required in the UI before this method is invoked. */
     public JSONObject startCopilot(String expected, String fullName, String prompt, String branch)
             throws Exception {
-        requireAccount(expected);
+        GitHubApiClient bound = scopedApi(expected);
         verifyRepo(fullName);
         if (prompt == null || prompt.trim().isEmpty())
             throw new IllegalArgumentException("Пустая задача Copilot");
-        return copilot.startTask(fullName, prompt, "", "", true,
+        return new CopilotAgentController(bound, new GitHubGraphQlClient(bound))
+                .startTask(fullName, prompt, "", "", true,
                 branch == null || branch.isEmpty() ? "main" : branch, "");
     }
 
     public JSONObject listWorkflows(String expected, String fullName) throws Exception {
-        requireAccount(expected);
+        GitHubApiClient bound = scopedApi(expected);
         verifyRepo(fullName);
-        return api.getJson("https://api.github.com/repos/" + fullName + "/actions/workflows?per_page=50");
+        return bound.getJson("https://api.github.com/repos/" + fullName + "/actions/workflows?per_page=50");
     }
 
     /** Workflow dispatch is scoped to the previously approved account and repository. */
     public void dispatchWorkflow(String expected, String fullName, String workflowId, String ref)
             throws Exception {
-        requireAccount(expected);
+        GitHubApiClient bound = scopedApi(expected);
         verifyRepo(fullName);
         if (workflowId == null || !workflowId.matches("[A-Za-z0-9_.-]{1,128}"))
             throw new IllegalArgumentException("Недопустимый workflow");
         String branch = ref == null || ref.isEmpty() ? "main" : ref;
         JSONObject body = new JSONObject().put("ref", branch);
         // GitHub returns HTTP 204 with an empty response body for dispatch.
-        api.executeText("POST", "https://api.github.com/repos/" + fullName
+        bound.executeText("POST", "https://api.github.com/repos/" + fullName
                 + "/actions/workflows/" + workflowId + "/dispatches", body.toString(), true);
     }
 
