@@ -985,7 +985,7 @@ public class MainActivity extends Activity {
         });
 
         AgentProjectStore.Project project = agentProjects.project(owner);
-        TextView projectLink = text("▣  " + (project.name.isEmpty() ? "Проекты" : project.name), 15, true);
+        TextView projectLink = ui.label("Проекты", 15, true);
         projectLink.setPadding(dp(10), dp(13), dp(10), dp(13));
         projectLink.setOnClickListener(v -> {
             drawer.dismiss();

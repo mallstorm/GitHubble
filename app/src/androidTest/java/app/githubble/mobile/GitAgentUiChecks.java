@@ -30,6 +30,16 @@ final class GitAgentUiChecks {
         if(projects.messages(account).length()!=1 || !"Первая переписка".equals(projects.messages(account).getJSONObject(0).getString("body")))
             throw new AssertionError("Conversation history was replaced");
         if(projects.messages(other).length()!=0)throw new AssertionError("Cross-account messages");
+        app.githubble.mobile.security.SecureStore vault=new app.githubble.mobile.security.SecureStore(context);
+        app.githubble.mobile.agent.OmniChatConnectionStore connections=new app.githubble.mobile.agent.OmniChatConnectionStore(context,vault);
+        connections.save(account,"openai","test-model-a","test-credential-never-sent");
+        connections.cacheModels(account,"openai",java.util.Arrays.asList("test-model-a","test-model-b"));
+        connections=new app.githubble.mobile.agent.OmniChatConnectionStore(context,vault);
+        if(!"openai".equals(connections.selectedProvider(account)) || !connections.isConfigured(account,"openai")
+                || connections.models(account,"openai").size()!=2 || connections.isConfigured(other,"openai"))
+            throw new AssertionError("Connection/catalog persistence or account isolation failed");
+        connections.disconnect(account,"openai");
+        if(connections.hasKey(account,"openai"))throw new AssertionError("Disconnected key retained");
         AgentProjectStore restored=new AgentProjectStore(context);
         if(!first.equals(restored.activeConversation(account)))throw new AssertionError("Active thread not restored");
         Intent intent=new Intent(context,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);

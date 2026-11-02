@@ -201,7 +201,7 @@ public final class AgentChatScreen {
         LinearLayout model=new LinearLayout(activity);
         model.setOrientation(LinearLayout.VERTICAL);
         model.setGravity(Gravity.CENTER);
-        String modelTitle=selectedCopilot?"GitHub Copilot":connected?modelLabel:"Добавить подключение";
+        String modelTitle=selectedCopilot?"GitHub Copilot":connected?modelLabel:"Добавить подключение ▾";
         TextView modelName=label(modelTitle,13,true,accent);
         modelName.setSingleLine();
         modelName.setEllipsize(TextUtils.TruncateAt.MIDDLE);
