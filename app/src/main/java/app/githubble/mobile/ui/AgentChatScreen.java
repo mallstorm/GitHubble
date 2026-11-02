@@ -90,9 +90,10 @@ public final class AgentChatScreen {
 
         LinearLayout providers = panel();
         providers.addView(label("Подключения OmniChat: каталог " + providerCount + " провайдеров", 13, true));
-        providers.addView(label(connected ? "Активно: " + providerLabel + " · " + modelLabel
+        providers.addView(label(connected ? "Настроено: " + providerLabel + " · " + modelLabel
                 : "AI API не подключён. Выберите провайдера и сохраните ключ/модель.", 12, connected));
         providers.addView(label("API-подключения работают напрямую. ChatGPT OAuth и Subscription Proxy переносятся отдельно.", 11, false));
+        providers.addView(label("История текущего диалога передаётся выбранной AI-модели при отправке сообщения.", 11, false));
         LinearLayout connectionActions = buttons();
         action(connectionActions, "Подключить AI", actions::configureProvider);
         action(connectionActions, "Выбрать AI", actions::selectProvider);
