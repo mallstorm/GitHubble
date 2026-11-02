@@ -33,6 +33,7 @@ public final class AgentChatScreen {
         void clearConversation();
         void showCopilotTasks();
         void startWorkflow();
+        void showBuildArtifacts();
         void selectExecutor(boolean copilot);
         void selectMode(boolean agentMode);
         void send(String prompt, boolean agentMode, boolean copilot);
@@ -192,7 +193,10 @@ public final class AgentChatScreen {
 
         LinearLayout more = buttons();
         action(more, "Задачи Copilot", actions::showCopilotTasks);
-        if (!project.repository.isEmpty()) action(more, "GitHub Actions", actions::startWorkflow);
+        if (!project.repository.isEmpty()) {
+            action(more, "GitHub Actions", actions::startWorkflow);
+            action(more, "APK / артефакты", actions::showBuildArtifacts);
+        }
         root.addView(more, margin());
     }
 
