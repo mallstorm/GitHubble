@@ -18,10 +18,12 @@ public final class AgentConversationStore {
     private static final int MAX_MESSAGES = 80;
     private static final int MAX_BODY = 6000;
     private final SharedPreferences prefs;
+    private final AgentConversationArchive archive;
 
     public AgentConversationStore(Context context) {
         prefs = context.getApplicationContext().getSharedPreferences(
                 "githubble_ai_workspace_v1", Context.MODE_PRIVATE);
+        archive = new AgentConversationArchive(context);
     }
 
     private static String account(String value) {
@@ -176,6 +178,7 @@ public final class AgentConversationStore {
         }else if(selected.equals(id))selected=next.optJSONObject(0).optString("id");
         edit.putString(key(owner,"thread_index"),next.toString()).putString(key(owner,"active_thread"),selected)
                 .remove(transcriptKey(owner,id)).remove(key(owner,"pending_"+id)).commit();
+        archive.delete(owner,id);
     }
 
     public synchronized JSONArray messages(String owner) { return messages(owner, activeId(owner)); }
@@ -187,6 +190,45 @@ public final class AgentConversationStore {
         try { return new JSONArray(prefs.getString(transcriptKey(owner,id), "[]")); }
         catch (Exception error) { return new JSONArray(); }
     }
+
+    /** Full local history includes archived older messages and the active fast transcript. */
+    public synchronized JSONArray fullHistory(String owner,String id,int max) {
+        ensure(owner);safeId(id);
+        int limit=Math.max(1,Math.min(10000,max));
+        JSONArray result=new JSONArray();
+        try{
+            JSONArray older=archive.read(owner,id,limit);
+            JSONArray recent=messages(owner,id);
+            int start=Math.max(0,older.length()+recent.length()-limit);
+            for(int i=start;i<older.length();i++)result.put(older.opt(i));
+            for(int i=Math.max(0,start-older.length());i<recent.length();i++)result.put(recent.opt(i));
+            return result;
+        }catch(Exception e){throw new IllegalStateException("Не удалось прочитать историю",e);}
+    }
+
+    public synchronized JSONArray searchHistory(String owner,String query,int limit){
+        ensure(owner);
+        JSONArray result=new JSONArray();
+        if(query==null||query.trim().length()<2)return result;
+        try{
+            JSONArray archived=archive.search(owner,query,limit);
+            for(int i=0;i<archived.length();i++)result.put(archived.getJSONObject(i));
+            JSONArray threads=list(owner);
+            for(int i=0;i<threads.length();i++){
+                String id=threads.getJSONObject(i).optString("id");
+                JSONArray live=messages(owner,id);
+                for(int j=live.length()-1;j>=0&&result.length()<Math.max(1,Math.min(100,limit));j--){
+                    JSONObject message=live.optJSONObject(j);
+                    if(message!=null&&message.optString("body").toLowerCase(java.util.Locale.ROOT)
+                        .contains(query.trim().toLowerCase(java.util.Locale.ROOT)))
+                        result.put(new JSONObject(message.toString()).put("thread",id));
+                }
+            }
+            return result;
+        }catch(Exception e){throw new IllegalStateException("Поиск истории недоступен",e);}
+    }
+
+    public synchronized long archivedCount(String owner){return archive.count(owner);}
 
     public synchronized void append(String owner, String role, String content) {
         append(owner, activeId(owner), role, content);
@@ -202,7 +244,13 @@ public final class AgentConversationStore {
             throw new IllegalArgumentException("Недопустимая роль");
         try {
             JSONArray old = messages(owner,id), next = new JSONArray();
-            for (int i=Math.max(0,old.length()-MAX_MESSAGES+1);i<old.length();i++) {
+            int discarded=Math.max(0,old.length()-MAX_MESSAGES+1);
+            // Archive evicted messages first. Never silently discard an old conversation.
+            for(int i=0;i<discarded;i++){
+                JSONObject archived=old.optJSONObject(i);
+                if(archived!=null)archive.archive(owner,id,archived);
+            }
+            for (int i=discarded;i<old.length();i++) {
                 JSONObject item=old.optJSONObject(i);
                 if(item!=null)next.put(item);
             }
