@@ -602,7 +602,7 @@ public class MainActivity extends Activity {
             @Override public void showConversations() { agentShowConversations(owner); }
             @Override public void openTools() { agentShowChatTools(owner); }
             @Override public void openAttachments() { agentShowAttachments(owner); }
-            @Override public void openAgentSettings() { agentShowAgentSettings(owner); }
+            @Override public void openAgentSettings() { navigate(MainActivity.this::showSettingsGitAgentWorkspace); }
             @Override public void voiceInput(EditText input, ImageView microphone) {
                 toggleVoiceInput(input, microphone);
             }
@@ -1017,15 +1017,15 @@ public class MainActivity extends Activity {
                             }).show();
         });
         panel.addView(projectLink);
-        for(String section:new String[]{"Workspace","Память","Маршрутизация и DNS"}){
-            TextView link=ui.label(section,14,true);link.setPadding(dp(10),dp(10),dp(10),dp(10));
-            link.setOnClickListener(v->{drawer.dismiss();if("Workspace".equals(section))agentFeatures(owner).workspace();else if("Память".equals(section))agentFeatures(owner).memory();else agentFeatures(owner).network();});panel.addView(link);
-        }
-        TextView settings = text("⚙  Подключения и настройки", 14, false);
+        TextView workspace=ui.label("Workspace · проекты и файлы",14,true);
+        workspace.setPadding(dp(10),dp(10),dp(10),dp(10));
+        workspace.setOnClickListener(v->{drawer.dismiss();agentFeatures(owner).workspace();});
+        panel.addView(workspace);
+        TextView settings = text("⚙  Git Agent и Workspace · настройки", 14, false);
         settings.setPadding(dp(10), dp(14), dp(10), dp(14));
         settings.setOnClickListener(v -> {
             drawer.dismiss();
-            agentShowChatTools(owner);
+            navigate(this::showSettingsGitAgentWorkspace);
         });
         panel.addView(settings);
         drawer.setContentView(panel);
@@ -1351,7 +1351,7 @@ public class MainActivity extends Activity {
                 switch(action){case 0:agentGenerateProjectCode(owner,"");break;
                     case 1:agentAttachRepository(owner);break;case 2:agentChooseWorkflow(owner);break;
                     case 3:agentShowBuildArtifacts(owner);break;case 4:agentShowConversations(owner);break;
-                    case 5:agentChooseComposerModel(owner);break;default:agentShowChatTools(owner);}
+                    case 5:navigate(this::showSettingsGitAgentWorkspace);break;default:agentShowChatTools(owner);}
             });}
         dialog[0]=ui.present(body,true);
     }
@@ -1365,15 +1365,12 @@ public class MainActivity extends Activity {
                         "🖼  Фото и мультимедиа",
                         "◈  Создать или изменить код",
                         "▣  Проекты и репозитории",
-                        "⚙  Подключения AI",
+                        "⚙  Git Agent и Workspace · настройки",
                         "☷  Выбрать модель",
                         "◇  GitHub Copilot Cloud",
                         "▶  GitHub Actions",
                         "↓  APK / артефакты",
                         "⚑  Диагностика CI",
-                        "○  Настройки диктовки",
-                        "⇄  Маршрутизация / DNS / Xray",
-                        "◉  Память",
                         "▣  Workspace — локальные проекты"
                 }, (d, index) -> {
                     switch (index) {
@@ -1401,17 +1398,7 @@ public class MainActivity extends Activity {
                                                 }
                                             }).show();
                             break;
-                        case 4:
-                            new AlertDialog.Builder(this).setTitle("Подключения")
-                                    .setItems(new String[]{"Добавить / изменить", "Выбрать",
-                                            "Список всех провайдеров", "Отключить"},
-                                            (x, i) -> {
-                                                if (i == 0) agentConfigureAiProvider(owner);
-                                                else if (i == 1) agentSelectAiProvider(owner);
-                                                else if (i == 2) agentShowProviderCatalog();
-                                                else agentDisconnectAiProvider(owner);
-                                            }).show();
-                            break;
+                        case 4: navigate(this::showSettingsGitAgentWorkspace); break;
                         case 5: agentChooseComposerModel(owner); break;
                         case 6:
                             prefs.edit().putBoolean("ai_chat_copilot_" + owner, true)
@@ -1421,10 +1408,7 @@ public class MainActivity extends Activity {
                         case 7: agentChooseWorkflow(owner); break;
                         case 8: agentShowBuildArtifacts(owner); break;
                         case 9: agentDiagnoseBuild(owner); break;
-                        case 10: showVoiceLanguageChooser(); break;
-                        case 11: agentFeatures(owner).network(); break;
-                        case 12: agentFeatures(owner).memory(); break;
-                        case 13: agentFeatures(owner).workspace(); break;
+                        case 10: agentFeatures(owner).workspace(); break;
                     }
                 }).setNegativeButton("Закрыть", null).show();
     }
@@ -7834,6 +7818,10 @@ public class MainActivity extends Activity {
                 "Кэш, офлайн-очередь, резервные копии",
                 R.drawable.ic_repository, 0xFF179B9C,
                 () -> navigate(this::showSettingsData));
+        settingsCategoryCard("Git Agent и Workspace",
+                "Модели, подписки, агент, проекты, память и сеть",
+                R.drawable.ic_agent_link, 0xFF5966B5,
+                () -> navigate(this::showSettingsGitAgentWorkspace));
         settingsCategoryCard("Безопасность",
                 "Защита токена, данные и выход из аккаунта",
                 R.drawable.ic_lock, 0xFFE18C32,
@@ -7942,6 +7930,7 @@ public class MainActivity extends Activity {
     private boolean isSettingsDetail(){
         return "Аккаунт и доступ".equals(currentTitle)||"Интерфейс".equals(currentTitle)
             ||"Уведомления".equals(currentTitle)||"Данные и синхронизация".equals(currentTitle)
+            ||"Git Agent и Workspace".equals(currentTitle)
             ||"Безопасность".equals(currentTitle)||"О приложении".equals(currentTitle)
             ||"Настройки наблюдения".equals(currentTitle)||"Мониторинг сборок".equals(currentTitle)||"Оформление".equals(currentTitle)||"Размер карточек".equals(currentTitle)
             ||"Конфиденциальность и данные".equals(currentTitle)||"Резервная копия".equals(currentTitle);
@@ -8239,6 +8228,72 @@ public class MainActivity extends Activity {
         settingsRow("Кэш объектов GitHub",entityCache.count()+" объектов");
         settingsRow("Остаток GitHub API",
                 api.getRemaining()<0?"Не определён":String.valueOf(api.getRemaining()));
+    }
+
+    /** Central home for all OmniChat-derived settings. Future controls belong here,
+     * not in the Git Agent chat drawer or GitHub account/security preferences. */
+    private void showSettingsGitAgentWorkspace(){
+        setCurrentScreen(this::showSettingsGitAgentWorkspace);
+        shell("Git Agent и Workspace",false);
+        settingsSubheader("Git Agent и Workspace",
+                "Единый центр настроек AI, рабочих пространств и подключений",
+                R.drawable.ic_agent_link);
+        final String owner=accountStore.activeCacheKey();
+        final String provider=aiConnections.selectedProvider(owner);
+        final AgentProjectStore.Project project=agentProjects.project(owner);
+
+        sectionTitle("Агент и модели",null);
+        settingsActionRow("Режим и исполнитель",
+                "Chat / Agent, GitHub Copilot, подтверждения операций",
+                ()->agentShowAgentSettings(owner));
+        settingsActionRow("Текущая модель",
+                provider.isEmpty()?"Не выбрана":aiConnections.displayName(provider)+" · "+aiConnections.model(owner,provider),
+                ()->agentChooseComposerModel(owner));
+        settingsActionRow("Подключения API",
+                "Добавить, изменить и отключить API-провайдеры",
+                ()->agentConfigureAiProvider(owner));
+        settingsActionRow("Аккаунты и подписки",
+                "OpenAI, Cline, Gemini, Grok, Claude и другие",
+                ()->agentShowSubscriptions(owner,false));
+        settingsActionRow("Subscription Proxy",
+                "OAuth-сессии и доступные модели подписок",
+                ()->agentShowSubscriptions(owner,true));
+        settingsActionRow("Обновление каталога моделей",
+                "Запросить список моделей выбранного подключения",
+                ()->agentDiscoverAiModels(owner));
+        settingsActionRow("Каталог провайдеров",
+                "Информация о поддерживаемых и планируемых сервисах",
+                this::agentShowProviderCatalog);
+
+        sectionTitle("Workspace и контекст",null);
+        settingsActionRow("Рабочие пространства",
+                project.workspaceId.isEmpty()?"Локальные проекты и привязка к чатам":"Активен: "+project.name,
+                ()->agentFeatures(owner).workspace());
+        settingsActionRow("Файлы и инструменты Workspace",
+                "Редактор, индекс, поиск, snapshots, ZIP и папки устройства",
+                ()->agentFeatures(owner).files());
+        settingsActionRow("Память Git Agent",
+                "Запоминание, контекст проектов, импорт и экспорт",
+                ()->agentFeatures(owner).memory());
+
+        sectionTitle("Сеть и маршрутизация",null);
+        settingsActionRow("DNS и Smart Routing",
+                "Системный DNS, DoH, DoT, реестр и проверки провайдеров",
+                ()->agentFeatures(owner).network());
+        settingsActionRow("Xray / VLESS",
+                "Зашифрованные профили, подключение и переключение",
+                ()->agentFeatures(owner).xray());
+
+        sectionTitle("Голос и дополнительные функции",null);
+        settingsActionRow("Диктовка",
+                "Язык распознавания и голосовой ввод",
+                this::showVoiceLanguageChooser);
+        TextView planned=text(
+                "Live, мультимедиа, OCR, MCP, полноценная оркестрация и "+
+                "панель реальных квот появятся здесь после реализации. "+
+                "Недоступные функции не выдаются за рабочие.",12,false);
+        planned.setTextColor(MUTED);
+        card(planned);
     }
 
     private void showSettingsSecurity(){
