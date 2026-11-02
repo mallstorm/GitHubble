@@ -43,15 +43,16 @@ public final class AgentConversationArchive extends SQLiteOpenHelper {
         getWritableDatabase().insertWithOnConflict("archived_messages",null,values,SQLiteDatabase.CONFLICT_IGNORE);
     }
     public synchronized JSONArray read(String owner,String thread,int limit) throws Exception{
-        JSONArray a=new JSONArray();
+        JSONArray descending=new JSONArray(),chronological=new JSONArray();
         String[] args={owner,thread};
-        String sql="SELECT role,body,at FROM archived_messages WHERE owner=? AND thread=? ORDER BY at ASC,id ASC LIMIT "+
+        String sql="SELECT role,body,at FROM archived_messages WHERE owner=? AND thread=? ORDER BY at DESC,id DESC LIMIT "+
             Math.max(1,Math.min(10000,limit));
         try(Cursor c=getReadableDatabase().rawQuery(sql,args)){
-            while(c.moveToNext())a.put(new JSONObject().put("role",c.getString(0))
+            while(c.moveToNext())descending.put(new JSONObject().put("role",c.getString(0))
                 .put("body",c.getString(1)).put("at",c.getLong(2)));
         }
-        return a;
+        for(int i=descending.length()-1;i>=0;i--)chronological.put(descending.opt(i));
+        return chronological;
     }
     public synchronized JSONArray search(String owner,String query,int limit) throws Exception{
         JSONArray result=new JSONArray();
