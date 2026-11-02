@@ -28,7 +28,9 @@ public final class AgentChatScreen {
         void showProviderCatalog();
         void showCopilotTasks();
         void startWorkflow();
-        void send(String prompt, boolean copilot);
+        void selectExecutor(boolean copilot);
+        void selectMode(boolean agentMode);
+        void send(String prompt, boolean agentMode, boolean copilot);
     }
 
     private final Activity activity;
@@ -52,7 +54,7 @@ public final class AgentChatScreen {
     }
 
     public void render(String accountLabel, AgentProjectStore.Project project,
-                       JSONArray messages, int providerCount) {
+                       JSONArray messages, int providerCount, boolean selectedCopilot, boolean agentMode) {
         root.removeAllViews();
         root.setPadding(dp(4), dp(4), dp(4), dp(18));
 
@@ -86,6 +88,19 @@ public final class AgentChatScreen {
         root.addView(providers, margin());
 
         LinearLayout mode = panel();
+        mode.addView(label("Режим", 14, true));
+        Spinner conversationMode = new Spinner(activity);
+        conversationMode.setAdapter(new ArrayAdapter<>(activity,
+                android.R.layout.simple_spinner_dropdown_item,
+                new String[]{"Чат", "Агент"}));
+        conversationMode.setSelection(agentMode ? 1 : 0);
+        conversationMode.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+            @Override public void onItemSelected(android.widget.AdapterView<?> parent, View view, int position, long id) {
+                actions.selectMode(position == 1);
+            }
+            @Override public void onNothingSelected(android.widget.AdapterView<?> parent) {}
+        });
+        mode.addView(conversationMode, new LinearLayout.LayoutParams(-1, dp(48)));
         mode.addView(label("Исполнитель", 14, true));
         Spinner engine = new Spinner(activity);
         String[] options = {
@@ -95,6 +110,13 @@ public final class AgentChatScreen {
         ArrayAdapter<String> adapter = new ArrayAdapter<>(activity,
                 android.R.layout.simple_spinner_dropdown_item, options);
         engine.setAdapter(adapter);
+        engine.setSelection(selectedCopilot ? 1 : 0);
+        engine.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+            @Override public void onItemSelected(android.widget.AdapterView<?> parent, View view, int position, long id) {
+                actions.selectExecutor(position == 1);
+            }
+            @Override public void onNothingSelected(android.widget.AdapterView<?> parent) {}
+        });
         mode.addView(engine, new LinearLayout.LayoutParams(-1, dp(48)));
         mode.addView(label("Команды «создай репозиторий NAME» и «собери проект» выполняются через GitHub после подтверждения.", 11, false));
         root.addView(mode, margin());
@@ -142,7 +164,8 @@ public final class AgentChatScreen {
         send.setOnClickListener(v -> {
             String value = input.getText().toString().trim();
             if (value.isEmpty()) { input.setError("Введите сообщение"); return; }
-            actions.send(value, engine.getSelectedItemPosition() == 1);
+            actions.send(value, conversationMode.getSelectedItemPosition() == 1,
+                    engine.getSelectedItemPosition() == 1);
         });
         compose.addView(send, new LinearLayout.LayoutParams(-1, dp(48)));
         root.addView(compose, margin());
