@@ -48,3 +48,36 @@ memory isolation/privacy, native Xray startup/listeners, new settings screens an
 Actual outcomes are reported with the final CI run, not inferred from test source alone.
 Live browser authentication/entitlements, user Xray server connectivity, private DNS service
 reachability and SAF document providers still require real-device/account verification.
+
+## Follow-up: rc4.2.22 — Git Agent, Workspace, automation, Vision, usage and history
+
+This is a **functional increment, not complete OmniChat 1:1 parity**. Updated native
+Git Agent and Workspace settings are grouped under Settings, after Data & Sync.
+The dashboard and the Chat tab remain separate.
+
+- **AgentEngine:** bounded read-only tool loop (list/read/search/symbols), up to three
+  model turns. The per-account file-reading permission is **off by default**;
+  enabling it discloses selected project files to the AI provider. No shell,
+  arbitrary MCP tools or automatic GitHub writes are available from this loop.
+- **Workspace UI:** existing editor/index/checkpoint/ZIP/SAF controls are linked
+  from the consolidated Git Agent settings page; history and agent tools are also
+  accessible. This is not the full DeveloperWorkspaceScreen IDE.
+- **Local code generation:** up to two model attempts to produce validated
+  JSON, explicit user review and confirmation, checkpoint before writes, read-back
+  verification, and automatic rollback on failure. GitHub commits still require
+  separate approval and pinned HEAD verification.
+- **Multimedia:** attach one temporary JPEG/PNG/WebP (max 1 MiB) by Android SAF
+  with explicit confirmation; OpenAI API, Gemini API and OpenRouter direct Vision
+  transports can receive it. An OCR prompt uses the same Vision route. Images
+  are not persisted in chat logs. Live, camera capture, media generation and
+  external MCP/plugin servers are not yet implemented.
+- **Usage:** local, account-scoped request statistics; actual token counts are
+  recorded only where API responses provide usage. This is **not** entitlement,
+  subscription balance, cost billing or provider quota information.
+- **History:** account/thread-scoped SQLite archive preserves turns evicted from
+  the 80-message fast transcript; searchable/exportable through native settings.
+  AI still receives a bounded context and this does not magically give it an
+  infinite context window. Existing OmniChat database is not imported.
+
+Run results and ARM64 APK artifact should be checked against the actual GitHub
+Actions workflow, not inferred from commits or the items above.
