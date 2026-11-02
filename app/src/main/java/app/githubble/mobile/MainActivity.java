@@ -1148,7 +1148,7 @@ public class MainActivity extends Activity {
         ui.tile(quick,"Фото",R.drawable.ic_agent_photo,0xFF347EE2,()->agentUnavailable("Фото · недоступно",unavailable));
         ui.tile(quick,"Файлы",R.drawable.ic_agent_attach,0xFFE5A126,()->{dialog[0].dismiss();agentPickTextAttachment(owner);});
         ui.tile(quick,"Сканировать текст",R.drawable.ic_agent_scan,0xFF8E59DE,()->agentUnavailable("OCR · недоступно",unavailable));
-        body.addView(quick,new LinearLayout.LayoutParams(-1,ui.dp(94)));
+        body.addView(quick,new LinearLayout.LayoutParams(-1,ui.dp(106)));
         ui.section(body,"Инструменты с изображениями");
         ui.note(body,"Для анализа, OCR и генерации требуется мультимодальное подключение.");
         String[] titles={"Анализ фотографии","Вопрос по изображению","Создание изображения","Веб-поиск","Плагины"};
