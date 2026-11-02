@@ -89,6 +89,10 @@ public final class AgentProjectStore {
         }
     }
 
+    public synchronized void clearConversation(String accountId) {
+        prefs.edit().remove(key(accountId, "messages")).apply();
+    }
+
     public synchronized void append(String accountId, String role, String body) {
         String text = safe(body);
         if (text.isEmpty()) return;
