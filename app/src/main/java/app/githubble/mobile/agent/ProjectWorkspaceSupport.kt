@@ -32,29 +32,29 @@ object ProjectWorkspaceSupport {
         if (source.length !in 5..4_000) return null
         val lower = source.lowercase()
         val create = Regex(
-            """(?iuU)\b(?:создай|создать|создаём|создаем|сделай|разработай|разработать|реализуй|реализовать|собери|собрать)\b"""
+            """(?iu)(?<![\p{L}\p{N}_])(?:создай|создать|создаём|создаем|сделай|разработай|разработать|реализуй|реализовать|собери|собрать)(?![\p{L}\p{N}_])"""
         ).find(source) ?: return null
 
         val productLike = Regex(
-            """(?iuU)\b(?:проект|приложени[ея]|app|application|сайт|web[- ]?app|бот|плеер|проигрывател[ья]|клиент|сервис|программ[ау]|игр[ау]|ide|cms|crm|api|сервер)\b"""
+            """(?iu)(?<![\p{L}\p{N}_])(?:проект|приложени[ея]|app|application|сайт|web[- ]?app|бот|плеер|проигрывател[ья]|клиент|сервис|программ[ау]|игр[ау]|ide|cms|crm|api|сервер)(?![\p{L}\p{N}_])"""
         ).containsMatchIn(source)
         if (!productLike) return null
 
         // Keep ordinary image/icon generation out of Project mode (for example "создай иконку приложения").
         val visualAssetOnly = Regex(
-            """(?iuU)\b(?:иконк[ауи]|картинк[ауи]|изображени[ея]|логотип|баннер)\b"""
-        ).containsMatchIn(source) && !Regex("""(?iuU)\bпроект\b""").containsMatchIn(source)
+            """(?iu)(?<![\p{L}\p{N}_])(?:иконк[ауи]|картинк[ауи]|изображени[ея]|логотип|баннер)(?![\p{L}\p{N}_])"""
+        ).containsMatchIn(source) && !Regex("""(?iu)(?<![\p{L}\p{N}_])проект(?![\p{L}\p{N}_])""").containsMatchIn(source)
         if (visualAssetOnly && !Regex(
-                """(?iuU)\b(?:сайт|плеер|бот|сервис|программ[ау]|игр[ау]|ide|cms|crm|api)\b"""
+                """(?iu)(?<![\p{L}\p{N}_])(?:сайт|плеер|бот|сервис|программ[ау]|игр[ау]|ide|cms|crm|api)(?![\p{L}\p{N}_])"""
             ).containsMatchIn(source)
         ) return null
 
         var tail = source.substring(create.range.last + 1).trim().trimStart(':', '-', '—', ' ')
         tail = tail.replace(
-            Regex("""(?iuU)^(?:мне\s+|новый\s+)?(?:проект\s+)?(?:под\s+названием|с\s+названием|назови(?:\s+его)?|условно)\s+"""),
+            Regex("""(?iu)^(?:мне\s+|новый\s+)?(?:проект\s+)?(?:под\s+названием|с\s+названием|назови(?:\s+его)?|условно)\s+"""),
             ""
         )
-        tail = tail.replace(Regex("""(?iuU)^(?:новый\s+)?проект\s*[:\-—]?\s*"""), "")
+        tail = tail.replace(Regex("""(?iu)^(?:новый\s+)?проект\s*[:\-—]?\s*"""), "")
         val candidate = tail.substringBefore('\n').substringBefore('.').substringBefore(',')
             .trim('«', '»', '"', '\'', ' ', ':', '-', '—')
             .replace(Regex("\\s+"), " ")
