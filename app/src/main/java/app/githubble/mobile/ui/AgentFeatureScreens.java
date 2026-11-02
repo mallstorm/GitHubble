@@ -15,7 +15,7 @@ import java.util.function.Supplier;
 
 /** Native controls over the migrated engines; each project edit retains its account/chat binding. */
 public final class AgentFeatureScreens {
-    public static final int IMPORT_XRAY=2750,IMPORT_ZIP=2751,EXPORT_ZIP=2752,IMPORT_MEMORY=2753,EXPORT_MEMORY=2754,LINK_FOLDER=2755;
+    public static final int IMPORT_XRAY=2750,IMPORT_ZIP=2751,EXPORT_ZIP=2752,IMPORT_MEMORY=2753,EXPORT_MEMORY=2754,LINK_FOLDER=2755,EXPORT_HISTORY=2756;
     private final Activity a;private final String owner,chat;private final Supplier<String> active;private final AgentProjectStore projects;
     private final MemoryHub memory;private final WorkspaceHub workspaces;private final ExecutorService io;private final GitAgentUi ui;private final Runnable refresh;
     private String pendingWorkspace="";
@@ -104,6 +104,54 @@ public final class AgentFeatureScreens {
                         d[0].dismiss();memory();})).show());}});
         search.addTextChangedListener(new android.text.TextWatcher(){public void beforeTextChanged(CharSequence s,int st,int c,int af){}public void afterTextChanged(android.text.Editable e){}public void onTextChanged(CharSequence s,int st,int before,int count){render.run();}});render.run();d[0]=ui.present(body,true);
     });}
+
+    /** Durable conversation archive and export. Search is account-isolated and local-only. */
+    public void history(){run(()->{
+        LinearLayout body=ui.body("История и память",true);final Dialog[] d={null};
+        JSONArray threads=projects.listConversations(owner);
+        ui.note(body,"Диалогов: "+threads.length()+" · архивных сообщений: "+projects.archivedCount(owner)+
+            ". Старые сообщения сохраняются в локальном SQLite, но автоматически не отправляются модели.");
+        ui.action(body,"Экспортировать переписки","Полные сообщения, включая SQLite-архив · JSON",
+            0xFF2863B8,()->pick(EXPORT_HISTORY,"application/json",true,"GitAgent-history.json"));
+        ui.action(body,"Найти в переписках","Поиск по прошлым и текущим сообщениям",
+            0xFF435B69,()->form("Поиск истории",new String[]{"Слово или фраза"},
+                new String[]{""},v->run(()->{
+                    JSONArray matches=projects.searchHistory(owner,v[0],35);
+                    StringBuilder result=new StringBuilder();
+                    for(int i=0;i<matches.length();i++){
+                        JSONObject item=matches.getJSONObject(i);
+                        String snippet=item.optString("body");
+                        if(snippet.length()>220)snippet=snippet.substring(0,220)+"…";
+                        result.append(item.optString("role")).append(" · ")
+                            .append(item.optString("thread")).append("\n")
+                            .append(snippet).append("\n\n");
+                    }
+                    new AlertDialog.Builder(a).setTitle("Найдено: "+matches.length())
+                        .setMessage(result.length()==0?"Совпадений нет":result.toString())
+                        .setPositiveButton("Закрыть",null).show();
+                })));
+        ui.section(body,"История чатов");
+        for(int i=0;i<threads.length();i++){
+            JSONObject chat=threads.getJSONObject(i);
+            ui.action(body,chat.optString("title","Диалог"),
+                "Полная история · "+chat.optString("id"),0xFF435B69,()->run(()->{
+                    JSONArray messages=projects.fullHistory(owner,chat.getString("id"),300);
+                    StringBuilder preview=new StringBuilder();
+                    for(int n=0;n<messages.length();n++){
+                        JSONObject msg=messages.getJSONObject(n);
+                        String bodyText=msg.optString("body");
+                        if(bodyText.length()>500)bodyText=bodyText.substring(0,500)+"…";
+                        preview.append(msg.optString("role")).append(": ")
+                            .append(bodyText).append("\n\n");
+                    }
+                    new AlertDialog.Builder(a).setTitle(chat.optString("title"))
+                        .setMessage(preview.length()==0?"Сообщений нет":preview.toString())
+                        .setPositiveButton("Закрыть",null).show();
+                }));
+        }
+        d[0]=ui.present(body,true);
+    });}
+
     public void workspace(){run(()->{
         LinearLayout body=ui.body("Workspace",true);final Dialog[] d={null};AgentProjectStore.Project selected=projects.project(owner);
         ui.note(body,"Локальный проект работает без GitHub-репозитория. Каждый диалог выбирает Workspace отдельно.");
@@ -140,13 +188,14 @@ public final class AgentFeatureScreens {
     });}
     private void pick(int request,String type,boolean create,String name){if(!current())return;Intent i=request==LINK_FOLDER?new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE):new Intent(create?Intent.ACTION_CREATE_DOCUMENT:Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType(type);if(create)i.putExtra(Intent.EXTRA_TITLE,name);a.startActivityForResult(i,request);}
     public boolean result(int request,int result,Intent data){
-        if(request<IMPORT_XRAY||request>LINK_FOLDER)return false;if(result!=Activity.RESULT_OK||data==null||data.getData()==null||!current())return true;
+        if(request<IMPORT_XRAY||request>EXPORT_HISTORY)return false;if(result!=Activity.RESULT_OK||data==null||data.getData()==null||!current())return true;
         Uri uri=data.getData();String workspace=pendingWorkspace;
         async("Импорт / экспорт",()->{
             if(request==IMPORT_XRAY){String raw=read(uri,512*1024);AiNetwork.importProfile("Загруженный профиль",raw);}
             else if(request==IMPORT_ZIP){WorkspaceEngine.importUri(a,workspaces.root(owner,workspace),workspace,uri);}
             else if(request==EXPORT_ZIP){try(OutputStream out=a.getContentResolver().openOutputStream(uri)){if(out==null)throw new IOException("Файл недоступен");workspaces.exportZip(owner,workspace,out);}}
             else if(request==EXPORT_MEMORY){try(OutputStream out=a.getContentResolver().openOutputStream(uri)){if(out==null)throw new IOException("Файл недоступен");out.write(memory.list(owner,wid()).toString(2).getBytes(StandardCharsets.UTF_8));}}
+            else if(request==EXPORT_HISTORY){try(OutputStream out=a.getContentResolver().openOutputStream(uri)){if(out==null)throw new IOException("Файл недоступен");out.write(projects.exportHistory(owner).toString(2).getBytes(StandardCharsets.UTF_8));}}
             else if(request==LINK_FOLDER){
                 a.getContentResolver().takePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
                 File metaFile=new File(workspaces.root(owner,workspace),".workspace.json");JSONObject meta=workspaces.info(owner,workspace);meta.put("storage_uri",uri.toString());
