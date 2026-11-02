@@ -78,6 +78,12 @@ public final class AgentProjectStore {
         }
     }
 
+    public synchronized Project projectForChat(String accountId,String chatId){
+        try{JSONObject value=new JSONObject(prefs.getString(key(accountId,"project_"+chatId),"{}"));
+            if(!accountId.equals(value.optString("account_id")))return new Project(accountId,"","","main","");
+            return new Project(accountId,value.optString("name"),value.optString("repository"),value.optString("branch","main"),value.optString("workspace_id"));
+        }catch(Exception e){return new Project(accountId,"","","main","");}
+    }
     public synchronized void save(Project project) {
         if (project == null || project.accountId.isEmpty()) throw new IllegalArgumentException("Проект не выбран");
         try {

@@ -69,7 +69,7 @@ class MemoryHub(context: Context) : SQLiteOpenHelper(context.applicationContext,
     fun recordEpisode(owner: String,workspace: String,chat: String,user: String,answer: String) {
         if(!enabled(owner,"enabled")||!enabled(owner,"episodes"))return
         val text="Пользователь: "+MemoryPolicy.redactSecrets(user).take(550)+"\nОтвет модели (эпизод, не подтверждённый факт): "+MemoryPolicy.redactSecrets(answer).take(550)
-        add(owner,workspace,chat,text,"episode","episode-"+chat+"-"+System.currentTimeMillis(),false,46)
+        add(owner,workspace,chat,text,"episode","episode-"+chat+"-"+java.util.UUID.nameUUIDFromBytes((user+"\u0000"+answer).toByteArray()).toString(),false,46)
     }
     fun shouldLearn(owner: String,workspace: String,text: String): Boolean = enabled(owner,"enabled")&&enabled(owner,"auto_learn")&&MemoryPolicy.shouldExtract(text,workspace.takeIf { it.isNotEmpty() }?.hashCode()?.toLong())&&!MemoryPolicy.containsSecret(text)
     fun extractionPrompt(user: String,answer: String,project: String)=MemoryPolicy.EXTRACTION_SYSTEM_PROMPT+"\n"+MemoryPolicy.extractionPrompt(user,answer,project)

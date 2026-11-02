@@ -189,7 +189,7 @@ class SubscriptionProxyGeminiClient {
             val ids = objectModels.keys().asSequence()
                 .map { it.trim() }
                 .filter {
-                    (it.startsWith("gemini-", ignoreCase = true) ||
+                    (it.startsWith("gemini-", ignoreCase = true) || it.startsWith("claude-",ignoreCase=true) ||
                         it.startsWith("lyria-", ignoreCase = true)) &&
                         it !in INTERNAL_MODELS
                 }

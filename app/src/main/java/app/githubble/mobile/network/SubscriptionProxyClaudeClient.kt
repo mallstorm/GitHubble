@@ -98,7 +98,7 @@ class SubscriptionProxyClaudeClient {
                             throw ApiFailure("Anthropic OAuth вернул неверный state или пустой code")
                         }
                         val credentials = exchange(code, session.state, session.verifier)
-                        writeHtml(it, 200, "Claude подключён к Subscription Proxy. Возвращайтесь в OmniChat.")
+                        writeHtml(it, 200, "Claude подключён к Subscription Proxy. Возвращайтесь в Git Agent.")
                         return@withContext credentials
                     }
                 }

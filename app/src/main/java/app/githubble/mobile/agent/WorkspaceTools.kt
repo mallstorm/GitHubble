@@ -48,7 +48,7 @@ data class WorkspaceEditorSnapshot(
     val modifiedAt: Long
 )
 class WorkspaceFileConflictException(val latest: WorkspaceEditorSnapshot) :
-    java.io.IOException("Файл изменён вне OmniChat")
+    java.io.IOException("Файл изменён вне Git Agent")
 
 data class WorkspaceRenamePreview(
     val oldName: String,

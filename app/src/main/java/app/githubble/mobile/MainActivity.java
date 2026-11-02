@@ -1565,7 +1565,27 @@ public class MainActivity extends Activity {
             agentCreateRepository(expected, create.group(2), !"публичный".equalsIgnoreCase(visibility));
             return;
         }
+        AgentProjectStore.Project before=agentProjects.project(expected);
+        if(agentMode&&!useCopilot&&before.workspaceId.isEmpty()){
+            String name=app.githubble.mobile.agent.ProjectWorkspaceSupport.INSTANCE.projectCreationName(message);
+            if(name!=null)try{
+                JSONObject created=agentWorkspaces.create(expected,name);
+                String workspace=created.getString("id");
+                agentWorkspaces.configure(expected,workspace,name,"PLANNING","");
+                agentWorkspaces.saveFile(expected,workspace,"docs/CONTEXT.md","# Задача проекта\n"+app.githubble.mobile.memory.MemoryPolicy.INSTANCE.redactSecrets(message));
+                agentProjects.save(new AgentProjectStore.Project(expected,name,before.repository,before.branch,workspace));
+                agentProjects.appendToConversation(expected,activeChat,"system","Создан Workspace «"+name+"». Репозиторий автоматически не создаётся и не закрепляется.");
+            }catch(Exception e){agentProjects.appendToConversation(expected,activeChat,"system","Workspace: "+e.getMessage());}
+        }
         AgentProjectStore.Project p = agentProjects.project(expected);
+        if(agentMode&&!p.workspaceId.isEmpty()&&app.githubble.mobile.agent.ProjectWorkspaceSupport.INSTANCE.architectureSelectionIntent(message))try{
+            JSONObject info=agentWorkspaces.info(expected,p.workspaceId);
+            agentWorkspaces.configure(expected,p.workspaceId,p.name,"ARCHITECTURE_SELECTED",info.optString("instructions"));
+        }catch(Exception ignored){}
+        if(agentMode&&message.trim().matches("(?iu)^(?:открепи репозиторий|/repo clear)$")){
+            agentProjects.save(new AgentProjectStore.Project(expected,p.name,"",p.branch,p.workspaceId));
+            agentProjects.appendToConversation(expected,activeChat,"system","Репозиторий откреплён от этого диалога.");agentRefreshIfCurrent(expected);return;
+        }
         String explicitMemory;
         try{explicitMemory=agentMemory.explicit(expected,p.workspaceId,activeChat,message);}catch(Exception e){explicitMemory="Память: "+e.getMessage();}
         if(explicitMemory!=null){agentProjects.appendToConversation(expected,activeChat,"system",explicitMemory);agentRefreshIfCurrent(expected);return;}
@@ -1618,7 +1638,7 @@ public class MainActivity extends Activity {
             java.util.concurrent.Future<?> call = io.submit(() -> {
                 try {
                     String response = aiChatClient.complete(provider, model, credential, snapshot,
-                            agentContext(expected,activeProject,activeChat,message), agentMode?activeProject.repository:"");
+                            agentContext(expected,agentMode||!activeProject.workspaceId.isEmpty()?activeProject:new AgentProjectStore.Project(expected,"","","main",""),activeChat,message), agentMode?activeProject.repository:"");
                     if (java.util.Objects.equals(aiRequestTickets.get(expected), ticket)
                             && !aiCanceledRequests.contains(expected)){
                         agentProjects.appendToConversation(expected, activeChat, "agent", response);

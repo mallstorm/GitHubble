@@ -81,6 +81,13 @@ public final class AgentFeatureScreens {
         String[] keys={"enabled","auto_learn","cross_chat","episodes","project_scope"};String[] labels={"Память включена","Автообучение — дополнительный запрос к модели","Вспоминать из других чатов","Эпизодическая память","Память проектов"};
         for(int i=0;i<keys.length;i++){final String key=keys[i];Switch toggle=new Switch(a);toggle.setText(labels[i]);toggle.setTextColor(ui.text);toggle.setChecked(memory.enabled(owner,key));toggle.setOnCheckedChangeListener((b,on)->{if(current())memory.set(owner,key,on);});body.addView(toggle);}
         ui.note(body,"В модель передаются до "+memory.maxRecall(owner)+" подходящих воспоминаний. Пароли и токены исключаются. Память разделена по аккаунтам и проектам.");
+        ui.action(body,"Эпизоды из прежних чатов","Локальная обработка истории без отправки модели",0xFF14846C,()->async("Восстановление памяти",()->{
+            JSONArray chats=projects.listConversations(owner);
+            for(int i=0;i<chats.length();i++){String source=chats.getJSONObject(i).getString("id");String workspace=projects.projectForChat(owner,source).workspaceId;
+                JSONArray messages=projects.messages(owner,source);String user="";
+                for(int k=0;k<messages.length();k++){JSONObject e=messages.getJSONObject(k);if("user".equals(e.optString("role")))user=e.optString("body");else if("agent".equals(e.optString("role"))&&!user.isEmpty()){memory.recordEpisode(owner,workspace,source,user,e.optString("body"));user="";}}
+            }
+        },()->{d[0].dismiss();memory();}));
         ui.action(body,"Объём вспоминания",memory.maxRecall(owner)+" записей · лимит контекста 7000 символов",0xFF435B69,()->form("Память",new String[]{"Число записей 4–16"},new String[]{String.valueOf(memory.maxRecall(owner))},v->{memory.setMaxRecall(owner,Integer.parseInt(v[0]));d[0].dismiss();memory();}));
         ui.action(body,"Очистить память аккаунта","Переписки и файлы Workspace сохранятся",0xFF713CB3,()->new AlertDialog.Builder(a).setTitle("Удалить все воспоминания аккаунта?").setPositiveButton("Очистить",(x,n)->run(()->{memory.clear(owner);d[0].dismiss();memory();})).setNegativeButton("Отмена",null).show());
         ui.action(body,"Добавить воспоминание","Глобально или для текущего Workspace",0xFF14846C,()->form("Запомнить",new String[]{"Содержание","Область: global или project"},new String[]{"",wid().isEmpty()?"global":"project"},v->{memory.add(owner,"project".equals(v[1])?wid():"",chat,v[0],"fact","",false,70);d[0].dismiss();memory();}));

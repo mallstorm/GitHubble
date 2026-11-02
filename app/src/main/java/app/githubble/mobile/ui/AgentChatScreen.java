@@ -119,7 +119,7 @@ public final class AgentChatScreen {
         View divider=separator();divider.setAlpha(.30f);
         root.addView(divider,new LinearLayout.LayoutParams(-1,dp(1)));
 
-        if(!project.name.isEmpty()||!project.repository.isEmpty()){
+        if(project.workspaceId!=null&&!project.workspaceId.isEmpty()||agentMode&&!project.repository.isEmpty()){
             TextView scope=label((project.name.isEmpty()?"Workspace":project.name)+(agentMode&&!project.repository.isEmpty()?" · "+project.repository:""),12,true,muted);
             scope.setPadding(dp(14),dp(5),dp(14),dp(5));scope.setOnClickListener(v->actions.newProject());root.addView(scope);
         }

@@ -66,14 +66,14 @@ object InAppVlessRouter {
         override fun select(uri: URI?): List<Proxy> {
             val state = statusRef.get()
             val host = uri?.host ?: return listOf(Proxy.NO_PROXY)
-            if (!state.enabled || state.localPort == null || isLocal(host)) {
+            if (!state.enabled || isLocal(host)) {
                 return systemSelector?.select(uri).orEmpty().ifEmpty { listOf(Proxy.NO_PROXY) }
             }
             // While a VLESS profile is active there is deliberately no DIRECT fallback.
             return listOf(
                 Proxy(
                     Proxy.Type.SOCKS,
-                    InetSocketAddress("127.0.0.1", state.localPort)
+                    InetSocketAddress("127.0.0.1", state.localPort ?: 0)
                 )
             )
         }
@@ -124,8 +124,11 @@ object InAppVlessRouter {
         synchronized(lock) {
             val selected = readProfiles().firstOrNull { it.id == profileId && it.enabled }
                 ?: error("VLESS-профиль не найден или отключён")
-            start(selected)
             prefs().edit().putBoolean(KEY_ENABLED, true).putString(KEY_ACTIVE, selected.id).apply()
+            try { start(selected) } catch(t: Throwable) {
+                statusRef.set(VlessRouteStatus(enabled=true,activeProfileId=selected.id,error=t.message ?: "Xray unavailable"))
+                throw t
+            }
         }
     }
 
@@ -149,9 +152,9 @@ object InAppVlessRouter {
             runCatching { start(next) }.onSuccess {
                 prefs().edit().putBoolean(KEY_ENABLED, true).putString(KEY_ACTIVE, next.id).apply()
             }.onFailure {
-                statusRef.set(VlessRouteStatus(error = it.message ?: cause?.message ?: "VLESS unavailable"))
+                statusRef.set(VlessRouteStatus(enabled=true,activeProfileId=active,error = it.message ?: cause?.message ?: "VLESS unavailable"))
                 restoreProcessProxyProperties()
-                prefs().edit().putBoolean(KEY_ENABLED, false).remove(KEY_ACTIVE).apply()
+                prefs().edit().putBoolean(KEY_ENABLED, true).putString(KEY_ACTIVE,active).apply()
             }
         }
     }
@@ -162,7 +165,7 @@ object InAppVlessRouter {
         val id = prefs.getString(KEY_ACTIVE, null) ?: return
         val profile = readProfiles().firstOrNull { it.id == id && it.enabled } ?: return
         runCatching { start(profile) }.onFailure {
-            statusRef.set(VlessRouteStatus(error = it.message ?: "Не удалось запустить VLESS"))
+            statusRef.set(VlessRouteStatus(enabled=true,activeProfileId=id,error = it.message ?: "Не удалось запустить VLESS"))
             restoreProcessProxyProperties()
         }
     }
@@ -170,8 +173,8 @@ object InAppVlessRouter {
     private fun start(profile: VlessProfile) {
         validateProfile(profile.uri)
 
-        // Do not leave any request pointed at a listener that is being replaced.
-        statusRef.set(VlessRouteStatus())
+        // Keep requests blocked until the new listeners have been verified.
+        statusRef.set(VlessRouteStatus(enabled=true,activeProfileId=profile.id))
         restoreProcessProxyProperties()
         XrayBridge.stop()
 

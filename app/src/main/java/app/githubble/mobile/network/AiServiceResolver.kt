@@ -61,7 +61,7 @@ object AiServiceResolver {
             host == "api.kilo.ai" || host.endsWith(".kilo.ai") -> KILO
             host == "api.cline.bot" || host.endsWith(".cline.bot") || host == "api.workos.com" -> CLINE
             host == "openrouter.ai" || host.endsWith(".openrouter.ai") -> OPENROUTER
-            host == "kimi.com" || host.endsWith(".kimi.com") -> KIMI
+            host == "kimi.com" || host.endsWith(".kimi.com") || host == "kimi.ai" || host.endsWith(".kimi.ai") || host == "moonshot.ai" || host.endsWith(".moonshot.ai") -> KIMI
             host == "polza.ai" || host.endsWith(".polza.ai") -> POLZA
             host.endsWith(".sberbank.ru") || host.contains("gigachat") -> GIGACHAT
             host == "groq.com" || host.endsWith(".groq.com") -> GROQ
