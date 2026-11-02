@@ -81,8 +81,8 @@ importance and confidence are integers 0..100. Use project scope only for inform
     )
 
     private val secretPatterns = listOf(
-        Regex("(?i)\\b(?:api[_ -]?key|access[_ -]?token|refresh[_ -]?token|password|пароль|токен)\\b\\s*[:=]\\s*[^\\s,;]{8,}"),
-        Regex("(?i)\\bBearer\\s+[A-Za-z0-9._~+/-]{8,}"),
+        Regex("(?iuU)\\b(?:api[_ -]?key|access[_ -]?token|refresh[_ -]?token|password|token|пароль|токен)\\b\\s*[:=]\\s*[^\\s,;]{8,}"),
+        Regex("(?iuU)\\bBearer\\s+[A-Za-z0-9._~+/-]{8,}"),
         Regex("\\bsk-[A-Za-z0-9_-]{12,}\\b"),
         Regex("\\beyJ[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{8,}\\b"),
         Regex("-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----")
@@ -124,14 +124,14 @@ importance and confidence are integers 0..100. Use project scope only for inform
 
     fun explicitRememberText(text: String): String? {
         val match = Regex(
-            "(?is)^\\s*(?:запомни|запомни\\s+это|сохрани\\s+в\\s+памят(?:ь|и)|remember|remember\\s+this)\\s*[:—,-]?\\s*(.+)$"
+            "(?isuU)^\\s*(?:запомни|запомни\\s+это|сохрани\\s+в\\s+памят(?:ь|и)|remember|remember\\s+this)\\s*[:—,-]?\\s*(.+)$"
         ).find(text) ?: return null
         return match.groupValues[1].trim().takeIf { it.length >= 3 }
     }
 
     fun explicitForgetTarget(text: String): String? {
         val match = Regex(
-            "(?is)^\\s*(?:забудь|удали\\s+из\\s+памят(?:и|ь)|не\\s+помни|forget|remove\\s+from\\s+memory)\\s*[:—,-]?\\s*(.*)$"
+            "(?isuU)^\\s*(?:забудь|удали\\s+из\\s+памят(?:и|ь)|не\\s+помни|forget|remove\\s+from\\s+memory)\\s*[:—,-]?\\s*(.*)$"
         ).find(text) ?: return null
         return match.groupValues[1].trim()
     }
@@ -203,13 +203,20 @@ importance and confidence are integers 0..100. Use project scope only for inform
         val queryTokens = tokens(query)
         val contentTokens = tokens(item.content + " " + item.keywords + " " + item.normalizedKey)
         val overlap = queryTokens.count { it in contentTokens }
-        if (queryTokens.isNotEmpty() && overlap == 0 && !item.pinned && item.importance < 90) return -1.0
-        if (item.kind == MemoryKind.EPISODE && queryTokens.isNotEmpty() && overlap == 0) return -1.0
-        if (queryTokens.isEmpty() && !item.pinned && item.importance < 75) return -1.0
+        val normalizedQuery = query.trim().lowercase(Locale.ROOT)
+        // A short "continue where we stopped" is meaningful for a recent episodic memory
+        // even without shared topic words. Do not relax matching for other queries.
+        val recentContinuation = item.kind == MemoryKind.EPISODE &&
+            (now - item.updatedAt).coerceAtLeast(0L) <= 7L * 86_400_000L &&
+            Regex("""(?iuU)^(?:продолж(?:и|им|аем|ать|ить)\b|на\s+ч[её]м\s+остановились\b|continue\b)""")
+                .containsMatchIn(normalizedQuery)
+        if (queryTokens.isNotEmpty() && overlap == 0 && !recentContinuation && !item.pinned && item.importance < 90) return -1.0
+        if (item.kind == MemoryKind.EPISODE && queryTokens.isNotEmpty() && overlap == 0 && !recentContinuation) return -1.0
+        if (queryTokens.isEmpty() && !item.pinned && item.importance < 75 && !recentContinuation) return -1.0
 
         var score = overlap * 18.0
+        if (recentContinuation) score += 25.0
         if (queryTokens.isNotEmpty()) score += 24.0 * overlap / queryTokens.size.coerceAtLeast(1)
-        val normalizedQuery = query.trim().lowercase(Locale.ROOT)
         if (normalizedQuery.length >= 5 && item.content.lowercase(Locale.ROOT).contains(normalizedQuery)) score += 28.0
         if (item.pinned) score += 34.0
         score += item.importance / 5.0
