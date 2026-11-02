@@ -86,6 +86,22 @@ final class GitAgentUiChecks {
         if(!memory.recall(account,"workspace-A","chat-B","интерфейс").contains("компактный"))throw new AssertionError("Memory recall not wired");
         try{memory.add(account,"","chat-A","api_key = sk-1234567890abcdefghijklmnop","fact","secret",false,70);throw new AssertionError("Secret entered memory");}catch(IllegalArgumentException expected){}
         memory.clear(account);memory.close();
+        // Preserve old turns in the SQLite archive instead of silently truncating them.
+        String archiveOwner=account+"-archive";
+        String archiveThread=projects.activeConversation(archiveOwner);
+        for(int i=0;i<86;i++){
+            projects.appendToConversation(archiveOwner,archiveThread,"user",
+                i==12?"Archive unique search marker":"Archive turn "+i);
+        }
+        if(projects.messages(archiveOwner).length()!=80
+                || projects.fullHistory(archiveOwner,archiveThread,10000).length()!=86
+                || projects.archivedCount(archiveOwner)!=6)
+            throw new AssertionError("History overflow archive lost messages");
+        if(projects.searchHistory(archiveOwner,"unique search marker",20).length()!=1)
+            throw new AssertionError("Archived chat search lost a historical message");
+        if(!app.githubble.mobile.agent.OmniChatChatClient.supportsVision("gemini")
+                ||app.githubble.mobile.agent.OmniChatChatClient.supportsVision("deepseek"))
+            throw new AssertionError("Vision capability gate is incorrect");
         AgentProjectStore restored=new AgentProjectStore(context);
         if(!first.equals(restored.activeConversation(account)))throw new AssertionError("Active thread not restored");
         Intent intent=new Intent(context,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
@@ -95,6 +111,14 @@ final class GitAgentUiChecks {
             app.githubble.mobile.agent.WorkspaceHub workspaceHub=new app.githubble.mobile.agent.WorkspaceHub(context);
             String smokeId=workspaceHub.create(account,"Local Workspace smoke").getString("id");
             workspaceHub.saveFile(account,smokeId,"src/Smoke.kt","class Smoke { fun original() = 1 }\n");
+            java.util.concurrent.atomic.AtomicInteger toolCalls=new java.util.concurrent.atomic.AtomicInteger();
+            String toolAnswer=app.githubble.mobile.agent.AgentExecutionEngine.analyze(query->{
+                if(toolCalls.incrementAndGet()==1)
+                    return "{\"tools\":[{\"name\":\"list_files\",\"args\":{}}]}";
+                return "{\"answer\":\"Workspace files inspected\"}";
+            },workspaceHub,account,smokeId,"Check workspace files","Local project context");
+            if(!"Workspace files inspected".equals(toolAnswer)||toolCalls.get()!=2)
+                throw new AssertionError("Bounded agent tool loop failed");
             if(!app.githubble.mobile.agent.WorkspaceEngine.search(context,workspaceHub.root(account,smokeId),smokeId,"original").contains("src/Smoke.kt"))throw new AssertionError("Workspace content search failed");
             String checkpoint=app.githubble.mobile.agent.WorkspaceEngine.checkpoint(context,workspaceHub.root(account,smokeId),smokeId,"Before edit");
             workspaceHub.saveFile(account,smokeId,"src/Smoke.kt","class Smoke { fun changed() = 2 }\n");
