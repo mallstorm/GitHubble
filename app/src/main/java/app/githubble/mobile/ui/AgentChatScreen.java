@@ -51,6 +51,7 @@ public final class AgentChatScreen {
         void send(String prompt, boolean agentMode, boolean copilot);
         void showConversations();
         void openTools();
+        void openAttachments();
         void openAgentSettings();
         void voiceInput(EditText input, ImageView microphone);
         void voiceSettings();
@@ -173,7 +174,7 @@ public final class AgentChatScreen {
 
         LinearLayout tools=horizontal();
         tools.setGravity(Gravity.CENTER_VERTICAL);
-        tools.addView(glyph("+","Вложения и инструменты",actions::openTools,28),
+        tools.addView(glyph("+","Вложения и инструменты",actions::openAttachments,28),
                 new LinearLayout.LayoutParams(dp(42),dp(44)));
 
         ImageView robot=icon(R.drawable.ic_omni_robot,"Агентский режим",agentMode?0xFF2E9D68:muted);
