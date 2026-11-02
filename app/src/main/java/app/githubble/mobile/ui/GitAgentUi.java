@@ -108,6 +108,19 @@ public final class GitAgentUi {
         LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-2,-2);lp.rightMargin=dp(8);lp.bottomMargin=dp(8);
         row.addView(t,lp);t.setOnClickListener(v->action.run());return t;
     }
+    public TextView modeChip(LinearLayout row,String title,boolean selected,boolean available,Runnable action){
+        TextView button=label((selected?"✓ ":"")+title,12,true);
+        button.setGravity(Gravity.CENTER);button.setSingleLine(true);
+        button.setAutoSizeTextTypeUniformWithConfiguration(10,13,1,android.util.TypedValue.COMPLEX_UNIT_SP);
+        button.setPadding(dp(4),dp(8),dp(4),dp(8));
+        button.setTextColor(available?(selected?(dark?0xFFFFFFFF:0xFF253944):text):(dark?0xFFBCC5CF:0xFF68717C));
+        button.setBackground(shape(selected?(dark?0xFF52616E:0xFFDCE8EF):(dark?0xFF424850:0xFFF4F1F6),10,
+                selected?primary:(dark?0xFF8A96A2:0xFF9AA5AF)));
+        button.setEnabled(available);button.setAlpha(1f);
+        button.setContentDescription(title+(available?"":" · пока недоступно"));
+        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(44),1);lp.setMargins(dp(2),dp(4),dp(2),dp(8));
+        row.addView(button,lp);if(available)button.setOnClickListener(v->action.run());return button;
+    }
     private static int blend(int a,int b,float f){return Color.rgb((int)(Color.red(a)*(1-f)+Color.red(b)*f),
             (int)(Color.green(a)*(1-f)+Color.green(b)*f),(int)(Color.blue(a)*(1-f)+Color.blue(b)*f));}
 }

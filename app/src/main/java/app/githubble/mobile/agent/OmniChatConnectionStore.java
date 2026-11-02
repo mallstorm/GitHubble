@@ -29,6 +29,9 @@ public final class OmniChatConnectionStore {
         NAMES.put("together", "Together AI API");
         NAMES.put("cerebras", "Cerebras API");
         NAMES.put("nvidia", "NVIDIA NIM API");
+        NAMES.put(OAuthSubscriptions.OPENAI,"OpenAI · подписка ChatGPT/Codex");
+        NAMES.put(OAuthSubscriptions.CLINE,"Cline Account / Cline Pass");
+        NAMES.put(OAuthSubscriptions.KIMI,"Kimi Code · OAuth");
     }
 
     public OmniChatConnectionStore(Context context, SecureStore vault) {
@@ -64,6 +67,7 @@ public final class OmniChatConnectionStore {
             throw new IllegalArgumentException("Укажите действительную модель");
         String credential = apiKey == null ? "" : apiKey.trim();
         if (!credential.isEmpty()) {
+            if(OAuthSubscriptions.supports(provider))throw new IllegalArgumentException("Для подписки используйте OAuth-вход");
             if (credential.length() > 8192 || credential.contains("\n") || credential.contains("\r"))
                 throw new IllegalArgumentException("Некорректный API-ключ");
             vault.put(key(account, provider), credential);
@@ -75,6 +79,35 @@ public final class OmniChatConnectionStore {
                 .putString(scope + "_provider", provider)
                 .putString(scope + "_model_" + provider, name)
                 .apply();
+    }
+
+    public static Map<String,String> apiSupported(){
+        LinkedHashMap<String,String> result=new LinkedHashMap<>();
+        for(Map.Entry<String,String> e:NAMES.entrySet())if(!OAuthSubscriptions.supports(e.getKey()))result.put(e.getKey(),e.getValue());
+        return Collections.unmodifiableMap(result);
+    }
+
+    public synchronized void saveSubscription(String account,String provider,org.json.JSONObject session,java.util.List<String> models){
+        if(!OAuthSubscriptions.supports(provider))throw new IllegalArgumentException("Не OAuth-провайдер");
+        if(session.optString("access_token").isEmpty()||session.optString("refresh_token").isEmpty())throw new IllegalArgumentException("Нет подтверждённой OAuth-сессии");
+        try{session=new org.json.JSONObject(session.toString()).put("owner",account).put("provider",provider);
+            vault.put(key(account,provider),session.toString());
+            String scope=namespace(account);
+            prefs.edit().putString(scope+"_provider",provider).putString(scope+"_model_"+provider,models.isEmpty()?"":models.get(0)).apply();
+            cacheModels(account,provider,models);
+        }catch(org.json.JSONException e){throw new IllegalStateException(e);}
+    }
+
+    public synchronized void replaceSubscription(String account,String provider,String expected,org.json.JSONObject session){
+        if(!OAuthSubscriptions.supports(provider)||!credential(account,provider).equals(expected))
+            throw new IllegalStateException("OAuth-сессия отключена или изменена");
+        try{vault.put(key(account,provider),new org.json.JSONObject(session.toString()).put("owner",account).put("provider",provider).toString());}
+        catch(org.json.JSONException e){throw new IllegalStateException(e);}
+    }
+
+    public synchronized void selectAuthenticated(String account,String provider){
+        if(!OAuthSubscriptions.supports(provider)||!hasKey(account,provider))throw new IllegalStateException("Подписка не авторизована");
+        prefs.edit().putString(namespace(account)+"_provider",provider).apply();
     }
 
     public synchronized void select(String account, String provider) {

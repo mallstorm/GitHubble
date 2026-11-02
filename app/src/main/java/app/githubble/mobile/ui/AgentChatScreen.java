@@ -94,7 +94,7 @@ public final class AgentChatScreen {
         FrameLayout top = new FrameLayout(activity);
         top.setPadding(dp(14),dp(6),dp(14),dp(6));
         TextView brand=label(conversationTitle.isEmpty() || "Новый диалог".equals(conversationTitle)
-                ? "Git Agent" : conversationTitle,16,true,this.text);
+                ? "" : conversationTitle,16,true,this.text);
         brand.setGravity(Gravity.CENTER);brand.setSingleLine();brand.setEllipsize(TextUtils.TruncateAt.END);
         FrameLayout.LayoutParams brandLp=new FrameLayout.LayoutParams(-1,-1);
         brandLp.leftMargin=dp(60);brandLp.rightMargin=dp(60);top.addView(brand,brandLp);

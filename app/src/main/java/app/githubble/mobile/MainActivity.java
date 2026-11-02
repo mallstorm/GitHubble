@@ -51,6 +51,7 @@ import app.githubble.mobile.agent.AgentGitWorkspace;
 import app.githubble.mobile.agent.AgentFilePlan;
 import app.githubble.mobile.agent.OmniChatProviderCatalog;
 import app.githubble.mobile.agent.OmniChatConnectionStore;
+import app.githubble.mobile.agent.OAuthSubscriptions;
 import app.githubble.mobile.agent.OmniChatChatClient;
 import app.githubble.mobile.build.BuildRunFilter;
 import app.githubble.mobile.ui.SearchScreen;
@@ -122,6 +123,8 @@ public class MainActivity extends Activity {
     private GitHubAgentBridge aiGithub;
     private OmniChatConnectionStore aiConnections;
     private OmniChatChatClient aiChatClient;
+    private OAuthSubscriptions oauthSubscriptions;
+    private final Map<String,AtomicBoolean> subscriptionAttempts=new ConcurrentHashMap<>();
     private final java.util.Set<String> aiRequestsInFlight = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private TrackingDatabase trackingDb;
     private TrackingEngine trackingEngine;
@@ -224,7 +227,8 @@ public class MainActivity extends Activity {
         agentProjects = new AgentProjectStore(this);
         aiGithub = new GitHubAgentBridge(accountStore, secureStore, api);
         aiConnections = new OmniChatConnectionStore(this, secureStore);
-        aiChatClient = new OmniChatChatClient();
+        oauthSubscriptions=new OAuthSubscriptions(this,aiConnections);
+        aiChatClient = new OmniChatChatClient(oauthSubscriptions);
         oauth = new OAuthManager(this, secureStore);
         migrateLegacyAccountCache();
         migrateLegacyPerAccountState();
@@ -728,7 +732,7 @@ public class MainActivity extends Activity {
         if ("guest".equals(expected) || !expected.equals(accountStore.activeCacheKey())) {
             toast("Сначала подключите GitHub-аккаунт"); return;
         }
-        java.util.List<String> ids = new java.util.ArrayList<>(OmniChatConnectionStore.supported().keySet());
+        java.util.List<String> ids = new java.util.ArrayList<>(OmniChatConnectionStore.apiSupported().keySet());
         String[] names = new String[ids.size()];
         for (int i = 0; i < ids.size(); i++) {
             String id = ids.get(i);
@@ -822,8 +826,8 @@ public class MainActivity extends Activity {
             toast("Подключите GitHub"); return;
         }
         String provider = aiConnections.selectedProvider(expected);
-        if (provider.isEmpty() || !aiConnections.isConfigured(expected, provider)) {
-            agentConfigureAiProvider(expected); return;
+        if (provider.isEmpty() || !(OAuthSubscriptions.supports(provider)?aiConnections.hasKey(expected,provider):aiConnections.isConfigured(expected, provider))) {
+            agentChooseComposerModel(expected); return;
         }
         ProgressDialog loading = ProgressDialog.show(this, "Git Agent",
                 "Загружаем модели с сервера " + aiConnections.displayName(provider), true, false);
@@ -835,6 +839,9 @@ public class MainActivity extends Activity {
                     loading.dismiss();
                     if (!expected.equals(accountStore.activeCacheKey())) return;
                     aiConnections.cacheModels(expected, provider, models);
+                    if(!models.isEmpty()&&OAuthSubscriptions.supports(provider)&&aiConnections.model(expected,provider).isEmpty()){
+                        aiConnections.save(expected,provider,models.get(0),"");agentRefreshIfCurrent(expected);
+                    }
                     if (models.isEmpty()) {
                         new AlertDialog.Builder(this).setTitle("Модели не найдены")
                                 .setMessage("Провайдер не вернул каталог. ID модели можно указать вручную.")
@@ -1040,13 +1047,11 @@ public class MainActivity extends Activity {
         boolean copilot=prefs.getBoolean("ai_chat_copilot_"+owner,false);
         final Dialog[] dialog={null};
         LinearLayout modes=ui.row();
-        ui.chip(modes,"Выкл",!enabled,()->agentSetMode(owner,0,dialog[0]));
-        TextView auto=ui.chip(modes,"Авто",false,()->{});auto.setEnabled(false);auto.setAlpha(.45f);
+        ui.modeChip(modes,"Выкл",!enabled,true,()->agentSetMode(owner,0,dialog[0]));
+        ui.modeChip(modes,"Авто",false,false,()->{});
+        ui.modeChip(modes,"Один агент",enabled,true,()->agentSetMode(owner,1,dialog[0]));
+        ui.modeChip(modes,"Оркестрация",false,false,()->{});
         body.addView(modes);
-        LinearLayout agents=ui.row();
-        ui.chip(agents,"Один агент",enabled,()->agentSetMode(owner,1,dialog[0]));
-        TextView orchestration=ui.chip(agents,"Оркестрация",false,()->{});
-        orchestration.setEnabled(false);orchestration.setAlpha(.45f);body.addView(agents);
         ui.note(body,enabled?"Анализ и генерация файлов. Записи в GitHub требуют подтверждения.":"Обычный чат без файловых инструментов.");
         ui.action(body,"GitHubble AI Agent",enabled&&!copilot?"Выбран":"Собственный исполнитель",0xFF2E9D68,
                 ()->agentSetMode(owner,1,dialog[0]));
@@ -1081,6 +1086,107 @@ public class MainActivity extends Activity {
         new AlertDialog.Builder(this).setTitle(title).setMessage(reason).setPositiveButton("Понятно",null).show();
     }
 
+    private void agentShowSubscriptions(String owner,boolean proxy){
+        if(!owner.equals(accountStore.activeCacheKey()))return;
+        GitAgentUi ui=new GitAgentUi(this,BG);LinearLayout body=ui.body(proxy?"Subscription proxy":"Аккаунты и подписки",true);
+        ui.note(body,"Вход через браузер и код устройства. Сессии зашифрованы и привязаны к выбранному GitHub-аккаунту.");
+        final Dialog[] sheet={null};
+        for(String provider:new String[]{OAuthSubscriptions.OPENAI,OAuthSubscriptions.CLINE,OAuthSubscriptions.KIMI}){
+            boolean saved=!"guest".equals(owner)&&aiConnections.hasKey(owner,provider);
+            String detail="Войти через OAuth · без API-ключа";
+            if(saved){
+                detail="Авторизовано · "+aiConnections.models(owner,provider).size()+" моделей";
+                try{JSONObject account=new JSONObject(aiConnections.credential(owner,provider));
+                    String identity=account.optString("identity"),plan=account.optString("plan");
+                    if(!identity.isEmpty())detail+=" · "+identity;if(!plan.isEmpty())detail+=" · "+plan;
+                }catch(Exception ignored){}
+                if(!aiConnections.isConfigured(owner,provider))detail="Сессия сохранена · требуется загрузить модели";
+            }
+            final boolean connected=saved;
+            ui.action(body,aiConnections.displayName(provider),detail,0xFF276D8A,()->{
+                sheet[0].dismiss();if(!owner.equals(accountStore.activeCacheKey()))return;
+                if(!connected){agentBeginSubscription(owner,provider);return;}
+                new AlertDialog.Builder(this).setTitle(aiConnections.displayName(provider))
+                    .setItems(new String[]{"Обновить модели","Войти заново","Отключить"},(d,which)->{
+                        if(!owner.equals(accountStore.activeCacheKey()))return;
+                        if(which==0){aiConnections.selectAuthenticated(owner,provider);agentDiscoverAiModels(owner);}
+                        else if(which==1)agentBeginSubscription(owner,provider);
+                        else new AlertDialog.Builder(this).setTitle("Отключить подписку?")
+                            .setMessage("Локальная OAuth-сессия будет удалена. Переписка сохранится.")
+                            .setPositiveButton("Отключить",(x,y)->{
+                                if(!owner.equals(accountStore.activeCacheKey()))return;
+                                AtomicBoolean pending=subscriptionAttempts.remove(owner);if(pending!=null)pending.set(true);
+                                aiConnections.disconnect(owner,provider);agentRefreshIfCurrent(owner);
+                            }).setNegativeButton("Отмена",null).show();
+                    }).setNegativeButton("Закрыть",null).show();
+            });
+        }
+        if(proxy)ui.note(body,"Gemini Web, Grok и Claude из Subscription Proxy пока не перенесены. Доступны три указанных OAuth-транспорта; доступ и лимиты определяет провайдер.");
+        sheet[0]=ui.present(body,true);
+    }
+
+    private boolean subscriptionAttemptCurrent(String owner,AtomicBoolean cancelled){
+        return !cancelled.get()&&owner.equals(accountStore.activeCacheKey())
+                &&subscriptionAttempts.get(owner)==cancelled&&!isFinishing()&&!isDestroyed();
+    }
+
+    private void agentBeginSubscription(String owner,String provider){
+        if("guest".equals(owner)||!owner.equals(accountStore.activeCacheKey())){toast("Сначала подключите GitHub-аккаунт");return;}
+        AtomicBoolean cancelled=new AtomicBoolean(false),old=subscriptionAttempts.put(owner,cancelled);if(old!=null)old.set(true);
+        ProgressDialog progress=ProgressDialog.show(this,aiConnections.displayName(provider),"Получаем код входа…",true,true);
+        progress.setOnCancelListener(d->cancelled.set(true));
+        io.execute(()->{
+            try{
+                OAuthSubscriptions.DeviceLogin login=oauthSubscriptions.begin(provider);
+                runOnUiThread(()->{
+                    progress.dismiss();if(!subscriptionAttemptCurrent(owner,cancelled))return;
+                    GitAgentUi ui=new GitAgentUi(this,BG);LinearLayout body=ui.column();body.setPadding(dp(20),dp(8),dp(20),dp(12));
+                    ui.note(body,"Подтвердите вход на странице провайдера. Код действителен ограниченное время.");
+                    TextView code=ui.label(login.userCode,28,true);code.setTextIsSelectable(true);code.setGravity(Gravity.CENTER);body.addView(code);
+                    TextView status=ui.label("Ожидание подтверждения…",13,false);status.setPadding(0,dp(14),0,0);body.addView(status);
+                    AlertDialog dialog=new AlertDialog.Builder(this).setTitle(aiConnections.displayName(provider)).setView(body)
+                        .setPositiveButton("Открыть браузер",null).setNeutralButton("Копировать код",null).setNegativeButton("Отмена",null).create();
+                    dialog.setOnDismissListener(d->{cancelled.set(true);subscriptionAttempts.remove(owner,cancelled);});
+                    dialog.setOnShowListener(d->{
+                        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{if(subscriptionAttemptCurrent(owner,cancelled))openWeb(login.url);});
+                        dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v->{
+                            android.content.ClipboardManager clipboard=(android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE);
+                            if(clipboard!=null)clipboard.setPrimaryClip(ClipData.newPlainText("Код входа",login.userCode));
+                        });
+                    });dialog.show();
+                    agentPollSubscription(owner,login,cancelled,dialog,status);
+                });
+            }catch(Exception error){runOnUiThread(()->{progress.dismiss();if(subscriptionAttemptCurrent(owner,cancelled)){
+                cancelled.set(true);subscriptionAttempts.remove(owner,cancelled);errorDialog("Не удалось начать OAuth",error.getMessage());}});}
+        });
+    }
+
+    private void agentPollSubscription(String owner,OAuthSubscriptions.DeviceLogin login,AtomicBoolean cancelled,AlertDialog dialog,TextView status){
+        new Handler(Looper.getMainLooper()).postDelayed(()->{
+            if(!subscriptionAttemptCurrent(owner,cancelled)){dialog.dismiss();return;}
+            io.execute(()->{
+                try{
+                    JSONObject session=oauthSubscriptions.poll(login);
+                    if(session==null){runOnUiThread(()->agentPollSubscription(owner,login,cancelled,dialog,status));return;}
+                    session.put("owner",owner);
+                    runOnUiThread(()->status.setText("Вход подтверждён. Загружаем модели…"));
+                    java.util.List<String> models=new ArrayList<>();String catalogError="";
+                    try{models=oauthSubscriptions.discover(login.provider,session.toString());}catch(Exception error){catalogError=error.getMessage();}
+                    final java.util.List<String> ready=models;final String failure=catalogError;
+                    runOnUiThread(()->{
+                        if(!subscriptionAttemptCurrent(owner,cancelled)){dialog.dismiss();return;}
+                        aiConnections.saveSubscription(owner,login.provider,session,ready);
+                        dialog.dismiss();agentRefreshIfCurrent(owner);
+                        if(ready.isEmpty())errorDialog("Вход выполнен, каталог недоступен",failure+"\nОткройте подписку и нажмите «Обновить модели».");
+                        else agentChooseComposerModel(owner);
+                    });
+                }catch(Exception error){runOnUiThread(()->{
+                    if(subscriptionAttemptCurrent(owner,cancelled)){dialog.dismiss();errorDialog("OAuth-подключение не завершено",error.getMessage());}
+                });}
+            });
+        },login.interval);
+    }
+
     private void agentChooseComposerModel(String owner) {
         if (!owner.equals(accountStore.activeCacheKey())) return;
         GitAgentUi ui=new GitAgentUi(this,BG);LinearLayout body=ui.body("Выбор модели",true);
@@ -1093,9 +1199,9 @@ public class MainActivity extends Activity {
         ui.tile(onboarding,"Добавить API",R.drawable.ic_agent_link,0xFF2863B8,()->{
             dialog[0].dismiss();agentConfigureAiProvider(owner);});
         ui.tile(onboarding,"Добавить подписку",android.R.drawable.star_big_on,0xFF713CB3,
-                ()->agentUnavailable("Подписки","OAuth-подключения подписок ещё не перенесены. API-ключ не является входом по подписке."));
+                ()->{dialog[0].dismiss();agentShowSubscriptions(owner,false);});
         ui.tile(onboarding,"Subscription proxy",R.drawable.ic_agent_public,0xFF14846C,
-                ()->agentUnavailable("Subscription proxy","Транспорт Subscription Proxy ещё не подключён. Авторизация не выполнялась."));
+                ()->{dialog[0].dismiss();agentShowSubscriptions(owner,true);});
         body.addView(onboarding,new LinearLayout.LayoutParams(-1,ui.dp(112)));
         if(any){
             EditText search=new EditText(this);search.setSingleLine(true);search.setHint("Поиск моделей и подключений");
@@ -1105,7 +1211,9 @@ public class MainActivity extends Activity {
             refresh[0]=()->{
                 list.removeAllViews();String query=search.getText().toString().trim().toLowerCase(Locale.ROOT);
                 for(String provider:OmniChatConnectionStore.supported().keySet()){
-                    if(!aiConnections.isConfigured(owner,provider)||"Подписки".equals(filter[0]))continue;
+                    if(!aiConnections.isConfigured(owner,provider))continue;
+                    boolean subscription=OAuthSubscriptions.supports(provider);
+                    if("Подписки".equals(filter[0])&&!subscription || "API".equals(filter[0])&&subscription)continue;
                     for(String model:aiConnections.models(owner,provider)){
                         String label=aiConnections.displayName(provider)+" · "+model;
                         if(!query.isEmpty()&&!label.toLowerCase(Locale.ROOT).contains(query))continue;
@@ -1397,7 +1505,7 @@ public class MainActivity extends Activity {
             String provider = aiConnections.selectedProvider(expected);
             if (provider.isEmpty() || !aiConnections.isConfigured(expected, provider)) {
                 agentProjects.append(expected, "system",
-                        "Для ответа модели настройте прямое API-подключение. ChatGPT OAuth / Subscription Proxy ещё не перенесены.");
+                        "Выберите модель API или подключите подписку через OAuth в списке моделей.");
                 agentRefreshIfCurrent(expected); return;
             }
             if (!aiRequestsInFlight.add(expected)) {
@@ -8794,6 +8902,7 @@ public class MainActivity extends Activity {
     }
 
     @Override protected void onDestroy(){
+        for(AtomicBoolean attempt:subscriptionAttempts.values())attempt.set(true);
         cancelVoiceInput();
         stopCopilotForegroundPolling();
         accountInventoryCancelled.set(true);

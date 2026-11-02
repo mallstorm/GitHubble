@@ -34,10 +34,13 @@ uses Java/Views; the archived Compose source set is not enabled by its build.
   work; switching accounts does not substitute a new account's credentials.
 - Other root screens keep their existing theme and GitHub controllers.
 
+OpenAI ChatGPT/Codex, Cline Account/Pass and Kimi Code device-code OAuth are
+now integrated; see OAUTH_SUBSCRIPTIONS_RC16.md for protocol scope and live-test limits.
+
 ## Explicit limits
 
 This is a native adaptation, not a declaration of complete pixel equivalence.
-OAuth subscription transports, Subscription Proxy, multi-role orchestration,
+Legacy Gemini/Grok/Claude Subscription Proxy transports, multi-role orchestration,
 automatic execution, image analysis/generation, camera/gallery upload, OCR,
 web-search and plugin execution are not integrated. Their UI explains this;
 they are not advertised as authorized or running. Orchestration roles and

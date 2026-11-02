@@ -22,11 +22,15 @@ final class GitAgentUiChecks {
         Context context=host.getTargetContext();
         AgentProjectStore projects=new AgentProjectStore(context);
         String account="ui-regression-"+System.nanoTime(), other=account+"-other";
+        if(projects.listConversations(account).length()!=0)throw new AssertionError("Fresh account contains a phantom conversation");
         String first=projects.activeConversation(account);
+        if(!first.equals(projects.newConversation(account))||projects.listConversations(account).length()!=0)
+            throw new AssertionError("Repeated new-chat taps created empty history");
         projects.appendToConversation(account,first,"user","Первая переписка");
         String second=projects.newConversation(account);
         projects.appendToConversation(account,second,"user","Вторая переписка");
         projects.switchConversation(account,first);
+        if(projects.listConversations(account).length()!=2)throw new AssertionError("A started conversation was not saved");
         if(projects.messages(account).length()!=1 || !"Первая переписка".equals(projects.messages(account).getJSONObject(0).getString("body")))
             throw new AssertionError("Conversation history was replaced");
         if(projects.messages(other).length()!=0)throw new AssertionError("Cross-account messages");
@@ -91,6 +95,12 @@ final class GitAgentUiChecks {
                 host.waitForIdleSync();Thread.sleep(300);screenshot(host,directory,methodName+".png");
                 host.sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK);host.waitForIdleSync();
             }
+            onMain(host,()->{
+                try{java.lang.reflect.Method m=MainActivity.class.getDeclaredMethod("agentShowSubscriptions",String.class,boolean.class);m.setAccessible(true);m.invoke(activity,"guest",false);}
+                catch(Exception error){throw new RuntimeException(error);}
+            });
+            host.waitForIdleSync();Thread.sleep(250);screenshot(host,directory,"subscriptions.png");
+            host.sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK);host.waitForIdleSync();
             final float[] touch=new float[2];
             onMain(host,()->{
                 EditText input=(EditText)find(activity.getWindow().getDecorView(),"Спросить Git Agent");

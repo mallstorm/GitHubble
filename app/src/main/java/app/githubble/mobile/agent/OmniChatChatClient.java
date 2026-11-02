@@ -15,6 +15,9 @@ import java.nio.charset.StandardCharsets;
  * Does NOT use ChatGPT website cookies nor impersonate an OAuth subscription.
  */
 public final class OmniChatChatClient {
+    private final OAuthSubscriptions subscriptions;
+    public OmniChatChatClient(){this.subscriptions=null;}
+    public OmniChatChatClient(OAuthSubscriptions subscriptions){this.subscriptions=subscriptions;}
     private static final int MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
     private static final int MAX_HISTORY_TURNS = 28;
     private static final int MAX_TEXT_CHARS = 20000;
@@ -55,6 +58,10 @@ public final class OmniChatChatClient {
 
     public String complete(String provider, String model, String credential,
                            JSONArray transcript, String project, String repository) throws Exception {
+        if(OAuthSubscriptions.supports(provider)){
+            if(subscriptions==null)throw new IllegalStateException("OAuth-транспорт не инициализирован");
+            return subscriptions.complete(provider,model,credential,transcript,project,repository);
+        }
         if (credential == null || credential.trim().isEmpty())
             throw new IllegalStateException("Нет API-ключа для подключения");
         if (model == null || model.trim().isEmpty())
@@ -176,6 +183,11 @@ public final class OmniChatChatClient {
 
     /** Discovers model IDs through a selected provider's fixed official HTTPS endpoint. */
     public java.util.List<String> discoverModels(String provider, String credential) throws Exception {
+        if(OAuthSubscriptions.supports(provider)){
+            if(subscriptions==null)throw new IllegalStateException("OAuth-транспорт не инициализирован");
+            return subscriptions.discover(provider,credential);
+        }
+
         if (credential == null || credential.trim().isEmpty())
             throw new IllegalStateException("Сначала сохраните API-ключ");
         String base = endpoint(provider);
@@ -233,3 +245,4 @@ public final class OmniChatChatClient {
         }
     }
 }
+
