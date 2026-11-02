@@ -198,6 +198,8 @@ public class MainActivity extends Activity {
     private final Map<String,String> aiChatDrafts = new HashMap<>();
     private final Map<String,java.util.concurrent.Future<?>> aiActiveFutures = new java.util.concurrent.ConcurrentHashMap<>();
     private final Set<String> aiCanceledRequests = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private final Map<String,Long> aiRequestTickets = new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.concurrent.atomic.AtomicLong aiTicketCounter = new java.util.concurrent.atomic.AtomicLong();
     private String pendingAgentTextAccount = "";
     private static final int REQUEST_AGENT_TEXT_FILE = 2722;
 
@@ -1117,10 +1119,70 @@ public class MainActivity extends Activity {
         }
     }
 
+
+    /** Explicitly chosen local text attachment is previewed before joining the unsent chat draft. */
+    private void agentReadTextAttachment(String owner, Uri uri) {
+        io.execute(() -> {
+            try {
+                String filename = uri.getLastPathSegment();
+                if (filename == null) filename = "attachment.txt";
+                android.database.Cursor cursor = getContentResolver().query(uri,
+                        new String[]{android.provider.OpenableColumns.DISPLAY_NAME}, null, null, null);
+                if (cursor != null) {
+                    try {
+                        if (cursor.moveToFirst()) {
+                            int col = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME);
+                            if (col >= 0) filename = cursor.getString(col);
+                        }
+                    } finally { cursor.close(); }
+                }
+                if (filename == null || filename.isEmpty()) filename = "attachment.txt";
+                final String title = filename.length() > 100 ? filename.substring(0,100) : filename;
+                ByteArrayOutputStream output = new ByteArrayOutputStream();
+                try (InputStream input = getContentResolver().openInputStream(uri)) {
+                    if (input == null) throw new IOException("Не удалось открыть файл");
+                    byte[] data = new byte[4096];
+                    int size;
+                    while ((size = input.read(data)) != -1) {
+                        if (output.size() + size > 24000)
+                            throw new IOException("Для текстового контекста выберите файл до 24 КБ");
+                        output.write(data,0,size);
+                    }
+                }
+                byte[] raw = output.toByteArray();
+                for (byte b : raw) if (b == 0) throw new IOException("Выбран двоичный файл; текстовый контекст недоступен");
+                final String body = new String(raw, StandardCharsets.UTF_8);
+                if (body.trim().isEmpty()) throw new IOException("Файл пуст");
+                runOnUiThread(() -> {
+                    if (!owner.equals(accountStore.activeCacheKey())) return;
+                    TextView preview = text(body.substring(0, Math.min(1000, body.length())), 12, false);
+                    preview.setTextColor(TEXT);
+                    preview.setTextIsSelectable(true);
+                    ScrollView scroll = new ScrollView(this);
+                    scroll.setPadding(dp(14), dp(9), dp(14), dp(8));
+                    scroll.addView(preview);
+                    new AlertDialog.Builder(this).setTitle("Добавить файл " + title + "?")
+                            .setMessage("Его текст будет добавлен в черновик. При отправке содержимое попадёт выбранному AI-провайдеру.")
+                            .setView(scroll)
+                            .setPositiveButton("Добавить в сообщение", (d,w) -> {
+                                if (!owner.equals(accountStore.activeCacheKey())) return;
+                                String old = aiChatDrafts.getOrDefault(owner, "");
+                                String appended = old + "\n\nФайл: " + title + "\n" + body;
+                                aiChatDrafts.put(owner, appended);
+                                agentRefreshIfCurrent(owner);
+                            }).setNegativeButton("Отмена",null).show();
+                });
+            } catch (Exception error) {
+                runOnUiThread(() -> toast("Вложение: " + error.getMessage()));
+            }
+        });
+    }
+
     private void agentCancelRequest(String owner) {
         if (!owner.equals(accountStore.activeCacheKey())) return;
         if (aiRequestsInFlight.contains(owner)) {
             aiCanceledRequests.add(owner);
+            aiRequestTickets.remove(owner);
             java.util.concurrent.Future<?> task = aiActiveFutures.remove(owner);
             if (task != null) task.cancel(true);
             aiRequestsInFlight.remove(owner);
@@ -1159,7 +1221,8 @@ public class MainActivity extends Activity {
 
     private void agentSend(String expected, String message, boolean agentMode, boolean useCopilot) {
         if (!expected.equals(accountStore.activeCacheKey())) { toast("Аккаунт проекта изменился"); return; }
-        agentProjects.append(expected, "user", message);
+        final String activeChat = agentProjects.activeConversation(expected);
+        agentProjects.appendToConversation(expected, activeChat, "user", message);
         java.util.regex.Matcher create = java.util.regex.Pattern.compile(
                 "(?iu)(?:создай|создать)\\s+(?:(приватный|публичный)\\s+)?репозиторий\\s+([A-Za-z0-9_.-]+)")
                 .matcher(message);
@@ -1204,22 +1267,33 @@ public class MainActivity extends Activity {
             }
             final String model = aiConnections.model(expected, provider);
             final String credential = aiConnections.credential(expected, provider);
-            final JSONArray snapshot = agentProjects.messages(expected);
+            final JSONArray snapshot = agentProjects.messages(expected, activeChat);
             final AgentProjectStore.Project activeProject = agentProjects.project(expected);
+            aiCanceledRequests.remove(expected);
+            final long ticket = aiTicketCounter.incrementAndGet();
+            aiRequestTickets.put(expected, ticket);
             agentRefreshIfCurrent(expected);
-            io.execute(() -> {
+            java.util.concurrent.Future<?> call = io.submit(() -> {
                 try {
                     String response = aiChatClient.complete(provider, model, credential, snapshot,
                             activeProject.name, activeProject.repository);
-                    agentProjects.append(expected, "agent", response);
+                    if (java.util.Objects.equals(aiRequestTickets.get(expected), ticket)
+                            && !aiCanceledRequests.contains(expected))
+                        agentProjects.appendToConversation(expected, activeChat, "agent", response);
                 } catch (Exception error) {
-                    agentProjects.append(expected, "system", "Ошибка " + aiConnections.displayName(provider)
-                            + ": " + error.getMessage());
+                    if (java.util.Objects.equals(aiRequestTickets.get(expected), ticket)
+                            && !aiCanceledRequests.contains(expected))
+                        agentProjects.appendToConversation(expected, activeChat, "system",
+                                "Ошибка " + aiConnections.displayName(provider) + ": " + error.getMessage());
                 } finally {
-                    aiRequestsInFlight.remove(expected);
+                    if (aiRequestTickets.remove(expected, ticket)) {
+                        aiRequestsInFlight.remove(expected);
+                        aiActiveFutures.remove(expected);
+                    }
                     runOnUiThread(() -> agentRefreshIfCurrent(expected));
                 }
             });
+            aiActiveFutures.put(expected, call);
             return;
         }
         if (!isSignedIn() || p.repository.isEmpty()) {
@@ -7885,6 +7959,14 @@ public class MainActivity extends Activity {
 
     @Override protected void onActivityResult(int requestCode,int resultCode,Intent data){
         super.onActivityResult(requestCode,resultCode,data);
+        if (requestCode == REQUEST_AGENT_TEXT_FILE) {
+            String owner = pendingAgentTextAccount;
+            pendingAgentTextAccount = "";
+            if (resultCode == RESULT_OK && data != null && data.getData() != null
+                    && owner.equals(accountStore.activeCacheKey()))
+                agentReadTextAttachment(owner, data.getData());
+            return;
+        }
         if(requestCode==REQUEST_LOCAL_AVATAR){
             String account=pendingAvatarAccount;
             pendingAvatarAccount="";
