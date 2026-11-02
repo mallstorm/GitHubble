@@ -245,19 +245,19 @@ final class GitAgentUiChecks {
                 }catch(Exception e){throw new RuntimeException(e);}});
                 host.waitForIdleSync();Thread.sleep(250);screenshot(host,directory,section+".png");host.sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK);host.waitForIdleSync();
             }
-            final float[] touch=new float[2];
+            // Opening the IME via the app-owned view avoids injecting pointer events
+            // into an unrelated overlay window (Android 13 may target another UID).
             onMain(host,()->{
                 EditText input=(EditText)find(activity.getWindow().getDecorView(),"Спросить Git Agent");
                 if(input==null)throw new AssertionError("Integrated composer missing");
-                input.requestFocus();input.setText("Черновик перед перезапуском экрана");
-                int[] location=new int[2];input.getLocationOnScreen(location);
-                touch[0]=location[0]+input.getWidth()/2f;touch[1]=location[1]+input.getHeight()/2f;
+                input.requestFocus();
+                input.setText("Черновик перед перезапуском экрана");
+                input.performClick();
+                android.view.inputmethod.InputMethodManager keyboard=
+                    (android.view.inputmethod.InputMethodManager)activity.getSystemService(android.content.Context.INPUT_METHOD_SERVICE);
+                if(keyboard==null)throw new AssertionError("InputMethodManager missing");
+                keyboard.showSoftInput(input,android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);
             });
-            host.waitForIdleSync();
-            long down=android.os.SystemClock.uptimeMillis();
-            android.view.MotionEvent press=android.view.MotionEvent.obtain(down,down,android.view.MotionEvent.ACTION_DOWN,touch[0],touch[1],0);
-            android.view.MotionEvent release=android.view.MotionEvent.obtain(down,down+60,android.view.MotionEvent.ACTION_UP,touch[0],touch[1],0);
-            host.sendPointerSync(press);host.sendPointerSync(release);press.recycle();release.recycle();
             host.waitForIdleSync();
             final boolean[] imeReady={false};
             long imeDeadline=android.os.SystemClock.uptimeMillis()+10000;
@@ -278,7 +278,12 @@ final class GitAgentUiChecks {
                     throw new AssertionError("Composer covered by keyboard");
             });
             screenshot(host,directory,"keyboard.png");
-            host.sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK);
+            onMain(host,()->{
+                EditText editor=(EditText)find(activity.getWindow().getDecorView(),"Спросить Git Agent");
+                android.view.inputmethod.InputMethodManager keyboard=
+                    (android.view.inputmethod.InputMethodManager)activity.getSystemService(android.content.Context.INPUT_METHOD_SERVICE);
+                if(editor!=null&&keyboard!=null)keyboard.hideSoftInputFromWindow(editor.getWindowToken(),0);
+            });
             onMain(host,()->{
                 try{java.lang.reflect.Method chat=MainActivity.class.getDeclaredMethod("showAgentChat");chat.setAccessible(true);chat.invoke(activity);}
                 catch(Exception error){throw new RuntimeException(error);}
