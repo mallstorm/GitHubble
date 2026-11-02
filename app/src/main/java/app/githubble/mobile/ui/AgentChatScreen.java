@@ -45,6 +45,7 @@ public final class AgentChatScreen {
         void showCopilotTasks();
         void startWorkflow();
         void showBuildArtifacts();
+        void diagnoseBuild();
         void generateProjectCode();
         void selectExecutor(boolean copilot);
         void selectMode(boolean agentMode);
