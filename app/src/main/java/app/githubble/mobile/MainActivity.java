@@ -123,6 +123,7 @@ public class MainActivity extends Activity {
     private GitHubAgentBridge aiGithub;
     private OmniChatConnectionStore aiConnections;
     private OmniChatChatClient aiChatClient;
+    private app.githubble.mobile.agent.AiUsageLedger aiUsage;
     private OAuthSubscriptions oauthSubscriptions;
     private app.githubble.mobile.memory.MemoryHub agentMemory;
     private app.githubble.mobile.agent.WorkspaceHub agentWorkspaces;
@@ -246,6 +247,7 @@ public class MainActivity extends Activity {
         aiConnections = new OmniChatConnectionStore(this, secureStore);
         oauthSubscriptions=new OAuthSubscriptions(this,aiConnections);
         aiChatClient = new OmniChatChatClient(oauthSubscriptions);
+        aiUsage = new app.githubble.mobile.agent.AiUsageLedger(this);
         oauth = new OAuthManager(this, secureStore);
         migrateLegacyAccountCache();
         migrateLegacyPerAccountState();
@@ -1248,7 +1250,9 @@ public class MainActivity extends Activity {
                         app.githubble.mobile.agent.AgentExecutionEngine.Proposal proposed=
                             app.githubble.mobile.agent.AgentExecutionEngine.propose(instructions -> {
                                 JSONArray history=new JSONArray().put(new JSONObject().put("role","user").put("body",instructions));
-                                return aiChatClient.complete(provider,model,credential,history,context,"");
+                                String generated=aiChatClient.complete(provider,model,credential,history,context,"");
+                                aiUsage.record(owner,provider,model,OmniChatChatClient.takeUsage());
+                                return generated;
                             },request,agentWorkspaces.context(owner,project.workspaceId));
                         AgentFilePlan plan=proposed.plan;
                         runOnUiThread(()->{
@@ -1636,6 +1640,7 @@ public class MainActivity extends Activity {
                 try {
                     String response = aiChatClient.complete(provider, model, credential, snapshot,
                             agentContext(expected,agentMode||!activeProject.workspaceId.isEmpty()?activeProject:new AgentProjectStore.Project(expected,"","","main",""),activeChat,message), agentMode?activeProject.repository:"");
+                    aiUsage.record(expected,provider,model,OmniChatChatClient.takeUsage());
                     if (java.util.Objects.equals(aiRequestTickets.get(expected), ticket)
                             && !aiCanceledRequests.contains(expected)){
                         agentProjects.appendToConversation(expected, activeChat, "agent", response);
@@ -1643,6 +1648,7 @@ public class MainActivity extends Activity {
                         if(agentMemory.shouldLearn(expected,activeProject.workspaceId,message))try{
                             JSONArray extract=new JSONArray().put(new JSONObject().put("role","user").put("body",agentMemory.extractionPrompt(message,response,activeProject.name)));
                             String learned=aiChatClient.complete(provider,model,credential,extract,"Memory extraction","");
+                            aiUsage.record(expected,provider,model,OmniChatChatClient.takeUsage());
                             if(java.util.Objects.equals(aiRequestTickets.get(expected),ticket)&&!aiCanceledRequests.contains(expected))agentMemory.learn(expected,activeProject.workspaceId,activeChat,learned);
                         }catch(Exception memoryError){/* The answer succeeds independently of memory extraction. */}
                     }
@@ -8285,6 +8291,9 @@ public class MainActivity extends Activity {
         settingsActionRow("Каталог провайдеров",
                 "Информация о поддерживаемых и планируемых сервисах",
                 this::agentShowProviderCatalog);
+        settingsActionRow("Использование и квоты",
+                "Токены из ответов API и локальные запросы",
+                ()->agentShowUsage(owner));
 
         sectionTitle("Workspace и контекст",null);
         settingsActionRow("Рабочие пространства",
@@ -8296,6 +8305,15 @@ public class MainActivity extends Activity {
         settingsActionRow("Память Git Agent",
                 "Запоминание, контекст проектов, импорт и экспорт",
                 ()->agentFeatures(owner).memory());
+        settingsActionRow("История и архив диалогов",
+                "Поиск по старым перепискам и экспорт JSON",
+                ()->agentFeatures(owner).history());
+        settingsActionRow("Автоматическая разработка",
+                "План AI, подтверждение и точка восстановления",
+                ()->agentGenerateProjectCode(owner,""));
+        settingsActionRow("Сборки и диагностика",
+                "GitHub Actions и анализ результатов",
+                ()->agentChooseWorkflow(owner));
 
         sectionTitle("Сеть и маршрутизация",null);
         settingsActionRow("DNS и Smart Routing",
@@ -8315,6 +8333,31 @@ public class MainActivity extends Activity {
                 "Недоступные функции не выдаются за рабочие.",12,false);
         planned.setTextColor(MUTED);
         card(planned);
+    }
+
+    /** Local request statistics; remaining provider subscription quotas need official APIs. */
+    private void agentShowUsage(String owner){
+        if(!owner.equals(accountStore.activeCacheKey()))return;
+        setCurrentScreen(()->agentShowUsage(owner));shell("Использование AI",false);
+        settingsSubheader("Подписки и использование",
+            "Только подтверждённые API-токены и локальные запросы",R.drawable.ic_agent_link);
+        if("guest".equals(owner)){settingsRow("Подключение","Для AI-подписок нужен GitHub-аккаунт");return;}
+        boolean found=false;
+        for(String provider:OmniChatConnectionStore.supported().keySet()){
+            if(!aiConnections.hasKey(owner,provider))continue;
+            found=true;
+            JSONObject usage=aiUsage.snapshot(owner,provider);
+            settingsRow(aiConnections.displayName(provider),
+                "Запросов: "+usage.optLong("calls",0)+
+                " · с отчётом токенов: "+usage.optLong("metered_calls",0)+
+                " · вход: "+usage.optLong("input_tokens",0)+
+                " · выход: "+usage.optLong("output_tokens",0));
+        }
+        if(!found)settingsRow("Нет подключений","Подключите модель в Git Agent и Workspace");
+        TextView note=text("Это локальная статистика, а не остаток баланса, лимит подписки или сумма к оплате. "+
+            "Токены отображаются лишь тогда, когда провайдер вернул usage. "+
+            "Остатки тарифных квот будут добавляться только через подтверждённые официальные методы провайдеров.",12,false);
+        note.setTextColor(MUTED);card(note);
     }
 
     private void showSettingsSecurity(){
