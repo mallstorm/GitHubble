@@ -51,6 +51,7 @@ public final class AgentChatScreen {
         void send(String prompt, boolean agentMode, boolean copilot);
         void showConversations();
         void openTools();
+        void openAgentSettings();
         void voiceInput(EditText input, ImageView microphone);
         void voiceSettings();
         void cancelRequest();
@@ -186,7 +187,7 @@ public final class AgentChatScreen {
             robot.setContentDescription(currentMode[0]?"Агент включён":"Обычный чат");
             actions.selectMode(currentMode[0]);
         });
-        robot.setOnLongClickListener(v->{actions.openTools();return true;});
+        robot.setOnLongClickListener(v->{actions.openAgentSettings();return true;});
         tools.addView(robot,new LinearLayout.LayoutParams(dp(43),dp(43)));
 
         LinearLayout model=new LinearLayout(activity);
