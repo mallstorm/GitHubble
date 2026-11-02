@@ -1244,19 +1244,32 @@ public class MainActivity extends Activity {
                 if(!aiRequestsInFlight.add(owner)){toast("Предыдущий запрос ещё выполняется");return;}
                 agentRefreshIfCurrent(owner);io.execute(()->{
                     try{
-                        String prompt="Return only strict JSON with summary, commit_message, files:[{path,content}]. 1 to 12 UTF-8 text files, at most 80KB each/240KB total, no secrets, no binary data or deletion. Task: "+request;
-                        JSONArray history=new JSONArray().put(new JSONObject().put("role","user").put("body",prompt));
-                        String output=aiChatClient.complete(provider,model,credential,history,agentContext(owner,project,thread,request),"");
-                        AgentFilePlan plan=AgentFilePlan.parse(output);
+                        String context=agentContext(owner,project,thread,request);
+                        app.githubble.mobile.agent.AgentExecutionEngine.Proposal proposed=
+                            app.githubble.mobile.agent.AgentExecutionEngine.propose(instructions -> {
+                                JSONArray history=new JSONArray().put(new JSONObject().put("role","user").put("body",instructions));
+                                return aiChatClient.complete(provider,model,credential,history,context,"");
+                            },request,agentWorkspaces.context(owner,project.workspaceId));
+                        AgentFilePlan plan=proposed.plan;
                         runOnUiThread(()->{
                             if(!owner.equals(accountStore.activeCacheKey())||!thread.equals(agentProjects.activeConversation(owner))||!project.workspaceId.equals(agentProjects.project(owner).workspaceId))return;
                             new AlertDialog.Builder(this).setTitle("Записать файлы в локальный Workspace?").setMessage(plan.preview())
                                 .setPositiveButton("Записать локально",(x,y)->{
                                     if(!owner.equals(accountStore.activeCacheKey())||!thread.equals(agentProjects.activeConversation(owner)))return;
-                                    io.execute(()->{int saved=0;try{for(int i=0;i<plan.files.length();i++){JSONObject file=plan.files.getJSONObject(i);agentWorkspaces.saveFile(owner,project.workspaceId,file.getString("path"),file.getString("content"));saved++;}
-                                        agentProjects.appendToConversation(owner,thread,"system","В Workspace записано файлов: "+saved+". GitHub-репозиторий не требуется.");
-                                    }catch(Exception e){agentProjects.appendToConversation(owner,thread,"system","Записано файлов: "+saved+"; ошибка: "+e.getMessage());}
-                                    runOnUiThread(()->agentRefreshIfCurrent(owner));});
+                                    io.execute(()->{
+                                        try{
+                                            if(!owner.equals(accountStore.activeCacheKey())||!thread.equals(agentProjects.activeConversation(owner))
+                                                ||!project.workspaceId.equals(agentProjects.project(owner).workspaceId))return;
+                                            app.githubble.mobile.agent.AgentExecutionEngine.Applied applied=
+                                                app.githubble.mobile.agent.AgentExecutionEngine.applyApproved(
+                                                    this,agentWorkspaces,owner,project.workspaceId,plan);
+                                            agentProjects.appendToConversation(owner,thread,"system",
+                                                "Записано файлов: "+applied.files+
+                                                ". Точка восстановления: "+applied.checkpointId+". GitHub не изменён.");
+                                        }catch(Exception e){agentProjects.appendToConversation(owner,thread,"system",
+                                            "Изменение Workspace не завершено; выполнен откат: "+e.getMessage());}
+                                        runOnUiThread(()->agentRefreshIfCurrent(owner));
+                                    });
                                 }).setNeutralButton("Содержимое",(x,y)->new AlertDialog.Builder(this).setMessage(plan.files.toString()).setPositiveButton("ОК",null).show()).setNegativeButton("Отмена",null).show();
                         });
                     }catch(Exception e){agentProjects.appendToConversation(owner,thread,"system","Workspace: "+e.getMessage());}
