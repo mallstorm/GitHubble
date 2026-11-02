@@ -44,6 +44,20 @@ final class GitAgentUiChecks {
             throw new AssertionError("Connection/catalog persistence or account isolation failed");
         connections.disconnect(account,"openai");
         if(connections.hasKey(account,"openai"))throw new AssertionError("Disconnected key retained");
+        org.json.JSONObject oauth=new org.json.JSONObject().put("access_token","local-test-access")
+            .put("refresh_token","local-test-refresh").put("expires_at",System.currentTimeMillis()+3600000);
+        String subscription=app.githubble.mobile.agent.OAuthSubscriptions.KIMI;
+        connections.saveSubscription(account,subscription,oauth,java.util.Arrays.asList("verified-test-model"));
+        connections=new app.githubble.mobile.agent.OmniChatConnectionStore(context,vault);
+        String originalSession=connections.credential(account,subscription);
+        if(!account.equals(new org.json.JSONObject(originalSession).getString("owner")) || connections.isConfigured(other,subscription))
+            throw new AssertionError("OAuth account/session isolation failed");
+        org.json.JSONObject rotated=new org.json.JSONObject(originalSession).put("refresh_token","rotated-local-test");
+        connections.replaceSubscription(account,subscription,originalSession,rotated);
+        String refreshed=connections.credential(account,subscription);
+        connections.disconnect(account,subscription);
+        try{connections.replaceSubscription(account,subscription,refreshed,rotated);throw new AssertionError("Disconnected OAuth session was resurrected");}
+        catch(IllegalStateException expected){}
         AgentProjectStore restored=new AgentProjectStore(context);
         if(!first.equals(restored.activeConversation(account)))throw new AssertionError("Active thread not restored");
         Intent intent=new Intent(context,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);

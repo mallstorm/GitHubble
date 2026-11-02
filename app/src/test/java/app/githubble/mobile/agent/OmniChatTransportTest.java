@@ -8,7 +8,7 @@ import org.json.JSONObject;
 /** Pure deterministic checks: no live credentials, requests, or device side effects. */
 public class OmniChatTransportTest {
     @Test public void tenSupportedApiProvidersHaveFixedTlsEndpoints() {
-        Map<String, String> providers = OmniChatConnectionStore.supported();
+        Map<String, String> providers = OmniChatConnectionStore.apiSupported();
         assertEquals(10, providers.size());
         for (String id : providers.keySet()) {
             String endpoint = OmniChatChatClient.endpoint(id);
@@ -63,3 +63,4 @@ public class OmniChatTransportTest {
                 OmniChatChatClient.endpoint("nvidia"));
     }
 }
+
