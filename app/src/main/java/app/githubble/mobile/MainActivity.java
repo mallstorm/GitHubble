@@ -521,9 +521,19 @@ public class MainActivity extends Activity {
             @Override public void showProviderCatalog() { agentShowProviderCatalog(); }
             @Override public void showCopilotTasks() { navigate(MainActivity.this::showCopilotTasks); }
             @Override public void startWorkflow() { agentChooseWorkflow(owner); }
-            @Override public void send(String prompt, boolean copilot) { agentSend(owner, prompt, copilot); }
+            @Override public void selectExecutor(boolean copilot) {
+                prefs.edit().putBoolean("ai_chat_copilot_" + owner, copilot).apply();
+            }
+            @Override public void selectMode(boolean agentMode) {
+                prefs.edit().putBoolean("ai_chat_agent_mode_" + owner, agentMode).apply();
+            }
+            @Override public void send(String prompt, boolean agentMode, boolean copilot) {
+                agentSend(owner, prompt, agentMode, copilot);
+            }
         });
-        screen.render(label, project, agentProjects.messages(owner), OmniChatProviderCatalog.load(this).length());
+        screen.render(label, project, agentProjects.messages(owner), OmniChatProviderCatalog.load(this).length(),
+                prefs.getBoolean("ai_chat_copilot_" + owner, false),
+                prefs.getBoolean("ai_chat_agent_mode_" + owner, true));
     }
 
     private void agentRefreshIfCurrent(String expectedAccount) {
@@ -648,7 +658,7 @@ public class MainActivity extends Activity {
                 }).setNegativeButton("Закрыть", null).show();
     }
 
-    private void agentSend(String expected, String message, boolean useCopilot) {
+    private void agentSend(String expected, String message, boolean agentMode, boolean useCopilot) {
         if (!expected.equals(accountStore.activeCacheKey())) { toast("Аккаунт проекта изменился"); return; }
         agentProjects.append(expected, "user", message);
         java.util.regex.Matcher create = java.util.regex.Pattern.compile(
@@ -665,6 +675,12 @@ public class MainActivity extends Activity {
         if (lower.startsWith("/build") || lower.contains("собери проект") || lower.contains("запусти сборку")) {
             agentRefreshIfCurrent(expected);
             agentChooseWorkflow(expected);
+            return;
+        }
+        if (useCopilot && !agentMode) {
+            agentProjects.append(expected, "system",
+                    "GitHub Copilot Cloud выполняет агентные задачи. Переключите режим с «Чат» на «Агент».");
+            agentRefreshIfCurrent(expected);
             return;
         }
         if (!useCopilot) {
