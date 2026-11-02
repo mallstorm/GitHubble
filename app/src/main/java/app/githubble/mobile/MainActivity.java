@@ -657,6 +657,190 @@ public class MainActivity extends Activity {
         if(expected.equals(accountStore.activeCacheKey()))agentFeatures(expected).workspace();
     }
 
+    /** GitHub account and repository metadata are read through a pinned OAuth token,
+     * not through the selected AI provider, and never contain the token itself. */
+    private void agentShowGitHubConnection(String expected){
+        if("guest".equals(expected)||!expected.equals(accountStore.activeCacheKey())||!isSignedIn()){
+            new AlertDialog.Builder(this).setTitle("GitHub не подключён")
+                .setMessage("Откройте «Настройки → Аккаунт и доступ» и войдите в GitHub. "+
+                    "OAuth выбранной нейросети не даёт ей разрешений GitHub.")
+                .setPositiveButton("ОК",null).show();return;
+        }
+        io.execute(()->{
+            String message;
+            try{
+                JSONObject identity=aiGithub.activeIdentity(expected);
+                JSONObject repositories=aiGithub.listAccessibleRepositories(expected);
+                message="@"+identity.optString("login")+" · GitHub API доступен\n"+
+                    "Репозиториев, видимых этому токену: "+repositories.optInt("count")+
+                    (repositories.optBoolean("truncated")?" (показаны только первые 1000)":"")+
+                    "\nАктивный проект: "+agentProjects.project(expected).repository+
+                    "\nGitHub-авторизация независима от OpenAI, Gemini, Cline и других AI-подписок."+
+                    "\nДля записи нужны соответствующие права GitHub App; для удаления — отдельное разрешение.";
+            }catch(Exception error){message="Проверка GitHub не прошла: "+error.getMessage()+
+                    "\nПроверьте авторизацию, разрешения GitHub App и доступ к приватным репозиториям.";}
+            final String report=message;
+            runOnUiThread(()->{
+                if(expected.equals(accountStore.activeCacheKey()))
+                    new AlertDialog.Builder(this).setTitle("Связь Git Agent ↔ GitHub")
+                        .setMessage(report).setPositiveButton("Закрыть",null).show();
+            });
+        });
+    }
+
+    private void agentListRepositories(String expected){
+        if("guest".equals(expected)||!expected.equals(accountStore.activeCacheKey())||!isSignedIn()){
+            toast("Подключите GitHub-аккаунт");return;
+        }
+        io.execute(()->{
+            try{
+                JSONObject catalog=aiGithub.listAccessibleRepositories(expected);
+                JSONArray list=catalog.getJSONArray("repositories");
+                java.util.ArrayList<String> values=new java.util.ArrayList<>();
+                for(int i=0;i<list.length();i++){
+                    JSONObject item=list.getJSONObject(i);
+                    values.add(item.optString("full_name")+
+                        (item.optBoolean("private")?" · закрытый":" · публичный"));
+                }
+                runOnUiThread(()->{
+                    if(!expected.equals(accountStore.activeCacheKey()))return;
+                    new AlertDialog.Builder(this)
+                        .setTitle("GitHub: "+catalog.optInt("count")+
+                            (catalog.optBoolean("truncated")?"+":"")+" репозиториев")
+                        .setItems(values.toArray(new String[0]),(dialog,which)->{
+                            String full=list.optJSONObject(which).optString("full_name");
+                            if(!full.isEmpty())navigate(()->showRepository(full));
+                        }).setPositiveButton("Закрыть",null).show();
+                });
+            }catch(Exception e){
+                runOnUiThread(()->{
+                    if(expected.equals(accountStore.activeCacheKey()))
+                        errorDialog("GitHub API",e.getMessage());
+                });
+            }
+        });
+    }
+
+    /** Local workspace -> remote Git commit, without uploading data to an AI model. */
+    private void agentPublishWorkspace(String expected){
+        if("guest".equals(expected)||!expected.equals(accountStore.activeCacheKey())||!isSignedIn()){
+            toast("Подключите GitHub в разделе «Аккаунт и доступ»");return;
+        }
+        AgentProjectStore.Project captured=agentProjects.project(expected);
+        if(captured.workspaceId==null||captured.workspaceId.isEmpty()){
+            toast("Сначала создайте или выберите Workspace");agentFeatures(expected).workspace();return;
+        }
+        if(captured.repository.isEmpty()){
+            new AlertDialog.Builder(this).setTitle("Куда публиковать Workspace?")
+                .setMessage("Привяжите существующий GitHub-репозиторий или создайте новый. "+
+                    "Workspace не публикуется автоматически.")
+                .setPositiveButton("Привязать",(d,w)->agentAttachRepository(expected))
+                .setNeutralButton("Создать",(d,w)->agentCreateRepository(expected,"",true))
+                .setNegativeButton("Отмена",null).show();
+            return;
+        }
+        final String chat=agentProjects.activeConversation(expected);
+        io.execute(()->{
+            try{
+                aiGithub.requireAccount(expected);
+                AgentGitWorkspace git=new AgentGitWorkspace(accountStore,secureStore);
+                AgentGitWorkspace.Snapshot remote=git.inspect(expected,captured.repository,captured.branch);
+                JSONArray paths=agentWorkspaces.files(expected,captured.workspaceId);
+                JSONArray entries=new JSONArray();
+                int rejected=0;
+                for(int i=0;i<paths.length();i++){
+                    JSONObject file=paths.optJSONObject(i);
+                    if(file==null)continue;
+                    String filePath=file.optString("path");
+                    String lower=filePath.toLowerCase(java.util.Locale.ROOT);
+                    if(filePath.isBlank()||lower.startsWith(".")||lower.contains("/.")
+                       ||lower.contains("token")||lower.contains("secret")||lower.contains("password")
+                       ||lower.contains("keystore")||lower.contains("credential")||lower.endsWith(".env")
+                       ||lower.endsWith(".jks")||lower.endsWith(".p12")
+                       ||lower.equals("gradle.properties")||lower.endsWith("/gradle.properties")
+                       ||file.optLong("size",1000000)>80*1024){
+                        rejected++;continue;
+                    }
+                    try{
+                        app.githubble.mobile.agent.AgentFilePlan.validatePath(filePath);
+                        String contents=agentWorkspaces.readFile(expected,captured.workspaceId,filePath);
+                        if(contents.isEmpty()||contents.indexOf('\u0000')>=0){rejected++;continue;}
+                        entries.put(new JSONObject().put("path",filePath).put("content",contents));
+                    }catch(Exception skipped){rejected++;}
+                }
+                if(entries.length()==0)throw new IllegalStateException("Нет подходящих текстовых файлов");
+                if(entries.length()>12)
+                    throw new IllegalStateException("Найдено "+entries.length()+" файлов (лимит 12 за коммит). "+
+                        "Для публикации большого проекта используйте Git-интеграцию IDE или разделите проект на пакеты.");
+                AgentFilePlan plan=AgentFilePlan.parse(new JSONObject()
+                    .put("summary","Публикация "+entries.length()+" файлов Workspace "+
+                        captured.name+" в "+captured.repository+"/"+captured.branch+
+                        (rejected>0?". Исключено защищённых/крупных файлов: "+rejected:""))
+                    .put("commit_message","feat(workspace): publish "+captured.name)
+                    .put("files",entries).toString());
+                runOnUiThread(()->{
+                    if(!expected.equals(accountStore.activeCacheKey())
+                        ||!chat.equals(agentProjects.activeConversation(expected)))return;
+                    AgentProjectStore.Project current=agentProjects.project(expected);
+                    if(!captured.workspaceId.equals(current.workspaceId)
+                        ||!captured.repository.equals(current.repository)
+                        ||!captured.branch.equals(current.branch)){toast("Проект изменился");return;}
+                    agentReviewFilePlan(expected,captured,remote.head,plan);
+                });
+            }catch(Exception error){
+                runOnUiThread(()->{
+                    if(expected.equals(accountStore.activeCacheKey()))
+                        errorDialog("Публикация Workspace",error.getMessage());
+                });
+            }
+        });
+    }
+
+    /** Two-stage destructive operation; never executable from model/tool JSON. */
+    private void agentDeleteRepository(String expected,String suggested){
+        if("guest".equals(expected)||!expected.equals(accountStore.activeCacheKey())||!isSignedIn()){
+            toast("Подключите GitHub-аккаунт");return;
+        }
+        EditText repo=new EditText(this);
+        repo.setSingleLine(true);repo.setHint("OWNER/REPO");
+        repo.setText(suggested.isEmpty()?agentProjects.project(expected).repository:suggested);
+        new AlertDialog.Builder(this).setTitle("Удаление репозитория GitHub")
+            .setMessage("Удалить можно только собственный репозиторий с правами администратора. "+
+                "Операция необратима. Для неё у OAuth-приложения должно быть разрешение на удаление.")
+            .setView(repo).setPositiveButton("Продолжить",(d,w)->{
+                String full=repo.getText().toString().trim();
+                if(!full.matches("[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}")){
+                    toast("Введите OWNER/REPO");return;
+                }
+                EditText confirmation=new EditText(this);
+                confirmation.setHint("Введите "+full+" ещё раз");
+                new AlertDialog.Builder(this).setTitle("Последнее подтверждение")
+                    .setMessage("Будет безвозвратно удалён репозиторий "+full+
+                        " и его история. Для продолжения вручную введите точное имя.")
+                    .setView(confirmation)
+                    .setPositiveButton("Удалить навсегда",(yes,which)->{
+                        if(!full.equals(confirmation.getText().toString().trim())){
+                            toast("Имя не совпадает. Удаление отменено.");return;
+                        }
+                        io.execute(()->{
+                            try{
+                                aiGithub.deleteOwnRepository(expected,full);
+                                if(!expected.equals(accountStore.activeCacheKey()))return;
+                                AgentProjectStore.Project current=agentProjects.project(expected);
+                                if(full.equals(current.repository))
+                                    agentProjects.save(new AgentProjectStore.Project(expected,
+                                        current.name,"",current.branch,current.workspaceId));
+                                agentProjects.append(expected,"system","Удалён репозиторий GitHub: "+full);
+                            }catch(Exception e){
+                                agentProjects.append(expected,"system","GitHub не удалил репозиторий: "+
+                                    e.getMessage()+". Возможно, не выдано право delete_repo.");
+                            }
+                            runOnUiThread(()->agentRefreshIfCurrent(expected));
+                        });
+                    }).setNegativeButton("Отмена",null).show();
+            }).setNegativeButton("Отмена",null).show();
+    }
+
     /** Requires explicit confirmation of both name and visibility. */
     private void agentCreateRepository(String expected, String suggested, boolean defaultPrivate) {
         if (!isSignedIn() || !expected.equals(accountStore.activeCacheKey())) {
