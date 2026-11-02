@@ -202,7 +202,7 @@ public final class AgentChatScreen {
         model.setOrientation(LinearLayout.VERTICAL);
         model.setGravity(Gravity.CENTER);
         String modelTitle=selectedCopilot?"GitHub Copilot":connected?modelLabel:"Добавить подключение";
-        TextView modelName=label(modelTitle,13,true,text);
+        TextView modelName=label(modelTitle,13,true,accent);
         modelName.setSingleLine();
         modelName.setEllipsize(TextUtils.TruncateAt.MIDDLE);
         modelName.setGravity(Gravity.CENTER);
@@ -212,7 +212,7 @@ public final class AgentChatScreen {
         modelSub.setGravity(Gravity.CENTER);
         modelSub.setSingleLine();
         modelSub.setEllipsize(TextUtils.TruncateAt.END);
-        model.addView(modelSub,new LinearLayout.LayoutParams(-1,-2));
+        if(connected||selectedCopilot)model.addView(modelSub,new LinearLayout.LayoutParams(-1,-2));
         model.setOnClickListener(v->actions.selectProvider());
         model.setContentDescription("Выбрать AI: "+modelTitle);
         tools.addView(model,new LinearLayout.LayoutParams(0,dp(44),1));
@@ -340,7 +340,23 @@ public final class AgentChatScreen {
     }
 
     private TextView glyph(String value,String description,Runnable click,int size){
-        TextView label=label(value,size,false,text);
+        TextView label=new TextView(activity){
+            final android.graphics.Paint paint=new android.graphics.Paint(3);
+            @Override protected void onDraw(android.graphics.Canvas c){
+                if(!"+".equals(value)&&!"↑".equals(value)&&!"✎".equals(value)&&!"■".equals(value)){super.onDraw(c);return;}
+                paint.setColor(getCurrentTextColor());paint.setStrokeWidth(dp(2));
+                paint.setStrokeCap(android.graphics.Paint.Cap.SQUARE);paint.setStyle(android.graphics.Paint.Style.STROKE);
+                float x=getWidth()/2f,y=getHeight()/2f;
+                if("+".equals(value)){c.drawLine(x-dp(7),y,x+dp(7),y,paint);c.drawLine(x,y-dp(7),x,y+dp(7),paint);}
+                else if("↑".equals(value)){c.drawLine(x,y+dp(7),x,y-dp(7),paint);
+                    c.drawLine(x,y-dp(7),x-dp(6),y-dp(1),paint);c.drawLine(x,y-dp(7),x+dp(6),y-dp(1),paint);}
+                else if("■".equals(value)){paint.setStyle(android.graphics.Paint.Style.FILL);c.drawRect(x-dp(5),y-dp(5),x+dp(5),y+dp(5),paint);}
+                else {c.save();c.translate(x,y);c.rotate(45);paint.setStyle(android.graphics.Paint.Style.FILL);
+                    c.drawRect(-dp(3),-dp(9),dp(3),dp(6),paint);
+                    android.graphics.Path tip=new android.graphics.Path();tip.moveTo(-dp(3),dp(7));tip.lineTo(dp(3),dp(7));tip.lineTo(0,dp(11));tip.close();c.drawPath(tip,paint);c.restore();}
+            }
+        };
+        label.setTextColor(text);label.setTextSize(size);
         label.setGravity(Gravity.CENTER);
         label.setContentDescription(description);
         if(click!=null)label.setOnClickListener(v->click.run());

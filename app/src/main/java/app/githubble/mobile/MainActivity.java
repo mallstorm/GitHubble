@@ -212,6 +212,8 @@ public class MainActivity extends Activity {
                     this::goBack);
         }
         prefs = getSharedPreferences("githubble", MODE_PRIVATE);
+        if(b!=null){pendingAgentTextAccount=b.getString("agent_text_account","");
+            pendingAgentTextConversation=b.getString("agent_text_conversation","");}
         repositoriesGrid = prefs.getBoolean("repositories_grid", false);
         repositoriesSort = prefs.getString("repositories_sort", "updated");
         secureStore = new SecureStore(this);
@@ -349,6 +351,9 @@ public class MainActivity extends Activity {
             accountInventoryFuture.cancel(true);
         screenGeneration.incrementAndGet();
         currentTitle = title;
+        boolean chatSurface="Чат".equals(title);
+        int bars=chatSurface?(Color.luminance(BG)<.4f?0xFF343941:Color.WHITE):SURFACE;
+        getWindow().setStatusBarColor(bars);getWindow().setNavigationBarColor(bars);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(BG);
@@ -444,7 +449,11 @@ public class MainActivity extends Activity {
     }
 
     private LinearLayout bottomNav(String title) {
-        return BottomNavigationBar.create(this,title,SURFACE,SUBTLE,GREEN,MUTED,
+        boolean chat="Чат".equals(title),dark=Color.luminance(BG)<.4f;
+        return BottomNavigationBar.create(this,title,chat?(dark?0xFF343941:Color.WHITE):SURFACE,
+                chat?(dark?0xFF515963:0xFFE9EFF3):SUBTLE,
+                chat?(dark?0xFFCCD8E0:0xFF435B69):GREEN,
+                chat?(dark?0xFFDFE4E9:0xFF52616B):MUTED,
                 new BottomNavigationBar.Actions() {
                     @Override public void openHome(){openRoot(MainActivity.this::showHome);}
                     @Override public void openRepositories(){openRoot(MainActivity.this::showMyRepositories);}
@@ -580,9 +589,11 @@ public class MainActivity extends Activity {
             @Override public void cancelRequest() { agentCancelRequest(owner); }
             @Override public void draftChanged(String value) { prefs.edit().putString(agentDraftKey(owner, renderedThread), value).apply(); }
             @Override public void selectExecutor(boolean copilot) {
+                if(!owner.equals(accountStore.activeCacheKey()))return;
                 prefs.edit().putBoolean("ai_chat_copilot_" + owner, copilot).apply();
             }
             @Override public void selectMode(boolean agentMode) {
+                if(!owner.equals(accountStore.activeCacheKey()))return;
                 prefs.edit().putBoolean("ai_chat_agent_mode_" + owner, agentMode).apply();
             }
             @Override public void send(String prompt, boolean agentMode, boolean copilot) {
@@ -8729,6 +8740,8 @@ public class MainActivity extends Activity {
     @Override protected void onSaveInstanceState(Bundle outState){
         if(currentScroll!=null&&screenState!=null)screenState.setScroll(currentScroll.getScrollY());
         if(screenState!=null)screenState.save(outState);
+        outState.putString("agent_text_account",pendingAgentTextAccount);
+        outState.putString("agent_text_conversation",pendingAgentTextConversation);
         featureState.save(outState);
         super.onSaveInstanceState(outState);
     }

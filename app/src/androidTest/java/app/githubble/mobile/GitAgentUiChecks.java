@@ -62,7 +62,47 @@ final class GitAgentUiChecks {
                     }catch(Exception error){throw new RuntimeException(error);}finally{image.recycle();}
                 });
             }
+            // Exercise the integrated app surface and the actual modal windows too.
+            host.runOnMainSync(()->{
+                try {
+                    context.getSharedPreferences("githubble",Context.MODE_PRIVATE).edit().putString("theme","light").commit();
+                    java.lang.reflect.Method theme=MainActivity.class.getDeclaredMethod("applyTheme");theme.setAccessible(true);theme.invoke(activity);
+                    java.lang.reflect.Method chat=MainActivity.class.getDeclaredMethod("showAgentChat");chat.setAccessible(true);chat.invoke(activity);
+                }catch(Exception error){throw new RuntimeException(error);}
+            });
+            host.waitForIdleSync();Thread.sleep(300);screenshot(host,directory,"integrated-chat.png");
+            for(String methodName:new String[]{"agentChooseComposerModel","agentShowAttachments","agentShowAgentSettings","agentShowConversations"}){
+                host.runOnMainSync(()->{
+                    try{
+                        java.lang.reflect.Method method=MainActivity.class.getDeclaredMethod(methodName,String.class);
+                        method.setAccessible(true);method.invoke(activity,"guest");
+                    }catch(Exception error){throw new RuntimeException(error);}
+                });
+                host.waitForIdleSync();Thread.sleep(300);screenshot(host,directory,methodName+".png");
+                host.sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK);host.waitForIdleSync();
+            }
+            host.runOnMainSync(()->{
+                EditText input=(EditText)find(activity.getWindow().getDecorView(),"Спросить Git Agent");
+                if(input==null)throw new AssertionError("Integrated composer missing");
+                input.requestFocus();input.setText("Черновик перед перезапуском экрана");
+                ((android.view.inputmethod.InputMethodManager)activity.getSystemService(Context.INPUT_METHOD_SERVICE))
+                    .showSoftInput(input,android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);
+            });
+            host.waitForIdleSync();Thread.sleep(350);screenshot(host,directory,"keyboard.png");
+            host.sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK);
+            host.runOnMainSync(()->{
+                try{java.lang.reflect.Method chat=MainActivity.class.getDeclaredMethod("showAgentChat");chat.setAccessible(true);chat.invoke(activity);}
+                catch(Exception error){throw new RuntimeException(error);}
+                EditText input=(EditText)find(activity.getWindow().getDecorView(),"Спросить Git Agent");
+                if(!"Черновик перед перезапуском экрана".equals(input.getText().toString()))
+                    throw new AssertionError("Integrated draft did not survive screen recreation");
+            });
         }finally{host.runOnMainSync(activity::finish);}
+    }
+    private static void screenshot(Instrumentation host,File directory,String name)throws Exception{
+        Bitmap image=host.getUiAutomation().takeScreenshot();if(image==null)throw new AssertionError("Screenshot unavailable");
+        try(FileOutputStream out=new FileOutputStream(new File(directory,name))){image.compress(Bitmap.CompressFormat.PNG,100,out);}
+        finally{image.recycle();}
     }
     private static View find(View view,String value){
         if(view instanceof TextView){TextView text=(TextView)view;
