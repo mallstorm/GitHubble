@@ -68,7 +68,15 @@ public final class RcInstrumentationTest extends Instrumentation {
             result.putString("result", "PASS: RC instrumentation suite");
             finish(0, result);
         } catch (Throwable error) {
-            result.putString("result", "FAIL: " + error.getClass().getSimpleName() + ": " + error.getMessage());
+            // Preserve the causal chain on the test device: ExceptionInInitializerError
+            // frequently hides the root exception if only its top-level message is sent.
+            android.util.Log.e("AndroidRuntime", "GitHubble instrumentation failed", error);
+            Throwable root = error;
+            while (root.getCause() != null && root.getCause() != root) root = root.getCause();
+            StackTraceElement[] frames = root.getStackTrace();
+            String location = frames.length == 0 ? "" : " at " + frames[0];
+            result.putString("result", "FAIL: " + root.getClass().getSimpleName() +
+                ": " + root.getMessage() + location);
             finish(-1, result);
         }
     }
