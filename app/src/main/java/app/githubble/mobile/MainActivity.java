@@ -134,6 +134,20 @@ public class MainActivity extends Activity {
     }
     private String agentContext(String owner,AgentProjectStore.Project project,String thread,String query){
         String result=project.name;
+        // AI account credentials and GitHub OAuth are independent.
+        boolean githubReady=!"guest".equals(owner)&&owner.equals(accountStore.activeCacheKey())
+            &&isSignedIn();
+        result+="\nGitHub connected through a separate GitHub API client: "+
+            (githubReady?"yes":"no")+
+            ". AI subscriptions alone have no GitHub permissions. "+
+            "Reading repositories requires Git Agent tools; "+
+            "creating, deleting or publishing needs explicit confirmation. "+
+            "Model access to GitHub metadata: "+
+            (prefs.getBoolean("ai_tool_github_read_"+owner,false)?"allowed by user":"disabled")+".\n";
+        if(prefs.getBoolean("ai_tool_github_read_"+owner,false)
+            &&project.repository!=null&&!project.repository.isEmpty())
+            result+="Linked repository: "+project.repository+
+                " (branch "+project.branch+").\n";
         result+=agentMemory.recall(owner,project.workspaceId==null?"":project.workspaceId,thread,query);
         if(project.workspaceId!=null&&!project.workspaceId.isEmpty())try{result+=agentWorkspaces.context(owner,project.workspaceId);}catch(Exception e){result+="\nКонтекст Workspace недоступен: "+e.getMessage();}
         return result;
@@ -879,7 +893,7 @@ public class MainActivity extends Activity {
                                 AgentProjectStore.Project existing = agentProjects.project(expected);
                                 agentProjects.save(new AgentProjectStore.Project(expected,
                                         existing.name.isEmpty() ? repoName : existing.name,
-                                        full, result.optString("default_branch", "main")));
+                                        full, result.optString("default_branch", "main"), existing.workspaceId));
                             }
                             agentProjects.append(expected, "agent", "GitHub подтвердил создание "
                                     + (isPrivate ? "приватного" : "публичного") + " репозитория: " + full);
@@ -906,13 +920,13 @@ public class MainActivity extends Activity {
                     io.execute(() -> {
                         try {
                             aiGithub.requireAccount(expected);
-                            JSONObject response = api.getJson("https://api.github.com/repos/" + full);
+                            JSONObject response = aiGithub.repositoryDetails(expected,full);
                             aiGithub.requireAccount(expected);
                             AgentProjectStore.Project old = agentProjects.project(expected);
                             agentProjects.save(new AgentProjectStore.Project(expected,
-                                    old.name.isEmpty() ? response.optString("name", full) : old.name,
+                                    old.name.isEmpty() ? full.substring(full.indexOf('/')+1) : old.name,
                                     response.optString("full_name", full),
-                                    response.optString("default_branch", "main")));
+                                    response.optString("default_branch", "main"), old.workspaceId));
                             agentProjects.append(expected, "agent", "К проекту привязан репозиторий " + full);
                         } catch (Exception error) {
                             agentProjects.append(expected, "system", "Не удалось привязать репозиторий: " + error.getMessage());
