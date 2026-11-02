@@ -34,6 +34,15 @@ final class GitAgentUiChecks {
         if(projects.messages(account).length()!=1 || !"Первая переписка".equals(projects.messages(account).getJSONObject(0).getString("body")))
             throw new AssertionError("Conversation history was replaced");
         if(projects.messages(other).length()!=0)throw new AssertionError("Cross-account messages");
+        String draftAccount=account+"-drafts";
+        String saved=projects.activeConversation(draftAccount);
+        projects.appendToConversation(draftAccount,saved,"user","Saved message");
+        String pending=projects.newConversation(draftAccount);
+        projects.switchConversation(draftAccount,saved);
+        if(!pending.equals(projects.newConversation(draftAccount)))throw new AssertionError("Unsent draft was replaced on returning to new chat");
+        projects.deleteConversation(draftAccount,saved);
+        if(!pending.equals(projects.activeConversation(draftAccount))||projects.listConversations(draftAccount).length()!=0)
+            throw new AssertionError("Deleting the last saved thread lost the current draft");
         app.githubble.mobile.security.SecureStore vault=new app.githubble.mobile.security.SecureStore(context);
         app.githubble.mobile.agent.OmniChatConnectionStore connections=new app.githubble.mobile.agent.OmniChatConnectionStore(context,vault);
         connections.save(account,"openai","test-model-a","test-credential-never-sent");

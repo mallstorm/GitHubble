@@ -166,7 +166,12 @@ public final class AgentConversationStore {
         String selected=prefs.getString(key(owner,"active_thread"),"");
         SharedPreferences.Editor edit=prefs.edit();
         if(next.length()==0){
-            selected=freshId();edit.putBoolean(key(owner,"pending_"+selected),true)
+            String draft=prefs.getString(key(owner,"draft_thread"),"");
+            if(!selected.equals(id)&&prefs.getBoolean(key(owner,"pending_"+selected),false)){
+                // Keep the active unsent draft when deleting the last saved conversation.
+            }else if(!draft.isEmpty()&&!draft.equals(id)&&prefs.getBoolean(key(owner,"pending_"+draft),false))selected=draft;
+            else selected=freshId();
+            edit.putBoolean(key(owner,"pending_"+selected),true)
                 .putString(key(owner,"draft_thread"),selected).putString(transcriptKey(owner,selected),"[]");
         }else if(selected.equals(id))selected=next.optJSONObject(0).optString("id");
         edit.putString(key(owner,"thread_index"),next.toString()).putString(key(owner,"active_thread"),selected)
