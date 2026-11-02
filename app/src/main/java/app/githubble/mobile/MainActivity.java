@@ -1687,7 +1687,8 @@ public class MainActivity extends Activity {
                     String context=agentContext(expected,agentMode||!activeProject.workspaceId.isEmpty()
                         ?activeProject:new AgentProjectStore.Project(expected,"","","main",""),activeChat,message);
                     String response;
-                    if(imageUri==null&&agentMode&&!activeProject.workspaceId.isEmpty()){
+                    if(imageUri==null&&agentMode&&!activeProject.workspaceId.isEmpty()
+                            &&prefs.getBoolean("ai_tool_file_read_"+expected,false)){
                         response=app.githubble.mobile.agent.AgentExecutionEngine.analyze(instructions->{
                             JSONArray toolsPrompt=new JSONArray().put(new JSONObject().put("role","user").put("body",instructions));
                             String generated=aiChatClient.complete(provider,model,credential,
@@ -8372,6 +8373,9 @@ public class MainActivity extends Activity {
         settingsActionRow("История и архив диалогов",
                 "Поиск по старым перепискам и экспорт JSON",
                 ()->agentFeatures(owner).history());
+        settingsToggleRow("Доступ AI к файлам Workspace",
+                "При включении выбранный AI-провайдер сможет читать файлы и искать по проекту. Выключено по умолчанию.",
+                "ai_tool_file_read_"+owner,false);
         settingsActionRow("Автоматическая разработка",
                 "План AI, подтверждение и точка восстановления",
                 ()->agentGenerateProjectCode(owner,""));
