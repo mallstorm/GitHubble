@@ -196,6 +196,10 @@ public class MainActivity extends Activity {
     private String pendingRepositoryImportBranch = "main";
     private final Set<String> smartSearchRendered = new HashSet<>();
     private final Map<String,String> aiChatDrafts = new HashMap<>();
+    private final Map<String,java.util.concurrent.Future<?>> aiActiveFutures = new java.util.concurrent.ConcurrentHashMap<>();
+    private final Set<String> aiCanceledRequests = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private String pendingAgentTextAccount = "";
+    private static final int REQUEST_AGENT_TEXT_FILE = 2722;
 
     @Override public void onCreate(Bundle b) {
         super.onCreate(b);
@@ -545,7 +549,7 @@ public class MainActivity extends Activity {
             }
             @Override public void showProviderCatalog() { agentShowProviderCatalog(); }
             @Override public void configureProvider() { agentConfigureAiProvider(owner); }
-            @Override public void selectProvider() { agentSelectAiProvider(owner); }
+            @Override public void selectProvider() { agentChooseComposerModel(owner); }
             @Override public void disconnectProvider() { agentDisconnectAiProvider(owner); }
             @Override public void discoverModels() { agentDiscoverAiModels(owner); }
             @Override public void clearConversation() { agentClearConversation(owner); }
@@ -838,6 +842,291 @@ public class MainActivity extends Activity {
                 });
             }
         });
+    }
+
+
+    /** OmniChat-style left navigation drawer: independent conversations per GitHub account. */
+    private void agentShowConversations(String owner) {
+        if (!owner.equals(accountStore.activeCacheKey())) return;
+        final Dialog drawer = new Dialog(this);
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setPadding(dp(14), dp(22), dp(14), dp(17));
+        panel.setBackgroundColor(SURFACE);
+
+        LinearLayout heading = new LinearLayout(this);
+        heading.setGravity(Gravity.CENTER_VERTICAL);
+        TextView title = text("OmniChat", 21, true);
+        heading.addView(title, new LinearLayout.LayoutParams(0, dp(48), 1));
+        TextView newChat = text("+", 29, false);
+        newChat.setGravity(Gravity.CENTER);
+        newChat.setContentDescription("Новая беседа");
+        newChat.setOnClickListener(v -> {
+            drawer.dismiss();
+            agentClearConversation(owner);
+        });
+        heading.addView(newChat, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        panel.addView(heading);
+
+        EditText search = new EditText(this);
+        search.setSingleLine(true);
+        search.setTextColor(TEXT);
+        search.setHintTextColor(MUTED);
+        search.setTextSize(13);
+        search.setHint("Поиск диалогов");
+        search.setPadding(dp(14), dp(10), dp(14), dp(10));
+        search.setBackground(round(SUBTLE, 20, BORDER, 1));
+        LinearLayout.LayoutParams searchLp = new LinearLayout.LayoutParams(-1, dp(49));
+        searchLp.bottomMargin = dp(15);
+        panel.addView(search, searchLp);
+
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+        scroll.addView(list);
+        panel.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
+        final Runnable[] refresh = new Runnable[1];
+        refresh[0] = () -> {
+            list.removeAllViews();
+            String filter = search.getText().toString().trim().toLowerCase(Locale.ROOT);
+            JSONArray conversations = agentProjects.listConversations(owner);
+            String active = agentProjects.activeConversation(owner);
+            TextView section = text("Все диалоги · " + conversations.length(), 12, true);
+            section.setTextColor(MUTED);
+            list.addView(section);
+            for (int i = 0; i < conversations.length(); i++) {
+                JSONObject chat = conversations.optJSONObject(i);
+                if (chat == null) continue;
+                String id = chat.optString("id");
+                String name = chat.optString("title", "Диалог");
+                if (!filter.isEmpty() && !name.toLowerCase(Locale.ROOT).contains(filter)) continue;
+                TextView item = text((id.equals(active) ? "●  " : "     ") + name, 14, id.equals(active));
+                item.setSingleLine();
+                item.setEllipsize(TextUtils.TruncateAt.END);
+                item.setGravity(Gravity.CENTER_VERTICAL);
+                item.setPadding(dp(9), dp(9), dp(9), dp(9));
+                item.setBackground(round(id.equals(active) ? SUBTLE : SURFACE, 13, BORDER, id.equals(active) ? 1 : 0));
+                LinearLayout.LayoutParams row = new LinearLayout.LayoutParams(-1, dp(52));
+                row.bottomMargin = dp(4);
+                list.addView(item, row);
+                item.setOnClickListener(v -> {
+                    if (!owner.equals(accountStore.activeCacheKey())) return;
+                    agentProjects.switchConversation(owner, id);
+                    aiChatDrafts.remove(owner);
+                    drawer.dismiss();
+                    agentRefreshIfCurrent(owner);
+                });
+                item.setOnLongClickListener(v -> {
+                    String[] options = {"Переименовать", "Удалить диалог"};
+                    new AlertDialog.Builder(this).setTitle(name)
+                            .setItems(options, (d, choice) -> {
+                                if (choice == 0) {
+                                    EditText change = new EditText(this);
+                                    change.setSingleLine(true);
+                                    change.setText(name);
+                                    new AlertDialog.Builder(this).setTitle("Название диалога")
+                                            .setView(change).setPositiveButton("Сохранить", (x, y) -> {
+                                                if (!owner.equals(accountStore.activeCacheKey())) return;
+                                                try {
+                                                    agentProjects.renameConversation(owner, id,
+                                                            change.getText().toString());
+                                                    refresh[0].run();
+                                                    agentRefreshIfCurrent(owner);
+                                                } catch (Exception error) { toast(error.getMessage()); }
+                                            }).setNegativeButton("Отмена", null).show();
+                                } else {
+                                    new AlertDialog.Builder(this).setTitle("Удалить диалог?")
+                                            .setMessage("Сообщения этого диалога будут удалены без возможности восстановления.")
+                                            .setPositiveButton("Удалить", (x, y) -> {
+                                                if (!owner.equals(accountStore.activeCacheKey())) return;
+                                                agentProjects.deleteConversation(owner, id);
+                                                refresh[0].run();
+                                                agentRefreshIfCurrent(owner);
+                                            }).setNegativeButton("Отмена", null).show();
+                                }
+                            }).show();
+                    return true;
+                });
+            }
+        };
+        refresh[0].run();
+        search.addTextChangedListener(new android.text.TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int st, int count, int after) {}
+            @Override public void onTextChanged(CharSequence s, int st, int before, int count) {
+                refresh[0].run();
+            }
+            @Override public void afterTextChanged(android.text.Editable s) {}
+        });
+
+        AgentProjectStore.Project project = agentProjects.project(owner);
+        TextView projectLink = text("▣  " + (project.name.isEmpty() ? "Проекты" : project.name), 15, true);
+        projectLink.setPadding(dp(10), dp(13), dp(10), dp(13));
+        projectLink.setOnClickListener(v -> {
+            drawer.dismiss();
+            new AlertDialog.Builder(this).setTitle("Проект GitHub")
+                    .setItems(new String[]{"Новый проект", "Привязать репозиторий",
+                            "Создать репозиторий", "Открыть репозиторий"},
+                            (d, choice) -> {
+                                switch (choice) {
+                                    case 0: agentNewProject(owner); break;
+                                    case 1: agentAttachRepository(owner); break;
+                                    case 2: agentCreateRepository(owner, "", true); break;
+                                    case 3:
+                                        AgentProjectStore.Project p = agentProjects.project(owner);
+                                        if (!p.repository.isEmpty()) navigate(() -> showRepository(p.repository));
+                                        else toast("Репозиторий пока не привязан");
+                                        break;
+                                }
+                            }).show();
+        });
+        panel.addView(projectLink);
+        TextView settings = text("⚙  Подключения и настройки", 14, false);
+        settings.setPadding(dp(10), dp(14), dp(10), dp(14));
+        settings.setOnClickListener(v -> {
+            drawer.dismiss();
+            agentShowChatTools(owner);
+        });
+        panel.addView(settings);
+        drawer.setContentView(panel);
+        android.view.Window window = drawer.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
+            window.addFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+            android.view.WindowManager.LayoutParams lp = window.getAttributes();
+            lp.dimAmount = .34f;
+            window.setAttributes(lp);
+        }
+        drawer.show();
+        if (window != null) {
+            window.setGravity(Gravity.START | Gravity.TOP);
+            window.setLayout(Math.min(dp(360), (int)(getResources().getDisplayMetrics().widthPixels * .88f)),
+                    android.view.WindowManager.LayoutParams.MATCH_PARENT);
+        }
+    }
+
+    private void agentChooseComposerModel(String owner) {
+        if (!owner.equals(accountStore.activeCacheKey())) return;
+        boolean copilot = prefs.getBoolean("ai_chat_copilot_" + owner, false);
+        new AlertDialog.Builder(this).setTitle("Выбрать модель")
+                .setItems(new String[]{
+                        (copilot ? "○ " : "● ") + "OmniChat · подключённые модели",
+                        (copilot ? "● " : "○ ") + "GitHub Copilot Cloud Agent",
+                        "Добавить AI-подключение",
+                        "Обновить список моделей"
+                }, (d, option) -> {
+                    switch (option) {
+                        case 0:
+                            prefs.edit().putBoolean("ai_chat_copilot_" + owner, false).apply();
+                            agentSelectAiProvider(owner);
+                            agentRefreshIfCurrent(owner);
+                            break;
+                        case 1:
+                            prefs.edit().putBoolean("ai_chat_copilot_" + owner, true)
+                                    .putBoolean("ai_chat_agent_mode_" + owner, true).apply();
+                            agentRefreshIfCurrent(owner);
+                            break;
+                        case 2: agentConfigureAiProvider(owner); break;
+                        case 3: agentDiscoverAiModels(owner); break;
+                    }
+                }).setNegativeButton("Закрыть", null).show();
+    }
+
+    /** OmniChat's composer + and top overflow now expose tools without dominating the chat. */
+    private void agentShowChatTools(String owner) {
+        if (!owner.equals(accountStore.activeCacheKey())) return;
+        AgentProjectStore.Project project = agentProjects.project(owner);
+        new AlertDialog.Builder(this).setTitle("OmniChat · инструменты")
+                .setItems(new String[]{
+                        "📎  Прикрепить текстовый файл",
+                        "🖼  Фото и мультимедиа",
+                        "◈  Создать или изменить код",
+                        "▣  Проекты и репозитории",
+                        "⚙  Подключения AI",
+                        "☷  Выбрать модель",
+                        "◇  GitHub Copilot Cloud",
+                        "▶  GitHub Actions",
+                        "↓  APK / артефакты",
+                        "⚑  Диагностика CI",
+                        "○  Настройки диктовки"
+                }, (d, index) -> {
+                    switch (index) {
+                        case 0: agentPickTextAttachment(owner); break;
+                        case 1:
+                            new AlertDialog.Builder(this).setTitle("Мультимедиа OmniChat")
+                                    .setMessage("Галерея, камера, изображения и видео будут подключены к "
+                                            + "мультимодальному движку отдельно. Текущий AI API-транспорт "
+                                            + "поддерживает текст, поэтому отправлять изображение как текст нельзя.")
+                                    .setPositiveButton("ОК", null).show();
+                            break;
+                        case 2: agentGenerateProjectCode(owner, ""); break;
+                        case 3:
+                            new AlertDialog.Builder(this).setTitle("Проекты GitHub")
+                                    .setItems(new String[]{"Новый проект", "Привязать репозиторий",
+                                            "Создать репозиторий", "Открыть репозиторий"},
+                                            (x, i) -> {
+                                                if (i == 0) agentNewProject(owner);
+                                                else if (i == 1) agentAttachRepository(owner);
+                                                else if (i == 2) agentCreateRepository(owner, "", true);
+                                                else {
+                                                    AgentProjectStore.Project p = agentProjects.project(owner);
+                                                    if (!p.repository.isEmpty()) navigate(() -> showRepository(p.repository));
+                                                    else toast("Сначала привяжите репозиторий");
+                                                }
+                                            }).show();
+                            break;
+                        case 4:
+                            new AlertDialog.Builder(this).setTitle("Подключения")
+                                    .setItems(new String[]{"Добавить / изменить", "Выбрать",
+                                            "Список всех провайдеров", "Отключить"},
+                                            (x, i) -> {
+                                                if (i == 0) agentConfigureAiProvider(owner);
+                                                else if (i == 1) agentSelectAiProvider(owner);
+                                                else if (i == 2) agentShowProviderCatalog();
+                                                else agentDisconnectAiProvider(owner);
+                                            }).show();
+                            break;
+                        case 5: agentChooseComposerModel(owner); break;
+                        case 6:
+                            prefs.edit().putBoolean("ai_chat_copilot_" + owner, true)
+                                    .putBoolean("ai_chat_agent_mode_" + owner, true).apply();
+                            agentRefreshIfCurrent(owner);
+                            break;
+                        case 7: agentChooseWorkflow(owner); break;
+                        case 8: agentShowBuildArtifacts(owner); break;
+                        case 9: agentDiagnoseBuild(owner); break;
+                        case 10: showVoiceLanguageChooser(); break;
+                    }
+                }).setNegativeButton("Закрыть", null).show();
+    }
+
+    private void agentPickTextAttachment(String owner) {
+        if (!owner.equals(accountStore.activeCacheKey())) return;
+        pendingAgentTextAccount = owner;
+        Intent choose = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        choose.addCategory(Intent.CATEGORY_OPENABLE);
+        choose.setType("*/*");
+        choose.putExtra(Intent.EXTRA_MIME_TYPES,
+                new String[]{"text/plain", "text/markdown", "application/json",
+                        "application/xml", "text/xml", "text/x-java-source",
+                        "text/x-kotlin", "application/x-yaml", "text/x-python"});
+        try {
+            startActivityForResult(choose, REQUEST_AGENT_TEXT_FILE);
+        } catch (Exception error) {
+            toast("Проводник файлов недоступен: " + error.getMessage());
+        }
+    }
+
+    private void agentCancelRequest(String owner) {
+        if (!owner.equals(accountStore.activeCacheKey())) return;
+        if (aiRequestsInFlight.contains(owner)) {
+            aiCanceledRequests.add(owner);
+            java.util.concurrent.Future<?> task = aiActiveFutures.remove(owner);
+            if (task != null) task.cancel(true);
+            aiRequestsInFlight.remove(owner);
+            agentProjects.append(owner, "system", "Запрос остановлен пользователем.");
+        } else toast("Сейчас нет выполняемого запроса");
+        agentRefreshIfCurrent(owner);
     }
 
     private void agentClearConversation(String expected) {
