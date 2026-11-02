@@ -44,6 +44,7 @@ import app.githubble.mobile.ui.BottomNavigationBar;
 import app.githubble.mobile.ui.AgentChatScreen;
 import app.githubble.mobile.agent.AgentProjectStore;
 import app.githubble.mobile.agent.GitHubAgentBridge;
+import app.githubble.mobile.agent.AgentBuildArtifactController;
 import app.githubble.mobile.agent.OmniChatProviderCatalog;
 import app.githubble.mobile.agent.OmniChatConnectionStore;
 import app.githubble.mobile.agent.OmniChatChatClient;
@@ -533,6 +534,7 @@ public class MainActivity extends Activity {
             @Override public void clearConversation() { agentClearConversation(owner); }
             @Override public void showCopilotTasks() { navigate(MainActivity.this::showCopilotTasks); }
             @Override public void startWorkflow() { agentChooseWorkflow(owner); }
+            @Override public void showBuildArtifacts() { agentShowBuildArtifacts(owner); }
             @Override public void selectExecutor(boolean copilot) {
                 prefs.edit().putBoolean("ai_chat_copilot_" + owner, copilot).apply();
             }
@@ -918,6 +920,97 @@ public class MainActivity extends Activity {
                     });
                 }).setNegativeButton("Отмена", null).show();
         agentRefreshIfCurrent(expected);
+    }
+
+    /** Inspect recent Actions results, then request a real ZIP/APK through the existing download pipeline. */
+    private void agentShowBuildArtifacts(String expected) {
+        AgentProjectStore.Project p = agentProjects.project(expected);
+        if (p.repository.isEmpty()) {
+            agentProjects.append(expected, "system", "Привяжите репозиторий для поиска сборок.");
+            agentRefreshIfCurrent(expected);
+            return;
+        }
+        final AgentBuildArtifactController artifacts = new AgentBuildArtifactController(accountStore, secureStore);
+        io.execute(() -> {
+            try {
+                JSONObject response = artifacts.recentRuns(expected, p.repository);
+                JSONArray runs = response.optJSONArray("workflow_runs");
+                if (runs == null || runs.length() == 0) {
+                    agentProjects.append(expected, "system", "GitHub Actions: в " + p.repository + " ещё нет запусков.");
+                    runOnUiThread(() -> agentRefreshIfCurrent(expected));
+                    return;
+                }
+                String[] names = new String[runs.length()];
+                for (int index = 0; index < names.length; index++) {
+                    JSONObject run = runs.optJSONObject(index);
+                    if (run == null) { names[index] = "Неизвестная сборка"; continue; }
+                    String name = run.optString("name", "GitHub Actions");
+                    String conclusion = run.optString("conclusion", "");
+                    if (conclusion.isEmpty() || "null".equals(conclusion))
+                        conclusion = run.optString("status", "pending");
+                    names[index] = name + " · " + conclusion + " · " + run.optString("head_branch", "")
+                            + " · #" + run.optLong("run_number");
+                }
+                runOnUiThread(() -> {
+                    if (!expected.equals(accountStore.activeCacheKey())) return;
+                    new AlertDialog.Builder(this).setTitle("GitHub Actions · " + p.repository)
+                            .setItems(names, (dialog, selected) -> {
+                                JSONObject run = runs.optJSONObject(selected);
+                                if (run != null) agentShowRunArtifacts(expected, p.repository,
+                                        run.optLong("id"), artifacts);
+                            }).setNegativeButton("Закрыть", null).show();
+                });
+            } catch (Exception error) {
+                agentProjects.append(expected, "system", "GitHub Actions: " + error.getMessage());
+                runOnUiThread(() -> agentRefreshIfCurrent(expected));
+            }
+        });
+    }
+
+    private void agentShowRunArtifacts(String expected, String repo, long runId,
+                                       AgentBuildArtifactController bridge) {
+        io.execute(() -> {
+            try {
+                JSONObject response = bridge.artifacts(expected, repo, runId);
+                JSONArray list = response.optJSONArray("artifacts");
+                if (list == null || list.length() == 0) {
+                    agentProjects.append(expected, "system", "Запуск #" + runId
+                            + " пока не содержит доступных артефактов.");
+                    runOnUiThread(() -> agentRefreshIfCurrent(expected));
+                    return;
+                }
+                String[] entries = new String[list.length()];
+                for (int i = 0; i < entries.length; i++) {
+                    JSONObject a = list.optJSONObject(i);
+                    entries[i] = a == null ? "Артефакт" : a.optString("name", "Артефакт")
+                            + " · " + (a.optBoolean("expired", false) ? "истёк" : "ZIP / APK");
+                }
+                runOnUiThread(() -> {
+                    if (!expected.equals(accountStore.activeCacheKey())) return;
+                    new AlertDialog.Builder(this).setTitle("Артефакты сборки #" + runId)
+                            .setItems(entries, (dialog, selected) -> {
+                                JSONObject a = list.optJSONObject(selected);
+                                if (a == null) return;
+                                try {
+                                    bridge.verifyDownloadAccount(expected);
+                                    long download = BuildArtifactDownloads.enqueue(this, repo, a, false, runId);
+                                    agentProjects.append(expected, "agent",
+                                            "Начата реальная загрузка GitHub Actions: "
+                                            + a.optString("name", "артефакт") + " · ID " + download
+                                            + ". GitHubble сохранит ZIP и извлечёт APK, если он содержится внутри.");
+                                    agentRefreshIfCurrent(expected);
+                                } catch (Exception error) {
+                                    agentProjects.append(expected, "system",
+                                            "Не удалось загрузить артефакт: " + error.getMessage());
+                                    agentRefreshIfCurrent(expected);
+                                }
+                            }).setNegativeButton("Закрыть", null).show();
+                });
+            } catch (Exception error) {
+                agentProjects.append(expected, "system", "Артефакты Actions: " + error.getMessage());
+                runOnUiThread(() -> agentRefreshIfCurrent(expected));
+            }
+        });
     }
 
     private void agentChooseWorkflow(String expected) {
