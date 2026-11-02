@@ -45,6 +45,8 @@ import app.githubble.mobile.ui.AgentChatScreen;
 import app.githubble.mobile.agent.AgentProjectStore;
 import app.githubble.mobile.agent.GitHubAgentBridge;
 import app.githubble.mobile.agent.OmniChatProviderCatalog;
+import app.githubble.mobile.agent.OmniChatConnectionStore;
+import app.githubble.mobile.agent.OmniChatChatClient;
 import app.githubble.mobile.build.BuildRunFilter;
 import app.githubble.mobile.ui.SearchScreen;
 import app.githubble.mobile.tracking.TrackingDatabase;
@@ -113,6 +115,9 @@ public class MainActivity extends Activity {
     private GitHubAccountStore accountStore;
     private AgentProjectStore agentProjects;
     private GitHubAgentBridge aiGithub;
+    private OmniChatConnectionStore aiConnections;
+    private OmniChatChatClient aiChatClient;
+    private final java.util.Set<String> aiRequestsInFlight = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private TrackingDatabase trackingDb;
     private TrackingEngine trackingEngine;
     private TranslationCache translationCache;
@@ -204,6 +209,8 @@ public class MainActivity extends Activity {
         graphql = new GitHubGraphQlClient(api);
         agentProjects = new AgentProjectStore(this);
         aiGithub = new GitHubAgentBridge(accountStore, secureStore, api);
+        aiConnections = new OmniChatConnectionStore(this, secureStore);
+        aiChatClient = new OmniChatChatClient();
         oauth = new OAuthManager(this, secureStore);
         migrateLegacyAccountCache();
         migrateLegacyPerAccountState();
@@ -519,6 +526,9 @@ public class MainActivity extends Activity {
                 if (!p.repository.isEmpty()) navigate(() -> showRepository(p.repository));
             }
             @Override public void showProviderCatalog() { agentShowProviderCatalog(); }
+            @Override public void configureProvider() { agentConfigureAiProvider(owner); }
+            @Override public void selectProvider() { agentSelectAiProvider(owner); }
+            @Override public void disconnectProvider() { agentDisconnectAiProvider(owner); }
             @Override public void showCopilotTasks() { navigate(MainActivity.this::showCopilotTasks); }
             @Override public void startWorkflow() { agentChooseWorkflow(owner); }
             @Override public void selectExecutor(boolean copilot) {
@@ -531,9 +541,13 @@ public class MainActivity extends Activity {
                 agentSend(owner, prompt, agentMode, copilot);
             }
         });
+        String provider = "guest".equals(owner) ? "" : aiConnections.selectedProvider(owner);
+        boolean connected = !provider.isEmpty() && aiConnections.isConfigured(owner, provider);
         screen.render(label, project, agentProjects.messages(owner), OmniChatProviderCatalog.load(this).length(),
                 prefs.getBoolean("ai_chat_copilot_" + owner, false),
-                prefs.getBoolean("ai_chat_agent_mode_" + owner, true));
+                prefs.getBoolean("ai_chat_agent_mode_" + owner, true),
+                connected ? aiConnections.displayName(provider) : "нет",
+                connected ? aiConnections.model(owner, provider) : "", connected);
     }
 
     private void agentRefreshIfCurrent(String expectedAccount) {
@@ -639,6 +653,101 @@ public class MainActivity extends Activity {
                 }).setNegativeButton("Отмена", null).show();
     }
 
+    /** API-key connections are distinct from ChatGPT Subscription OAuth and Copilot. */
+    private void agentConfigureAiProvider(String expected) {
+        if ("guest".equals(expected) || !expected.equals(accountStore.activeCacheKey())) {
+            toast("Сначала подключите GitHub-аккаунт"); return;
+        }
+        java.util.List<String> ids = new java.util.ArrayList<>(OmniChatConnectionStore.supported().keySet());
+        String[] names = new String[ids.size()];
+        for (int i = 0; i < ids.size(); i++) {
+            String id = ids.get(i);
+            names[i] = OmniChatConnectionStore.supported().get(id)
+                    + (aiConnections.isConfigured(expected, id) ? " · подключено" : "");
+        }
+        new AlertDialog.Builder(this).setTitle("Подключить OmniChat API")
+                .setMessage("Поддерживаются прямые API-ключи. Вход через подписку ChatGPT/OAuth будет интегрирован отдельно.")
+                .setItems(names, (d, item) -> agentEditAiProvider(expected, ids.get(item)))
+                .setNegativeButton("Отмена", null).show();
+    }
+
+    private void agentEditAiProvider(String expected, String provider) {
+        LinearLayout fields = new LinearLayout(this);
+        fields.setOrientation(LinearLayout.VERTICAL);
+        fields.setPadding(dp(18), dp(4), dp(18), dp(4));
+        TextView instructions = text("Настройка " + aiConnections.displayName(provider)
+                + ". Ключ сохраняется зашифрованным для текущего GitHub-аккаунта.", 12, false);
+        fields.addView(instructions);
+        EditText model = new EditText(this);
+        model.setSingleLine(true);
+        model.setHint("ID модели (например, gpt-5-mini)");
+        model.setTextColor(TEXT);
+        model.setText(aiConnections.model(expected, provider));
+        fields.addView(model);
+        EditText key = new EditText(this);
+        key.setSingleLine(true);
+        key.setHint(aiConnections.hasKey(expected, provider)
+                ? "Новый API-ключ (оставьте пустым, чтобы сохранить)" : "API-ключ провайдера");
+        key.setInputType(android.text.InputType.TYPE_CLASS_TEXT
+                | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        fields.addView(key);
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("AI-подключение · " + provider)
+                .setView(fields).setPositiveButton("Сохранить", null)
+                .setNegativeButton("Отмена", null).create();
+        dialog.setOnShowListener(v -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(btn -> {
+            try {
+                if (!expected.equals(accountStore.activeCacheKey()))
+                    throw new IllegalStateException("GitHub-аккаунт изменился");
+                aiConnections.save(expected, provider, model.getText().toString(), key.getText().toString());
+                key.setText("");
+                dialog.dismiss();
+                toast("AI-подключение сохранено");
+                agentRefreshIfCurrent(expected);
+            } catch (Exception error) {
+                new AlertDialog.Builder(this).setTitle("Не удалось подключить AI")
+                        .setMessage(error.getMessage()).setPositiveButton("ОК", null).show();
+            }
+        }));
+        dialog.show();
+    }
+
+    private void agentSelectAiProvider(String expected) {
+        if ("guest".equals(expected)) { toast("Подключите GitHub"); return; }
+        java.util.List<String> ids = new java.util.ArrayList<>();
+        java.util.List<String> names = new java.util.ArrayList<>();
+        for (String id : OmniChatConnectionStore.supported().keySet()) {
+            if (aiConnections.isConfigured(expected, id)) {
+                ids.add(id);
+                names.add(aiConnections.displayName(id) + " · " + aiConnections.model(expected, id));
+            }
+        }
+        if (ids.isEmpty()) { agentConfigureAiProvider(expected); return; }
+        new AlertDialog.Builder(this).setTitle("Выбрать AI-модель")
+                .setItems(names.toArray(new String[0]), (d, which) -> {
+                    if (!expected.equals(accountStore.activeCacheKey())) {
+                        toast("GitHub-аккаунт изменился"); return;
+                    }
+                    aiConnections.select(expected, ids.get(which));
+                    agentRefreshIfCurrent(expected);
+                }).setNegativeButton("Отмена", null).show();
+    }
+
+    private void agentDisconnectAiProvider(String expected) {
+        if ("guest".equals(expected)) return;
+        String provider = aiConnections.selectedProvider(expected);
+        if (provider.isEmpty()) { toast("AI-подключение не выбрано"); return; }
+        new AlertDialog.Builder(this).setTitle("Отключить " + aiConnections.displayName(provider) + "?")
+                .setMessage("Сохранённый API-ключ этого провайдера для текущего GitHub-аккаунта будет удалён. История переписки сохранится.")
+                .setPositiveButton("Удалить ключ", (d, w) -> {
+                    if (!expected.equals(accountStore.activeCacheKey())) {
+                        toast("GitHub-аккаунт изменился"); return;
+                    }
+                    aiConnections.disconnect(expected, provider);
+                    agentRefreshIfCurrent(expected);
+                }).setNegativeButton("Отмена", null).show();
+    }
+
     private void agentShowProviderCatalog() {
         JSONArray entries = OmniChatProviderCatalog.load(this);
         String[] labels = new String[entries.length()];
@@ -684,10 +793,39 @@ public class MainActivity extends Activity {
             return;
         }
         if (!useCopilot) {
-            agentProjects.append(expected, "system",
-                    "Официальный AI-транспорт OmniChat / ChatGPT OAuth ещё не подключён в GitHubble. "
-                    + "Сообщение сохранено в проекте; для запуска доступного облачного агента выберите GitHub Copilot.");
+            if ("guest".equals(expected)) {
+                agentProjects.append(expected, "system",
+                        "Подключите GitHub-аккаунт, затем настройте AI API во вкладке «Чат».");
+                agentRefreshIfCurrent(expected); return;
+            }
+            String provider = aiConnections.selectedProvider(expected);
+            if (provider.isEmpty() || !aiConnections.isConfigured(expected, provider)) {
+                agentProjects.append(expected, "system",
+                        "Для ответа модели настройте прямое API-подключение. ChatGPT OAuth / Subscription Proxy ещё не перенесены.");
+                agentRefreshIfCurrent(expected); return;
+            }
+            if (!aiRequestsInFlight.add(expected)) {
+                agentProjects.append(expected, "system", "Предыдущий AI-запрос ещё выполняется.");
+                agentRefreshIfCurrent(expected); return;
+            }
+            final String model = aiConnections.model(expected, provider);
+            final String credential = aiConnections.credential(expected, provider);
+            final JSONArray snapshot = agentProjects.messages(expected);
+            final AgentProjectStore.Project activeProject = agentProjects.project(expected);
             agentRefreshIfCurrent(expected);
+            io.execute(() -> {
+                try {
+                    String response = aiChatClient.complete(provider, model, credential, snapshot,
+                            activeProject.name, activeProject.repository);
+                    agentProjects.append(expected, "agent", response);
+                } catch (Exception error) {
+                    agentProjects.append(expected, "system", "Ошибка " + aiConnections.displayName(provider)
+                            + ": " + error.getMessage());
+                } finally {
+                    aiRequestsInFlight.remove(expected);
+                    runOnUiThread(() -> agentRefreshIfCurrent(expected));
+                }
+            });
             return;
         }
         if (!isSignedIn() || p.repository.isEmpty()) {
