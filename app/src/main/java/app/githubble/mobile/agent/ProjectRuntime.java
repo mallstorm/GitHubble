@@ -123,7 +123,8 @@ public final class ProjectRuntime {
                 String name=call.optString("name","");
                 JSONObject args=call.optJSONObject("args");
                 if(args==null)args=new JSONObject();
-                JSONObject item=new JSONObject().put("name",name);
+                // Preserve tool arguments so multi-file results retain source paths.
+                JSONObject item=new JSONObject().put("name",name).put("args",args);
                 try{
                     String result=GH.contains(name)
                         ?github.executeReadOnly(account,name,args,repo,branch).toString()
