@@ -31,6 +31,13 @@ public final class AgentFilePlanTest {
         }
     }
 
+    @Test public void disallowCredentialAndWorkspaceMetadataPaths()throws Exception{
+        for(String bad:new String[]{".env","config/secrets.properties","credentials.json",
+            "id_rsa","keys/private.pem",".workspace.json"}){
+            try{AgentFilePlan.parse(proposal(bad,"do not write"));fail("Allowed: "+bad);}
+            catch(IllegalArgumentException expected){}
+        }
+    }
     @Test public void rejectsDuplicateCaseInsensitivePaths() throws Exception {
         JSONArray files = new JSONArray()
                 .put(new JSONObject().put("path", "README.md").put("content", "one"))

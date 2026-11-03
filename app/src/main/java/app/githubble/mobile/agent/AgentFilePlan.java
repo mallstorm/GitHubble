@@ -74,6 +74,8 @@ public final class AgentFilePlan {
                     || ".git".equalsIgnoreCase(segment))
                 throw new IllegalArgumentException("Недопустимый путь: " + path);
         }
+        if(!WorkspaceChangeReview.writablePath(path))
+            throw new IllegalArgumentException("Защищённый путь файла: "+path);
         if (path.startsWith(".github/workflows/") && !path.endsWith(".yml") && !path.endsWith(".yaml"))
             throw new IllegalArgumentException("Workflow должен быть YAML-файлом");
     }

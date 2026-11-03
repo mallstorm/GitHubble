@@ -1613,52 +1613,125 @@ public class MainActivity extends Activity {
         });
     }
 
+    /** Generate reviewed local changes: native Workspace first, GitHub only after publication. */
     private void agentGenerateLocalCode(String owner,AgentProjectStore.Project project,String initial){
-        if(project.workspaceId.isEmpty()){agentFeatures(owner).workspace();toast("Создайте или выберите Workspace, затем повторите задачу");return;}
-        String provider=aiConnections.selectedProvider(owner);if(provider.isEmpty()||!aiConnections.isConfigured(owner,provider)){agentChooseComposerModel(owner);return;}
-        final String thread=agentProjects.activeConversation(owner),model=aiConnections.model(owner,provider),credential=aiConnections.credential(owner,provider);
-        EditText task=new EditText(this);task.setHint("Что создать или изменить в локальном Workspace?");task.setMinLines(4);task.setText(initial);
-        new AlertDialog.Builder(this).setTitle("Код в Workspace — без репозитория").setView(task)
-            .setPositiveButton("Подготовить файлы",(d,w)->{
-                String request=task.getText().toString().trim();if(request.length()<5){toast("Опишите задачу подробнее");return;}
-                if(!owner.equals(accountStore.activeCacheKey())||!thread.equals(agentProjects.activeConversation(owner)))return;
-                if(!aiRequestsInFlight.add(owner)){toast("Предыдущий запрос ещё выполняется");return;}
-                agentRefreshIfCurrent(owner);io.execute(()->{
-                    try{
-                        String context=agentContext(owner,project,thread,request);
-                        app.githubble.mobile.agent.AgentExecutionEngine.Proposal proposed=
-                            app.githubble.mobile.agent.AgentExecutionEngine.propose(instructions -> {
-                                JSONArray history=new JSONArray().put(new JSONObject().put("role","user").put("body",instructions));
-                                String generated=aiChatClient.complete(provider,model,credential,history,context,"");
-                                aiUsage.record(owner,provider,model,OmniChatChatClient.takeUsage());
-                                return generated;
-                            },request,agentWorkspaces.context(owner,project.workspaceId));
-                        AgentFilePlan plan=proposed.plan;
-                        runOnUiThread(()->{
-                            if(!owner.equals(accountStore.activeCacheKey())||!thread.equals(agentProjects.activeConversation(owner))||!project.workspaceId.equals(agentProjects.project(owner).workspaceId))return;
-                            new AlertDialog.Builder(this).setTitle("Записать файлы в локальный Workspace?").setMessage(plan.preview())
-                                .setPositiveButton("Записать локально",(x,y)->{
-                                    if(!owner.equals(accountStore.activeCacheKey())||!thread.equals(agentProjects.activeConversation(owner)))return;
-                                    io.execute(()->{
-                                        try{
-                                            if(!owner.equals(accountStore.activeCacheKey())||!thread.equals(agentProjects.activeConversation(owner))
-                                                ||!project.workspaceId.equals(agentProjects.project(owner).workspaceId))return;
-                                            app.githubble.mobile.agent.AgentExecutionEngine.Applied applied=
-                                                app.githubble.mobile.agent.AgentExecutionEngine.applyApproved(
-                                                    this,agentWorkspaces,owner,project.workspaceId,plan);
-                                            agentProjects.appendToConversation(owner,thread,"system",
-                                                "Записано файлов: "+applied.files+
-                                                ". Точка восстановления: "+applied.checkpointId+". GitHub не изменён.");
-                                        }catch(Exception e){agentProjects.appendToConversation(owner,thread,"system",
-                                            "Изменение Workspace не завершено; выполнен откат: "+e.getMessage());}
-                                        runOnUiThread(()->agentRefreshIfCurrent(owner));
-                                    });
-                                }).setNeutralButton("Содержимое",(x,y)->new AlertDialog.Builder(this).setMessage(plan.files.toString()).setPositiveButton("ОК",null).show()).setNegativeButton("Отмена",null).show();
-                        });
-                    }catch(Exception e){agentProjects.appendToConversation(owner,thread,"system","Workspace: "+e.getMessage());}
-                    finally{aiRequestsInFlight.remove(owner);runOnUiThread(()->agentRefreshIfCurrent(owner));}
+        if(project.workspaceId.isEmpty()){
+            agentFeatures(owner).workspace();
+            toast("Создайте или выберите Workspace, затем повторите задачу");return;
+        }
+        if(initial!=null&&!initial.trim().isEmpty()){
+            agentProposeWorkspaceChange(owner,project,initial.trim());
+            return;
+        }
+        EditText task=new EditText(this);
+        task.setHint("Что создать или изменить в Workspace?");
+        task.setMinLines(4);
+        new AlertDialog.Builder(this).setTitle("Подготовить изменения проекта")
+            .setView(task).setPositiveButton("Подготовить план",(dialog,which)->
+                agentProposeWorkspaceChange(owner,project,task.getText().toString().trim()))
+            .setNegativeButton("Отмена",null).show();
+    }
+
+    private void agentProposeWorkspaceChange(String owner,AgentProjectStore.Project project,String request){
+        if(request==null||request.length()<5||request.length()>12000){
+            toast("Опишите задачу (5–12000 символов)");return;
+        }
+        if(!owner.equals(accountStore.activeCacheKey()))return;
+        String provider=aiConnections.selectedProvider(owner);
+        if(provider.isEmpty()||!aiConnections.isConfigured(owner,provider)){
+            agentChooseComposerModel(owner);return;
+        }
+        final String thread=agentProjects.activeConversation(owner);
+        final String workspaceId=project.workspaceId;
+        final String model=aiConnections.model(owner,provider);
+        final String credential=aiConnections.credential(owner,provider);
+        final boolean allowFileRead=prefs.getBoolean("ai_tool_file_read_"+owner,false);
+        if(!aiRequestsInFlight.add(owner)){toast("Другой AI-запрос ещё выполняется");return;}
+        aiCanceledRequests.remove(owner);
+        final long ticket=aiTicketCounter.incrementAndGet();
+        aiRequestTickets.put(owner,ticket);
+        agentRefreshIfCurrent(owner);
+        java.util.concurrent.Future<?> future=io.submit(()->{
+            try{
+                if(!owner.equals(accountStore.activeCacheKey())||
+                    !workspaceId.equals(agentProjects.project(owner).workspaceId))return;
+                // Do not disclose sources without the independent workspace-read consent.
+                String workspaceContext=allowFileRead
+                    ?agentWorkspaces.context(owner,workspaceId)
+                    :"Локальный Workspace подключён, но чтение исходников моделью отключено. "+
+                      "Создавайте новые файлы; существующие файлы не перезаписывайте.";
+                String context=agentContext(owner,project,thread,request);
+                AgentExecutionEngine.Proposal proposed=AgentExecutionEngine.propose(prompt->{
+                    if(Thread.currentThread().isInterrupted())throw new InterruptedException("Отменено");
+                    JSONArray input=new JSONArray().put(new JSONObject()
+                        .put("role","user").put("body",prompt));
+                    String response=aiChatClient.complete(provider,model,credential,input,
+                        context,allowFileRead?project.repository:"");
+                    aiUsage.record(owner,provider,model,OmniChatChatClient.takeUsage());
+                    return response;
+                },request,workspaceContext);
+                AgentFilePlan plan=proposed.plan;
+                app.githubble.mobile.agent.WorkspaceChangeReview review=
+                    app.githubble.mobile.agent.WorkspaceChangeReview.capture(
+                        agentWorkspaces,owner,workspaceId,plan,allowFileRead);
+                if(!review.hasChanges())throw new IllegalStateException("Модель не предложила изменений");
+                runOnUiThread(()->{
+                    if(!owner.equals(accountStore.activeCacheKey())
+                        ||!thread.equals(agentProjects.activeConversation(owner))
+                        ||!workspaceId.equals(agentProjects.project(owner).workspaceId)
+                        ||aiCanceledRequests.contains(owner))return;
+                    new AlertDialog.Builder(this)
+                        .setTitle("Применить изменения в Workspace?")
+                        .setMessage(plan.preview()+"\n\n"+review.preview()+
+                            "\n\nGitHub НЕ изменяется. Точка восстановления будет создана.")
+                        .setPositiveButton("Записать локально",(dialog,which)->{
+                            if(!owner.equals(accountStore.activeCacheKey())
+                                ||!thread.equals(agentProjects.activeConversation(owner))
+                                ||!workspaceId.equals(agentProjects.project(owner).workspaceId))return;
+                            io.execute(()->{
+                                try{
+                                    if(!owner.equals(accountStore.activeCacheKey())
+                                        ||!thread.equals(agentProjects.activeConversation(owner))
+                                        ||!workspaceId.equals(agentProjects.project(owner).workspaceId))return;
+                                    AgentExecutionEngine.Applied applied=
+                                        app.githubble.mobile.agent.WorkspaceChangeReview.applyApproved(
+                                            this,agentWorkspaces,owner,workspaceId,plan,review);
+                                    JSONObject info=agentWorkspaces.info(owner,workspaceId);
+                                    agentWorkspaces.configure(owner,workspaceId,info.optString("name",project.name),
+                                        "DEVELOPMENT",info.optString("instructions",""));
+                                    agentProjects.appendToConversation(owner,thread,"system",
+                                        "Изменения применены локально: "+applied.files+
+                                        " файлов. Новых: "+review.created+
+                                        ", изменённых: "+review.modified+
+                                        ". Checkpoint: "+applied.checkpointId+
+                                        ". GitHub не изменён. Для публикации: /workspace push.");
+                                }catch(Exception error){
+                                    agentProjects.appendToConversation(owner,thread,"system",
+                                        "Применение отменено или откат выполнен: "+error.getMessage());
+                                }finally{runOnUiThread(()->agentRefreshIfCurrent(owner));}
+                            });
+                        })
+                        .setNeutralButton("Смотреть исходники",(dialog,which)->
+                            new AlertDialog.Builder(this).setTitle("Предлагаемые файлы")
+                                .setMessage(plan.files.toString()).setPositiveButton("Закрыть",null).show())
+                        .setNegativeButton("Отклонить",(dialog,which)->
+                            agentProjects.appendToConversation(owner,thread,"system",
+                                "Предложенные изменения отклонены. Файлы остались прежними."))
+                        .show();
                 });
-            }).setNegativeButton("Отмена",null).show();
+            }catch(InterruptedException cancelled){Thread.currentThread().interrupt();}
+            catch(Exception error){
+                if(!aiCanceledRequests.contains(owner))
+                    agentProjects.appendToConversation(owner,thread,"system",
+                        "Не удалось подготовить изменения Workspace: "+error.getMessage());
+            }finally{
+                aiRequestTickets.remove(owner,ticket);
+                aiRequestsInFlight.remove(owner);
+                aiActiveFutures.remove(owner);
+                runOnUiThread(()->agentRefreshIfCurrent(owner));
+            }
+        });
+        aiActiveFutures.put(owner,future);
     }
 
     private void agentChooseComposerModel(String owner) {
@@ -2073,7 +2146,15 @@ public class MainActivity extends Activity {
             agentChooseWorkflow(expected);
             return;
         }
-        if (imageUri==null && agentMode && (lower.startsWith("/code ") || lower.startsWith("создай исходники") || lower.startsWith("создай файлы"))) {
+        // Positive implementation requests become reviewed local file proposals,
+        // not chat-only promises or immediate GitHub mutations.
+        if(imageUri==null&&agentMode&&!p.workspaceId.isEmpty()
+            &&app.githubble.mobile.agent.ProjectWorkIntent.requestsFileProposal(message)){
+            agentGenerateLocalCode(expected,p,message.startsWith("/code ")
+                ?message.substring(6):message);
+            return;
+        }
+        if (imageUri==null && agentMode && (lower.startsWith("/code ") || lower.contains("создай исходники") || lower.contains("создай файлы"))) {
             agentGenerateProjectCode(expected, lower.startsWith("/code ") ? message.substring(6) : message);
             return;
         }
@@ -2176,7 +2257,8 @@ public class MainActivity extends Activity {
             toast("Сначала выберите GitHub-аккаунт проекта"); return;
         }
         AgentProjectStore.Project p = agentProjects.project(expected);
-        if (p.repository.isEmpty()) {
+        // A linked remote does not replace the local working copy.
+        if (!p.workspaceId.isEmpty() || p.repository.isEmpty()) {
             agentGenerateLocalCode(expected,p,initialTask);return;
         }
         String provider = aiConnections.selectedProvider(expected);
