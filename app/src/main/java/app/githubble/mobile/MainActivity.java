@@ -1636,6 +1636,28 @@ public class MainActivity extends Activity {
     }
 
     private void agentProposeWorkspaceChange(String owner,AgentProjectStore.Project project,String request){
+        if(!owner.equals(accountStore.activeCacheKey()))return;
+        // One-time disclosure permission for local sources; it does not change
+        // the stored global/account preference without the user's decision.
+        if(!prefs.getBoolean("ai_tool_file_read_"+owner,false)){
+            new AlertDialog.Builder(this).setTitle("Разрешить AI читать файлы проекта?")
+                .setMessage("Чтобы безопасно изменять существующие файлы, модель должна "+
+                    "увидеть ограниченный контекст Workspace через выбранного AI-провайдера. "+
+                    "OAuth GitHub и локальные секреты не передаются.\n\n"+
+                    "Можно отказаться от передачи содержимого: тогда агент сможет создавать "+
+                    "только новые файлы, не перезаписывая существующие.")
+                .setPositiveButton("Разрешить один раз",(d,w)->
+                    agentProposeWorkspaceChangeReady(owner,project,request,true))
+                .setNeutralButton("Только новые файлы",(d,w)->
+                    agentProposeWorkspaceChangeReady(owner,project,request,false))
+                .setNegativeButton("Отмена",null).show();
+            return;
+        }
+        agentProposeWorkspaceChangeReady(owner,project,request,true);
+    }
+
+    private void agentProposeWorkspaceChangeReady(String owner,AgentProjectStore.Project project,
+            String request,boolean allowFileRead){
         if(request==null||request.length()<5||request.length()>12000){
             toast("Опишите задачу (5–12000 символов)");return;
         }
@@ -1648,7 +1670,6 @@ public class MainActivity extends Activity {
         final String workspaceId=project.workspaceId;
         final String model=aiConnections.model(owner,provider);
         final String credential=aiConnections.credential(owner,provider);
-        final boolean allowFileRead=prefs.getBoolean("ai_tool_file_read_"+owner,false);
         if(!aiRequestsInFlight.add(owner)){toast("Другой AI-запрос ещё выполняется");return;}
         aiCanceledRequests.remove(owner);
         final long ticket=aiTicketCounter.incrementAndGet();
