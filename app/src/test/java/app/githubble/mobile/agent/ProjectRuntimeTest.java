@@ -15,6 +15,9 @@ public final class ProjectRuntimeTest {
         assertFalse(ProjectRuntime.allowed("write_file",true,true));
         assertFalse(ProjectRuntime.allowed("delete_repository",true,true));
         assertFalse(ProjectRuntime.allowed("commit",true,true));
+        assertTrue(ProjectRuntime.allowed("recent_build_runs",true,false));
+        assertTrue(ProjectRuntime.allowed("build_run_diagnostics",true,false));
+        assertFalse(ProjectRuntime.allowed("build_run_diagnostics",false,true));
     }
     @Test public void modelSeesResultsFromLocalWorkspace()throws Exception{
         File tmp=Files.createTempDirectory("runtime-workspace").toFile();

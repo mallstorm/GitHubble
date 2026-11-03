@@ -80,6 +80,8 @@ public final class AgentBuildDiagnostics {
                     .put("conclusion", conclusion).put("steps", broken));
         }
         return new JSONObject().put("run_id", runId)
+                .put("repository",repo)
+                .put("branch",run.optString("head_branch"))
                 .put("sha", run.optString("head_sha"))
                 .put("status", run.optString("status"))
                 .put("conclusion", run.optString("conclusion"))

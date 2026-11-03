@@ -163,6 +163,37 @@ public final class GitHubAgentBridge {
                 String repo=args.optString("repository",linkedRepo);
                 return repositoryTree(expected,repo,args.optString("branch",branch));
             }
+            case "recent_build_runs":{
+                if(linkedRepo==null||linkedRepo.isEmpty())
+                    throw new IllegalArgumentException("Сначала привяжите репозиторий");
+                AgentGitWorkspace.validateRepository(linkedRepo,branch);
+                JSONObject response=scopedApi(expected).getJson(
+                    "https://api.github.com/repos/"+linkedRepo+
+                    "/actions/runs?branch="+branch+"&per_page=8");
+                JSONArray runs=response.optJSONArray("workflow_runs"),list=new JSONArray();
+                for(int i=0;runs!=null&&i<runs.length()&&i<8;i++){
+                    JSONObject item=runs.optJSONObject(i);
+                    if(item!=null)list.put(new JSONObject()
+                        .put("id",item.optLong("id")).put("name",item.optString("name"))
+                        .put("sha",item.optString("head_sha"))
+                        .put("branch",item.optString("head_branch"))
+                        .put("status",item.optString("status"))
+                        .put("conclusion",item.optString("conclusion")));
+                }
+                return new JSONObject().put("repository",linkedRepo).put("runs",list);
+            }
+            case "build_run_diagnostics":{
+                if(linkedRepo==null||linkedRepo.isEmpty())
+                    throw new IllegalArgumentException("Сначала привяжите репозиторий");
+                long runId=args.optLong("run_id",0);
+                if(runId<=0)throw new IllegalArgumentException("Укажите положительный run_id");
+                requireAccount(expected);
+                JSONObject report=new AgentBuildDiagnostics(accounts,secrets)
+                    .summarizeWithErrors(expected,linkedRepo,runId);
+                requireAccount(expected);
+                // Log excerpts are already redacted and limited by AgentLogRedactor.
+                return report;
+            }
             case "repository_workflows":{
                 String repo=args.optString("repository",linkedRepo);
                 JSONObject workflows=listWorkflows(expected,repo),compact=new JSONObject();
