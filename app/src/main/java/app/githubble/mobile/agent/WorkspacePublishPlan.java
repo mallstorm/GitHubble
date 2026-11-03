@@ -69,7 +69,7 @@ public final class WorkspacePublishPlan {
     }
 
     public int fileCount(){return entries.length();}
-    public JSONArray treeEntries(){
+    public JSONArray treeEntries() throws org.json.JSONException {
         return new JSONArray(entries.toString());
     }
     public String preview(String repo,String branch){
