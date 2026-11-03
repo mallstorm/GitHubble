@@ -744,6 +744,110 @@ public class MainActivity extends Activity {
         });
     }
 
+    /**
+     * Choose an authenticated GitHub repository and import a bounded, local source
+     * snapshot. Source never goes to the selected AI provider during import.
+     */
+    private void agentImportRepositoryToWorkspace(String owner,String hint) {
+        if(!owner.equals(accountStore.activeCacheKey()) || "guest".equals(owner) || !isSignedIn()){
+            agentProjects.append(owner,"system","Для импорта подключите GitHub-аккаунт.");
+            agentRefreshIfCurrent(owner);return;
+        }
+        final String chat=agentProjects.activeConversation(owner);
+        final ProgressDialog fetching=ProgressDialog.show(this,"GitHub",
+            "Загружаем доступные репозитории…",true,false);
+        io.execute(()->{
+            try{
+                JSONObject catalog=aiGithub.listAccessibleRepositories(owner);
+                JSONArray repos=catalog.getJSONArray("repositories");
+                java.util.ArrayList<JSONObject> candidates=new java.util.ArrayList<>();
+                for(int i=0;i<repos.length();i++){
+                    JSONObject item=repos.optJSONObject(i);
+                    if(item!=null && !item.optString("full_name").isBlank())candidates.add(item);
+                }
+                final String query=hint==null?"":hint.toLowerCase(java.util.Locale.ROOT);
+                final String[] tokens=query.split("[^a-z0-9]+");
+                java.util.function.ToIntFunction<JSONObject> score=item->{
+                    String name=item.optString("full_name").toLowerCase(java.util.Locale.ROOT);
+                    int rank=query.contains(name)?1000:0;
+                    for(String token:tokens)if(token.length()>=5&&name.contains(token))rank+=token.length();
+                    return rank;
+                };
+                candidates.sort((a,b)->Integer.compare(score.applyAsInt(b),score.applyAsInt(a)));
+                String[] titles=new String[candidates.size()];
+                for(int i=0;i<candidates.size();i++){
+                    JSONObject item=candidates.get(i);
+                    titles[i]=item.optString("full_name")+
+                        (item.optBoolean("private")?" · приватный":" · публичный");
+                }
+                runOnUiThread(()->{
+                    fetching.dismiss();
+                    if(!owner.equals(accountStore.activeCacheKey()) || isFinishing())return;
+                    if(titles.length==0){errorDialog("GitHub","Нет доступных репозиториев");return;}
+                    new AlertDialog.Builder(this)
+                        .setTitle("Импорт репозитория в Workspace")
+                        .setItems(titles,(dialog,selected)->{
+                            JSONObject choice=candidates.get(selected);
+                            String repoName=choice.optString("full_name");
+                            String repoBranch=choice.optString("default_branch","main");
+                            new AlertDialog.Builder(this)
+                                .setTitle("Создать локальный Workspace?")
+                                .setMessage(repoName+" · "+repoBranch+"\n\n"+
+                                    "GitHubble загрузит только безопасные текстовые файлы: не более "+
+                                    app.githubble.mobile.agent.RepositoryWorkspaceImporter.MAX_FILES+
+                                    " файлов, по 128 КБ, всего до 8 МБ. Бинарные файлы, ключи и "+
+                                    "секреты будут пропущены. Это не полный git clone; "+
+                                    "GitHub не изменяется.\n\n"+
+                                    "Если вы отдельно разрешили модели чтение Workspace, "+
+                                    "его содержимое может передаваться выбранному AI-провайдеру.")
+                                .setPositiveButton("Импортировать",(confirm,which)->{
+                                    if(!owner.equals(accountStore.activeCacheKey())
+                                            ||!chat.equals(agentProjects.activeConversation(owner)))return;
+                                    final ProgressDialog running=ProgressDialog.show(this,
+                                        "Импорт из GitHub","Получаем исходники в локальный Workspace…",true,false);
+                                    io.execute(()->{
+                                        try{
+                                            JSONObject result=aiGithub.importRepositoryToWorkspace(owner,
+                                                repoName,repoBranch,agentWorkspaces);
+                                            if(owner.equals(accountStore.activeCacheKey())
+                                                &&chat.equals(agentProjects.activeConversation(owner))){
+                                                agentProjects.save(new AgentProjectStore.Project(owner,
+                                                    repoName.substring(repoName.indexOf('/')+1),
+                                                    repoName,repoBranch,result.getString("workspace_id")));
+                                            }
+                                            agentProjects.appendToConversation(owner,chat,"system",
+                                                "Локальный Workspace создан: "+repoName+
+                                                "\nВетка: "+repoBranch+
+                                                "\nHEAD: "+result.optString("head")+
+                                                "\nИмпортировано текстовых файлов: "+result.optInt("imported")+
+                                                "\nПропущено: "+result.optInt("skipped")+
+                                                (result.optBoolean("partial")?
+                                                    "\nЭто частичный импорт, не полный git clone.":"")+
+                                                "\nНа GitHub ничего не изменено.");
+                                        }catch(Exception error){
+                                            agentProjects.appendToConversation(owner,chat,"system",
+                                                "Импорт GitHub → Workspace не выполнен: "+
+                                                error.getMessage());
+                                        }finally{
+                                            runOnUiThread(()->{
+                                                running.dismiss();
+                                                agentRefreshIfCurrent(owner);
+                                            });
+                                        }
+                                    });
+                                }).setNegativeButton("Отмена",null).show();
+                        }).setNegativeButton("Закрыть",null).show();
+                });
+            }catch(Exception error){
+                runOnUiThread(()->{
+                    fetching.dismiss();
+                    if(owner.equals(accountStore.activeCacheKey()))
+                        errorDialog("GitHub",error.getMessage());
+                });
+            }
+        });
+    }
+
     /** Local workspace -> remote Git commit, without uploading data to an AI model. */
     private void agentPublishWorkspace(String expected){
         if("guest".equals(expected)||!expected.equals(accountStore.activeCacheKey())||!isSignedIn()){
@@ -1629,14 +1733,15 @@ public class MainActivity extends Activity {
         for(int i=0;i<titles.length;i++){String title=titles[i];
             ui.action(body,title,"Пока недоступно",colors[i],()->agentUnavailable(title,"Этот инструмент ещё не подключён в Git Agent."));}
         ui.section(body,"Инструменты GitHubble");
-        String[] tools={"Создать или изменить код","Привязать репозиторий","GitHub Actions","APK и артефакты","Проекты","AI-подключения","Все инструменты"};
+        String[] tools={"Создать или изменить код","Импорт GitHub → Workspace","Привязать репозиторий","GitHub Actions","APK и артефакты","Проекты","AI-подключения","Все инструменты"};
         for(int i=0;i<tools.length;i++){final int action=i;
             ui.action(body,tools[i],i==0?"Предпросмотр файлов и подтверждение коммита":"",0xFF435B69,()->{
                 dialog[0].dismiss();if(!owner.equals(accountStore.activeCacheKey()))return;
                 switch(action){case 0:agentGenerateProjectCode(owner,"");break;
-                    case 1:agentAttachRepository(owner);break;case 2:agentChooseWorkflow(owner);break;
-                    case 3:agentShowBuildArtifacts(owner);break;case 4:agentShowConversations(owner);break;
-                    case 5:navigate(this::showSettingsGitAgentWorkspace);break;default:agentShowChatTools(owner);}
+                    case 1:agentImportRepositoryToWorkspace(owner,"");break;
+                    case 2:agentAttachRepository(owner);break;case 3:agentChooseWorkflow(owner);break;
+                    case 4:agentShowBuildArtifacts(owner);break;case 5:agentShowConversations(owner);break;
+                    case 6:navigate(this::showSettingsGitAgentWorkspace);break;default:agentShowChatTools(owner);}
             });}
         dialog[0]=ui.present(body,true);
     }
@@ -1656,7 +1761,8 @@ public class MainActivity extends Activity {
                         "▶  GitHub Actions",
                         "↓  APK / артефакты",
                         "⚑  Диагностика CI",
-                        "▣  Workspace — локальные проекты"
+                        "▣  Workspace — локальные проекты",
+                        "↓  Импорт GitHub в Workspace"
                 }, (d, index) -> {
                     switch (index) {
                         case 0: agentPickTextAttachment(owner); break;
@@ -1694,6 +1800,7 @@ public class MainActivity extends Activity {
                         case 8: agentShowBuildArtifacts(owner); break;
                         case 9: agentDiagnoseBuild(owner); break;
                         case 10: agentFeatures(owner).workspace(); break;
+                        case 11: agentImportRepositoryToWorkspace(owner,""); break;
                     }
                 }).setNegativeButton("Закрыть", null).show();
     }
@@ -1909,6 +2016,17 @@ public class MainActivity extends Activity {
                     runOnUiThread(()->agentRefreshIfCurrent(expected));
                 }
             });return;
+        }
+        String importText=message.toLowerCase(java.util.Locale.ROOT);
+        boolean workspaceImport=importText.contains("/workspace import") ||
+            ((importText.contains("репозитор")||importText.contains("github")
+                ||importText.contains("гитхаб")||importText.contains("гите"))
+             && (importText.contains("воркспейс")||importText.contains("workspace")
+                ||importText.contains("клонир")||importText.contains("импортир")
+                ||importText.contains("локальн")||importText.contains("сливай")));
+        if(imageUri==null && !useCopilot && workspaceImport){
+            agentImportRepositoryToWorkspace(expected,message);
+            return;
         }
         java.util.regex.Matcher create = java.util.regex.Pattern.compile(
                 "(?iu)(?:создай|создать)\\s+(?:(приватный|публичный)\\s+)?репозиторий\\s+([A-Za-z0-9_.-]+)")
