@@ -140,6 +140,14 @@ public final class GitHubAgentBridge {
             .put("head",snapshot.head).put("files_overview",snapshot.overview);
     }
 
+    /** Read-only GitHub -> local Workspace import, after explicit UI confirmation. */
+    public JSONObject importRepositoryToWorkspace(String expected,String repo,String branch,
+            WorkspaceHub workspaces)throws Exception{
+        GitHubApiClient api=scopedApi(expected);
+        return RepositoryWorkspaceImporter.copy(api,()->requireAccount(expected),
+            workspaces,expected,repo,branch);
+    }
+
     /** Only the owner of a repository may delete via Git Agent; UI requires typed confirmation. */
     public void deleteOwnRepository(String expected,String fullName)throws Exception{
         verifyRepo(fullName);
