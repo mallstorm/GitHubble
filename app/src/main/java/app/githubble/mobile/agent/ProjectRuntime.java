@@ -49,7 +49,7 @@ public final class ProjectRuntime {
         if(gh)catalog+="GITHUB TOOLS: github_account {}, list_repositories {}, "+
             "repository_info {repository}, repository_files {repository,branch}, "+
             "repository_workflows {repository}, recent_build_runs {}, "+
-            "build_run_diagnostics {run_id}.\n";
+            "build_run_diagnostics {run_id} (failed step metadata; no logs).\n";
         if(fs)catalog+="WORKSPACE TOOLS: list_files {}, read_file {path}, "+
             "search_files {query}, symbol_index {query}.\n";
         String base=catalog+"REPOSITORY: "+(gh?clip(repo,200):"not disclosed")+"\nBRANCH: "+
