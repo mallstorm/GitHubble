@@ -43,14 +43,12 @@ public final class AgentChatScreen {
         void disconnectProvider();
         void discoverModels();
         void clearConversation();
-        void showCopilotTasks();
         void startWorkflow();
         void showBuildArtifacts();
         void diagnoseBuild();
         void generateProjectCode();
-        void selectExecutor(boolean copilot);
         void selectMode(boolean agentMode);
-        void send(String prompt, boolean agentMode, boolean copilot);
+        void send(String prompt, boolean agentMode);
         void showConversations();
         void openTools();
         void openAttachments();
@@ -83,7 +81,7 @@ public final class AgentChatScreen {
     }
 
     public void render(String accountLabel, AgentProjectStore.Project project, JSONArray messages,
-                       int providerCount, boolean selectedCopilot, boolean agentMode,
+                       int providerCount, boolean agentMode,
                        String providerLabel, String modelLabel, boolean connected,
                        String conversationTitle, boolean busy, String draft) {
         root.removeAllViews();
@@ -134,7 +132,7 @@ public final class AgentChatScreen {
         if(messages==null||messages.length()==0)empty(transcript,project,connected);
         else for(int i=0;i<messages.length();i++){
             JSONObject entry=messages.optJSONObject(i);
-            if(entry!=null)message(transcript,entry,modelLabel,selectedCopilot);
+            if(entry!=null)message(transcript,entry,modelLabel);
         }
         root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
         if(messages!=null&&messages.length()>0)scroll.post(()->scroll.fullScroll(View.FOCUS_DOWN));
@@ -170,7 +168,7 @@ public final class AgentChatScreen {
         input.setMaxLines(6);
         input.setBackgroundColor(Color.TRANSPARENT);
         input.setPadding(dp(12),dp(9),dp(10),dp(5));
-        input.setHint(selectedCopilot ? "Задача для Copilot: /copilot ..." : "Спросить Git Agent");
+        input.setHint("Спросить Git Agent");
         input.setOnClickListener(v->input.post(()->{
             android.view.inputmethod.InputMethodManager keyboard=(android.view.inputmethod.InputMethodManager)
                     activity.getSystemService(Context.INPUT_METHOD_SERVICE);
@@ -211,18 +209,17 @@ public final class AgentChatScreen {
         LinearLayout model=new LinearLayout(activity);
         model.setOrientation(LinearLayout.VERTICAL);
         model.setGravity(Gravity.CENTER);
-        String modelTitle=selectedCopilot?"Copilot · задачи":connected?modelLabel:"Добавить подключение ▾";
+        String modelTitle=connected?modelLabel:"Выбрать модель / Web ▾";
         TextView modelName=label(modelTitle,13,true,accent);
         modelName.setSingleLine();
         modelName.setEllipsize(TextUtils.TruncateAt.MIDDLE);
         modelName.setGravity(Gravity.CENTER);
         model.addView(modelName,new LinearLayout.LayoutParams(-1,-2));
-        TextView modelSub=label(selectedCopilot?"Не чат · Cloud Agent ▾":
-                connected?providerLabel+" ▾":"",10,false,muted);
+        TextView modelSub=label(connected?providerLabel+" ▾":"AI / Copilot Web",10,false,muted);
         modelSub.setGravity(Gravity.CENTER);
         modelSub.setSingleLine();
         modelSub.setEllipsize(TextUtils.TruncateAt.END);
-        if(connected||selectedCopilot)model.addView(modelSub,new LinearLayout.LayoutParams(-1,-2));
+        model.addView(modelSub,new LinearLayout.LayoutParams(-1,-2));
         model.setOnClickListener(v->actions.selectProvider());
         model.setContentDescription("Выбрать AI: "+modelTitle);
         tools.addView(model,new LinearLayout.LayoutParams(0,dp(44),1));
@@ -250,7 +247,7 @@ public final class AgentChatScreen {
             if(value.isEmpty()){input.setError("Введите сообщение");return;}
             if(value.length()>4900){input.setError("Сообщение превышает 4900 символов. Разбейте его на части.");return;}
             actions.draftChanged("");
-            actions.send(value,currentMode[0],selectedCopilot);
+            actions.send(value,currentMode[0]);
         });
         LinearLayout.LayoutParams sendParams=new LinearLayout.LayoutParams(dp(42),dp(42));
         sendParams.leftMargin=dp(3);
@@ -281,7 +278,7 @@ public final class AgentChatScreen {
         transcript.addView(panel,new LinearLayout.LayoutParams(-1,-1));
     }
 
-    private void message(LinearLayout transcript,JSONObject entry,String model,boolean copilot){
+    private void message(LinearLayout transcript,JSONObject entry,String model){
         String role=entry.optString("role","system");
         String body=entry.optString("body","");
         boolean user="user".equals(role),system="system".equals(role);
@@ -294,8 +291,7 @@ public final class AgentChatScreen {
         if(user)bubble.setBackground(shape(subtle,21,Color.TRANSPARENT,0));
         else if(system)bubble.setBackground(shape(dark?0xFF272E37:0xFFF1F3F5,13,Color.TRANSPARENT,0));
         if(!user){
-            TextView tag=label(system?"Система":copilot?"GitHub Copilot":
-                    "Git Agent"+(model.isEmpty()?"":" · "+model),11,true,system?muted:accent);
+            TextView tag=label(system?"Система":"Git Agent"+(model.isEmpty()?"":" · "+model),11,true,system?muted:accent);
             bubble.addView(tag);
         }
         TextView content=label(body,14,false,text);

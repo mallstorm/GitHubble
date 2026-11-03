@@ -79,10 +79,6 @@ import app.githubble.mobile.controller.AccountOperationsController;
 import app.githubble.mobile.controller.RepositoryImportController;
 import app.githubble.mobile.controller.ProfileController;
 import app.githubble.mobile.controller.TranslationController;
-import app.githubble.mobile.controller.CopilotAgentController;
-import app.githubble.mobile.controller.CopilotPermissionReport;
-import app.githubble.mobile.copilot.CopilotNotificationHelper;
-import app.githubble.mobile.copilot.CopilotTaskMonitorJobService;
 import app.githubble.mobile.state.ScreenStateStore;
 import app.githubble.mobile.state.FeatureUiState;
 import app.githubble.mobile.util.DeviceCodeFormatter;
@@ -205,9 +201,6 @@ public class MainActivity extends Activity {
     };
     private final AtomicBoolean trackingCheckInFlight = new AtomicBoolean(false);
     private final java.util.concurrent.atomic.AtomicLong screenGeneration = new java.util.concurrent.atomic.AtomicLong();
-    private final Handler copilotPollHandler = new Handler(Looper.getMainLooper());
-    private Runnable copilotPollRunnable;
-    private String activeCopilotTaskId = "";
     private boolean registrationCustomTabActive = false;
     private boolean registrationCustomTabWasPaused = false;
     private boolean registrationReturnDialogVisible = false;
@@ -302,8 +295,6 @@ public class MainActivity extends Activity {
         TrackingNotificationHelper.createChannel(this);
         BuildMonitor.createChannel(this);
         BuildMonitorJobService.reschedule(this);
-        CopilotNotificationHelper.createChannel(this);
-        if (prefs.getBoolean("copilot_monitor_enabled", false)) CopilotTaskMonitorJobService.schedule(this, prefs.getInt("copilot_monitor_interval_minutes", 60));
         if (!trackingDb.getDevelopers(true).isEmpty()) TrackingJobService.schedule(this, prefs.getInt("tracking_interval_hours", 6));
         io.execute(() -> { try { features.offlineQueue.processReady(api); } catch (Exception ignored) {} });
         if (!oauth.hasUsableToken() && oauth.canRefresh()) io.execute(() -> { try { if(oauth.refreshIfNeeded(BuildConfig.GITHUB_CLIENT_ID)) runOnUiThread(this::showHome); } catch(Exception ignored) { } });
@@ -332,7 +323,6 @@ public class MainActivity extends Activity {
     }
 
     @Override protected void onPause() {
-        stopCopilotForegroundPolling();
         super.onPause();
         if (registrationCustomTabActive) registrationCustomTabWasPaused = true;
         if (repositoryAccessBrowserActive) repositoryAccessBrowserWasPaused = true;
@@ -626,7 +616,6 @@ public class MainActivity extends Activity {
             @Override public void disconnectProvider() { agentDisconnectAiProvider(owner); }
             @Override public void discoverModels() { agentDiscoverAiModels(owner); }
             @Override public void clearConversation() { agentClearConversation(owner); }
-            @Override public void showCopilotTasks() { navigate(MainActivity.this::showCopilotTasks); }
             @Override public void startWorkflow() { agentChooseWorkflow(owner); }
             @Override public void showBuildArtifacts() { agentShowBuildArtifacts(owner); }
             @Override public void diagnoseBuild() { agentDiagnoseBuild(owner); }
@@ -641,16 +630,12 @@ public class MainActivity extends Activity {
             @Override public void voiceSettings() { showVoiceLanguageChooser(); }
             @Override public void cancelRequest() { agentCancelRequest(owner); }
             @Override public void draftChanged(String value) { prefs.edit().putString(agentDraftKey(owner, renderedThread), value).apply(); }
-            @Override public void selectExecutor(boolean copilot) {
-                if(!owner.equals(accountStore.activeCacheKey()))return;
-                prefs.edit().putBoolean("ai_chat_copilot_" + owner, copilot).apply();
-            }
             @Override public void selectMode(boolean agentMode) {
                 if(!owner.equals(accountStore.activeCacheKey()))return;
                 prefs.edit().putBoolean("ai_chat_agent_mode_" + owner, agentMode).apply();
             }
-            @Override public void send(String prompt, boolean agentMode, boolean copilot) {
-                agentSend(owner, prompt, agentMode, copilot);
+            @Override public void send(String prompt, boolean agentMode) {
+                agentSend(owner, prompt, agentMode);
             }
         });
         String provider = "guest".equals(owner) ? "" : aiConnections.selectedProvider(owner);
@@ -666,7 +651,6 @@ public class MainActivity extends Activity {
             }
         }
         screen.render(label, project, agentProjects.messages(owner), OmniChatProviderCatalog.load(this).length(),
-                prefs.getBoolean("ai_chat_copilot_" + owner, false),
                 prefs.getBoolean("ai_chat_agent_mode_" + owner, false),
                 connected ? aiConnections.displayName(provider) : "нет",
                 connected ? aiConnections.model(owner, provider) : "", connected,
@@ -1033,6 +1017,28 @@ public class MainActivity extends Activity {
                 }).setNegativeButton("Отмена", null).show();
     }
 
+    private void openCopilotWeb(){
+        startActivity(new Intent(this,app.githubble.mobile.web.CopilotWebActivity.class));
+    }
+
+    private void agentAttachSelectedRepository(String full){
+        final String owner=accountStore.activeCacheKey();
+        if("guest".equals(owner)||!isSignedIn()){toast("Подключите GitHub");return;}
+        new AlertDialog.Builder(this).setTitle("Открыть в Git Agent?")
+            .setMessage(full+"\n\nПривязать репозиторий к этому диалогу? GitHub не будет изменён.")
+            .setPositiveButton("Привязать",(d,w)->io.execute(()->{
+                try{
+                    JSONObject details=aiGithub.repositoryDetails(owner,full);
+                    if(!owner.equals(accountStore.activeCacheKey()))return;
+                    AgentProjectStore.Project old=agentProjects.project(owner);
+                    agentProjects.save(new AgentProjectStore.Project(owner,
+                        old.name.isEmpty()?full.substring(full.indexOf('/')+1):old.name,
+                        full,details.optString("default_branch","main"),old.workspaceId));
+                    runOnUiThread(()->navigate(this::showAgentChat));
+                }catch(Exception err){runOnUiThread(()->errorDialog("GitHub",err.getMessage()));}
+            })).setNegativeButton("Отмена",null).show();
+    }
+
     private void agentAttachRepository(String expected) {
         if (!isSignedIn()) { toast("Подключите GitHub"); return; }
         EditText repo = new EditText(this);
@@ -1064,7 +1070,7 @@ public class MainActivity extends Activity {
                 }).setNegativeButton("Отмена", null).show();
     }
 
-    /** API-key connections are distinct from ChatGPT Subscription OAuth and Copilot. */
+    /** API-key connections are distinct from ChatGPT Subscription OAuth. */
     private void agentConfigureAiProvider(String expected) {
         if ("guest".equals(expected) || !expected.equals(accountStore.activeCacheKey())) {
             toast("Сначала подключите GitHub-аккаунт"); return;
@@ -1385,7 +1391,6 @@ public class MainActivity extends Activity {
         LinearLayout body=ui.body("Агент и оркестрация",false);
         ui.section(body,"Режим выполнения");
         boolean enabled=prefs.getBoolean("ai_chat_agent_mode_"+owner,false);
-        boolean copilot=prefs.getBoolean("ai_chat_copilot_"+owner,false);
         final Dialog[] dialog={null};
         LinearLayout modes=ui.row();
         ui.modeChip(modes,"Выкл",!enabled,true,()->agentSetMode(owner,0,dialog[0]));
@@ -1394,12 +1399,11 @@ public class MainActivity extends Activity {
         ui.modeChip(modes,"Оркестрация",false,false,()->{});
         body.addView(modes);
         ui.note(body,enabled?"Анализ и генерация файлов. Записи в GitHub требуют подтверждения.":"Обычный чат без файловых инструментов.");
-        ui.action(body,"GitHubble AI Agent",enabled&&!copilot?"Выбран":"Собственный исполнитель",0xFF2E9D68,
-                ()->agentSetMode(owner,1,dialog[0]));
-        ui.action(body,"GitHub Copilot Cloud · задачи",copilot?"Выбран · не разговорный Copilot Chat":"Запуск задач и создание PR в привязанном репозитории",0xFF435B69,
-                ()->agentSetMode(owner,2,dialog[0]));
-        ui.action(body,"Copilot Chat SDK · диалоги","Отдельное подключение через официальный runtime; ещё не настроено",0xFF435B69,
-                ()->{dialog[0].dismiss();agentShowCopilotChatInfo();});
+        ui.section(body,"Способ работы");
+        ui.action(body,"1 · Подключённая AI-модель","Git Agent · Cline / OpenAI / Grok / API",0xFF2E9D68,
+                ()->{dialog[0].dismiss();agentChooseComposerModel(owner);});
+        ui.action(body,"2 · Copilot Web","Официальный github.com/copilot во внутреннем окне",0xFF2863B8,
+                ()->{dialog[0].dismiss();openCopilotWeb();});
         LinearLayout approval=ui.row();approval.setPadding(ui.dp(12),ui.dp(12),ui.dp(12),ui.dp(12));
         approval.setBackground(ui.shape(ui.dark?0xFF515963:0xFFF0EBF3,18,0));
         TextView caption=ui.label("Автоодобрение проекта\nGitHub-записи всегда требуют подтверждения",14,true);
@@ -1420,8 +1424,7 @@ public class MainActivity extends Activity {
 
     private void agentSetMode(String owner,int mode,Dialog dialog){
         if(!owner.equals(accountStore.activeCacheKey()))return;
-        prefs.edit().putBoolean("ai_chat_agent_mode_"+owner,mode!=0)
-                .putBoolean("ai_chat_copilot_"+owner,mode==2).apply();
+        prefs.edit().putBoolean("ai_chat_agent_mode_"+owner,mode!=0).apply();
         if(dialog!=null)dialog.dismiss();agentRefreshIfCurrent(owner);
     }
 
@@ -1557,21 +1560,6 @@ public class MainActivity extends Activity {
             .setNegativeButton("Закрыть",null).show();
     }
 
-    private void agentShowCopilotChatInfo(){
-        new AlertDialog.Builder(this)
-            .setTitle("GitHub Copilot: Chat и Cloud Agent")
-            .setMessage("Cloud Agent создаёт задачи и Pull Request в репозитории. "+
-                "Для обычной переписки нужен GitHub Copilot SDK: многотуровая сессия, "+
-                "Copilot runtime и пользовательская GitHub OAuth-авторизация. "+
-                "В Android пока нет совместимого Copilot runtime, поэтому этот чат "+
-                "не выдаётся за подключённый. Можно пользоваться обычным Git Agent Chat "+
-                "через уже подключённую модель или ставить GitHub-задачи через Cloud Agent.")
-            .setPositiveButton("Понятно",null)
-            .setNeutralButton("Copilot SDK",(d,w)->
-                openWeb("https://docs.github.com/en/copilot/how-tos/copilot-sdk/setup"))
-            .show();
-    }
-
     private void agentBeginBrowserSubscription(String owner,String provider){
         if("guest".equals(owner)||!owner.equals(accountStore.activeCacheKey())){toast("Подключите GitHub-аккаунт");return;}
         AtomicBoolean cancelled=new AtomicBoolean(false),old=subscriptionAttempts.put(owner,cancelled);if(old!=null)old.set(true);
@@ -1688,10 +1676,10 @@ public class MainActivity extends Activity {
                         String label=aiConnections.displayName(provider)+" · "+model;
                         if(!query.isEmpty()&&!label.toLowerCase(Locale.ROOT).contains(query))continue;
                         boolean selected=provider.equals(aiConnections.selectedProvider(owner))
-                                &&model.equals(aiConnections.model(owner,provider))&&!prefs.getBoolean("ai_chat_copilot_"+owner,false);
+                                &&model.equals(aiConnections.model(owner,provider));
                         ui.action(list,(selected?"✓  ":"")+model,aiConnections.displayName(provider)+(category.isEmpty()?"":" · "+category),0xFF435B69,()->{
                             if(!owner.equals(accountStore.activeCacheKey()))return;
-                            aiConnections.save(owner,provider,model,"");prefs.edit().putBoolean("ai_chat_copilot_"+owner,false).apply();
+                            aiConnections.save(owner,provider,model,"");
                             dialog[0].dismiss();agentRefreshIfCurrent(owner);
                         });
                     }
@@ -1710,12 +1698,11 @@ public class MainActivity extends Activity {
                 public void afterTextChanged(android.text.Editable s){}
             });
         }else ui.note(body,"После подключения здесь появятся модели с поиском и фильтрами.");
-        ui.action(body,"GitHub Copilot Cloud · задачи","Не чат: запускает Cloud Agent в GitHub-репозитории",0xFF2E9D68,
-                ()->agentSetMode(owner,2,dialog[0]));
-        ui.action(body,"Copilot Chat · официальный сайт","Открыть реальный разговорный Copilot на github.com/copilot",0xFF2863B8,
-                ()->{dialog[0].dismiss();openWeb("https://github.com/copilot");});
-        ui.action(body,"GitHub Copilot Chat · SDK","Разговорные сессии требуют отдельного официального Copilot runtime",0xFF435B69,
-                ()->{dialog[0].dismiss();agentShowCopilotChatInfo();});
+        ui.section(body,"Выберите способ работы");
+        ui.action(body,"1 · Подключённая AI-модель","Диалог и агентный движок через Cline, OpenAI, Grok или API",0xFF2E9D68,
+                ()->{dialog[0].dismiss();agentRefreshIfCurrent(owner);});
+        ui.action(body,"2 · Copilot Web","Страница github.com/copilot внутри GitHubble, без SDK",0xFF2863B8,
+                ()->{dialog[0].dismiss();openCopilotWeb();});
         ui.action(body,"Обновить список моделей","Загрузить каталог выбранного API-подключения",0xFF2863B8,()->{
             dialog[0].dismiss();agentDiscoverAiModels(owner);});
         dialog[0]=ui.present(body,true);
@@ -1763,7 +1750,7 @@ public class MainActivity extends Activity {
                         "▣  Проекты и репозитории",
                         "⚙  Git Agent и Workspace · настройки",
                         "☷  Выбрать модель",
-                        "◇  GitHub Copilot Cloud",
+                        "◇  Copilot Web",
                         "▶  GitHub Actions",
                         "↓  APK / артефакты",
                         "⚑  Диагностика CI",
@@ -1797,11 +1784,7 @@ public class MainActivity extends Activity {
                             break;
                         case 4: navigate(this::showSettingsGitAgentWorkspace); break;
                         case 5: agentChooseComposerModel(owner); break;
-                        case 6:
-                            prefs.edit().putBoolean("ai_chat_copilot_" + owner, true)
-                                    .putBoolean("ai_chat_agent_mode_" + owner, true).apply();
-                            agentRefreshIfCurrent(owner);
-                            break;
+                        case 6: openCopilotWeb(); break;
                         case 7: agentChooseWorkflow(owner); break;
                         case 8: agentShowBuildArtifacts(owner); break;
                         case 9: agentDiagnoseBuild(owner); break;
@@ -1965,38 +1948,21 @@ public class MainActivity extends Activity {
                 }).setNegativeButton("Закрыть", null).show();
     }
 
-    private void agentSend(String expected, String message, boolean agentMode, boolean useCopilot) {
+    private void agentSend(String expected, String message, boolean agentMode) {
         if (!expected.equals(accountStore.activeCacheKey())) { toast("Аккаунт проекта изменился"); return; }
         if(aiRequestsInFlight.contains(expected)){toast("Предыдущий запрос ещё выполняется");return;}
         final String activeChat = agentProjects.activeConversation(expected);
         final Uri imageUri=expected.equals(pendingAgentImageOwner)
             &&activeChat.equals(pendingAgentImageThread)?pendingAgentImageUri:null;
-        if(imageUri!=null&&useCopilot){toast("Фото поддерживается только прямыми Vision API");return;}
         if(imageUri!=null){
             String selected=aiConnections.selectedProvider(expected);
             if(!OmniChatChatClient.supportsVision(selected)){toast("Эта модель не поддерживает фото");return;}
             pendingAgentImageUri=null;pendingAgentImageOwner="";pendingAgentImageThread="";
         }
-        if(useCopilot && (!agentMode ||
-                !app.githubble.mobile.agent.CopilotModePolicy.isExplicitCloudTask(message))){
-            new AlertDialog.Builder(this).setTitle("Copilot Cloud — не чат")
-                .setMessage("GitHub Copilot Cloud запускает задачи разработки в репозитории; "+
-                    "не отвечает на приветствия или обычные вопросы. "+
-                    "Для диалога выберите AI-модель. Чтобы запустить реальную задачу, "+
-                    "включите режим «Агент» и начните сообщение с /copilot.")
-                .setPositiveButton("Выбрать модель для чата",(d,w)->{
-                    prefs.edit().putBoolean("ai_chat_copilot_"+expected,false)
-                        .putBoolean("ai_chat_agent_mode_"+expected,false).apply();
-                    agentChooseComposerModel(expected);agentRefreshIfCurrent(expected);
-                })
-                .setNeutralButton("Как включить Copilot Chat",(d,w)->agentShowCopilotChatInfo())
-                .setNegativeButton("Отмена",null).show();
-            return;
-        }
         agentProjects.appendToConversation(expected, activeChat, "user", message);
         // Answer repo inventory via the user's authenticated GitHub session.
         // Do not ask a subscription model to guess the account or repository count.
-        if(!useCopilot && imageUri==null &&
+        if(imageUri==null &&
             app.githubble.mobile.agent.GitHubReadLoop.isDirectRepositoryQuestion(message)){
             if("guest".equals(expected)||!isSignedIn()){
                 agentProjects.appendToConversation(expected,activeChat,"system",
@@ -2024,21 +1990,21 @@ public class MainActivity extends Activity {
             });return;
         }
         boolean workspaceImport=app.githubble.mobile.agent.RepositoryWorkspaceImporter.isImportIntent(message);
-        if(imageUri==null && !useCopilot && workspaceImport){
+        if(imageUri==null && workspaceImport){
             agentImportRepositoryToWorkspace(expected,message);
             return;
         }
         java.util.regex.Matcher create = java.util.regex.Pattern.compile(
                 "(?iu)(?:создай|создать)\\s+(?:(приватный|публичный)\\s+)?репозиторий\\s+([A-Za-z0-9_.-]+)")
                 .matcher(message);
-        if (imageUri==null && !useCopilot && create.find()) {
+        if (imageUri==null && create.find()) {
             String visibility = create.group(1);
             agentRefreshIfCurrent(expected);
             agentCreateRepository(expected, create.group(2), !"публичный".equalsIgnoreCase(visibility));
             return;
         }
         AgentProjectStore.Project before=agentProjects.project(expected);
-        if(agentMode&&!useCopilot&&before.workspaceId.isEmpty()){
+        if(agentMode&&before.workspaceId.isEmpty()){
             String name=app.githubble.mobile.agent.ProjectWorkspaceSupport.INSTANCE.projectCreationName(message);
             if(name!=null)try{
                 JSONObject created=agentWorkspaces.create(expected,name);
@@ -2062,37 +2028,31 @@ public class MainActivity extends Activity {
         try{explicitMemory=agentMemory.explicit(expected,p.workspaceId,activeChat,message);}catch(Exception e){explicitMemory="Память: "+e.getMessage();}
         if(explicitMemory!=null){agentProjects.appendToConversation(expected,activeChat,"system",explicitMemory);agentRefreshIfCurrent(expected);return;}
         java.util.regex.Matcher attach=java.util.regex.Pattern.compile("(?iu)^(?:/repo|закрепи репозиторий|привяжи репозиторий)\\s+([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)\\s*$").matcher(message.trim());
-        if(agentMode&&!useCopilot&&attach.matches()){
+        if(agentMode&&attach.matches()){
             final String repo=attach.group(1);
             new AlertDialog.Builder(this).setTitle("Закрепить репозиторий за этим диалогом?").setMessage(repo)
                 .setPositiveButton("Закрепить",(d,w)->{if(expected.equals(accountStore.activeCacheKey())&&activeChat.equals(agentProjects.activeConversation(expected))){agentProjects.save(new AgentProjectStore.Project(expected,p.name,repo,p.branch,p.workspaceId));agentRefreshIfCurrent(expected);}}).setNegativeButton("Отмена",null).show();return;
         }
         String lower = message.toLowerCase(java.util.Locale.ROOT);
-        if(imageUri==null&&!useCopilot&&(lower.matches("(?s)^(?:/repo delete|удали репозиторий)\\s+[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\\s*$"))){
+        if(imageUri==null&&(lower.matches("(?s)^(?:/repo delete|удали репозиторий)\\s+[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\\s*$"))){
             String target=message.trim().substring(message.trim().lastIndexOf(' ')+1);
             agentDeleteRepository(expected,target);return;
         }
-        if(imageUri==null&&!useCopilot&&(lower.equals("/workspace push")
+        if(imageUri==null&&(lower.equals("/workspace push")
                 ||lower.contains("загрузи workspace в github")
                 ||lower.contains("опубликуй workspace в github"))){
             agentPublishWorkspace(expected);return;
         }
-        if (imageUri==null && agentMode && !useCopilot && (lower.startsWith("/build") || lower.contains("собери проект") || lower.contains("запусти сборку"))) {
+        if (imageUri==null && agentMode && (lower.startsWith("/build") || lower.contains("собери проект") || lower.contains("запусти сборку"))) {
             agentRefreshIfCurrent(expected);
             agentChooseWorkflow(expected);
             return;
         }
-        if (imageUri==null && !useCopilot && agentMode && (lower.startsWith("/code ") || lower.startsWith("создай исходники") || lower.startsWith("создай файлы"))) {
+        if (imageUri==null && agentMode && (lower.startsWith("/code ") || lower.startsWith("создай исходники") || lower.startsWith("создай файлы"))) {
             agentGenerateProjectCode(expected, lower.startsWith("/code ") ? message.substring(6) : message);
             return;
         }
-        if (useCopilot && !agentMode) {
-            agentProjects.append(expected, "system",
-                    "GitHub Copilot Cloud выполняет агентные задачи. Переключите режим с «Чат» на «Агент».");
-            agentRefreshIfCurrent(expected);
-            return;
-        }
-        if (!useCopilot) {
+        {
             if ("guest".equals(expected)) {
                 agentProjects.append(expected, "system",
                         "Подключите GitHub-аккаунт, затем настройте AI API во вкладке «Чат».");
@@ -2181,33 +2141,6 @@ public class MainActivity extends Activity {
             aiActiveFutures.put(expected, call);
             return;
         }
-        if (!isSignedIn() || p.repository.isEmpty()) {
-            agentProjects.append(expected, "system",
-                "Copilot Cloud Tasks требует GitHub-авторизацию, подписку Copilot "+
-                "и привязанный репозиторий. Для обычного чата выберите AI-модель.");
-            agentRefreshIfCurrent(expected); return;
-        }
-        new AlertDialog.Builder(this).setTitle("Запустить GitHub Copilot Cloud Agent?")
-                .setMessage("Это не чат. Copilot получит задачу разработки в " + p.repository
-                        + " и может изменять код, создавать ветку и Pull Request. "+
-                        "Операция начнётся только после подтверждения.")
-                .setPositiveButton("Запустить", (d, w) -> {
-                    io.execute(() -> {
-                        try {
-                            JSONObject result = aiGithub.startCopilot(expected, p.repository,
-                                    app.githubble.mobile.agent.CopilotModePolicy.taskBody(message), p.branch);
-                            String id = result.optString("id", "");
-                            agentProjects.append(expected, "agent", "GitHub Copilot принял задачу"
-                                    + (id.isEmpty() ? "." : " #" + id)
-                                    + ". Состояние и Pull Request доступны в разделе «Задачи Copilot».");
-                            CopilotTaskMonitorJobService.runNow(this);
-                        } catch (Exception error) {
-                            agentProjects.append(expected, "system", "Copilot не запущен: " + error.getMessage());
-                        }
-                        runOnUiThread(() -> agentRefreshIfCurrent(expected));
-                    });
-                }).setNegativeButton("Отмена", null).show();
-        agentRefreshIfCurrent(expected);
     }
 
     /** Inspect recent Actions results, then request a real ZIP/APK through the existing download pipeline. */
@@ -4859,7 +4792,7 @@ public class MainActivity extends Activity {
                     repoActionCard(tabs,R.drawable.ic_pull_request,"Pull Requests","Изменения",()->navigate(()->showRepoPulls(full)));
                     repoActionCard(tabs,R.drawable.ic_discussion,"Обсуждения","Сообщество",()->navigate(()->showRepoDiscussions(full)));
                     repoActionCard(tabs,R.drawable.ic_release,"Релизы","Публикации",()->navigate(()->showRepoReleases(full)));
-                    repoActionCard(tabs,R.drawable.ic_copilot,"Copilot","ИИ-помощник",()->navigate(()->showCopilotRepository(full)));
+                    repoActionCard(tabs,R.drawable.ic_agent_link,"Git Agent","Разрабатывать проект",()->agentAttachSelectedRepository(full));
                     content.addView(tabs);
                     sectionTitle("Дополнительные действия",null);
                     String owner=full.contains("/")?full.substring(0,full.indexOf('/')):full;
@@ -4894,219 +4827,6 @@ public class MainActivity extends Activity {
             }
         });
     }
-
-    private void showCopilotRepository(String full){
-        stopCopilotForegroundPolling();
-        rememberScreen("copilot_repo",routeArgs("full",full));
-        setCurrentScreen(() -> showCopilotRepository(full));
-        shell("Copilot",true);
-        repoSectionHeader(full,"Copilot","Cloud Agent",R.drawable.ic_copilot);
-        if(!isSignedIn()){accountRequiredCard("Подключите GitHub, чтобы запускать задачи Copilot.");return;}
-        TextView note=text("Copilot работает на стороне GitHub: создаёт ветку, изменяет код и при необходимости открывает Pull Request. Перед запуском GitHubble выполняет безопасную проверку разрешений без изменения репозитория.",12,false);
-        note.setTextColor(MUTED);card(note);
-        ProgressBar pb=new ProgressBar(this);content.addView(pb);
-        io.execute(() -> {
-            JSONObject repo=null;JSONObject tasksRoot=null;String taskError="";String branch="main";CopilotPermissionReport report;
-            try{repo=getJson("https://api.github.com/repos/"+full);branch=repo.optString("default_branch","main");}catch(Exception e){taskError=e.getMessage();}
-            report=features.copilot.checkPermissionMatrix(full);
-            try{tasksRoot=features.copilot.listRepositoryTasks(full,1,"",false);}catch(Exception e){taskError=e.getMessage();}
-            final JSONObject finalTasksRoot=tasksRoot;final String finalTaskError=taskError;final String finalBranch=branch;final CopilotPermissionReport finalReport=report;
-            runOnUiThread(() -> {
-                if(!"Copilot".equals(currentTitle))return;
-                content.removeView(pb);
-                LinearLayout availability=new LinearLayout(this);availability.setOrientation(LinearLayout.VERTICAL);
-                TextView status=text(finalReport.readyForSafeAttempt()?"Copilot API готов к безопасной попытке запуска":"Нужна настройка доступа Copilot",15,true);
-                status.setTextColor(finalReport.readyForSafeAttempt()?GREEN:Color.rgb(200,120,40));availability.addView(status);
-                TextView details=text("Проверено: "+finalReport.passedCount()+" из "+finalReport.totalCount()+" пунктов. Право Agent tasks: write окончательно подтверждается GitHub только при создании задачи.",12,false);details.setTextColor(MUTED);availability.addView(details);card(availability);
-
-                GridLayout tools=new GridLayout(this);tools.setColumnCount(adaptiveColumns(2));
-                addAction(tools,"Матрица разрешений",()->navigate(()->showCopilotPermissionMatrix(full)));
-                addAction(tools,"Custom agents",()->navigate(()->showCopilotCustomAgents(full,finalBranch)));
-                content.addView(tools);
-
-                Button create=button("Новая задача Copilot");
-                create.setEnabled(finalReport.readyForSafeAttempt());
-                create.setAlpha(finalReport.readyForSafeAttempt()?1f:.55f);
-                create.setOnClickListener(v->showNewCopilotTaskDialog(full,finalBranch,""));
-                content.addView(create,new LinearLayout.LayoutParams(-1,dp(52)));
-
-                sectionTitle("Быстрые задачи",null);
-                GridLayout quick=new GridLayout(this);quick.setColumnCount(adaptiveColumns(2));
-                addAction(quick,"Исправить ошибку",()->showNewCopilotTaskDialog(full,finalBranch,"Найди и исправь описанную ошибку. Проанализируй причины, внеси минимальные безопасные изменения и добавь или обнови тесты."));
-                addAction(quick,"Реализовать функцию",()->showNewCopilotTaskDialog(full,finalBranch,"Реализуй новую функцию по описанию. Соблюдай архитектуру проекта, обнови документацию и добавь тесты."));
-                addAction(quick,"Создать тесты",()->showNewCopilotTaskDialog(full,finalBranch,"Проанализируй текущий код и добавь недостающие unit- и интеграционные тесты для критичных сценариев."));
-                addAction(quick,"Обновить документацию",()->showNewCopilotTaskDialog(full,finalBranch,"Обнови README и техническую документацию так, чтобы они соответствовали текущей реализации проекта."));
-                content.addView(quick);
-
-                sectionTitle("Задачи репозитория",null);
-                if(finalTasksRoot!=null){
-                    JSONArray tasks=CopilotAgentController.tasks(finalTasksRoot);
-                    if(tasks.length()==0)card(text("Задач Copilot для этого репозитория пока нет.",13,false));
-                    for(int i=0;i<tasks.length();i++)renderCopilotTaskCard(tasks.optJSONObject(i),full);
-                    if(tasks.length()==30)addLoadMoreButton("Показать ещё задачи",()->showCopilotRepositoryTasksPage(full,2,false));
-                }else renderCopilotPermissionProblem(finalTaskError);
-
-                LinearLayout webActions=new LinearLayout(this);
-                Button settings=button("Настройки Copilot");settings.setOnClickListener(v->openWeb("https://github.com/settings/copilot"));
-                Button installations=button("Разрешения GiHubble");installations.setOnClickListener(v->openWeb("https://github.com/settings/installations"));
-                webActions.addView(settings,new LinearLayout.LayoutParams(0,dp(48),1));LinearLayout.LayoutParams ip=new LinearLayout.LayoutParams(0,dp(48),1);ip.setMargins(dp(7),0,0,0);webActions.addView(installations,ip);content.addView(webActions);
-            });
-        });
-    }
-
-    private void showCopilotRepositoryTasksPage(String full,int page,boolean first){
-        ProgressBar pb=new ProgressBar(this);content.addView(pb);
-        io.execute(()->{try{JSONObject root=features.copilot.listRepositoryTasks(full,page,"",false);JSONArray tasks=CopilotAgentController.tasks(root);runOnUiThread(()->{content.removeView(pb);for(int i=0;i<tasks.length();i++)renderCopilotTaskCard(tasks.optJSONObject(i),full);if(tasks.length()==30)addLoadMoreButton("Показать ещё задачи",()->showCopilotRepositoryTasksPage(full,page+1,false));});}catch(Exception e){runOnUiThread(()->{content.removeView(pb);renderCopilotPermissionProblem(e.getMessage());});}});
-    }
-
-    private void showNewCopilotTaskDialog(String full,String defaultBranch,String template){showNewCopilotTaskDialog(full,defaultBranch,template,"");}
-
-    private void showNewCopilotTaskDialog(String full,String defaultBranch,String template,String preselectedAgent){
-        LinearLayout form=new LinearLayout(this);form.setOrientation(LinearLayout.VERTICAL);form.setPadding(dp(18),dp(4),dp(18),0);
-        EditText prompt=new EditText(this);prompt.setHint("Опишите задачу для Copilot");prompt.setMinLines(6);prompt.setGravity(Gravity.TOP);prompt.setText(template);prompt.setTextColor(TEXT);prompt.setHintTextColor(MUTED);form.addView(prompt);
-        EditText base=new EditText(this);base.setHint("Базовая ветка");base.setSingleLine(true);base.setText(defaultBranch==null||defaultBranch.isEmpty()?"main":defaultBranch);form.addView(base);
-        EditText head=new EditText(this);head.setHint("Существующая рабочая ветка (необязательно)");head.setSingleLine(true);form.addView(head);
-        TextView modelLabel=text("Модель",12,true);modelLabel.setPadding(0,dp(8),0,0);form.addView(modelLabel);
-        Spinner model=new Spinner(this);model.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,copilotModelLabels()));form.addView(model,new LinearLayout.LayoutParams(-1,dp(48)));
-        EditText customAgent=new EditText(this);customAgent.setHint("Custom agent (необязательно)");customAgent.setSingleLine(true);customAgent.setText(preselectedAgent);form.addView(customAgent);
-        Button pickAgent=button("Выбрать из .github/agents");pickAgent.setOnClickListener(v->loadCustomAgentPicker(full,base.getText().toString(),customAgent));form.addView(pickAgent,new LinearLayout.LayoutParams(-1,dp(46)));
-        CheckBox createPr=new CheckBox(this);createPr.setText("Создать Pull Request");createPr.setChecked(true);form.addView(createPr);
-        ScrollView scroll=new ScrollView(this);scroll.addView(form);
-        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Новая задача Copilot").setView(scroll).setPositiveButton("Запустить",null).setNegativeButton("Отмена",null).create();
-        dialog.setOnShowListener(x->dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
-            String taskPrompt=prompt.getText().toString().trim();if(taskPrompt.isEmpty()){prompt.setError("Опишите задачу");return;}
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(false);
-            io.execute(()->{try{
-                CopilotPermissionReport matrix=features.copilot.checkPermissionMatrix(full);
-                if(!matrix.readyForSafeAttempt())throw new IllegalStateException("Безопасная проверка разрешений не пройдена. Откройте матрицу разрешений Copilot.");
-                JSONObject task=features.copilot.startTask(full,taskPrompt,copilotModelValue(model.getSelectedItemPosition()),customAgent.getText().toString(),createPr.isChecked(),base.getText().toString(),head.getText().toString());
-                String id=task.optString("id","");CopilotTaskMonitorJobService.runNow(this);
-                runOnUiThread(()->{dialog.dismiss();toast("Задача Copilot запущена");if(!id.isEmpty())navigate(()->showCopilotTaskDetail(full,id));else navigate(()->showCopilotRepository(full));});
-            }catch(Exception e){runOnUiThread(()->{dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(true);showCopilotApiError("Не удалось запустить Copilot",e);});}});
-        }));dialog.show();
-    }
-
-    private void loadCustomAgentPicker(String full,String branch,EditText target){
-        ProgressDialog progress=ProgressDialog.show(this,"Custom agents","Загружаем профили…",true,false);
-        io.execute(()->{try{JSONArray agents=features.copilot.listCustomAgents(full,branch);runOnUiThread(()->{progress.dismiss();if(agents.length()==0){new AlertDialog.Builder(this).setTitle("Custom agents не найдены").setMessage("В выбранной ветке нет файлов .github/agents/*.agent.md").setPositiveButton("ОК",null).show();return;}String[] labels=new String[agents.length()+1];labels[0]="Без custom agent";for(int i=0;i<agents.length();i++){JSONObject a=agents.optJSONObject(i);labels[i+1]=a.optString("id",a.optString("name","Agent"));}new AlertDialog.Builder(this).setTitle("Выберите custom agent").setItems(labels,(d,w)->target.setText(w==0?"":labels[w])).setNegativeButton("Отмена",null).show();});}catch(Exception e){runOnUiThread(()->{progress.dismiss();showCopilotApiError("Не удалось загрузить custom agents",e);});}});
-    }
-
-    private void showCopilotCustomAgents(String full,String branch){
-        stopCopilotForegroundPolling();rememberScreen("copilot_agents",routeArgs("full",full,"branch",branch));setCurrentScreen(()->showCopilotCustomAgents(full,branch));shell("Custom agents",true);heroBanner("Профили Copilot",full+" · "+branch,R.drawable.ic_copilot);
-        TextView info=text("GitHubble читает профили из .github/agents/*.agent.md. При запуске API передаётся имя файла без расширения.",12,false);info.setTextColor(MUTED);card(info);
-        ProgressBar pb=new ProgressBar(this);content.addView(pb);
-        io.execute(()->{try{JSONArray agents=features.copilot.listCustomAgents(full,branch);runOnUiThread(()->{content.removeView(pb);if(agents.length()==0){card(text("Custom agents не найдены в выбранной ветке.",13,false));Button create=button("Создать профиль на GitHub");create.setOnClickListener(v->openWeb("https://github.com/"+full+"/new/"+branch+"?filename=.github/agents/my-agent.agent.md"));content.addView(create);return;}sectionTitle("Найдено: "+agents.length(),null);for(int i=0;i<agents.length();i++){JSONObject agent=agents.optJSONObject(i);if(agent==null)continue;LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);box.addView(text(agent.optString("id","Agent"),15,true));TextView path=text(agent.optString("path",""),11,false);path.setTextColor(MUTED);box.addView(path);GridLayout actions=new GridLayout(this);actions.setColumnCount(adaptiveColumns(2));String id=agent.optString("id","");String url=agent.optString("html_url","");addAction(actions,"Использовать",()->showNewCopilotTaskDialog(full,branch,"",id));if(!url.isEmpty())addAction(actions,"Открыть файл",()->openWeb(url));box.addView(actions);card(box);}}); }catch(Exception e){runOnUiThread(()->{content.removeView(pb);showCopilotApiError("Не удалось загрузить custom agents",e);});}});
-    }
-
-    private void showCopilotPermissionMatrix(String full){
-        stopCopilotForegroundPolling();rememberScreen("copilot_permissions",routeArgs("full",full));setCurrentScreen(()->showCopilotPermissionMatrix(full));shell("Разрешения Copilot",true);heroBanner("Диагностика подключения",full,R.drawable.ic_copilot);
-        TextView info=text("Проверка выполняет только чтение: никаких Issue, веток, коммитов или задач не создаётся. Запись Agent tasks проверяется только при реальном запуске задачи.",12,false);info.setTextColor(MUTED);card(info);
-        ProgressBar pb=new ProgressBar(this);content.addView(pb);
-        io.execute(()->{CopilotPermissionReport report=features.copilot.checkPermissionMatrix(full);runOnUiThread(()->{content.removeView(pb);renderCopilotPermissionReport(report);GridLayout actions=new GridLayout(this);actions.setColumnCount(adaptiveColumns(2));addAction(actions,"Проверить снова",()->showCopilotPermissionMatrix(full));addAction(actions,"Разрешения GiHubble",()->openWeb("https://github.com/settings/installations"));addAction(actions,"Настройки Copilot",()->openWeb("https://github.com/settings/copilot"));addAction(actions,"Назад к Copilot",()->navigate(()->showCopilotRepository(full)));content.addView(actions);});});
-    }
-
-    private void renderCopilotPermissionReport(CopilotPermissionReport report){
-        TextView summary=text((report.readyForSafeAttempt()?"Базовая готовность подтверждена":"Найдены ограничения")+" · "+report.passedCount()+"/"+report.totalCount(),16,true);summary.setTextColor(report.readyForSafeAttempt()?GREEN:Color.rgb(210,120,35));card(summary);
-        JSONArray checks=report.checks();for(int i=0;i<checks.length();i++){JSONObject check=checks.optJSONObject(i);if(check==null)continue;LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.VERTICAL);TextView title=text((check.optBoolean("passed")?"✓ ":"○ ")+check.optString("title","Проверка"),14,true);title.setTextColor(check.optBoolean("passed")?GREEN:(check.optBoolean("required")?Color.rgb(210,90,70):MUTED));row.addView(title);TextView detail=text(check.optString("detail",""),11,false);detail.setTextColor(MUTED);row.addView(detail);card(row);}
-    }
-
-    private void showCopilotTasks(){showCopilotTasksPage(1,true,"",false);}
-    private void showCopilotTasksPage(int page,boolean first,String states){showCopilotTasksPage(page,first,states,false);}
-
-    private void showCopilotTasksPage(int page,boolean first,String states,boolean archived){
-        if(first){
-            stopCopilotForegroundPolling();rememberScreen("copilot_tasks",routeArgs("states",states,"archived",archived));setCurrentScreen(()->showCopilotTasksPage(1,true,states,archived));shell("Задачи Copilot",true);heroBanner("Copilot Cloud Agent",archived?"Архив задач":"Все задачи вашего аккаунта",R.drawable.ic_copilot);
-            if(!isSignedIn()){accountRequiredCard("Подключите GitHub, чтобы увидеть задачи Copilot.");return;}
-            renderCopilotMonitorCard();
-            GridLayout filters=new GridLayout(this);filters.setColumnCount(adaptiveColumns(2));addAction(filters,"Все",()->showCopilotTasksPage(1,true,"",false));addAction(filters,"Активные",()->showCopilotTasksPage(1,true,"queued,in_progress,idle,waiting_for_user",false));addAction(filters,"Завершённые",()->showCopilotTasksPage(1,true,"completed,failed,timed_out,cancelled",false));addAction(filters,"Архив",()->showCopilotTasksPage(1,true,"",true));content.addView(filters);
-        }
-        ProgressBar pb=new ProgressBar(this);content.addView(pb);
-        io.execute(()->{try{JSONObject root=features.copilot.listUserTasks(page,states,archived);JSONArray tasks=CopilotAgentController.tasks(root);int active=0;for(int i=0;i<tasks.length();i++){String state=tasks.optJSONObject(i)==null?"":tasks.optJSONObject(i).optString("state","");if(CopilotAgentController.isActiveState(state))active++;}int finalActive=active;runOnUiThread(()->{content.removeView(pb);if(first){prefs.edit().putInt("copilot_task_count",tasks.length()).putInt("copilot_active_count",finalActive).apply();sectionTitle(tasks.length()==0?"Задач нет":(archived?"Архив: ":"Задачи: ")+tasks.length(),null);}if(tasks.length()==0&&first){card(text(archived?"Архив задач пуст.":"GitHub не вернул задач Copilot. Создайте задачу из карточки репозитория.",13,false));return;}for(int i=0;i<tasks.length();i++)renderCopilotTaskCard(tasks.optJSONObject(i),"");if(tasks.length()==30)addLoadMoreButton("Показать ещё задачи",()->showCopilotTasksPage(page+1,false,states,archived));});}catch(Exception e){runOnUiThread(()->{content.removeView(pb);renderCopilotPermissionProblem(e.getMessage());});}});
-    }
-
-    private void renderCopilotMonitorCard(){
-        LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);LinearLayout top=new LinearLayout(this);top.setGravity(Gravity.CENTER_VERTICAL);TextView title=text("Фоновый мониторинг",15,true);top.addView(title,new LinearLayout.LayoutParams(0,-2,1));Switch enabled=new Switch(this);enabled.setChecked(prefs.getBoolean("copilot_monitor_enabled",false));top.addView(enabled);box.addView(top);
-        int interval=prefs.getInt("copilot_monitor_interval_minutes",60);long last=prefs.getLong("copilot_monitor_last_success",0L);String status=prefs.getString("copilot_monitor_last_result","Проверка ещё не запускалась");TextView meta=text("Интервал: "+copilotIntervalLabel(interval)+(last>0?" · последняя: "+android.text.format.DateFormat.format("dd.MM HH:mm",last):"")+"\n"+status,11,false);meta.setTextColor(MUTED);box.addView(meta);
-        GridLayout actions=new GridLayout(this);actions.setColumnCount(adaptiveColumns(2));addAction(actions,"Изменить интервал",this::chooseCopilotMonitorInterval);addAction(actions,"Проверить сейчас",()->{CopilotTaskMonitorJobService.runNow(this);toast("Проверка Copilot поставлена в очередь");});box.addView(actions);
-        enabled.setOnCheckedChangeListener((b,checked)->{prefs.edit().putBoolean("copilot_monitor_enabled",checked).apply();if(checked){CopilotTaskMonitorJobService.schedule(this,prefs.getInt("copilot_monitor_interval_minutes",60));CopilotTaskMonitorJobService.runNow(this);requestNotificationPermissionIfNeeded();toast("Мониторинг Copilot включён");}else{CopilotTaskMonitorJobService.cancel(this);toast("Мониторинг Copilot выключен");}});card(box);
-    }
-
-    private void chooseCopilotMonitorInterval(){
-        String[] labels={"15 минут","30 минут","1 час","3 часа","6 часов","12 часов"};int[] values={15,30,60,180,360,720};int current=prefs.getInt("copilot_monitor_interval_minutes",60);int selected=2;for(int i=0;i<values.length;i++)if(values[i]==current)selected=i;final int initial=selected;
-        new AlertDialog.Builder(this).setTitle("Частота фоновой проверки").setSingleChoiceItems(labels,selected,null).setPositiveButton("Сохранить",(d,w)->{int index=((AlertDialog)d).getListView().getCheckedItemPosition();if(index<0)index=initial;int value=values[index];prefs.edit().putInt("copilot_monitor_interval_minutes",value).apply();if(prefs.getBoolean("copilot_monitor_enabled",false))CopilotTaskMonitorJobService.schedule(this,value);showCopilotTasks();}).setNegativeButton("Отмена",null).show();
-    }
-
-    private String copilotIntervalLabel(int minutes){if(minutes<60)return minutes+" мин";if(minutes%60==0)return (minutes/60)+" ч";return minutes+" мин";}
-
-    private void renderCopilotTaskCard(JSONObject task,String fallbackFull){
-        if(task==null)return;String full=CopilotAgentController.repositoryFromTask(task);if(full.isEmpty())full=fallbackFull;String finalFull=full;String id=task.optString("id","");String state=task.optString("state","");
-        LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout head=new LinearLayout(this);head.setGravity(Gravity.CENTER_VERTICAL);TextView name=text(task.optString("name","Задача Copilot"),15,true);name.setMaxLines(2);head.addView(name,new LinearLayout.LayoutParams(0,-2,1));TextView badge=text(CopilotAgentController.stateLabel(state),10,true);badge.setTextColor(copilotStateColor(state));badge.setGravity(Gravity.CENTER);badge.setBackground(round(SUBTLE,10,BORDER,1));badge.setPadding(dp(8),0,dp(8),0);head.addView(badge,new LinearLayout.LayoutParams(-2,dp(28)));row.addView(head);
-        int pr=CopilotAgentController.pullNumber(task);boolean archived=!task.optString("archived_at","").isEmpty();String meta=(finalFull.isEmpty()?"":finalFull+" · ")+formatGitHubDate(task.optString("updated_at",""))+(pr>0?" · PR #"+pr:"")+(archived?" · архив":"");TextView m=text(meta,11,false);m.setTextColor(MUTED);row.addView(m);
-        row.setOnClickListener(v->{if(!id.isEmpty())navigate(()->showCopilotTaskDetail(finalFull,id));else if(!task.optString("html_url","").isEmpty())openWeb(task.optString("html_url"));});card(row);
-    }
-
-    private void showCopilotTaskDetail(String full,String taskId){
-        stopCopilotForegroundPolling();activeCopilotTaskId=taskId;
-        rememberScreen("copilot_task",routeArgs("full",full,"task",taskId));setCurrentScreen(()->showCopilotTaskDetail(full,taskId));shell("Задача Copilot",true);ProgressBar pb=new ProgressBar(this);content.addView(pb);
-        io.execute(()->{try{JSONObject task=full==null||full.isEmpty()?features.copilot.getTask(taskId):features.copilot.getTask(full,taskId);String resolved=CopilotAgentController.repositoryFromTask(task);if(resolved.isEmpty())resolved=full==null?"":full;String finalFull=resolved;runOnUiThread(()->{content.removeView(pb);heroBanner(task.optString("name","Задача Copilot"),finalFull.isEmpty()?"GitHub Copilot":finalFull,R.drawable.ic_copilot);String state=task.optString("state","");TextView status=text(CopilotAgentController.stateLabel(state),15,true);status.setTextColor(copilotStateColor(state));card(status);
-            String archivedAt=task.optString("archived_at","");if(!archivedAt.isEmpty()){TextView archived=text("Архивирована · "+formatGitHubDate(archivedAt),12,true);archived.setTextColor(MUTED);card(archived);}
-            JSONArray sessions=task.optJSONArray("sessions");if(sessions!=null&&sessions.length()>0){sectionTitle("Сеансы: "+sessions.length(),null);for(int i=0;i<sessions.length();i++){JSONObject session=sessions.optJSONObject(i);if(session==null)continue;LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);box.addView(text(session.optString("name","Сеанс Copilot"),14,true));String refs=session.optString("head_ref","")+(session.optString("base_ref","").isEmpty()?"":" → "+session.optString("base_ref",""));TextView si=text(CopilotAgentController.stateLabel(session.optString("state",""))+(session.optString("model","").isEmpty()?"":" · "+session.optString("model"))+(refs.isEmpty()?"":" · "+refs),11,false);si.setTextColor(MUTED);box.addView(si);String prompt=session.optString("prompt","");if(!prompt.isEmpty()){TextView p=text(prompt,12,false);p.setTextColor(MUTED);p.setMaxLines(8);box.addView(p);}String sessionUrl=CopilotAgentController.sessionUrl(session,task);if(!sessionUrl.isEmpty()){Button open=button("Открыть журнал сеанса");open.setOnClickListener(v->openWeb(sessionUrl));box.addView(open,new LinearLayout.LayoutParams(-1,dp(44)));}card(box);}}
-            JSONArray artifacts=task.optJSONArray("artifacts");int pr=CopilotAgentController.pullNumber(task);if(artifacts!=null&&artifacts.length()>0){sectionTitle("Результаты: "+artifacts.length(),null);for(int i=0;i<artifacts.length();i++)renderCopilotArtifact(artifacts.optJSONObject(i),finalFull);}
-            int foreground=prefs.getInt("copilot_foreground_refresh_seconds",30);TextView refresh=text("Автообновление экрана: "+(foreground<=0?"выключено":foreground+" сек"),11,false);refresh.setTextColor(MUTED);card(refresh);
-            GridLayout actions=new GridLayout(this);actions.setColumnCount(adaptiveColumns(2));addAction(actions,"Обновить",()->showCopilotTaskDetail(finalFull,taskId));addAction(actions,"Частота обновления",()->chooseCopilotForegroundInterval(finalFull,taskId));String html=task.optString("html_url","");if(!html.isEmpty())addAction(actions,"Открыть на GitHub",()->openWeb(html));if(pr>0&&!finalFull.isEmpty())addAction(actions,"Открыть Pull Request",()->navigate(()->showPullDetail(finalFull,pr)));if(!finalFull.isEmpty())addAction(actions,"Центр Copilot",()->navigate(()->showCopilotRepository(finalFull)));addAction(actions,archivedAt.isEmpty()?"Архивировать":"Управление архивом",()->showCopilotArchiveInfo(html,archivedAt.isEmpty()));content.addView(actions);
-            if(CopilotAgentController.isActiveState(state))scheduleCopilotForegroundPolling(finalFull,taskId);
-        });}catch(Exception e){runOnUiThread(()->{content.removeView(pb);showCopilotApiError("Не удалось загрузить задачу",e);});}});
-    }
-
-    private void renderCopilotArtifact(JSONObject artifact,String full){
-        if(artifact==null)return;LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);box.addView(text(CopilotAgentController.artifactLabel(artifact),14,true));String provider=artifact.optString("provider","");if(!provider.isEmpty()){TextView p=text("Источник: "+provider,11,false);p.setTextColor(MUTED);box.addView(p);}String type=artifact.optString("type","");JSONObject data=artifact.optJSONObject("data");int number=data==null?0:data.optInt("number",data.optInt("id",0));String url=CopilotAgentController.artifactUrl(artifact);if("pull".equals(type)&&number>0&&!full.isEmpty()){Button open=button("Открыть Pull Request");open.setOnClickListener(v->navigate(()->showPullDetail(full,number)));box.addView(open,new LinearLayout.LayoutParams(-1,dp(44)));}else if(!url.isEmpty()){Button open=button("Открыть результат");open.setOnClickListener(v->openWeb(url));box.addView(open,new LinearLayout.LayoutParams(-1,dp(44)));}card(box);
-    }
-
-    private void chooseCopilotForegroundInterval(String full,String taskId){
-        String[] labels={"Выключено","15 секунд","30 секунд","1 минута","2 минуты"};int[] values={0,15,30,60,120};int current=prefs.getInt("copilot_foreground_refresh_seconds",30);int selected=2;for(int i=0;i<values.length;i++)if(values[i]==current)selected=i;final int initial=selected;
-        new AlertDialog.Builder(this).setTitle("Автообновление задачи").setSingleChoiceItems(labels,selected,null).setPositiveButton("Сохранить",(d,w)->{int index=((AlertDialog)d).getListView().getCheckedItemPosition();if(index<0)index=initial;prefs.edit().putInt("copilot_foreground_refresh_seconds",values[index]).apply();showCopilotTaskDetail(full,taskId);}).setNegativeButton("Отмена",null).show();
-    }
-
-    private void scheduleCopilotForegroundPolling(String full,String taskId){
-        stopCopilotForegroundPolling();int seconds=prefs.getInt("copilot_foreground_refresh_seconds",30);if(seconds<=0)return;activeCopilotTaskId=taskId;copilotPollRunnable=()->{if(taskId.equals(activeCopilotTaskId)&&"Задача Copilot".equals(currentTitle))showCopilotTaskDetail(full,taskId);};copilotPollHandler.postDelayed(copilotPollRunnable,seconds*1000L);
-    }
-
-    private void stopCopilotForegroundPolling(){if(copilotPollRunnable!=null)copilotPollHandler.removeCallbacks(copilotPollRunnable);copilotPollRunnable=null;activeCopilotTaskId="";}
-
-    private void showCopilotArchiveInfo(String htmlUrl,boolean archive){
-        String action=archive?"Архивировать":"Управлять архивом";new AlertDialog.Builder(this).setTitle(action+" на GitHub").setMessage("GitHub REST API позволяет читать архивные задачи через фильтр is_archived, но публичный endpoint для archive/unarchive пока не опубликован. GitHubble откроет официальный экран задачи, где доступно управление архивом.").setPositiveButton("Открыть GitHub",(d,w)->{if(htmlUrl!=null&&!htmlUrl.isEmpty())openWeb(htmlUrl);else openWeb("https://github.com/copilot/agents");}).setNegativeButton("Закрыть",null).show();
-    }
-
-    private void showAssignIssueToCopilot(String full,int number,JSONObject issue){
-        ProgressDialog progress=ProgressDialog.show(this,"Copilot","Проверяем доступ и ветку…",true,false);
-        io.execute(()->{try{JSONObject repo=getJson("https://api.github.com/repos/"+full);String branch=repo.optString("default_branch","main");CopilotPermissionReport matrix=features.copilot.checkPermissionMatrix(full);boolean available=matrix.copilotAssignable();runOnUiThread(()->{progress.dismiss();if(!available){new AlertDialog.Builder(this).setTitle("Copilot недоступен").setMessage("GitHub не показывает Copilot как доступного исполнителя. Откройте матрицу разрешений и проверьте подписку, политику репозитория и разрешения GiHubble.").setPositiveButton("Матрица разрешений",(d,w)->navigate(()->showCopilotPermissionMatrix(full))).setNegativeButton("Закрыть",null).show();return;}showAssignIssueCopilotDialog(full,number,issue,branch);});}catch(Exception e){runOnUiThread(()->{progress.dismiss();showCopilotApiError("Не удалось проверить Copilot",e);});}});
-    }
-
-    private void showAssignIssueCopilotDialog(String full,int number,JSONObject issue,String defaultBranch){
-        LinearLayout form=new LinearLayout(this);form.setOrientation(LinearLayout.VERTICAL);form.setPadding(dp(18),dp(4),dp(18),0);
-        TextView issueInfo=text("Issue #"+number+" · "+issue.optString("title",""),13,true);issueInfo.setMaxLines(3);form.addView(issueInfo);
-        EditText branch=new EditText(this);branch.setHint("Базовая ветка");branch.setSingleLine(true);branch.setText(defaultBranch);form.addView(branch);
-        EditText instructions=new EditText(this);instructions.setHint("Дополнительные инструкции");instructions.setMinLines(4);instructions.setText("Проанализируй Issue #"+number+", реализуй исправление или функцию, добавь тесты и подготовь Pull Request.");form.addView(instructions);
-        Spinner model=new Spinner(this);model.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,copilotModelLabels()));form.addView(model,new LinearLayout.LayoutParams(-1,dp(48)));
-        EditText customAgent=new EditText(this);customAgent.setHint("Custom agent (необязательно)");customAgent.setSingleLine(true);form.addView(customAgent);Button pick=button("Выбрать из .github/agents");pick.setOnClickListener(v->loadCustomAgentPicker(full,branch.getText().toString(),customAgent));form.addView(pick,new LinearLayout.LayoutParams(-1,dp(46)));
-        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Поручить Issue Copilot").setView(form).setPositiveButton("Поручить",null).setNegativeButton("Отмена",null).create();dialog.setOnShowListener(x->dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(false);io.execute(()->{try{features.copilot.assignIssue(full,number,branch.getText().toString(),instructions.getText().toString(),copilotModelValue(model.getSelectedItemPosition()),customAgent.getText().toString());CopilotTaskMonitorJobService.runNow(this);runOnUiThread(()->{dialog.dismiss();toast("Issue поручена Copilot");navigate(()->showCopilotRepository(full));});}catch(Exception e){runOnUiThread(()->{dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(true);showCopilotApiError("Не удалось поручить Issue",e);});}});}));dialog.show();
-    }
-
-    private String[] copilotModelLabels(){return new String[]{"Автоматический выбор","Claude Sonnet 4.6","Claude Opus 4.6","GPT-5.2 Codex","GPT-5.3 Codex","GPT-5.4","Claude Sonnet 4.5","Claude Opus 4.5"};}
-    private String copilotModelValue(int position){String[] values={"","claude-sonnet-4.6","claude-opus-4.6","gpt-5.2-codex","gpt-5.3-codex","gpt-5.4","claude-sonnet-4.5","claude-opus-4.5"};return position>=0&&position<values.length?values[position]:"";}
-    private int copilotStateColor(String state){if("completed".equals(state))return GREEN;if("failed".equals(state)||"timed_out".equals(state)||"cancelled".equals(state))return Color.rgb(210,70,75);if("waiting_for_user".equals(state))return Color.rgb(220,145,35);return BLUE;}
-
-    private void renderCopilotPermissionProblem(String message){
-        LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);box.addView(text("Copilot API недоступен",15,true));TextView detail=text((message==null||message.isEmpty()?"GitHub не разрешил запрос.":message)+"\n\nДля GiHubble требуется Agent tasks: Read and write. Пользователю также нужен поддерживаемый тариф Copilot, а cloud agent не должен быть запрещён политикой репозитория.",12,false);detail.setTextColor(MUTED);box.addView(detail);card(box);
-    }
-
-    private void showCopilotApiError(String title,Exception error){
-        String message=error==null?"Неизвестная ошибка":error.getMessage();
-        if(error instanceof GitHubApiClient.ApiException){int code=((GitHubApiClient.ApiException)error).statusCode;if(code==403)message="GitHub отклонил запрос. Проверьте Agent tasks (read/write), подписку Copilot и политику репозитория.";else if(code==422)message="GitHub не принял параметры задачи или Copilot недоступен для выбранного репозитория. "+message;}
-        new AlertDialog.Builder(this).setTitle(title).setMessage(message).setPositiveButton("Настройки Copilot",(d,w)->openWeb("https://github.com/settings/copilot")).setNeutralButton("Разрешения приложений",(d,w)->openWeb("https://github.com/settings/installations")).setNegativeButton("Закрыть",null).show();
-    }
-
 
     private void requestNotificationPermissionIfNeeded(){
         if(Build.VERSION.SDK_INT>=33&&checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)
@@ -5291,7 +5011,7 @@ public class MainActivity extends Activity {
                 addAction(actions,"Редактировать",()->showIssueEditor(full,number,issue.optString("title",""),issue.optString("body",""),issue.optString("updated_at","")));
                 if(isSignedIn()){
                     addAction(actions,"Метки и участники",()->showIssueMetadataDialog(full,number,issue));
-                    addAction(actions,"Поручить Copilot",()->showAssignIssueToCopilot(full,number,issue));
+                    addAction(actions,"Открыть в Git Agent",()->agentAttachSelectedRepository(full));
                 }
                 addAction(actions,"👍 Реакция",()->postIssueReaction(full,number,"+1"));
                 addAction(actions,"Открыть GitHub",()->openWeb(issue.optString("html_url","https://github.com/"+full+"/issues/"+number)));
@@ -8788,7 +8508,7 @@ public class MainActivity extends Activity {
 
         sectionTitle("Агент и модели",null);
         settingsActionRow("Режим и исполнитель",
-                "Chat / Agent, GitHub Copilot, подтверждения операций",
+                "Chat / Agent, подключённая модель, подтверждения операций",
                 ()->agentShowAgentSettings(owner));
         settingsActionRow("Текущая модель",
                 provider.isEmpty()?"Не выбрана":aiConnections.displayName(provider)+" · "+aiConnections.model(owner,provider),
@@ -8808,12 +8528,7 @@ public class MainActivity extends Activity {
         settingsActionRow("Каталог провайдеров",
                 "Информация о поддерживаемых и планируемых сервисах",
                 this::agentShowProviderCatalog);
-        settingsActionRow("GitHub Copilot · Chat и задачи",
-                "Cloud Agent уже работает с задачами; Copilot Chat требует SDK runtime",
-                this::agentShowCopilotChatInfo);
-        settingsActionRow("Открыть Copilot Chat на GitHub",
-                "Официальный разговорный интерфейс в браузере",
-                ()->openWeb("https://github.com/copilot"));
+        settingsActionRow("Copilot WebView","Официальный github.com/copilot в отдельном окне",this::openCopilotWeb);
         settingsActionRow("Google Antigravity OAuth",
                 "Устаревший Google Cloud Code не поддерживает личные тарифы 2026",
                 ()->agentShowAntigravityMigration(owner));
@@ -9655,13 +9370,6 @@ public class MainActivity extends Activity {
             openRoot(this::showTracking);
             return;
         }
-        if(i != null && "app.githubble.mobile.OPEN_COPILOT_TASK".equals(i.getAction())) {
-            String task=i.getStringExtra("copilot_task_id");
-            String full=i.getStringExtra("copilot_repository");
-            i.setAction(null);
-            if(task!=null&&!task.isEmpty())openRoot(()->showCopilotTaskDetail(full==null?"":full,task));
-            else openRoot(this::showCopilotTasks);
-        }
     }
 
     @Override protected void onSaveInstanceState(Bundle outState){
@@ -9708,11 +9416,6 @@ public class MainActivity extends Activity {
             case "commit": showCommitDetail(a.optString("full"),a.optString("sha")); break;
             case "pull_checks": restorePullChecks(a.optString("full"),a.optInt("number")); break;
             case "repository_admin": restoreRepositoryAdmin(a.optString("full")); break;
-            case "copilot_repo": showCopilotRepository(a.optString("full")); break;
-            case "copilot_tasks": showCopilotTasksPage(1,true,a.optString("states",""),a.optBoolean("archived",false)); break;
-            case "copilot_task": showCopilotTaskDetail(a.optString("full",""),a.optString("task","")); break;
-            case "copilot_agents": showCopilotCustomAgents(a.optString("full",""),a.optString("branch","main")); break;
-            case "copilot_permissions": showCopilotPermissionMatrix(a.optString("full","")); break;
             case "offline_queue": showOfflineQueue(); break;
             case "portable_backup": showPortableBackup(); break;
             case "developer": showDeveloperProfile(a.optString("login")); break;
@@ -9723,7 +9426,6 @@ public class MainActivity extends Activity {
     @Override protected void onDestroy(){
         for(AtomicBoolean attempt:subscriptionAttempts.values())attempt.set(true);
         cancelVoiceInput();
-        stopCopilotForegroundPolling();
         accountInventoryCancelled.set(true);
         if(accountInventoryFuture!=null)accountInventoryFuture.cancel(true);
         inventoryIo.shutdownNow();

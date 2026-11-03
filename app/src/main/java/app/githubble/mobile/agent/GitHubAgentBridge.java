@@ -1,10 +1,8 @@
 package app.githubble.mobile.agent;
 
 import app.githubble.mobile.auth.GitHubAccountStore;
-import app.githubble.mobile.controller.CopilotAgentController;
 import app.githubble.mobile.controller.RepositoryAdminController;
 import app.githubble.mobile.network.GitHubApiClient;
-import app.githubble.mobile.network.GitHubGraphQlClient;
 import app.githubble.mobile.security.SecureStore;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -50,18 +48,6 @@ public final class GitHubAgentBridge {
         if (name == null || !name.matches("[A-Za-z0-9_.-]{1,100}") || ".".equals(name) || "..".equals(name))
             throw new IllegalArgumentException("Недопустимое имя репозитория");
         return new RepositoryAdminController(bound).createRepository(name, description, privateRepo, true);
-    }
-
-    /** Explicit user approval is required in the UI before this method is invoked. */
-    public JSONObject startCopilot(String expected, String fullName, String prompt, String branch)
-            throws Exception {
-        GitHubApiClient bound = scopedApi(expected);
-        verifyRepo(fullName);
-        if (prompt == null || prompt.trim().isEmpty())
-            throw new IllegalArgumentException("Пустая задача Copilot");
-        return new CopilotAgentController(bound, new GitHubGraphQlClient(bound))
-                .startTask(fullName, prompt, "", "", true,
-                branch == null || branch.isEmpty() ? "main" : branch, "");
     }
 
     public JSONObject listWorkflows(String expected, String fullName) throws Exception {

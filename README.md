@@ -56,7 +56,7 @@
 - голосовой ввод поискового запроса;
 - офлайн-кэш и очередь действий;
 - диагностика, экспорт состояния и контроль производительности;
-- интеграционные компоненты для GitHub Copilot / Cloud Agent;
+- встроенный Copilot WebView без нативного SDK и Cloud Tasks;
 - светлая, бежевая и тёмная визуальные линии приложения.
 
 ## Мультиаккаунт
@@ -261,7 +261,7 @@ Production-signed Release APK создаётся только в `main` и то�
 - [BUILD_RELEASE_POLICY.md](BUILD_RELEASE_POLICY.md) — политика release;
 - [OAUTH_SETUP.md](OAUTH_SETUP.md) — Device Flow;
 - [GITHUB_APP_CLIENT.md](GITHUB_APP_CLIENT.md) — GitHub App;
-- [COPILOT_INTEGRATION.md](COPILOT_INTEGRATION.md) — Copilot / Cloud Agent;
+- [docs/GIT_AGENT_PROJECT_RUNTIME_V1.md](docs/GIT_AGENT_PROJECT_RUNTIME_V1.md) — Project Runtime и два режима;
 - [RC4.2.3_NATIVE_COMMITS.md](RC4.2.3_NATIVE_COMMITS.md) — встроенный просмотр коммитов;
 - [RC4.2.4_NATIVE_FIRST.md](RC4.2.4_NATIVE_FIRST.md) — native-first изменения;
 - [RC4.2.5_PROFILE_NAVIGATION.md](RC4.2.5_PROFILE_NAVIGATION.md) — профиль и навигация;
