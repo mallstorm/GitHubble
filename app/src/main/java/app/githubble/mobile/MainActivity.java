@@ -140,9 +140,15 @@ public class MainActivity extends Activity {
         result+="\nGitHub connected through a separate GitHub API client: "+
             (githubReady?"yes":"no")+
             ". AI subscriptions alone have no GitHub permissions. "+
-            "Reading repositories requires Git Agent tools; "+
-            "creating, deleting or publishing needs explicit confirmation. "+
-            "Model access to GitHub metadata: "+
+            "The native GitHubble host can list connected GitHub repositories "+
+            "and import their text source into a local Workspace using the "+
+            "'Импорт GitHub → Workspace' action in the + menu or a confirmed "+
+            "chat command. These actions run in the Android host, not in your "+
+            "LLM tool list; never claim that the application lacks them. "+
+            "A local import is not a full Git clone and never writes to GitHub. "+
+            "Do not claim to have run an action unless the app shows its "+
+            "result as a system message. GitHub mutations require "+
+            "explicit confirmation. Model access to GitHub metadata: "+
             (prefs.getBoolean("ai_tool_github_read_"+owner,false)?"allowed by user":"disabled")+".\n";
         if(prefs.getBoolean("ai_tool_github_read_"+owner,false)
             &&project.repository!=null&&!project.repository.isEmpty())
