@@ -910,11 +910,19 @@ public class MainActivity extends Activity {
                                     expected,project.repository,project.branch,before.head,
                                     agentWorkspaces,snapshot,
                                     "feat(workspace): publish "+project.name);
+                                String revisionNote="";
+                                try{
+                                    agentWorkspaces.markRemoteRevision(expected,project.workspaceId,
+                                        project.repository,project.branch,result.getString("sha"));
+                                }catch(Exception metadataError){
+                                    revisionNote="\n⚠ Коммит создан, но локальная метка SHA "+
+                                        "не обновлена: "+metadataError.getMessage();
+                                }
                                 agentProjects.appendToConversation(expected,chat,"system",
                                     "GitHub: опубликован коммит "+result.optString("sha")+
                                     "\nФайлов: "+result.optInt("files")+
                                     ", пропущено: "+result.optInt("skipped")+
-                                    "\n"+result.optString("url"));
+                                    "\n"+result.optString("url")+revisionNote);
                                 runOnUiThread(()->{
                                     agentRefreshIfCurrent(expected);
                                     if(!chat.equals(agentProjects.activeConversation(expected))||
@@ -1688,10 +1696,12 @@ public class MainActivity extends Activity {
                 if(!owner.equals(accountStore.activeCacheKey())||
                     !workspaceId.equals(agentProjects.project(owner).workspaceId))return;
                 if(repair!=null){
-                    // The CI run is meaningful only against the same pinned HEAD.
+                    // A failed build can only repair the exact revision of its sources.
                     AgentGitWorkspace.Snapshot now=new AgentGitWorkspace(accountStore,secureStore)
                         .inspect(owner,project.repository,project.branch);
                     repair.verifyHead(now.head);
+                    agentWorkspaces.requireRemoteRevision(owner,workspaceId,
+                        project.repository,project.branch,repair.head);
                 }
                 // Do not disclose sources without the independent workspace-read consent.
                 String workspaceContext=allowFileRead
@@ -1742,6 +1752,8 @@ public class MainActivity extends Activity {
                                         AgentGitWorkspace.Snapshot now=new AgentGitWorkspace(accountStore,secureStore)
                                             .inspect(owner,project.repository,project.branch);
                                         repair.verifyHead(now.head);
+                                        agentWorkspaces.requireRemoteRevision(owner,workspaceId,
+                                            project.repository,project.branch,repair.head);
                                     }
                                     AgentExecutionEngine.Applied applied=
                                         app.githubble.mobile.agent.WorkspaceChangeReview.applyApproved(
@@ -2641,6 +2653,8 @@ public class MainActivity extends Activity {
                 AgentGitWorkspace.Snapshot head=new AgentGitWorkspace(accountStore,secureStore)
                     .inspect(account,project.repository,project.branch);
                 AgentBuildRepairTicket ticket=AgentBuildRepairTicket.fromReport(report,
+                    project.repository,project.branch,head.head);
+                agentWorkspaces.requireRemoteRevision(account,project.workspaceId,
                     project.repository,project.branch,head.head);
                 runOnUiThread(()->{
                     loading.dismiss();

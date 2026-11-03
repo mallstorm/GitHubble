@@ -39,6 +39,13 @@ public final class AgentBuildRepairTicketTest {
         AgentBuildRepairTicket.fromReport(failed().put("conclusion","success"),
             "owner/repo","main",SHA);
     }
+    @Test(expected=IllegalStateException.class)
+    public void cannotGuessFixForMissingSource()throws Exception{
+        AgentBuildRepairTicket ticket=AgentBuildRepairTicket.fromReport(failed(),"owner/repo","main",SHA);
+        WorkspaceHub hub=new WorkspaceHub(Files.createTempDirectory("repair-no-source").toFile());
+        String id=hub.create("user","Alpha").getString("id");
+        ticket.localSourceContext(hub,"user",id);
+    }
     @Test public void redactsSecretsInDiagnostic()throws Exception{
         JSONObject report=failed().put("error_excerpt",
             "ghp_abcdefghijklmnopqrstuvwx error: compilation failed");

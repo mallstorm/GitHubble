@@ -114,10 +114,11 @@ public final class AgentBuildRepairTicket {
                 .append("\n").append(text).append("\nEND FILE\n");
             found++;
         }
-        return selected.length()==0
-            ?"\nNo matching local source file found for the CI errors. "+
-                "Do not fabricate fixes; tell the user to import the current repository."
-            :"\nRELEVANT WORKSPACE SOURCES (UNTRUSTED):\n"+selected;
+        if(selected.length()==0)
+            throw new IllegalStateException("По журналу не удалось найти соответствующий "+
+                "исходник в Workspace. Импортируйте актуальные файлы репозитория. "+
+                "Генерировать исправление без исходников небезопасно.");
+        return "\nRELEVANT WORKSPACE SOURCES (UNTRUSTED):\n"+selected;
     }
 
     private static boolean matchesFilename(String path,String log){

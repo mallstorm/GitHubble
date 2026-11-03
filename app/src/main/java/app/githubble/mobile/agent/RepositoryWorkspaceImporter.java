@@ -141,6 +141,7 @@ public final class RepositoryWorkspaceImporter {
                 "Исходный репозиторий не изменён. Импортировано "+imported+
                 " текстовых файлов из "+eligible+" подходящих. Пропущено "+skipped+
                 ". Это не полный git clone: без .git, бинарных файлов и секретов.");
+            workspace.markRemoteRevision(account,id,repo,branch,head);
         }catch(Exception error){
             workspace.configure(account,id,name,"IMPORT_PARTIAL",
                 "Незавершённый импорт GitHub "+repo+": "+imported+" файлов. "+error.getMessage());

@@ -32,6 +32,31 @@ public final class WorkspaceHub {
         JSONArray a=new JSONArray();File[] dirs=account(owner).listFiles();if(dirs!=null)for(File f:dirs){File meta=new File(f,".workspace.json");if(meta.isFile())try{a.put(new JSONObject(read(meta,64*1024)));}catch(Exception ignored){}}return a;
     }
     public JSONObject info(String owner,String id)throws Exception{return new JSONObject(read(new File(root(owner,id),".workspace.json"),64*1024));}
+
+    /** The last GitHub commit whose source was imported or published from this Workspace. */
+    public synchronized void markRemoteRevision(String owner,String id,String repo,String branch,
+            String sha)throws Exception{
+        AgentGitWorkspace.validateRepository(repo,branch);
+        if(sha==null||!sha.matches("[a-fA-F0-9]{40}"))
+            throw new IllegalArgumentException("Некорректный SHA GitHub");
+        JSONObject metadata=info(owner,id);
+        metadata.put("source_repository",repo);
+        metadata.put("source_branch",branch);
+        metadata.put("source_sha",sha.toLowerCase(java.util.Locale.ROOT));
+        metadata.put("source_checked_at",System.currentTimeMillis());
+        write(new File(root(owner,id),".workspace.json"),metadata.toString());
+    }
+
+    public void requireRemoteRevision(String owner,String id,String repo,String branch,
+            String expectedSha)throws Exception{
+        JSONObject metadata=info(owner,id);
+        if(!repo.equals(metadata.optString("source_repository"))
+            ||!branch.equals(metadata.optString("source_branch"))
+            ||!expectedSha.equalsIgnoreCase(metadata.optString("source_sha")))
+            throw new IllegalStateException("Локальный Workspace не соответствует HEAD "+
+                "сбойной сборки. Импортируйте актуальную ветку GitHub или "+
+                "опубликуйте изменения Workspace и проверьте новый запуск.");
+    }
     public void configure(String owner,String id,String name,String state,String instructions)throws Exception{
         JSONObject j=info(owner,id);j.put("name",name.trim()).put("state",state).put("instructions",instructions.substring(0,Math.min(12000,instructions.length())));
         write(new File(root(owner,id),".workspace.json"),j.toString());
