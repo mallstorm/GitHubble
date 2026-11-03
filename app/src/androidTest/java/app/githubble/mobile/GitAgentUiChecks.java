@@ -230,21 +230,30 @@ final class GitAgentUiChecks {
                     }catch(Exception error){throw new RuntimeException(error);}
                 });
                 host.waitForIdleSync();Thread.sleep(300);screenshot(host,directory,methodName+".png");
-                host.sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK);host.waitForIdleSync();
+                dismissActiveDialog(host,activity);
             }
             onMain(host,()->{
                 try{java.lang.reflect.Method m=MainActivity.class.getDeclaredMethod("agentShowSubscriptions",String.class,boolean.class);m.setAccessible(true);m.invoke(activity,"guest",false);}
                 catch(Exception error){throw new RuntimeException(error);}
             });
             host.waitForIdleSync();Thread.sleep(250);screenshot(host,directory,"subscriptions.png");
-            host.sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK);host.waitForIdleSync();
+            dismissActiveDialog(host,activity);
             for(String section:new String[]{"network","memory","workspace","xray"}){
                 onMain(host,()->{try{
                     java.lang.reflect.Method method=MainActivity.class.getDeclaredMethod("agentFeatures",String.class);method.setAccessible(true);
                     Object screens=method.invoke(activity,"guest");screens.getClass().getMethod(section).invoke(screens);
                 }catch(Exception e){throw new RuntimeException(e);}});
-                host.waitForIdleSync();Thread.sleep(250);screenshot(host,directory,section+".png");host.sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK);host.waitForIdleSync();
+                host.waitForIdleSync();Thread.sleep(250);screenshot(host,directory,section+".png");dismissActiveDialog(host,activity);
             }
+            // Back must not send the host Activity to QuickstepLauncher when a
+            // sheet was not actually displayed. Re-enter the real chat before IME.
+            onMain(host,()->{
+                try{
+                    java.lang.reflect.Method chat=MainActivity.class.getDeclaredMethod("showAgentChat");
+                    chat.setAccessible(true);chat.invoke(activity);
+                }catch(Exception error){throw new RuntimeException(error);}
+            });
+            host.waitForIdleSync();
             // Opening the IME via the app-owned view avoids injecting pointer events
             // into an unrelated overlay window (Android 13 may target another UID).
             onMain(host,()->{
@@ -292,6 +301,22 @@ final class GitAgentUiChecks {
                     throw new AssertionError("Integrated draft did not survive screen recreation");
             });
         }finally{onMain(host,activity::finish);}
+    }
+    private static void dismissActiveDialog(Instrumentation host,Activity activity){
+        host.waitForIdleSync();
+        android.view.accessibility.AccessibilityNodeInfo active=
+            host.getUiAutomation().getRootInActiveWindow();
+        CharSequence foreground=active==null?null:active.getPackageName();
+        if(foreground==null||!activity.getPackageName().contentEquals(foreground))
+            throw new AssertionError("Git Agent lost foreground before closing a sheet: "+foreground);
+        final boolean[] activityFocused={false};
+        onMain(host,()->activityFocused[0]=activity.getWindow().getDecorView().hasWindowFocus());
+        // Dialogs own the window focus; a native screen with no sheet must not
+        // receive BACK, or the test would accidentally exit to the launcher.
+        if(!activityFocused[0]){
+            host.sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK);
+            host.waitForIdleSync();
+        }
     }
     private static void onMain(Instrumentation host,Runnable action){
         java.util.concurrent.atomic.AtomicReference<Throwable> failure=new java.util.concurrent.atomic.AtomicReference<>();
