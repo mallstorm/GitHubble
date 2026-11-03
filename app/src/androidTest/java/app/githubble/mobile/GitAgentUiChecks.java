@@ -130,6 +130,14 @@ final class GitAgentUiChecks {
             try{app.githubble.mobile.network.AiNetwork.enable(testProfile);
                 if(!new org.json.JSONObject(app.githubble.mobile.network.AiNetwork.profiles()).getBoolean("enabled"))throw new AssertionError("Native Xray did not start");
             }finally{app.githubble.mobile.network.AiNetwork.disable();app.githubble.mobile.network.AiNetwork.removeProfile(testProfile);}
+            java.lang.reflect.Method markdown=AgentChatScreen.class.getDeclaredMethod("markdown",String.class);
+            markdown.setAccessible(true);
+            CharSequence formatted=(CharSequence)markdown.invoke(null,
+                "GitHub **приватный**\n`ветка`\n```bash\nprintf ok\n```");
+            if(formatted.toString().contains("**") || formatted.toString().contains("```")
+                    || !formatted.toString().contains("printf ok")
+                    || !formatted.toString().contains("приватный"))
+                throw new AssertionError("Markdown punctuation leaked into Git Agent UI");
             for(boolean dark:new boolean[]{false,true}){
                 onMain(host,()->{
                     LinearLayout root=new LinearLayout(activity);root.setOrientation(1);activity.setContentView(root);
