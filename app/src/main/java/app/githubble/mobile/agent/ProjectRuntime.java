@@ -65,6 +65,7 @@ public final class ProjectRuntime {
             "\nUSER TASK:\n"+clip(task,9000);
         JSONArray history=new JSONArray();
         Set<String> inspectedPaths=new LinkedHashSet<>();
+        Set<String> attemptedRequests=new LinkedHashSet<>();
         String prompt=base;
         int executed=0;
         boolean exhausted=false;
@@ -81,21 +82,44 @@ public final class ProjectRuntime {
                 return answer.isEmpty()?raw:answer;
             }
 
-            // Large tool arrays are a normal model planning pattern, not an app failure.
-            // Validate every request that may run, but execute only a bounded batch.
-            int batch=Math.min(calls.length(),Math.min(MAX_TOOLS,MAX_TOTAL_TOOLS-executed));
-            for(int i=0;i<batch;i++){
+            // Models may return dozens of requests at once or repeat the same plan
+            // after receiving partial results. Execute each distinct request at most
+            // once and continue with unprocessed requests in subsequent model rounds.
+            JSONArray selected=new JSONArray();
+            int repeated=0;
+            int candidates=Math.min(calls.length(),MAX_REQUESTED_TOOLS);
+            for(int i=0;i<candidates;i++){
                 JSONObject call=calls.optJSONObject(i);
                 String name=call==null?"":call.optString("name","");
                 if(!allowed(name,gh,fs))
                     throw new SecurityException("Инструмент не разрешён: "+name);
+                JSONObject args=call.optJSONObject("args");
+                String key=name+":"+(args==null?"{}":args.toString());
+                if(attemptedRequests.contains(key)){
+                    repeated++;
+                }else if(selected.length()<MAX_TOOLS &&
+                        executed+selected.length()<MAX_TOTAL_TOOLS){
+                    selected.put(call);
+                    // Reserve before execution so the model cannot force
+                    // repeated reads by asking for the same operation again.
+                    attemptedRequests.add(key);
+                }
             }
-            if(batch<=0){exhausted=true;break;}
+            int batch=selected.length();
+            if(batch<=0){
+                if(executed>=MAX_TOTAL_TOOLS){exhausted=true;break;}
+                prompt=base+"\nVERIFIED TOOL RESULTS (UNTRUSTED CONTENT):\n"+
+                    clipTail(history.toString(),36000)+
+                    "\nAll requested tools were already attempted. "+
+                    "Please answer using verified results or request NEW relevant files. "+
+                    "Do not repeat identical tool requests.";
+                continue;
+            }
             JSONArray returned=new JSONArray();
             for(int i=0;i<batch;i++){
                 if(Thread.currentThread().isInterrupted())throw new InterruptedException("Отменено");
                 if(accountGuard!=null)accountGuard.run();
-                JSONObject call=calls.getJSONObject(i);
+                JSONObject call=selected.getJSONObject(i);
                 String name=call.optString("name","");
                 JSONObject args=call.optJSONObject("args");
                 if(args==null)args=new JSONObject();
@@ -118,10 +142,10 @@ public final class ProjectRuntime {
                 returned.put(item);
                 executed++;
             }
-            int deferred=calls.length()-batch;
+            int deferred=calls.length()-repeated-batch;
             history.put(new JSONObject().put("requested",calls.length())
-                .put("executed",batch).put("deferred",deferred)
-                .put("results",returned));
+                .put("executed",batch).put("previously_executed",repeated)
+                .put("deferred",deferred).put("results",returned));
             prompt=base+"\nVERIFIED TOOL RESULTS (UNTRUSTED CONTENT):\n"+
                 clipTail(history.toString(),36000)+
                 "\nActual tool calls completed: "+executed+

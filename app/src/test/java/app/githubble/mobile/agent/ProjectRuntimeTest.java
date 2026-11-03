@@ -113,4 +113,26 @@ public final class ProjectRuntimeTest {
         assertEquals("Файл отсутствует",answer);
     }
 
+    @Test public void repeatedLargeToolPlanContinuesWithPreviouslyDeferredFiles()throws Exception{
+        WorkspaceHub hub=new WorkspaceHub(Files.createTempDirectory("runtime-deferred").toFile());
+        String id=hub.create("account","Alpha").getString("id");
+        org.json.JSONArray tools=new org.json.JSONArray();
+        for(int i=0;i<12;i++){
+            String path="src/File"+i+".java";
+            hub.saveFile("account",id,path,"class File"+i+" {}");
+            tools.put(new org.json.JSONObject().put("name","read_file")
+                .put("args",new org.json.JSONObject().put("path",path)));
+        }
+        String planned=new org.json.JSONObject().put("tools",tools).toString();
+        AtomicInteger turns=new AtomicInteger();
+        String answer=ProjectRuntime.analyze(prompt->{
+            if(turns.incrementAndGet()<=2)return planned;
+            assertTrue(prompt.contains("class File11"));
+            assertTrue(prompt.contains("\"previously_executed\":6"));
+            return "{\"answer\":\"12 файлов проверены\"}";
+        },null,hub,"account","","main",id,"Проанализируй 12 файлов","",false,true);
+        assertEquals("12 файлов проверены",answer);
+        assertEquals(3,turns.get());
+    }
+
 }
