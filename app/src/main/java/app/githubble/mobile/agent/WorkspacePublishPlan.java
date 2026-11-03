@@ -103,6 +103,7 @@ public final class WorkspacePublishPlan {
     public static boolean safePath(String path){
         if(!WorkspaceChangeReview.writablePath(path))return false;
         String lower=path.toLowerCase(Locale.ROOT);
+        if(lower.equals("docs/context.md"))return false; // private planning context
         for(String part:lower.split("/")){
             if(part.equals("local.properties")||part.equals("gradle.properties")||
                 part.equals("firebase.json")||part.equals("google-services.json")||

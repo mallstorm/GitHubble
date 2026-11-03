@@ -2105,6 +2105,7 @@ public class MainActivity extends Activity {
             return;
         }
         AgentProjectStore.Project before=agentProjects.project(expected);
+        boolean createdWorkspaceForThisMessage=false;
         if(agentMode&&before.workspaceId.isEmpty()){
             String name=app.githubble.mobile.agent.ProjectWorkspaceSupport.INSTANCE.projectCreationName(message);
             if(name!=null)try{
@@ -2113,6 +2114,7 @@ public class MainActivity extends Activity {
                 agentWorkspaces.configure(expected,workspace,name,"PLANNING","");
                 agentWorkspaces.saveFile(expected,workspace,"docs/CONTEXT.md","# Задача проекта\n"+app.githubble.mobile.memory.MemoryPolicy.INSTANCE.redactSecrets(message));
                 agentProjects.save(new AgentProjectStore.Project(expected,name,before.repository,before.branch,workspace));
+                createdWorkspaceForThisMessage=true;
                 agentProjects.appendToConversation(expected,activeChat,"system","Создан Workspace «"+name+"». Репозиторий автоматически не создаётся и не закрепляется.");
             }catch(Exception e){agentProjects.appendToConversation(expected,activeChat,"system","Workspace: "+e.getMessage());}
         }
@@ -2151,7 +2153,7 @@ public class MainActivity extends Activity {
         }
         // Positive implementation requests become reviewed local file proposals,
         // not chat-only promises or immediate GitHub mutations.
-        if(imageUri==null&&agentMode&&!p.workspaceId.isEmpty()
+        if(imageUri==null&&agentMode&&!createdWorkspaceForThisMessage&&!p.workspaceId.isEmpty()
             &&app.githubble.mobile.agent.ProjectWorkIntent.requestsFileProposal(message)){
             agentGenerateLocalCode(expected,p,message.startsWith("/code ")
                 ?message.substring(6):message);

@@ -40,11 +40,14 @@ public final class WorkspaceChangeReview {
             if(segment.equals(".env")||segment.startsWith(".env.")
                 ||segment.contains("secret")||segment.contains("credential")
                 ||segment.contains("password")||segment.contains("keystore")
-                ||segment.equals(".npmrc")||segment.equals(".pypirc")
+                ||segment.contains("token")||segment.contains("api_key")
+                ||segment.contains("apikey")||segment.equals(".npmrc")||segment.equals(".pypirc")
                 ||segment.equals("id_rsa")||segment.equals("id_ed25519"))return false;
         }
         return !(name.endsWith(".pem")||name.endsWith(".key")
-            ||name.endsWith(".p12")||name.endsWith(".jks")
+            ||name.endsWith(".p12")||name.endsWith(".pfx")
+            ||name.endsWith(".jks")||name.endsWith(".asc")
+            ||name.endsWith(".gpg")||name.endsWith(".mobileprovision")
             ||name.endsWith(".der")||name.endsWith(".p8"));
     }
 

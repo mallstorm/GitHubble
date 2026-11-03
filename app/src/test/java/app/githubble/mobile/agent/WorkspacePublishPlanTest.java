@@ -36,6 +36,7 @@ public final class WorkspacePublishPlanTest {
         assertFalse(WorkspacePublishPlan.safePath(".env"));
         assertFalse(WorkspacePublishPlan.safePath("local.properties"));
         assertFalse(WorkspacePublishPlan.safePath("gradle.properties"));
+        assertFalse(WorkspacePublishPlan.safePath("docs/CONTEXT.md"));
         assertFalse(WorkspacePublishPlan.safePath("config/credentials.json"));
         assertTrue(WorkspacePublishPlan.safePath(".gitignore"));
         assertTrue(WorkspacePublishPlan.safePath("src/Main.java"));
