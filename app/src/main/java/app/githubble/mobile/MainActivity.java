@@ -49,6 +49,7 @@ import app.githubble.mobile.agent.AgentBuildArtifactController;
 import app.githubble.mobile.agent.AgentBuildDiagnostics;
 import app.githubble.mobile.agent.AgentGitWorkspace;
 import app.githubble.mobile.agent.AgentFilePlan;
+import app.githubble.mobile.agent.AgentExecutionEngine;
 import app.githubble.mobile.agent.OmniChatProviderCatalog;
 import app.githubble.mobile.agent.OmniChatConnectionStore;
 import app.githubble.mobile.agent.OAuthSubscriptions;
@@ -1707,7 +1708,7 @@ public class MainActivity extends Activity {
                                         ". GitHub не изменён. Для публикации: /workspace push.");
                                 }catch(Exception error){
                                     agentProjects.appendToConversation(owner,thread,"system",
-                                        "Применение отменено или откат выполнен: "+error.getMessage());
+                                        "Изменения не удалось применить: "+error.getMessage());
                                 }finally{runOnUiThread(()->agentRefreshIfCurrent(owner));}
                             });
                         })
