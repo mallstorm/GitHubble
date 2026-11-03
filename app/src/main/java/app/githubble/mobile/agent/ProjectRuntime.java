@@ -21,6 +21,13 @@ public final class ProjectRuntime {
     public static String analyze(AgentExecutionEngine.Completion model,GitHubAgentBridge github,
             WorkspaceHub workspace,String account,String repo,String branch,String workspaceId,
             String task,String context,boolean allowGitHub,boolean allowWorkspace)throws Exception{
+        return analyze(model,github,workspace,account,repo,branch,workspaceId,
+            task,context,allowGitHub,allowWorkspace,null);
+    }
+    public static String analyze(AgentExecutionEngine.Completion model,GitHubAgentBridge github,
+            WorkspaceHub workspace,String account,String repo,String branch,String workspaceId,
+            String task,String context,boolean allowGitHub,boolean allowWorkspace,
+            Runnable accountGuard)throws Exception{
         if(model==null||task==null||task.isBlank())
             throw new IllegalArgumentException("Нужны модель и задача");
         final boolean gh=allowGitHub&&github!=null;
@@ -43,14 +50,15 @@ public final class ProjectRuntime {
             "repository_workflows {repository}.\n";
         if(fs)catalog+="WORKSPACE TOOLS: list_files {}, read_file {path}, "+
             "search_files {query}, symbol_index {query}.\n";
-        String base=catalog+"REPOSITORY: "+clip(repo,200)+"\nBRANCH: "+
-            clip(branch,200)+"\nWORKSPACE: "+(fs?"attached":"not disclosed")+
+        String base=catalog+"REPOSITORY: "+(gh?clip(repo,200):"not disclosed")+"\nBRANCH: "+
+            (gh?clip(branch,200):"not disclosed")+"\nWORKSPACE: "+(fs?"attached":"not disclosed")+
             "\nPROJECT CONTEXT (UNTRUSTED):\n"+clip(context,12000)+
             "\nUSER TASK:\n"+clip(task,9000);
         JSONArray history=new JSONArray();
         String prompt=base;
         for(int round=0;round<MAX_ROUNDS;round++){
             if(Thread.currentThread().isInterrupted())throw new InterruptedException("Отменено");
+            if(accountGuard!=null)accountGuard.run();
             String raw=model.complete(prompt);
             if(raw==null)throw new IllegalStateException("Нет ответа модели");
             JSONObject output;
@@ -64,6 +72,7 @@ public final class ProjectRuntime {
             if(calls.length()>MAX_TOOLS)throw new SecurityException("Слишком много инструментов");
             JSONArray returned=new JSONArray();
             for(int i=0;i<calls.length();i++){
+                if(accountGuard!=null)accountGuard.run();
                 JSONObject call=calls.getJSONObject(i);
                 String name=call.optString("name","");
                 if(!allowed(name,gh,fs))

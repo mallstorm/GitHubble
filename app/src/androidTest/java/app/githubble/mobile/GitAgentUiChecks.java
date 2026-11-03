@@ -130,6 +130,13 @@ final class GitAgentUiChecks {
             try{app.githubble.mobile.network.AiNetwork.enable(testProfile);
                 if(!new org.json.JSONObject(app.githubble.mobile.network.AiNetwork.profiles()).getBoolean("enabled"))throw new AssertionError("Native Xray did not start");
             }finally{app.githubble.mobile.network.AiNetwork.disable();app.githubble.mobile.network.AiNetwork.removeProfile(testProfile);}
+            if(!app.githubble.mobile.web.CopilotWebActivity.isAllowedTopLevel(
+                android.net.Uri.parse("https://github.com/copilot")) ||
+                app.githubble.mobile.web.CopilotWebActivity.isAllowedTopLevel(
+                    android.net.Uri.parse("https://evil.example/copilot")) ||
+                app.githubble.mobile.web.CopilotWebActivity.isAllowedTopLevel(
+                    android.net.Uri.parse("http://github.com/copilot")))
+                throw new AssertionError("Copilot WebView host allowlist unsafe");
             java.lang.reflect.Method markdown=AgentChatScreen.class.getDeclaredMethod("markdown",String.class);
             markdown.setAccessible(true);
             CharSequence formatted=(CharSequence)markdown.invoke(null,

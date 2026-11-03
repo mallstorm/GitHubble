@@ -157,6 +157,24 @@ public class MainActivity extends Activity {
                 catch(Exception e){result+="\nКонтекст Workspace недоступен: "+e.getMessage();}
             else result+="\nWorkspace выбран, но передача файлов модели отключена в настройках.";
         }
+        // The unified tool loop receives explicit recent project discussion,
+        // independent of the selected subscription model.
+        try{
+            JSONArray turns=agentProjects.messages(owner,thread);
+            StringBuilder recent=new StringBuilder();
+            for(int i=Math.max(0,turns.length()-10);i<turns.length();i++){
+                JSONObject entry=turns.optJSONObject(i);
+                if(entry==null)continue;
+                String role=entry.optString("role");
+                if(!"user".equals(role)&&!"agent".equals(role)&&!"system".equals(role))continue;
+                String body=app.githubble.mobile.memory.MemoryPolicy.INSTANCE.redactSecrets(
+                    entry.optString("body",""));
+                recent.append(role).append(": ")
+                    .append(body.substring(0,Math.min(body.length(),850))).append('\n');
+                if(recent.length()>6200)break;
+            }
+            result+="\nRECENT PROJECT CONVERSATION (UNTRUSTED):\n"+recent;
+        }catch(Exception ignored){}
         return result;
     }
 
@@ -1647,6 +1665,18 @@ public class MainActivity extends Activity {
         if (!owner.equals(accountStore.activeCacheKey())) return;
         GitAgentUi ui=new GitAgentUi(this,BG);LinearLayout body=ui.body("Выбор модели",true);
         final Dialog[] dialog={null};
+        ui.section(body,"Способ работы");
+        ui.action(body,"1 · Подключённая AI-модель",
+                "Сейчас выбрана действующая модель. Другую можно выбрать ниже в списке.",0xFF2E9D68,
+                ()->{
+                    String selected=aiConnections.selectedProvider(owner);
+                    dialog[0].dismiss();
+                    if(!selected.isEmpty()&&aiConnections.isConfigured(owner,selected))
+                        agentRefreshIfCurrent(owner);
+                    else agentShowSubscriptions(owner,false);
+                });
+        ui.action(body,"2 · Copilot Web","Официальная страница github.com/copilot внутри GitHubble",0xFF2863B8,
+                ()->{dialog[0].dismiss();openCopilotWeb();});
         boolean any=false;
         for(String id:OmniChatConnectionStore.supported().keySet())
             if(!"guest".equals(owner)&&aiConnections.isConfigured(owner,id))any=true;
@@ -1698,11 +1728,6 @@ public class MainActivity extends Activity {
                 public void afterTextChanged(android.text.Editable s){}
             });
         }else ui.note(body,"После подключения здесь появятся модели с поиском и фильтрами.");
-        ui.section(body,"Выберите способ работы");
-        ui.action(body,"1 · Подключённая AI-модель","Диалог и агентный движок через Cline, OpenAI, Grok или API",0xFF2E9D68,
-                ()->{dialog[0].dismiss();agentRefreshIfCurrent(owner);});
-        ui.action(body,"2 · Copilot Web","Страница github.com/copilot внутри GitHubble, без SDK",0xFF2863B8,
-                ()->{dialog[0].dismiss();openCopilotWeb();});
         ui.action(body,"Обновить список моделей","Загрузить каталог выбранного API-подключения",0xFF2863B8,()->{
             dialog[0].dismiss();agentDiscoverAiModels(owner);});
         dialog[0]=ui.present(body,true);
@@ -2095,12 +2120,12 @@ public class MainActivity extends Activity {
                             JSONArray prompt=new JSONArray().put(
                                 new JSONObject().put("role","user").put("body",instructions));
                             String result=aiChatClient.complete(provider,model,credential,
-                                prompt,context,activeProject.repository);
+                                prompt,context,allowGithub?activeProject.repository:"");
                             aiUsage.record(expected,provider,model,OmniChatChatClient.takeUsage());
                             return result;
                         },aiGithub,agentWorkspaces,expected,activeProject.repository,
                             activeProject.branch,activeProject.workspaceId,message,context,
-                            allowGithub,allowFiles);
+                            allowGithub,allowFiles,()->aiGithub.requireAccount(expected));
                     }else if(imageUri!=null){
                         String mime=getContentResolver().getType(imageUri);
                         response=aiChatClient.completeWithImage(provider,model,credential,snapshot,

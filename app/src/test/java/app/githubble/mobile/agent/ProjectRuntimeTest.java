@@ -31,6 +31,16 @@ public final class ProjectRuntimeTest {
         assertEquals(2,turns.get());
         assertEquals("Файлы проверены",answer);
     }
+    @Test public void deniedGithubMetadataIsNotIncludedInFileContext()throws Exception{
+        WorkspaceHub hub=new WorkspaceHub(Files.createTempDirectory("runtime-private").toFile());
+        String id=hub.create("account","Alpha").getString("id");
+        String answer=ProjectRuntime.analyze(prompt->{
+            assertFalse(prompt.contains("owner/private-secret-repo"));
+            return "{\"answer\":\"ok\"}";
+        },null,hub,"account","owner/private-secret-repo","secretBranch",id,
+            "Какие файлы?","",false,true);
+        assertEquals("ok",answer);
+    }
     @Test(expected=SecurityException.class)
     public void toolLoopRejectsUnconfirmedWrite()throws Exception{
         WorkspaceHub hub=new WorkspaceHub(Files.createTempDirectory("runtime-deny").toFile());
