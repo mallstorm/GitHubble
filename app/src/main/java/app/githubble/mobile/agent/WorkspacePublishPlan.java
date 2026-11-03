@@ -84,6 +84,8 @@ public final class WorkspacePublishPlan {
         }
         if(fileCount()>70)result.append("… ещё ").append(fileCount()-70).append(" файлов\n");
         if(skipped>0)result.append("\n⚠ Публикация будет частичной: некоторые файлы исключены.\n");
+        result.append("\nПроверка секретов эвристическая: перед публикацией "+
+            "проверьте содержимое и видимость репозитория.");
         result.append("\nGitHub Actions могут запуститься после обновления ветки.");
         return result.toString();
     }
