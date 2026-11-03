@@ -1777,7 +1777,7 @@ public class MainActivity extends Activity {
                                                 repair.runId+".\n\nGitHub ещё не изменён. "+
                                                 "Опубликовать изменения с отдельным подтверждением?")
                                             .setPositiveButton("Подготовить публикацию",
-                                                (confirm,which)->agentPublishWorkspace(owner))
+                                                (confirm,publishChoice)->agentPublishWorkspace(owner))
                                             .setNegativeButton("Позже",null).show();
                                     });
                                 }catch(Exception error){
