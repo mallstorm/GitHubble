@@ -44,6 +44,8 @@ public final class AgentFilePlan {
             String path = file.optString("path", "");
             String contents = file.optString("content", "");
             validatePath(path);
+            if(!WorkspaceChangeReview.writablePath(path))
+                throw new IllegalArgumentException("Защищённый путь файла: "+path);
             if (!paths.add(path.toLowerCase(Locale.ROOT)))
                 throw new IllegalArgumentException("Повторяется путь: " + path);
             int bytes = contents.getBytes(StandardCharsets.UTF_8).length;
@@ -74,8 +76,6 @@ public final class AgentFilePlan {
                     || ".git".equalsIgnoreCase(segment))
                 throw new IllegalArgumentException("Недопустимый путь: " + path);
         }
-        if(!WorkspaceChangeReview.writablePath(path))
-            throw new IllegalArgumentException("Защищённый путь файла: "+path);
         if (path.startsWith(".github/workflows/") && !path.endsWith(".yml") && !path.endsWith(".yaml"))
             throw new IllegalArgumentException("Workflow должен быть YAML-файлом");
     }
