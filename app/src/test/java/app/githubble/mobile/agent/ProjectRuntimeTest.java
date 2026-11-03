@@ -55,13 +55,17 @@ public final class ProjectRuntimeTest {
         WorkspaceHub hub=new WorkspaceHub(Files.createTempDirectory("runtime-batch").toFile());
         String id=hub.create("account","Alpha").getString("id");
         hub.saveFile("account",id,"src/App.java","class App {}");
+        for(int i=1;i<11;i++)
+            hub.saveFile("account",id,"src/Module"+i+".java","class Module"+i+" {}");
         AtomicInteger completions=new AtomicInteger();
         String answer=ProjectRuntime.analyze(prompt->{
             if(completions.incrementAndGet()==1){
                 org.json.JSONArray tools=new org.json.JSONArray();
-                for(int i=0;i<11;i++)
-                    tools.put(new org.json.JSONObject().put("name","list_files")
-                        .put("args",new org.json.JSONObject()));
+                for(int i=0;i<11;i++){
+                    String path=i==0?"src/App.java":"src/Module"+i+".java";
+                    tools.put(new org.json.JSONObject().put("name","read_file")
+                        .put("args",new org.json.JSONObject().put("path",path)));
+                }
                 return new org.json.JSONObject().put("tools",tools).toString();
             }
             assertTrue(prompt.contains("\"deferred\":5"));
