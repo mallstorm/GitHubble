@@ -1643,7 +1643,9 @@ public class MainActivity extends Activity {
             new AlertDialog.Builder(this).setTitle("Разрешить AI читать файлы проекта?")
                 .setMessage("Чтобы безопасно изменять существующие файлы, модель должна "+
                     "увидеть ограниченный контекст Workspace через выбранного AI-провайдера. "+
-                    "OAuth GitHub и локальные секреты не передаются.\n\n"+
+                    "GitHub OAuth-токен не передаётся. Источники будут обработаны "+
+                    "фильтром секретов, но он не гарантирует удаления всех конфиденциальных "+
+                    "данных. Перед разрешением проверьте проект.\n\n"+
                     "Можно отказаться от передачи содержимого: тогда агент сможет создавать "+
                     "только новые файлы, не перезаписывая существующие.")
                 .setPositiveButton("Разрешить один раз",(d,w)->
@@ -1681,10 +1683,12 @@ public class MainActivity extends Activity {
                     !workspaceId.equals(agentProjects.project(owner).workspaceId))return;
                 // Do not disclose sources without the independent workspace-read consent.
                 String workspaceContext=allowFileRead
-                    ?agentWorkspaces.context(owner,workspaceId)
+                    ?app.githubble.mobile.memory.MemoryPolicy.INSTANCE.redactSecrets(
+                        agentWorkspaces.context(owner,workspaceId))
                     :"Локальный Workspace подключён, но чтение исходников моделью отключено. "+
                       "Создавайте новые файлы; существующие файлы не перезаписывайте.";
-                String context=agentContext(owner,project,thread,request);
+                String context=app.githubble.mobile.memory.MemoryPolicy.INSTANCE.redactSecrets(
+                    agentContext(owner,project,thread,request));
                 AgentExecutionEngine.Proposal proposed=AgentExecutionEngine.propose(prompt->{
                     if(Thread.currentThread().isInterrupted())throw new InterruptedException("Отменено");
                     JSONArray input=new JSONArray().put(new JSONObject()
