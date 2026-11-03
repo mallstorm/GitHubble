@@ -188,10 +188,11 @@ public final class GitHubAgentBridge {
                 long runId=args.optLong("run_id",0);
                 if(runId<=0)throw new IllegalArgumentException("Укажите положительный run_id");
                 requireAccount(expected);
+                // General GitHub-read permission discloses ONLY run/job metadata.
+                // Full log excerpts require the separate explicit repair dialog.
                 JSONObject report=new AgentBuildDiagnostics(accounts,secrets)
-                    .summarizeWithErrors(expected,linkedRepo,runId);
+                    .summarize(expected,linkedRepo,runId);
                 requireAccount(expected);
-                // Log excerpts are already redacted and limited by AgentLogRedactor.
                 return report;
             }
             case "repository_workflows":{
