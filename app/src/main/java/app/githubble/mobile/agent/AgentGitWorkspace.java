@@ -140,6 +140,55 @@ public final class AgentGitWorkspace {
         }
     }
 
+    /**
+     * Publishes one full bounded Workspace source snapshot in one Git Data API
+     * tree/commit/ref transaction. It runs only after the user approves preview.
+     */
+    public JSONObject publishApprovedWorkspace(String account,String repository,String branch,
+            String expectedHead,WorkspaceHub workspace,WorkspacePublishPlan plan,
+            String commitMessage)throws Exception{
+        synchronized(COMMIT_LOCK){
+            validateRepository(repository,branch);
+            if(plan==null||workspace==null||expectedHead==null||
+                !expectedHead.matches("[a-fA-F0-9]{40}"))
+                throw new IllegalArgumentException("Не подтверждён GitHub HEAD или Workspace");
+            GitHubApiClient api=client(account);
+            plan.verifyCurrent(workspace,account);
+            Snapshot current=inspect(api,repository,branch,false);
+            if(!current.head.equals(expectedHead))
+                throw new IllegalStateException("Удалённая ветка изменилась после подготовки. Повторите публикацию.");
+            JSONObject tree=api.postJson(base(repository)+"/git/trees",
+                new JSONObject().put("base_tree",current.tree)
+                    .put("tree",plan.treeEntries()),true);
+            String treeSha=tree.optString("sha","");
+            if(!treeSha.matches("[a-fA-F0-9]{40}"))
+                throw new IllegalStateException("GitHub не создал дерево исходников");
+            String message=commitMessage==null?"feat(workspace): publish project":
+                commitMessage.replace('\n',' ').replace('\r',' ').trim();
+            if(message.isEmpty())message="feat(workspace): publish project";
+            if(message.length()>130)message=message.substring(0,130);
+            JSONObject commit=api.postJson(base(repository)+"/git/commits",
+                new JSONObject().put("message",message)
+                    .put("tree",treeSha).put("parents",new JSONArray().put(expectedHead)),true);
+            String commitSha=commit.optString("sha","");
+            if(!commitSha.matches("[a-fA-F0-9]{40}"))
+                throw new IllegalStateException("GitHub не создал коммит");
+            plan.verifyCurrent(workspace,account);
+            client(account); // refuse a write if user switched accounts during preparation
+            Snapshot beforePush=inspect(api,repository,branch,false);
+            if(!expectedHead.equals(beforePush.head))
+                throw new IllegalStateException("Ветка продвинулась; коммит не опубликован");
+            JSONObject updated=api.patchJson(base(repository)+"/git/refs/heads/"+branch,
+                new JSONObject().put("sha",commitSha).put("force",false));
+            JSONObject target=updated.optJSONObject("object");
+            if(target==null||!commitSha.equals(target.optString("sha")))
+                throw new IllegalStateException("GitHub не подтвердил обновление ветки");
+            return new JSONObject().put("sha",commitSha)
+                .put("url","https://github.com/"+repository+"/commit/"+commitSha)
+                .put("files",plan.fileCount()).put("skipped",plan.skipped);
+        }
+    }
+
     private JSONObject commitPlanLocked(String account, String repository, String branch,
                                          String expectedHead, AgentFilePlan plan) throws Exception {
         validateRepository(repository, branch);

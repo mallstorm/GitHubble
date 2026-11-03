@@ -858,18 +858,19 @@ public class MainActivity extends Activity {
     }
 
     /** Local workspace -> remote Git commit, without uploading data to an AI model. */
+    /** Local Workspace → GitHub: preview one bounded source snapshot, approve, commit. */
     private void agentPublishWorkspace(String expected){
         if("guest".equals(expected)||!expected.equals(accountStore.activeCacheKey())||!isSignedIn()){
             toast("Подключите GitHub в разделе «Аккаунт и доступ»");return;
         }
-        AgentProjectStore.Project captured=agentProjects.project(expected);
-        if(captured.workspaceId==null||captured.workspaceId.isEmpty()){
-            toast("Сначала создайте или выберите Workspace");agentFeatures(expected).workspace();return;
+        AgentProjectStore.Project project=agentProjects.project(expected);
+        if(project.workspaceId==null||project.workspaceId.isEmpty()){
+            toast("Сначала создайте или выберите Workspace");
+            agentFeatures(expected).workspace();return;
         }
-        if(captured.repository.isEmpty()){
+        if(project.repository.isEmpty()){
             new AlertDialog.Builder(this).setTitle("Куда публиковать Workspace?")
-                .setMessage("Привяжите существующий GitHub-репозиторий или создайте новый. "+
-                    "Workspace не публикуется автоматически.")
+                .setMessage("Сначала создайте новый GitHub-репозиторий или привяжите существующий.")
                 .setPositiveButton("Привязать",(d,w)->agentAttachRepository(expected))
                 .setNeutralButton("Создать",(d,w)->agentCreateRepository(expected,"",true))
                 .setNegativeButton("Отмена",null).show();
@@ -880,57 +881,58 @@ public class MainActivity extends Activity {
             try{
                 aiGithub.requireAccount(expected);
                 AgentGitWorkspace git=new AgentGitWorkspace(accountStore,secureStore);
-                AgentGitWorkspace.Snapshot remote=git.inspect(expected,captured.repository,captured.branch);
-                JSONArray paths=agentWorkspaces.files(expected,captured.workspaceId);
-                JSONArray entries=new JSONArray();
-                int rejected=0;
-                for(int i=0;i<paths.length();i++){
-                    JSONObject file=paths.optJSONObject(i);
-                    if(file==null)continue;
-                    String filePath=file.optString("path");
-                    String lower=filePath.toLowerCase(java.util.Locale.ROOT);
-                    if(filePath.isBlank()||lower.startsWith(".")||lower.contains("/.")
-                       ||lower.contains("token")||lower.contains("secret")||lower.contains("password")
-                       ||lower.contains("keystore")||lower.contains("credential")||lower.endsWith(".env")
-                       ||lower.endsWith(".jks")||lower.endsWith(".p12")
-                       ||lower.endsWith(".pem")||lower.endsWith(".key")
-                       ||lower.endsWith(".p8")||lower.endsWith(".der")
-                       ||lower.endsWith(".mobileprovision")||lower.endsWith(".npmrc")
-                       ||lower.endsWith("id_rsa")||lower.endsWith("id_ed25519")
-                       ||lower.equals("local.properties")||lower.endsWith("/local.properties")
-                       ||lower.equals("gradle.properties")||lower.endsWith("/gradle.properties")
-                       ||file.optLong("size",1000000)>80*1024){
-                        rejected++;continue;
-                    }
-                    try{
-                        app.githubble.mobile.agent.AgentFilePlan.validatePath(filePath);
-                        String contents=agentWorkspaces.readFile(expected,captured.workspaceId,filePath);
-                        if(contents.isEmpty()||contents.indexOf('\u0000')>=0
-                            ||contents.matches("(?s).*(?:github_pat_[A-Za-z0-9_]{10,}"+
-                                 "|gh[pousr]_[A-Za-z0-9_]{18,}"+
-                                 "|-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"+
-                                 "|sk-[A-Za-z0-9_-]{32,}).*")){rejected++;continue;}
-                        entries.put(new JSONObject().put("path",filePath).put("content",contents));
-                    }catch(Exception skipped){rejected++;}
-                }
-                if(entries.length()==0)throw new IllegalStateException("Нет подходящих текстовых файлов");
-                if(entries.length()>12)
-                    throw new IllegalStateException("Найдено "+entries.length()+" файлов (лимит 12 за коммит). "+
-                        "Для публикации большого проекта используйте Git-интеграцию IDE или разделите проект на пакеты.");
-                AgentFilePlan plan=AgentFilePlan.parse(new JSONObject()
-                    .put("summary","Публикация "+entries.length()+" файлов Workspace "+
-                        captured.name+" в "+captured.repository+"/"+captured.branch+
-                        (rejected>0?". Исключено защищённых/крупных файлов: "+rejected:""))
-                    .put("commit_message","feat(workspace): publish "+captured.name)
-                    .put("files",entries).toString());
+                AgentGitWorkspace.Snapshot before=git.inspect(expected,project.repository,project.branch);
+                app.githubble.mobile.agent.WorkspacePublishPlan snapshot=
+                    app.githubble.mobile.agent.WorkspacePublishPlan.capture(
+                        agentWorkspaces,expected,project.workspaceId);
                 runOnUiThread(()->{
-                    if(!expected.equals(accountStore.activeCacheKey())
-                        ||!chat.equals(agentProjects.activeConversation(expected)))return;
+                    if(!expected.equals(accountStore.activeCacheKey())||
+                        !chat.equals(agentProjects.activeConversation(expected)))return;
                     AgentProjectStore.Project current=agentProjects.project(expected);
-                    if(!captured.workspaceId.equals(current.workspaceId)
-                        ||!captured.repository.equals(current.repository)
-                        ||!captured.branch.equals(current.branch)){toast("Проект изменился");return;}
-                    agentReviewFilePlan(expected,captured,remote.head,plan);
+                    if(!project.workspaceId.equals(current.workspaceId)||
+                        !project.repository.equals(current.repository)||
+                        !project.branch.equals(current.branch)){
+                        toast("Проект изменился, подготовьте публикацию повторно");return;
+                    }
+                    new AlertDialog.Builder(this).setTitle("Опубликовать проект на GitHub?")
+                        .setMessage(snapshot.preview(project.repository,project.branch))
+                        .setPositiveButton("Создать коммит",(d,w)->io.execute(()->{
+                            try{
+                                aiGithub.requireAccount(expected);
+                                AgentProjectStore.Project active=agentProjects.project(expected);
+                                if(!expected.equals(accountStore.activeCacheKey())||
+                                    !chat.equals(agentProjects.activeConversation(expected))||
+                                    !project.workspaceId.equals(active.workspaceId)||
+                                    !project.repository.equals(active.repository)||
+                                    !project.branch.equals(active.branch))return;
+                                JSONObject result=git.publishApprovedWorkspace(
+                                    expected,project.repository,project.branch,before.head,
+                                    agentWorkspaces,snapshot,
+                                    "feat(workspace): publish "+project.name);
+                                agentProjects.appendToConversation(expected,chat,"system",
+                                    "GitHub: опубликован коммит "+result.optString("sha")+
+                                    "\nФайлов: "+result.optInt("files")+
+                                    ", пропущено: "+result.optInt("skipped")+
+                                    "\n"+result.optString("url"));
+                                runOnUiThread(()->{
+                                    agentRefreshIfCurrent(expected);
+                                    if(!chat.equals(agentProjects.activeConversation(expected))||
+                                        !expected.equals(accountStore.activeCacheKey()))return;
+                                    new AlertDialog.Builder(this).setTitle("Исходники опубликованы")
+                                        .setMessage("Коммит записан в "+project.repository+
+                                            ". Запустить сборку через GitHub Actions?")
+                                        .setPositiveButton("Выбрать workflow",
+                                            (confirm,which)->agentChooseWorkflow(expected))
+                                        .setNegativeButton("Позже",null).show();
+                                });
+                            }catch(Exception error){
+                                agentProjects.appendToConversation(expected,chat,"system",
+                                    "GitHub не обновлён: "+error.getMessage()+
+                                    ". Локальные файлы остались на устройстве.");
+                                runOnUiThread(()->agentRefreshIfCurrent(expected));
+                            }
+                        }))
+                        .setNegativeButton("Отмена",null).show();
                 });
             }catch(Exception error){
                 runOnUiThread(()->{
