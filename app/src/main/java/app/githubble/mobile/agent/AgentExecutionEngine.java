@@ -114,7 +114,7 @@ public final class AgentExecutionEngine {
         throw new IllegalStateException("Agent завершил лимит проходов без ответа");
     }
 
-    private static String executeReadOnly(WorkspaceHub hub,String owner,String id,
+    static String executeReadOnly(WorkspaceHub hub,String owner,String id,
             String name,JSONObject args)throws Exception{
         String param=args.optString("path",args.optString("query","")).trim();
         switch(name){
