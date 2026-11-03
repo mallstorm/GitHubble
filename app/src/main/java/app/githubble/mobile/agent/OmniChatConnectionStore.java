@@ -11,7 +11,7 @@ import java.util.Map;
 
 /**
  * Phase-2 native API-key connection store. Credentials are AES/GCM encrypted by Android Keystore,
- * scoped to the GitHub account, and are never stored in chat history or ordinary preferences.
+ * scoped to the local guest or signed-in app profile, and are never stored in chat history or ordinary preferences.
  * OAuth/Subscription connections are intentionally not fabricated here.
  */
 public final class OmniChatConnectionStore {
@@ -52,8 +52,10 @@ public final class OmniChatConnectionStore {
     }
 
     private static String namespace(String account) {
-        if (account == null || account.isEmpty() || "guest".equals(account))
-            throw new IllegalStateException("Не выбран GitHub-аккаунт");
+        // Device-local AI profile is independent of GitHub OAuth.
+        // Its encrypted credentials remain isolated from signed-in profiles.
+        if(account==null||account.isBlank())
+            throw new IllegalArgumentException("Не выбран профиль AI");
         return Base64.encodeToString(account.getBytes(StandardCharsets.UTF_8),
                 Base64.URL_SAFE | Base64.NO_WRAP | Base64.NO_PADDING);
     }
