@@ -25,6 +25,18 @@ public final class RepositoryWorkspaceImporter {
     public static final int MAX_TOTAL_BYTES = 8 * 1024 * 1024;
     private RepositoryWorkspaceImporter() {}
 
+    /** Deterministic dispatcher: command asks for a local source import, not AI prose. */
+    public static boolean isImportIntent(String message){
+        if(message==null)return false;
+        String text=message.toLowerCase(Locale.ROOT);
+        return text.contains("/workspace import") ||
+            ((text.contains("репозитор")||text.contains("github")
+                ||text.contains("гитхаб")||text.contains("гите"))
+             && (text.contains("воркспейс")||text.contains("workspace")
+                ||text.contains("клонир")||text.contains("импортир")
+                ||text.contains("локальн")||text.contains("сливай")));
+    }
+
     private static final class Source {
         final String path, body;
         final int size;
