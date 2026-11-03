@@ -324,7 +324,7 @@ public final class AgentChatScreen {
         String[] lines=(source==null?"":source).split("\n",-1);
         boolean code=false,visible=false;
         for(String line:lines){
-            if(line.trim().startsWith("``")){
+            if(line.trim().startsWith("```")){
                 code=!code;
                 continue;
             }
