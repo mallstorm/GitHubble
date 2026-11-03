@@ -23,9 +23,10 @@ uses Java/Views; the archived Compose source set is not enabled by its build.
 - Persistent per-account/per-thread drafts; choosing a model never creates a thread.
 - Connected API models, search and API/subscription filters, encrypted credentials,
   retained server model catalog, immediate model selection and refresh.
-- Two UI choices: native model-backed Git Agent with its own Workspace/GitHub
-  tool broker, or a separate Copilot Web page. No native Copilot Cloud task
-  controllers remain. GitHub mutations require explicit confirmation.
+- One native Git Agent model picker usable without GitHub sign-in, backed by
+  encrypted credentials per device-local or linked account profile. The former
+  Copilot Web page and cloud task controller are removed. GitHub mutations
+  still require separate authorization and explicit confirmation.
 - Text attachment preview, existing speech input and cancel-request handling.
 - Existing code generation, file preview, explicit commit approval, workflow
   selection, CI diagnostics, repair proposals and artifact downloads are retained.

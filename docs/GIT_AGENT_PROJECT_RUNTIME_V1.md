@@ -1,8 +1,11 @@
 # Git Agent Project Runtime — architecture
 
-## Two modes
-1. Connected AI model: persistent native Git Agent Chat/Workspace with provider selection (Cline/OpenAI/Grok/API), GitHub OAuth and confirmed native actions.
-2. Copilot Web: separate WebView at https://github.com/copilot; no native task adapter, token injection or tool bridge. The web session is independent from GitHubble OAuth and can require separate browser sign-in.
+## One native model mode
+Git Agent uses the selected AI model (Cline/OpenAI/Grok/API) for local chat and Workspace.
+An encrypted device-local guest profile works without GitHub OAuth. Linked GitHub
+profiles retain their own previously configured models and keys. Repository and
+Actions operations require a separately authenticated GitHub session.
+There is no embedded Copilot WebView or native Copilot Cloud task adapter.
 
 ## Local / remote project
 Local Workspace exists without GitHub. Linked GitHub repository is a remote projection and source of version history. Existing import currently copies only a bounded text snapshot, not a full .git clone. Uploads and destructive operations require confirmation.
@@ -47,5 +50,4 @@ raw or excerpted job logs without the distinct repair-disclosure consent.
 Known limits: 180 text files / 8 MiB per Workspace snapshot publication,
 12 generated files per repair proposal, incomplete/binary files excluded.
 Log secret filtering is heuristic and does not guarantee full confidentiality.
-The APK's runtime WebView login and real private-repository OAuth repair
-still require device-level verification.
+Private-repository OAuth and CI repair still require device-level verification.

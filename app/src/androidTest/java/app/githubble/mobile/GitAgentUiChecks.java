@@ -53,6 +53,17 @@ final class GitAgentUiChecks {
             throw new AssertionError("Connection/catalog persistence or account isolation failed");
         connections.disconnect(account,"openai");
         if(connections.hasKey(account,"openai"))throw new AssertionError("Disconnected key retained");
+        // Regression: choosing an AI model when GitHub is not signed in.
+        connections.save("guest","openai","offline-test-model","test-key-never-sent");
+        if(!"openai".equals(connections.selectedProvider("guest"))
+            ||!"offline-test-model".equals(connections.model("guest","openai"))
+            ||!connections.isConfigured("guest","openai")
+            ||connections.isConfigured(account,"openai"))
+            throw new AssertionError("Guest AI selection failed or crossed account scopes");
+        connections=new app.githubble.mobile.agent.OmniChatConnectionStore(context,vault);
+        if(!"openai".equals(connections.selectedProvider("guest")))
+            throw new AssertionError("Guest model selection not persisted");
+        connections.disconnect("guest","openai");
         org.json.JSONObject oauth=new org.json.JSONObject().put("access_token","local-test-access")
             .put("refresh_token","local-test-refresh").put("expires_at",System.currentTimeMillis()+3600000);
         for(String subscription:new String[]{app.githubble.mobile.agent.OAuthSubscriptions.KIMI,
@@ -130,13 +141,6 @@ final class GitAgentUiChecks {
             try{app.githubble.mobile.network.AiNetwork.enable(testProfile);
                 if(!new org.json.JSONObject(app.githubble.mobile.network.AiNetwork.profiles()).getBoolean("enabled"))throw new AssertionError("Native Xray did not start");
             }finally{app.githubble.mobile.network.AiNetwork.disable();app.githubble.mobile.network.AiNetwork.removeProfile(testProfile);}
-            if(!app.githubble.mobile.web.CopilotWebActivity.isAllowedTopLevel(
-                android.net.Uri.parse("https://github.com/copilot")) ||
-                app.githubble.mobile.web.CopilotWebActivity.isAllowedTopLevel(
-                    android.net.Uri.parse("https://evil.example/copilot")) ||
-                app.githubble.mobile.web.CopilotWebActivity.isAllowedTopLevel(
-                    android.net.Uri.parse("http://github.com/copilot")))
-                throw new AssertionError("Copilot WebView host allowlist unsafe");
             java.lang.reflect.Method markdown=AgentChatScreen.class.getDeclaredMethod("markdown",String.class);
             markdown.setAccessible(true);
             CharSequence formatted=(CharSequence)markdown.invoke(null,

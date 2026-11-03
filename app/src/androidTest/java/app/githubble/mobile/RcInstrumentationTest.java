@@ -355,10 +355,6 @@ public final class RcInstrumentationTest extends Instrumentation {
         yes(app.githubble.mobile.agent.ProjectRuntime.allowed("repository_info",true,false));
         no(app.githubble.mobile.agent.ProjectRuntime.allowed("write_file",true,true));
         no(app.githubble.mobile.agent.ProjectRuntime.allowed("delete_repository",true,true));
-        yes(app.githubble.mobile.web.CopilotWebActivity.isAllowedTopLevel(
-            android.net.Uri.parse("https://github.com/copilot")));
-        no(app.githubble.mobile.web.CopilotWebActivity.isAllowedTopLevel(
-            android.net.Uri.parse("https://example.com/copilot")));
     }
 
     private static void testSmartRussianSearch() {

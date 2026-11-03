@@ -209,13 +209,13 @@ public final class AgentChatScreen {
         LinearLayout model=new LinearLayout(activity);
         model.setOrientation(LinearLayout.VERTICAL);
         model.setGravity(Gravity.CENTER);
-        String modelTitle=connected?modelLabel:"Выбрать модель / Web ▾";
+        String modelTitle=connected?modelLabel:"Выбрать AI-модель ▾";
         TextView modelName=label(modelTitle,13,true,accent);
         modelName.setSingleLine();
         modelName.setEllipsize(TextUtils.TruncateAt.MIDDLE);
         modelName.setGravity(Gravity.CENTER);
         model.addView(modelName,new LinearLayout.LayoutParams(-1,-2));
-        TextView modelSub=label(connected?providerLabel+" ▾":"AI / Copilot Web",10,false,muted);
+        TextView modelSub=label(connected?providerLabel+" ▾":"Подключить модель",10,false,muted);
         modelSub.setGravity(Gravity.CENTER);
         modelSub.setSingleLine();
         modelSub.setEllipsize(TextUtils.TruncateAt.END);
