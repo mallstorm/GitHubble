@@ -318,20 +318,53 @@ public final class AgentChatScreen {
         transcript.addView(wrapper,new LinearLayout.LayoutParams(-1,-2));
     }
 
+    /** Render common ChatGPT markdown without leaking ** or code fences into UI. */
     private static CharSequence markdown(String source){
-        SpannableStringBuilder text=new SpannableStringBuilder(source==null?"":source);
-        String raw=text.toString();
-        int cursor=0;
-        while(cursor<raw.length()){
-            int open=raw.indexOf("**",cursor);
-            if(open<0)break;
-            int end=raw.indexOf("**",open+2);
-            if(end<0)break;
-            text.setSpan(new StyleSpan(Typeface.BOLD),open,end+2,
-                    android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            cursor=end+2;
+        SpannableStringBuilder output=new SpannableStringBuilder();
+        String[] lines=(source==null?"":source).split("\n",-1);
+        boolean code=false,visible=false;
+        for(String line:lines){
+            if(line.trim().startsWith("``")){
+                code=!code;
+                continue;
+            }
+            if(visible)output.append('\n');
+            visible=true;
+            int beginning=output.length();
+            if(code){
+                output.append(line);
+                if(!line.isEmpty())output.setSpan(new android.text.style.TypefaceSpan("monospace"),
+                    beginning,output.length(),android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                continue;
+            }
+            SpannableStringBuilder formatted=new SpannableStringBuilder(line);
+            int pos=0;
+            while(pos<formatted.length()){
+                int open=formatted.toString().indexOf("**",pos);
+                if(open<0)break;
+                int close=formatted.toString().indexOf("**",open+2);
+                if(close<0)break;
+                formatted.delete(close,close+2);
+                formatted.delete(open,open+2);
+                if(close>open+2)formatted.setSpan(new StyleSpan(Typeface.BOLD),
+                    open,close-2,android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                pos=Math.max(open+1,close-2);
+            }
+            pos=0;
+            while(pos<formatted.length()){
+                int open=formatted.toString().indexOf('`',pos);
+                if(open<0)break;
+                int close=formatted.toString().indexOf('`',open+1);
+                if(close<0)break;
+                formatted.delete(close,close+1);
+                formatted.delete(open,open+1);
+                if(close>open+1)formatted.setSpan(new android.text.style.TypefaceSpan("monospace"),
+                    open,close-1,android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                pos=Math.max(open+1,close-1);
+            }
+            output.append(formatted);
         }
-        return text;
+        return output;
     }
 
     private LinearLayout horizontal(){
