@@ -2017,13 +2017,7 @@ public class MainActivity extends Activity {
                 }
             });return;
         }
-        String importText=message.toLowerCase(java.util.Locale.ROOT);
-        boolean workspaceImport=importText.contains("/workspace import") ||
-            ((importText.contains("репозитор")||importText.contains("github")
-                ||importText.contains("гитхаб")||importText.contains("гите"))
-             && (importText.contains("воркспейс")||importText.contains("workspace")
-                ||importText.contains("клонир")||importText.contains("импортир")
-                ||importText.contains("локальн")||importText.contains("сливай")));
+        boolean workspaceImport=app.githubble.mobile.agent.RepositoryWorkspaceImporter.isImportIntent(message);
         if(imageUri==null && !useCopilot && workspaceImport){
             agentImportRepositoryToWorkspace(expected,message);
             return;
