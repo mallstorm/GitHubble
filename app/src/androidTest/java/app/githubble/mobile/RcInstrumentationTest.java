@@ -13,8 +13,6 @@ import app.githubble.mobile.controller.CommitDetailController;
 import app.githubble.mobile.controller.ProfileController;
 import app.githubble.mobile.auth.DeviceCodeAssist;
 import app.githubble.mobile.database.SchemaMigrationRegistry;
-import app.githubble.mobile.controller.CopilotAgentController;
-import app.githubble.mobile.controller.CopilotPermissionReport;
 import app.githubble.mobile.diff.DiffModel;
 import app.githubble.mobile.network.GitHubApiClient;
 import app.githubble.mobile.offline.OfflineActionQueue;
@@ -51,7 +49,7 @@ public final class RcInstrumentationTest extends Instrumentation {
             testDatabaseSchemas(context);
             testGitHubErrorStates();
             testDiffParsing();
-            testCopilotParsing();
+            testGitAgentProjectRuntime();
             testSmartRussianSearch();
             testSmartSearchRanking();
             testAdvancedSearchModes();
@@ -352,25 +350,15 @@ public final class RcInstrumentationTest extends Instrumentation {
     }
 
 
-    private static void testCopilotParsing() throws Exception {
-        JSONObject task = new JSONObject()
-                .put("id", "task-1")
-                .put("state", "waiting_for_user")
-                .put("repository_full_name", "owner/repo")
-                .put("artifacts", new org.json.JSONArray().put(new JSONObject()
-                        .put("provider", "github")
-                        .put("type", "pull")
-                        .put("data", new JSONObject().put("number", 42))));
-        eq("owner/repo", CopilotAgentController.repositoryFromTask(task));
-        eq(42, CopilotAgentController.pullNumber(task));
-        eq("Нужен ответ", CopilotAgentController.stateLabel("waiting_for_user"));
-        yes(CopilotAgentController.isActiveState("in_progress"));
-        no(CopilotAgentController.archiveMutationAvailable());
-        CopilotPermissionReport report = new CopilotPermissionReport();
-        report.add(new CopilotPermissionReport.Check("metadata_read", "Metadata", true, true, "ok"));
-        report.add(new CopilotPermissionReport.Check("agent_tasks_read", "Tasks", true, true, "ok"));
-        report.add(new CopilotPermissionReport.Check("contents_read", "Contents", true, true, "ok"));
-        yes(report.readyForSafeAttempt());
+    private static void testGitAgentProjectRuntime() {
+        yes(app.githubble.mobile.agent.ProjectRuntime.allowed("list_files",false,true));
+        yes(app.githubble.mobile.agent.ProjectRuntime.allowed("repository_info",true,false));
+        no(app.githubble.mobile.agent.ProjectRuntime.allowed("write_file",true,true));
+        no(app.githubble.mobile.agent.ProjectRuntime.allowed("delete_repository",true,true));
+        yes(app.githubble.mobile.web.CopilotWebActivity.isAllowedTopLevel(
+            android.net.Uri.parse("https://github.com/copilot")));
+        no(app.githubble.mobile.web.CopilotWebActivity.isAllowedTopLevel(
+            android.net.Uri.parse("https://example.com/copilot")));
     }
 
     private static void testSmartRussianSearch() {
