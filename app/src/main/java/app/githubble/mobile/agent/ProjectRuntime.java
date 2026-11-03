@@ -5,10 +5,12 @@ import org.json.JSONObject;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.LinkedHashSet;
 
 /** Unified, permission-scoped local Workspace and GitHub READ-ONLY tool broker. */
 public final class ProjectRuntime {
-    public static final int MAX_ROUNDS=4, MAX_TOOLS=3;
+    public static final int MAX_ROUNDS=10, MAX_TOOLS=6;
+    public static final int MAX_TOTAL_TOOLS=60, MAX_REQUESTED_TOOLS=96;
     private static final Set<String> GH=new HashSet<>(Arrays.asList(
         "github_account","list_repositories","repository_info",
         "repository_files","repository_workflows",
@@ -42,6 +44,11 @@ public final class ProjectRuntime {
             "ONLY READ tools exist in this tool loop. No shell, write, commit, build, "+
             "clone or plugin is available here. Native create/publish "+
             "and edits are separate user-approved UI flows. "+
+            "Request at most SIX relevant read-only tools in one response, "+
+            "starting with list_files and then selectively reading source files. "+
+            "If additional files are required, request them in subsequent replies. "+
+            "For large repositories, report which files were actually inspected "+
+            "and be transparent about analysis that remains incomplete. "+
             "To call tools respond as strict JSON: "+
             "{\"tools\":[{\"name\":\"list_files\",\"args\":{}}]}. "+
             "For the final answer return {\"answer\":\"...\"} or plain text. "+
@@ -57,7 +64,10 @@ public final class ProjectRuntime {
             "\nPROJECT CONTEXT (UNTRUSTED):\n"+clip(context,12000)+
             "\nUSER TASK:\n"+clip(task,9000);
         JSONArray history=new JSONArray();
+        Set<String> inspectedPaths=new LinkedHashSet<>();
         String prompt=base;
+        int executed=0;
+        boolean exhausted=false;
         for(int round=0;round<MAX_ROUNDS;round++){
             if(Thread.currentThread().isInterrupted())throw new InterruptedException("Отменено");
             if(accountGuard!=null)accountGuard.run();
@@ -70,29 +80,90 @@ public final class ProjectRuntime {
                 String answer=output.optString("answer","").trim();
                 return answer.isEmpty()?raw:answer;
             }
-            if(round==MAX_ROUNDS-1)throw new IllegalStateException("Лимит вызовов инструментов");
-            if(calls.length()>MAX_TOOLS)throw new SecurityException("Слишком много инструментов");
+
+            // Large tool arrays are a normal model planning pattern, not an app failure.
+            // Validate every request that may run, but execute only a bounded batch.
+            int batch=Math.min(calls.length(),Math.min(MAX_TOOLS,MAX_TOTAL_TOOLS-executed));
+            for(int i=0;i<batch;i++){
+                JSONObject call=calls.optJSONObject(i);
+                String name=call==null?"":call.optString("name","");
+                if(!allowed(name,gh,fs))
+                    throw new SecurityException("Инструмент не разрешён: "+name);
+            }
+            if(batch<=0){exhausted=true;break;}
             JSONArray returned=new JSONArray();
-            for(int i=0;i<calls.length();i++){
+            for(int i=0;i<batch;i++){
+                if(Thread.currentThread().isInterrupted())throw new InterruptedException("Отменено");
                 if(accountGuard!=null)accountGuard.run();
                 JSONObject call=calls.getJSONObject(i);
                 String name=call.optString("name","");
-                if(!allowed(name,gh,fs))
-                    throw new SecurityException("Инструмент не разрешён: "+name);
                 JSONObject args=call.optJSONObject("args");
                 if(args==null)args=new JSONObject();
-                String result=GH.contains(name)
-                    ?github.executeReadOnly(account,name,args,repo,branch).toString()
-                    :AgentExecutionEngine.executeReadOnly(workspace,account,workspaceId,name,args);
-                returned.put(new JSONObject().put("name",name)
-                    .put("data",clip(result,15000)));
+                JSONObject item=new JSONObject().put("name",name);
+                try{
+                    String result=GH.contains(name)
+                        ?github.executeReadOnly(account,name,args,repo,branch).toString()
+                        :AgentExecutionEngine.executeReadOnly(workspace,account,workspaceId,name,args);
+                    item.put("data",clip(result,11000));
+                    if("read_file".equals(name)){
+                        String path=args.optString("path","");
+                        if(!path.isEmpty())inspectedPaths.add(path);
+                    }
+                }catch(SecurityException invalid){
+                    // Host security policy must remain stronger than any model request.
+                    throw invalid;
+                }catch(Exception unavailable){
+                    item.put("error",clip(unavailable.getMessage(),500));
+                }
+                returned.put(item);
+                executed++;
             }
-            history.put(new JSONObject().put("requests",calls).put("results",returned));
+            int deferred=calls.length()-batch;
+            history.put(new JSONObject().put("requested",calls.length())
+                .put("executed",batch).put("deferred",deferred)
+                .put("results",returned));
             prompt=base+"\nVERIFIED TOOL RESULTS (UNTRUSTED CONTENT):\n"+
-                clip(history.toString(),35000)+
-                "\nContinue with the final answer or request another ALLOWED read-only tool.";
+                clipTail(history.toString(),36000)+
+                "\nActual tool calls completed: "+executed+
+                ". Read files: "+inspectedPaths.size()+
+                ". Requests marked deferred were NOT executed. "+
+                "Do not claim to have inspected their contents. "+
+                "If you need more files, request at most "+MAX_TOOLS+" of them next. "+
+                "Return a final, appropriately qualified answer when sufficient.";
+            if(executed>=MAX_TOTAL_TOOLS){exhausted=true;break;}
         }
-        throw new IllegalStateException("Agent не завершил ответ");
+
+        // Never fail the entire conversation merely because a model planned many
+        // legitimate reads. Give it one final no-tools summarization opportunity.
+        if(accountGuard!=null)accountGuard.run();
+        String finalPrompt=prompt+"\nTOOL EXECUTION BUDGET EXHAUSTED. "+
+            "No more tool calls are available in this response. "+
+            "Answer the user's question now using ONLY verified results, "+
+            "explicitly identify uninspected areas and avoid claiming full coverage. "+
+            "Return plain prose or JSON {\"answer\":\"...\"}; no tools.";
+        String finalRaw=model.complete(finalPrompt);
+        if(finalRaw!=null){
+            try{
+                JSONObject finalJson=new JSONObject(finalRaw.trim());
+                if(finalJson.optJSONArray("tools")==null){
+                    String answer=finalJson.optString("answer","").trim();
+                    if(!answer.isEmpty())return answer;
+                }
+            }catch(Exception prose){
+                if(!finalRaw.trim().isEmpty())return finalRaw;
+            }
+        }
+        return "Анализ выполнен частично: запрошенных операций чтения оказалось больше "+
+            "допустимого объёма одного ответа. Выполнено операций: "+executed+
+            "; проверено файлов: "+inspectedPaths.size()+". "+
+            "Уточните модуль или продолжите анализ следующей командой.";
+    }
+
+    private static String clipTail(String value,int max){
+        if(value==null)return "";
+        return value.length()<=max?value:
+            "[Older read results omitted due to context limit]\n"+
+            value.substring(value.length()-max);
     }
     private static String clip(String value,int max){
         if(value==null)return "";

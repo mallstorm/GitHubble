@@ -51,4 +51,66 @@ public final class ProjectRuntimeTest {
         ProjectRuntime.analyze(p->"{\"tools\":[{\"name\":\"write_file\",\"args\":{}}]}",
             null,hub,"account","","main",id,"Редактируй","",false,true);
     }
+    @Test public void modelMayRequestMoreThanThreeToolsWithoutCrashing()throws Exception{
+        WorkspaceHub hub=new WorkspaceHub(Files.createTempDirectory("runtime-batch").toFile());
+        String id=hub.create("account","Alpha").getString("id");
+        hub.saveFile("account",id,"src/App.java","class App {}");
+        AtomicInteger completions=new AtomicInteger();
+        String answer=ProjectRuntime.analyze(prompt->{
+            if(completions.incrementAndGet()==1){
+                org.json.JSONArray tools=new org.json.JSONArray();
+                for(int i=0;i<11;i++)
+                    tools.put(new org.json.JSONObject().put("name","list_files")
+                        .put("args",new org.json.JSONObject()));
+                return new org.json.JSONObject().put("tools",tools).toString();
+            }
+            assertTrue(prompt.contains("\"deferred\":5"));
+            assertTrue(prompt.contains("src/App.java"));
+            return "{\"answer\":\"Проект просмотрен частично\"}";
+        },null,hub,"account","","main",id,"Изучи исходники","",false,true);
+        assertEquals("Проект просмотрен частично",answer);
+        assertEquals(2,completions.get());
+    }
+
+    @Test public void toolBudgetExhaustionReturnsUsefulAnswerNotException()throws Exception{
+        WorkspaceHub hub=new WorkspaceHub(Files.createTempDirectory("runtime-budget").toFile());
+        String id=hub.create("account","Alpha").getString("id");
+        AtomicInteger calls=new AtomicInteger();
+        String reply=ProjectRuntime.analyze(prompt->{
+            calls.incrementAndGet();
+            if(prompt.contains("TOOL EXECUTION BUDGET EXHAUSTED"))
+                return "{\"answer\":\"Проверена только часть файлов\"}";
+            return "{\"tools\":[{\"name\":\"list_files\",\"args\":{}}]}";
+        },null,hub,"account","","main",id,"Просмотреть весь проект","",false,true);
+        assertEquals("Проверена только часть файлов",reply);
+        assertTrue(calls.get()>4);
+    }
+
+    @Test(expected=SecurityException.class)
+    public void unauthorizedToolStillRejectedWithinLargeBatch()throws Exception{
+        WorkspaceHub hub=new WorkspaceHub(Files.createTempDirectory("runtime-safety").toFile());
+        String id=hub.create("account","Alpha").getString("id");
+        ProjectRuntime.analyze(prompt->{
+            org.json.JSONArray tools=new org.json.JSONArray();
+            tools.put(new org.json.JSONObject().put("name","list_files"));
+            tools.put(new org.json.JSONObject().put("name","write_file"));
+            for(int i=0;i<10;i++)tools.put(new org.json.JSONObject().put("name","read_file"));
+            return new org.json.JSONObject().put("tools",tools).toString();
+        },null,hub,"account","","main",id,"Напиши код","",false,true);
+    }
+
+    @Test public void deniedReadErrorsDoNotAbortOtherwiseValidBatch()throws Exception{
+        WorkspaceHub hub=new WorkspaceHub(Files.createTempDirectory("runtime-errors").toFile());
+        String id=hub.create("account","Alpha").getString("id");
+        AtomicInteger count=new AtomicInteger();
+        String answer=ProjectRuntime.analyze(prompt->{
+            if(count.incrementAndGet()==1)
+                return "{\"tools\":[{\"name\":\"read_file\",\"args\":{\"path\":\"missing.java\"}},"+
+                    "{\"name\":\"list_files\",\"args\":{}}]}";
+            assertTrue(prompt.contains("\"error\""));
+            return "{\"answer\":\"Файл отсутствует\"}";
+        },null,hub,"account","","main",id,"Проверь файл","",false,true);
+        assertEquals("Файл отсутствует",answer);
+    }
+
 }
