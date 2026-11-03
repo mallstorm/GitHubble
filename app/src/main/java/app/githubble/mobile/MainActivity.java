@@ -658,7 +658,7 @@ public class MainActivity extends Activity {
                 agentSend(owner, prompt, agentMode);
             }
         });
-        String provider = "guest".equals(owner) ? "" : aiConnections.selectedProvider(owner);
+        String provider = aiConnections.selectedProvider(owner);
         boolean connected = !provider.isEmpty() && aiConnections.isConfigured(owner, provider);
         String title = "Новый диалог";
         String selectedThread = agentProjects.activeConversation(owner);
@@ -1047,10 +1047,6 @@ public class MainActivity extends Activity {
                 }).setNegativeButton("Отмена", null).show();
     }
 
-    private void openCopilotWeb(){
-        startActivity(new Intent(this,app.githubble.mobile.web.CopilotWebActivity.class));
-    }
-
     private void agentAttachSelectedRepository(String full){
         final String owner=accountStore.activeCacheKey();
         if("guest".equals(owner)||!isSignedIn()){toast("Подключите GitHub");return;}
@@ -1102,9 +1098,7 @@ public class MainActivity extends Activity {
 
     /** API-key connections are distinct from ChatGPT Subscription OAuth. */
     private void agentConfigureAiProvider(String expected) {
-        if ("guest".equals(expected) || !expected.equals(accountStore.activeCacheKey())) {
-            toast("Сначала подключите GitHub-аккаунт"); return;
-        }
+        if (!expected.equals(accountStore.activeCacheKey())) return;
         java.util.List<String> ids = new java.util.ArrayList<>(OmniChatConnectionStore.apiSupported().keySet());
         String[] names = new String[ids.size()];
         for (int i = 0; i < ids.size(); i++) {
@@ -1122,7 +1116,7 @@ public class MainActivity extends Activity {
         fields.setOrientation(LinearLayout.VERTICAL);
         fields.setPadding(dp(18), dp(4), dp(18), dp(4));
         TextView instructions = text("Настройка " + aiConnections.displayName(provider)
-                + ". Ключ сохраняется зашифрованным для текущего GitHub-аккаунта.", 12, false);
+                + ". Ключ хранится зашифрованным для текущего AI-профиля.", 12, false);
         fields.addView(instructions);
         EditText model = new EditText(this);
         model.setSingleLine(true);
@@ -1159,7 +1153,7 @@ public class MainActivity extends Activity {
     }
 
     private void agentSelectAiProvider(String expected) {
-        if ("guest".equals(expected)) { toast("Подключите GitHub"); return; }
+        if (!expected.equals(accountStore.activeCacheKey())) return;
         java.util.List<String> ids = new java.util.ArrayList<>();
         java.util.List<String> names = new java.util.ArrayList<>();
         for (String id : OmniChatConnectionStore.supported().keySet()) {
@@ -1180,11 +1174,11 @@ public class MainActivity extends Activity {
     }
 
     private void agentDisconnectAiProvider(String expected) {
-        if ("guest".equals(expected)) return;
+        if (!expected.equals(accountStore.activeCacheKey())) return;
         String provider = aiConnections.selectedProvider(expected);
         if (provider.isEmpty()) { toast("AI-подключение не выбрано"); return; }
         new AlertDialog.Builder(this).setTitle("Отключить " + aiConnections.displayName(provider) + "?")
-                .setMessage("Сохранённый API-ключ этого провайдера для текущего GitHub-аккаунта будет удалён. История переписки сохранится.")
+                .setMessage("Сохранённый API-ключ этого провайдера для текущего AI-профиля будет удалён. История переписки сохранится.")
                 .setPositiveButton("Удалить ключ", (d, w) -> {
                     if (!expected.equals(accountStore.activeCacheKey())) {
                         toast("GitHub-аккаунт изменился"); return;
@@ -1195,9 +1189,7 @@ public class MainActivity extends Activity {
     }
 
     private void agentDiscoverAiModels(String expected) {
-        if ("guest".equals(expected) || !expected.equals(accountStore.activeCacheKey())) {
-            toast("Подключите GitHub"); return;
-        }
+        if (!expected.equals(accountStore.activeCacheKey())) return;
         String provider = aiConnections.selectedProvider(expected);
         if (provider.isEmpty() || !(OAuthSubscriptions.supports(provider)?aiConnections.hasKey(expected,provider):aiConnections.isConfigured(expected, provider))) {
             agentChooseComposerModel(expected); return;
@@ -1429,11 +1421,9 @@ public class MainActivity extends Activity {
         ui.modeChip(modes,"Оркестрация",false,false,()->{});
         body.addView(modes);
         ui.note(body,enabled?"Анализ и генерация файлов. Записи в GitHub требуют подтверждения.":"Обычный чат без файловых инструментов.");
-        ui.section(body,"Способ работы");
-        ui.action(body,"1 · Подключённая AI-модель","Git Agent · Cline / OpenAI / Grok / API",0xFF2E9D68,
+        ui.section(body,"Подключённая AI-модель");
+        ui.action(body,"Выбрать модель","Cline, OpenAI, Grok и другие подключения",0xFF2E9D68,
                 ()->{dialog[0].dismiss();agentChooseComposerModel(owner);});
-        ui.action(body,"2 · Copilot Web","Официальный github.com/copilot во внутреннем окне",0xFF2863B8,
-                ()->{dialog[0].dismiss();openCopilotWeb();});
         LinearLayout approval=ui.row();approval.setPadding(ui.dp(12),ui.dp(12),ui.dp(12),ui.dp(12));
         approval.setBackground(ui.shape(ui.dark?0xFF515963:0xFFF0EBF3,18,0));
         TextView caption=ui.label("Автоодобрение проекта\nGitHub-записи всегда требуют подтверждения",14,true);
@@ -1465,11 +1455,11 @@ public class MainActivity extends Activity {
     private void agentShowSubscriptions(String owner,boolean proxy){
         if(!owner.equals(accountStore.activeCacheKey()))return;
         GitAgentUi ui=new GitAgentUi(this,BG);LinearLayout body=ui.body(proxy?"Subscription proxy":"Аккаунты и подписки",true);
-        ui.note(body,"OAuth-сессии хранятся отдельно для каждого GitHub-аккаунта. "+
-            "Google Antigravity использует новый официальный вход; устаревший Cloud Code OAuth для личных тарифов больше не поддерживается.");
+        ui.note(body,"AI-подписки доступны без GitHub. OAuth-сессии шифруются "+
+            "для текущего профиля приложения.");
         final Dialog[] sheet={null};
         for(String provider:new String[]{OAuthSubscriptions.OPENAI,OAuthSubscriptions.CLINE,OAuthSubscriptions.KIMI,OAuthSubscriptions.GROK,"gemini-antigravity","claude-subscription"}){
-            boolean saved=!"guest".equals(owner)&&aiConnections.hasKey(owner,provider);
+            boolean saved=aiConnections.hasKey(owner,provider);
             String detail="Войти через OAuth · без API-ключа";
             if(saved){
                 detail="Авторизовано · "+aiConnections.models(owner,provider).size()+" моделей";
@@ -1515,7 +1505,7 @@ public class MainActivity extends Activity {
             agentShowAntigravityMigration(owner);return;
         }
         if(app.githubble.mobile.network.BrowserSubscriptions.supports(provider)){agentBeginBrowserSubscription(owner,provider);return;}
-        if("guest".equals(owner)||!owner.equals(accountStore.activeCacheKey())){toast("Сначала подключите GitHub-аккаунт");return;}
+        if(!owner.equals(accountStore.activeCacheKey()))return;
         AtomicBoolean cancelled=new AtomicBoolean(false),old=subscriptionAttempts.put(owner,cancelled);if(old!=null)old.set(true);
         ProgressDialog progress=ProgressDialog.show(this,aiConnections.displayName(provider),"Получаем код входа…",true,true);
         progress.setOnCancelListener(d->cancelled.set(true));
@@ -1591,7 +1581,7 @@ public class MainActivity extends Activity {
     }
 
     private void agentBeginBrowserSubscription(String owner,String provider){
-        if("guest".equals(owner)||!owner.equals(accountStore.activeCacheKey())){toast("Подключите GitHub-аккаунт");return;}
+        if(!owner.equals(accountStore.activeCacheKey()))return;
         AtomicBoolean cancelled=new AtomicBoolean(false),old=subscriptionAttempts.put(owner,cancelled);if(old!=null)old.set(true);
         ProgressDialog progress=ProgressDialog.show(this,aiConnections.displayName(provider),"Готовим браузерный вход…",true,true);
         progress.setOnCancelListener(d->cancelled.set(true));
@@ -1813,21 +1803,10 @@ public class MainActivity extends Activity {
         if (!owner.equals(accountStore.activeCacheKey())) return;
         GitAgentUi ui=new GitAgentUi(this,BG);LinearLayout body=ui.body("Выбор модели",true);
         final Dialog[] dialog={null};
-        ui.section(body,"Способ работы");
-        ui.action(body,"1 · Подключённая AI-модель",
-                "Сейчас выбрана действующая модель. Другую можно выбрать ниже в списке.",0xFF2E9D68,
-                ()->{
-                    String selected=aiConnections.selectedProvider(owner);
-                    dialog[0].dismiss();
-                    if(!selected.isEmpty()&&aiConnections.isConfigured(owner,selected))
-                        agentRefreshIfCurrent(owner);
-                    else agentShowSubscriptions(owner,false);
-                });
-        ui.action(body,"2 · Copilot Web","Официальная страница github.com/copilot внутри GitHubble",0xFF2863B8,
-                ()->{dialog[0].dismiss();openCopilotWeb();});
+        ui.note(body,"Выберите модель или добавьте подключение. Для AI вход в GitHub не нужен.");
         boolean any=false;
         for(String id:OmniChatConnectionStore.supported().keySet())
-            if(!"guest".equals(owner)&&aiConnections.isConfigured(owner,id))any=true;
+            if(aiConnections.isConfigured(owner,id))any=true;
         ui.note(body,any?"Выберите подключённую модель":"Подключений пока нет. Выберите способ подключения.");
         LinearLayout onboarding=ui.row();
         ui.tile(onboarding,"Добавить API",R.drawable.ic_agent_link,0xFF2863B8,()->{
@@ -1923,7 +1902,6 @@ public class MainActivity extends Activity {
                         "▣  Проекты и репозитории",
                         "⚙  Git Agent и Workspace · настройки",
                         "☷  Выбрать модель",
-                        "◇  Copilot Web",
                         "▶  GitHub Actions",
                         "↓  APK / артефакты",
                         "⚑  Диагностика CI → исправление",
@@ -1957,21 +1935,18 @@ public class MainActivity extends Activity {
                             break;
                         case 4: navigate(this::showSettingsGitAgentWorkspace); break;
                         case 5: agentChooseComposerModel(owner); break;
-                        case 6: openCopilotWeb(); break;
-                        case 7: agentChooseWorkflow(owner); break;
-                        case 8: agentShowBuildArtifacts(owner); break;
-                        case 9: agentDiagnoseBuild(owner); break;
-                        case 10: agentFeatures(owner).workspace(); break;
-                        case 11: agentImportRepositoryToWorkspace(owner,""); break;
+                        case 6: agentChooseWorkflow(owner); break;
+                        case 7: agentShowBuildArtifacts(owner); break;
+                        case 8: agentDiagnoseBuild(owner); break;
+                        case 9: agentFeatures(owner).workspace(); break;
+                        case 10: agentImportRepositoryToWorkspace(owner,""); break;
                     }
                 }).setNegativeButton("Закрыть", null).show();
     }
 
     /** Image stays in transient memory; no base64 or access token is saved in history. */
     private void agentPickImageAttachment(String owner,boolean ocr){
-        if(!owner.equals(accountStore.activeCacheKey())||"guest".equals(owner)){
-            toast("Подключите GitHub-аккаунт и зрительную AI-модель");return;
-        }
+        if(!owner.equals(accountStore.activeCacheKey()))return;
         String provider=aiConnections.selectedProvider(owner);
         if(!OmniChatChatClient.supportsVision(provider)||!aiConnections.isConfigured(owner,provider)){
             toast("Для фото нужны OpenAI API, Gemini API или OpenRouter с моделью Vision");return;
@@ -2247,11 +2222,6 @@ public class MainActivity extends Activity {
             return;
         }
         {
-            if ("guest".equals(expected)) {
-                agentProjects.append(expected, "system",
-                        "Подключите GitHub-аккаунт, затем настройте AI API во вкладке «Чат».");
-                agentRefreshIfCurrent(expected); return;
-            }
             String provider = aiConnections.selectedProvider(expected);
             if (provider.isEmpty() || !aiConnections.isConfigured(expected, provider)) {
                 agentProjects.append(expected, "system",
@@ -2279,7 +2249,8 @@ public class MainActivity extends Activity {
                         .matches("(?s).*(?:github|репозитор|ветк[аиу]|pull request|workflow|git action|issue).*");
                     // Both GitHub and Workspace are available to the same agent when
                     // account-scoped permissions are explicitly enabled.
-                    boolean allowGithub=prefs.getBoolean("ai_tool_github_read_"+expected,false);
+                    boolean allowGithub=!"guest".equals(expected)&&isSignedIn()
+                        &&prefs.getBoolean("ai_tool_github_read_"+expected,false);
                     boolean allowFiles=prefs.getBoolean("ai_tool_file_read_"+expected,false)
                             &&!activeProject.workspaceId.isEmpty();
                     boolean toolMode=imageUri==null&&((agentMode&&(allowGithub||allowFiles))
@@ -2294,7 +2265,8 @@ public class MainActivity extends Activity {
                             return result;
                         },aiGithub,agentWorkspaces,expected,activeProject.repository,
                             activeProject.branch,activeProject.workspaceId,message,context,
-                            allowGithub,allowFiles,()->aiGithub.requireAccount(expected));
+                            allowGithub,allowFiles,
+                            allowGithub?()->aiGithub.requireAccount(expected):null);
                     }else if(imageUri!=null){
                         String mime=getContentResolver().getType(imageUri);
                         response=aiChatClient.completeWithImage(provider,model,credential,snapshot,
@@ -2341,14 +2313,13 @@ public class MainActivity extends Activity {
      * the user opts in, separately for paths and source snippets.
      */
     private void agentGenerateProjectCode(String expected, String initialTask) {
-        if (!expected.equals(accountStore.activeCacheKey()) || !isSignedIn()) {
-            toast("Сначала выберите GitHub-аккаунт проекта"); return;
-        }
+        if (!expected.equals(accountStore.activeCacheKey())) return;
         AgentProjectStore.Project p = agentProjects.project(expected);
-        // A linked remote does not replace the local working copy.
+        // Local code generation works without GitHub, remote writes still require OAuth.
         if (!p.workspaceId.isEmpty() || p.repository.isEmpty()) {
             agentGenerateLocalCode(expected,p,initialTask);return;
         }
+        if(!isSignedIn()){toast("Для записи в GitHub подключите аккаунт");return;}
         String provider = aiConnections.selectedProvider(expected);
         if (provider.isEmpty() || !aiConnections.isConfigured(expected, provider)) {
             agentProjects.append(expected, "system", "Для генерации файлов настройте рабочее AI API-подключение.");
@@ -8741,13 +8712,12 @@ public class MainActivity extends Activity {
                 R.drawable.ic_agent_link);
         final String owner=accountStore.activeCacheKey();
         final boolean accountReady=owner!=null&&!owner.isBlank()&&!"guest".equals(owner);
-        // The Keystore-backed AI credential namespace intentionally rejects guest.
-        // Local workspaces, memories and networking remain available when signed out.
-        final String provider=accountReady?aiConnections.selectedProvider(owner):"";
+        // Local guest AI credentials are encrypted and do not require GitHub OAuth.
+        final String provider=aiConnections.selectedProvider(owner);
         final AgentProjectStore.Project project=agentProjects.project(owner);
         if(!accountReady) {
-            TextView hint=text("Гостевой режим: локальные Workspace, память и сеть доступны. "+
-                    "Для подключения AI-моделей и подписок нужен GitHub-аккаунт.",12,false);
+            TextView hint=text("Локальный режим: AI-модели, чат, подписки и Workspace доступны "+
+                    "без GitHub. Для репозиториев и Actions необходим отдельный вход.",12,false);
             hint.setTextColor(MUTED);card(hint);
         }
 
@@ -8773,7 +8743,6 @@ public class MainActivity extends Activity {
         settingsActionRow("Каталог провайдеров",
                 "Информация о поддерживаемых и планируемых сервисах",
                 this::agentShowProviderCatalog);
-        settingsActionRow("Copilot WebView","Официальный github.com/copilot в отдельном окне",this::openCopilotWeb);
         settingsActionRow("Google Antigravity OAuth",
                 "Устаревший Google Cloud Code не поддерживает личные тарифы 2026",
                 ()->agentShowAntigravityMigration(owner));
@@ -8849,7 +8818,6 @@ public class MainActivity extends Activity {
         setCurrentScreen(()->agentShowUsage(owner));shell("Использование AI",false);
         settingsSubheader("Подписки и использование",
             "Только подтверждённые API-токены и локальные запросы",R.drawable.ic_agent_link);
-        if("guest".equals(owner)){settingsRow("Подключение","Для AI-подписок нужен GitHub-аккаунт");return;}
         boolean found=false;
         for(String provider:OmniChatConnectionStore.supported().keySet()){
             if(!aiConnections.hasKey(owner,provider))continue;
