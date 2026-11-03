@@ -2083,27 +2083,24 @@ public class MainActivity extends Activity {
                     String response;
                     boolean githubIntent=message.toLowerCase(java.util.Locale.ROOT)
                         .matches("(?s).*(?:github|репозитор|ветк[аиу]|pull request|workflow|git action|issue).*");
-                    // Read-only GitHub tools work in both Chat and Agent modes once
-                    // the user explicitly enables the permission for this account.
-                    if(imageUri==null && githubIntent
-                            && prefs.getBoolean("ai_tool_github_read_"+expected,false)){
-                        response=app.githubble.mobile.agent.GitHubReadLoop.analyze(instructions->{
-                            JSONArray toolsPrompt=new JSONArray()
-                                .put(new JSONObject().put("role","user").put("body",instructions));
-                            String generated=aiChatClient.complete(provider,model,credential,
-                                toolsPrompt,context,activeProject.repository);
+                    // Both GitHub and Workspace are available to the same agent when
+                    // account-scoped permissions are explicitly enabled.
+                    boolean allowGithub=prefs.getBoolean("ai_tool_github_read_"+expected,false);
+                    boolean allowFiles=prefs.getBoolean("ai_tool_file_read_"+expected,false)
+                            &&!activeProject.workspaceId.isEmpty();
+                    boolean toolMode=imageUri==null&&((agentMode&&(allowGithub||allowFiles))
+                            ||(githubIntent&&allowGithub));
+                    if(toolMode){
+                        response=app.githubble.mobile.agent.ProjectRuntime.analyze(instructions->{
+                            JSONArray prompt=new JSONArray().put(
+                                new JSONObject().put("role","user").put("body",instructions));
+                            String result=aiChatClient.complete(provider,model,credential,
+                                prompt,context,activeProject.repository);
                             aiUsage.record(expected,provider,model,OmniChatChatClient.takeUsage());
-                            return generated;
-                        },aiGithub,expected,activeProject.repository,activeProject.branch,message,context);
-                    }else if(imageUri==null&&agentMode&&!activeProject.workspaceId.isEmpty()
-                            &&prefs.getBoolean("ai_tool_file_read_"+expected,false)){
-                        response=app.githubble.mobile.agent.AgentExecutionEngine.analyze(instructions->{
-                            JSONArray toolsPrompt=new JSONArray().put(new JSONObject().put("role","user").put("body",instructions));
-                            String generated=aiChatClient.complete(provider,model,credential,
-                                toolsPrompt,context,activeProject.repository);
-                            aiUsage.record(expected,provider,model,OmniChatChatClient.takeUsage());
-                            return generated;
-                        },agentWorkspaces,expected,activeProject.workspaceId,message,context);
+                            return result;
+                        },aiGithub,agentWorkspaces,expected,activeProject.repository,
+                            activeProject.branch,activeProject.workspaceId,message,context,
+                            allowGithub,allowFiles);
                     }else if(imageUri!=null){
                         String mime=getContentResolver().getType(imageUri);
                         response=aiChatClient.completeWithImage(provider,model,credential,snapshot,
