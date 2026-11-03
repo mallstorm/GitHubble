@@ -39,7 +39,7 @@ public final class ProjectRuntime {
             "Workspace works before GitHub is linked and persists across model changes. "+
             "Never claim to have executed a command until the host returned its result. "+
             "ONLY READ tools exist in this tool loop. No shell, write, commit, build, "+
-            "clone, plugin or Copilot SDK is available here. Native create/publish "+
+            "clone or plugin is available here. Native create/publish "+
             "and edits are separate user-approved UI flows. "+
             "To call tools respond as strict JSON: "+
             "{\"tools\":[{\"name\":\"list_files\",\"args\":{}}]}. "+

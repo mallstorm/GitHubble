@@ -23,8 +23,9 @@ uses Java/Views; the archived Compose source set is not enabled by its build.
 - Persistent per-account/per-thread drafts; choosing a model never creates a thread.
 - Connected API models, search and API/subscription filters, encrypted credentials,
   retained server model catalog, immediate model selection and refresh.
-- Chat/own agent/Copilot are distinct modes. Chat text cannot dispatch repository
-  creation or workflow commands. Cloud Copilot runs through the existing bridge.
+- Two UI choices: native model-backed Git Agent with its own Workspace/GitHub
+  tool broker, or a separate Copilot Web page. No native Copilot Cloud task
+  controllers remain. GitHub mutations require explicit confirmation.
 - Text attachment preview, existing speech input and cancel-request handling.
 - Existing code generation, file preview, explicit commit approval, workflow
   selection, CI diagnostics, repair proposals and artifact downloads are retained.
@@ -45,7 +46,7 @@ automatic execution, image analysis/generation, camera/gallery upload, OCR,
 web-search and plugin execution are not integrated. Their UI explains this;
 they are not advertised as authorized or running. Orchestration roles and
 automatic approval are disabled; a single executor uses the selected API model.
-Live provider/Copilot authorization and remote writes require the owner's real
+Live provider authorization and remote writes require the owner's real
 account and are not exercised by credential-free CI.
 
 ## Verification

@@ -15,7 +15,7 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
-/** GitHub-owned web page; no JS bridge, OAuth token injection or SDK. */
+/** GitHub-owned web page; no JS bridge or OAuth token injection. */
 public final class CopilotWebActivity extends Activity {
     public static final String URL="https://github.com/copilot";
     private WebView web;
