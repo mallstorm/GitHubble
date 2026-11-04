@@ -195,8 +195,10 @@ final class GitAgentUiChecks {
                     AgentChatScreen.Actions actions=(AgentChatScreen.Actions)java.lang.reflect.Proxy.newProxyInstance(
                         AgentChatScreen.Actions.class.getClassLoader(),new Class[]{AgentChatScreen.Actions.class},
                         (proxy,method,args)->null);
-                    AgentChatScreen screen=new AgentChatScreen(activity,root,dark?0xFF343941:0xFFFFFFFF,
-                        0xFFFFFFFF,0xFFF2F4F6,0xFF222B31,0xFF52616B,0xFF435B69,0xFFD7DFE5,actions);
+                    AgentChatScreen screen=new AgentChatScreen(activity,root,dark?0xFF182226:0xFFF9FAF7,
+                        dark?0xFF223135:0xFFFFFFFF,dark?0xFF263B33:0xFFEFF7E9,
+                        dark?0xFFF2F7F4:0xFF1C221F,dark?0xFFAEBEB7:0xFF626F67,
+                        dark?0xFF8CD74F:0xFF4EA839,dark?0xFF3A4C48:0xFFE0E7DE,actions);
                     screen.render("test",projects.project(account),new JSONArray(),0,false,"","",false,
                         "Новый диалог",false,"Сохранённый черновик");
                     if(find(root,"Git Agent")==null||find(root,"Спросить Git Agent")==null)
