@@ -81,7 +81,7 @@ public final class OmniChatConnectionStore {
             throw new IllegalArgumentException("Укажите действительную модель");
         String credential = apiKey == null ? "" : apiKey.trim();
         if(credential.isEmpty()&&!hasKey(account,provider)&&
-            ("ollama".equals(provider)||"custom".equals(provider)||"proxy-external".equals(provider)))credential="__local_no_auth__";
+            app.githubble.mobile.network.NativeProviderCatalog.keyless(provider))credential="__local_no_auth__";
         if (!credential.isEmpty()) {
             if(OAuthSubscriptions.supports(provider))throw new IllegalArgumentException("Для подписки используйте OAuth-вход");
             if (credential.length() > 8192 || credential.contains("\n") || credential.contains("\r"))
@@ -217,11 +217,16 @@ public final class OmniChatConnectionStore {
     public synchronized void configure(String account,String provider,String base,String protocol,String authScope){
         checkProvider(provider);
         try{
-            okhttp3.HttpUrl url=okhttp3.HttpUrl.Companion.get(base.trim());
+            String selectedBase=base.trim();
+            if("cloudflare".equals(provider)){
+                String id=authScope.trim();if(!id.matches("[A-Za-z0-9_-]{6,128}"))throw new IllegalArgumentException("Укажите Cloudflare Account ID в поле Scope");
+                selectedBase="https://api.cloudflare.com/client/v4/accounts/"+id+"/ai/v1";
+            }
+            okhttp3.HttpUrl url=okhttp3.HttpUrl.Companion.get(selectedBase);
             app.githubble.mobile.network.NetworkEndpointPolicy.INSTANCE.requireApiUrl(url,true);
             if(!app.githubble.mobile.network.ApiGateway.Companion.getProtocols().contains(protocol))throw new IllegalArgumentException("Неизвестный протокол");
             prefs.edit().putString(namespace(account)+"_config_"+provider,new org.json.JSONObject()
-                .put("base_url",base.trim()).put("protocol",protocol).put("auth_scope",authScope.trim()).toString()).apply();
+                .put("base_url",selectedBase).put("protocol",protocol).put("auth_scope",authScope.trim()).toString()).apply();
         }catch(Exception invalid){throw new IllegalArgumentException("Проверьте API URL и протокол",invalid);}
     }
 
@@ -229,7 +234,7 @@ public final class OmniChatConnectionStore {
         checkProvider(provider);
         if(OAuthSubscriptions.supports(provider))throw new IllegalArgumentException("Используйте OAuth");
         String credential=apiKey==null?"":apiKey.trim();
-        if(credential.isEmpty()&&!hasKey(account,provider)&&("ollama".equals(provider)||"custom".equals(provider)||"proxy-external".equals(provider)))credential="__local_no_auth__";
+        if(credential.isEmpty()&&!hasKey(account,provider)&&app.githubble.mobile.network.NativeProviderCatalog.keyless(provider))credential="__local_no_auth__";
         if(!credential.isEmpty()){
             if(credential.length()>8192||credential.contains("\n")||credential.contains("\r"))throw new IllegalArgumentException("Некорректный ключ");
             vault.put(key(account,provider),credential);

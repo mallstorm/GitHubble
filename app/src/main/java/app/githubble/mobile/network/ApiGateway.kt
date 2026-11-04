@@ -248,6 +248,7 @@ class ApiGateway(private val context: Context) {
                 r.header("Authorization", "Bearer $key")
                     .header("anthropic-version", "2023-06-01")
             }
+            providerType == "azure" -> r.header("api-key", key)
             protocol == ANTHROPIC -> {
                 r.header("x-api-key", key).header("anthropic-version", "2023-06-01")
             }

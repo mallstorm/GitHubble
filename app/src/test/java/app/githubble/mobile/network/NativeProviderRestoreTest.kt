@@ -13,7 +13,7 @@ class NativeProviderRestoreTest {
         val server=MockWebServer();server.start()
         try{
             val client=ChatGptPlanClient(apiBaseUrl=server.url("/v1").toString().trimEnd('/'),client=OkHttpClient())
-            val creds=ChatGptPlanClient.Credentials("oaiapp_fixture","fixture-access","fixture-refresh","","Bearer",Long.MAX_VALUE,setOf("chatgpt.tokens.use.direct"),"sub","","","","","public-api")
+            val creds=ChatGptPlanClient.Credentials("oaiapp_fixture","fixture-access","fixture-refresh","","Bearer",Long.MAX_VALUE,setOf("chatgpt.tokens.use.direct"),"sub","","","","","public-responses")
             for(body in listOf("""{"data":[{"id":"server-model-a"},{"id":"server-model-b"}]}""","""{"models":[{"slug":"server-model-a","visibility":"list"},{"slug":"server-model-b"}]}""")){
                 server.enqueue(MockResponse().setBody(body))
                 assertEquals(listOf("server-model-a","server-model-b"),client.modelCatalog(creds))
@@ -35,6 +35,8 @@ class NativeProviderRestoreTest {
         assertEquals(ApiGateway.RESPONSES,catalog.getValue("v").protocol)
         assertTrue(catalog.getValue("ollama").base.startsWith("http://127.0.0.1:"))
         assertTrue(catalog.containsKey("proxy-external"))
+        assertEquals(ApiGateway.ANTHROPIC,NativeProviderCatalog.wireForModel("opencode-zen","claude-server",ApiGateway.CHAT))
+        assertEquals(ApiGateway.RESPONSES,NativeProviderCatalog.wireForModel("opencode-go","gpt-server",ApiGateway.CHAT))
     }
     @Test fun proxyAliasesRouteToNativeAccountsAndKeepTheirOwnCredentialIds(){
         for((alias,native) in mapOf("proxy-chatgpt" to "chatgpt-plan","proxy-gemini" to "gemini-antigravity","proxy-claude" to "claude-subscription","proxy-grok" to "grok-subscription")){

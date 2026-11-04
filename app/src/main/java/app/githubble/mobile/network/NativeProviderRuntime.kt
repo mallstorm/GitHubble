@@ -31,14 +31,16 @@ class NativeProviderRuntime(context:Context,private val store:OmniChatConnection
         }else{
             val template=NativeProviderCatalog.profile(p)
             val c=store.configuration(owner,p)
-            base=c.optString("base_url",template.base);protocol=c.optString("protocol",template.protocol);scope=c.optString("auth_scope")
+            base=c.optString("base_url",template.base);protocol=NativeProviderCatalog.wireForModel(p,model,c.optString("protocol",template.protocol));scope=c.optString("auth_scope")
             if(key=="__local_no_auth__")key=""
             if(p=="proxy-nvidia")type="nvidia"
         }
         return ProviderEntity(id=1,name=store.displayName(p),baseUrl=base,encryptedApiKey="",model=model,protocol=protocol,
             systemPrompt=instructions,providerType=type,authScope=scope,allowLocalHttp=base.startsWith("http://")) to key
     }
-    @JvmOverloads fun complete(p:String,model:String,raw:String,owner:String,history:JSONArray,instructions:String,mime:String?=null,image:ByteArray?=null):String=runBlocking{
+    @JvmOverloads fun complete(p:String,model:String,raw:String,owner:String,history:JSONArray,instructions:String,mime:String?=null,image:ByteArray?=null):String{
+        var inputTokens=0L;var outputTokens=0L;var reported=false
+        val response=runBlocking{
         val turns=mutableListOf<MessageEntity>()
         var attachment:LocalAttachment?=null
         if(image!=null){
@@ -56,12 +58,15 @@ class NativeProviderRuntime(context:Context,private val store:OmniChatConnection
         }
         suspend fun attempt(session:String):String{
             val (entity,key)=provider(p,model,session,owner,instructions)
-            return gateway.stream(entity,key,turns,{}, {u->OmniChatChatClient.reportUsage(u.inputTokens?:0,u.outputTokens?:0,u.inputTokens!=null||u.outputTokens!=null)})
+            return gateway.stream(entity,key,turns,{}, {u->inputTokens=(u.inputTokens?:0).toLong();outputTokens=(u.outputTokens?:0).toLong();reported=u.inputTokens!=null||u.outputTokens!=null})
         }
         try{attempt(raw)}catch(e:ApiFailure){
             if(e.statusCode!=401||!NativeSubscriptionRuntime.supports(p))throw e
             val fresh=NativeSubscriptionRuntime.current(p,raw,store,true);attempt(fresh.toString())
         }finally{attachment?.let{File(it.path).delete()}}
+        }
+        OmniChatChatClient.reportUsage(inputTokens,outputTokens,reported)
+        return response
     }
     fun models(p:String,raw:String,owner:String):List<String>{
         if(NativeSubscriptionRuntime.supports(p))return NativeSubscriptionRuntime.discover(p,raw,store)

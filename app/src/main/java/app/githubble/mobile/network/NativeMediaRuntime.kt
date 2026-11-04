@@ -60,7 +60,7 @@ object NativeMediaRuntime {
                 }
                 val request=Request.Builder().url(target).post(body.toString().toRequestBody("application/json".toMediaType()))
                 if(entity.protocol==ApiGateway.GEMINI)request.header("x-goog-api-key",key)
-                else if(key.isNotBlank())request.header("Authorization","Bearer $key")
+                else if(key.isNotBlank()){if(p=="azure")request.header("api-key",key) else request.header("Authorization","Bearer $key")}
                 val json=AiNetwork.client().newCall(request.build()).execute().use{r->
                     val text=r.body?.byteStream()?.use{bounded(it,48*1024*1024).toString(Charsets.UTF_8)}.orEmpty()
                     if(!r.isSuccessful)throw ApiFailure("Генерация: HTTP ${r.code}; проверьте модель, доступ и баланс",r.code)

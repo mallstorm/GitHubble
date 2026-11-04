@@ -51,6 +51,7 @@ final class GitAgentUiChecks {
         if(!"openai".equals(connections.selectedProvider(account)) || !connections.isConfigured(account,"openai")
                 || connections.models(account,"openai").size()!=2 || connections.isConfigured(other,"openai"))
             throw new AssertionError("Connection/catalog persistence or account isolation failed");
+        if(!app.githubble.mobile.network.NativeProviderCatalog.keyless("lmstudio"))throw new AssertionError("Local keyless API requires a secret");
         if(app.githubble.mobile.network.NativeProviderCatalog.names().size()<40)throw new AssertionError("Full provider registry missing");
         connections.disconnect(account,"openai");
         if(connections.hasKey(account,"openai"))throw new AssertionError("Disconnected key retained");
