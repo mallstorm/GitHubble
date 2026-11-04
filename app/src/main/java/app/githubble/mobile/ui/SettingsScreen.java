@@ -57,6 +57,8 @@ public final class SettingsScreen {
         final Runnable action;
         final Toggle toggle;
         final boolean danger;
+        String badge = "";
+        Runnable longAction;
 
         private Item(int icon, String title, String subtitle, String keywords,
                      Runnable action, Toggle toggle, boolean danger) {
@@ -82,6 +84,18 @@ public final class SettingsScreen {
         /** A read-only row that shows a value. */
         public static Item info(int icon, String title, String value, String keywords) {
             return new Item(icon, title, value, keywords, null, null, false);
+        }
+
+        /** Adds a small status pill at the end of the row, for example «Активен». */
+        public Item badge(String text) {
+            this.badge = text == null ? "" : text;
+            return this;
+        }
+
+        /** Action on a long press, for example removing a saved account. */
+        public Item onLongPress(Runnable action) {
+            this.longAction = action;
+            return this;
         }
 
         /** A destructive action such as signing out. */
@@ -180,6 +194,12 @@ public final class SettingsScreen {
                            QueryListener listener) {
         final List<Category> all = categories == null ? Collections.emptyList() : categories;
         if (header != null) renderHeader(header);
+        // An invisible focus holder keeps the keyboard closed until the search field is tapped.
+        View focusHolder = new View(activity);
+        focusHolder.setFocusable(true);
+        focusHolder.setFocusableInTouchMode(true);
+        content.addView(focusHolder, new LinearLayout.LayoutParams(0, 0));
+        focusHolder.requestFocus();
         LinearLayout list = new LinearLayout(activity);
         list.setOrientation(LinearLayout.VERTICAL);
         final String[] query = {initialQuery == null ? "" : initialQuery};
@@ -313,8 +333,6 @@ public final class SettingsScreen {
         card.setPadding(dp(14), dp(12), dp(10), dp(12));
         card.setBackground(round(blend(palette.card, palette.green, palette.dark ? 0.12f : 0.06f),
                 18, palette.border, 1));
-        card.setFocusable(true);
-        card.setFocusableInTouchMode(true);
         if (header.avatar != null) {
             if (header.avatar.getParent() instanceof ViewGroup)
                 ((ViewGroup) header.avatar.getParent()).removeView(header.avatar);
@@ -342,8 +360,6 @@ public final class SettingsScreen {
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
         params.setMargins(0, dp(4), 0, dp(10));
         content.addView(card, params);
-        // Keep initial focus away from the search field so the keyboard does not pop up.
-        card.requestFocus();
     }
 
     private interface Changed { void on(String value); }
@@ -427,15 +443,33 @@ public final class SettingsScreen {
             row.addView(toggle, new LinearLayout.LayoutParams(-2, dp(48)));
             row.setOnClickListener(v -> toggle.toggle());
             applyRipple(row);
-        } else if (item.action != null) {
-            row.addView(chevron(), new LinearLayout.LayoutParams(dp(22), dp(40)));
-            row.setOnClickListener(v -> item.action.run());
-            row.setContentDescription(description);
-            applyRipple(row);
         } else {
+            if (!item.badge.isEmpty()) {
+                row.addView(badge(item.badge), new LinearLayout.LayoutParams(-2, -2));
+                description += ". " + item.badge;
+            }
+            if (item.action != null) {
+                if (item.badge.isEmpty())
+                    row.addView(chevron(), new LinearLayout.LayoutParams(dp(22), dp(40)));
+                row.setOnClickListener(v -> item.action.run());
+                applyRipple(row);
+            }
             row.setContentDescription(description);
         }
+        if (item.longAction != null) {
+            row.setOnLongClickListener(v -> { item.longAction.run(); return true; });
+            if (item.action == null && item.toggle == null) applyRipple(row);
+        }
         return row;
+    }
+
+    private TextView badge(String text) {
+        TextView pill = label(text, 12, palette.green, true);
+        pill.setGravity(Gravity.CENTER);
+        pill.setPadding(dp(10), dp(4), dp(10), dp(4));
+        pill.setBackground(round(blend(palette.card, palette.green, palette.dark ? 0.26f : 0.14f), 12, 0, 0));
+        pill.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        return pill;
     }
 
     private ImageView iconTile(int iconRes, int accent, int sizeDp, int paddingDp) {

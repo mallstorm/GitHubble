@@ -8367,9 +8367,11 @@ public class MainActivity extends Activity {
                 "Аккаунты · "+accountStore.count()+" из "+GitHubAccountStore.MAX_ACCOUNTS);
         for(GitHubAccountStore.Account account:accountStore.listAccounts()){
             if(account.active)accounts.add(SettingsScreen.Item.action(R.drawable.ic_profile,account.displayName(),
-                    "Активный · открыть профиль","",()->navigate(this::showProfile)));
+                    "Открыть профиль · удерживайте, чтобы удалить","",()->navigate(this::showProfile))
+                    .badge("Активен").onLongPress(()->confirmRemoveGitHubAccount(account)));
             else accounts.add(SettingsScreen.Item.action(R.drawable.ic_profile,account.displayName(),
-                    "Переключиться или удалить с устройства","",()->chooseSavedAccountAction(account)));
+                    "Нажмите, чтобы переключиться · удерживайте, чтобы удалить","",()->switchGitHubAccount(account))
+                    .onLongPress(()->confirmRemoveGitHubAccount(account)));
         }
         if(accountStore.canAddAccount())accounts.add(SettingsScreen.Item.action(R.drawable.ic_github_mark,
                 "Добавить аккаунт GitHub","Вход через официальный Device Flow, пароль не передаётся","",
@@ -8539,14 +8541,6 @@ public class MainActivity extends Activity {
         if(remaining<0)return "Остаток станет известен после первого запроса";
         long reset=api.getResetEpochSeconds();
         return "Осталось "+remaining+" запросов"+(reset>0?" · сброс "+formatEpoch(reset*1000L):"");
-    }
-
-    private void chooseSavedAccountAction(GitHubAccountStore.Account account){
-        new AlertDialog.Builder(this).setTitle(account.displayName())
-                .setItems(new String[]{"Переключиться на этот аккаунт","Удалить с устройства"},(dialog,which)->{
-                    if(which==0)switchGitHubAccount(account);
-                    else confirmRemoveGitHubAccount(account);
-                }).setNegativeButton("Отмена",null).show();
     }
 
     private List<SettingsScreen.Section> settingsInterfaceSections(){
