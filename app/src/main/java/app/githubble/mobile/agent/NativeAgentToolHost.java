@@ -51,6 +51,7 @@ public final class NativeAgentToolHost implements ProjectRuntime.ToolHost {
             "If tools lack authorization, explain the exact limitation. A cancelled operation must not be retried.";
     }
     public boolean handles(String name){
+        if(githubEnabled&&ProjectRuntime.allowed(name,true,false))return true;
         if(filesEnabled&&java.util.Arrays.asList("list_files","read_file","search_files","symbol_index").contains(name))return true;
         if(writeDenied||!AgentPermissionPolicy.mayWrite(permission.getAsInt(),planning))return false;
         return "create_workspace".equals(name)||(filesEnabled&&"write_files".equals(name))
@@ -59,8 +60,9 @@ public final class NativeAgentToolHost implements ProjectRuntime.ToolHost {
     }
     private void check(){
         guard.run();
-        if(!workspaceId.equals(projects.project(account).workspaceId))
-            throw new java.util.concurrent.CancellationException("Workspace изменился");
+        AgentProjectStore.Project selected=projects.project(account);
+        if(!workspaceId.equals(selected.workspaceId)||!repository.equals(selected.repository)||!branch.equals(selected.branch))
+            throw new java.util.concurrent.CancellationException("Привязка проекта изменилась");
         if(activity.isFinishing()||activity.isDestroyed()||Thread.currentThread().isInterrupted())
             throw new java.util.concurrent.CancellationException("Операция отменена");
     }
@@ -99,6 +101,10 @@ public final class NativeAgentToolHost implements ProjectRuntime.ToolHost {
         if(!handles(name))throw new SecurityException("Операция недоступна в текущем режиме");
         if(arguments.toString().length()>300000)throw new IllegalArgumentException("Аргументы превышают лимит");
         JSONObject a=new JSONObject(arguments.toString());
+        if(githubEnabled&&ProjectRuntime.allowed(name,true,false)){
+            String result=github.executeReadOnly(account,name,a,repository,branch).toString();
+            observed(name,a);return result;
+        }
         if(filesEnabled&&java.util.Arrays.asList("list_files","read_file","search_files","symbol_index").contains(name)){
             if(workspaceId.isEmpty())throw new IllegalArgumentException("Сначала создайте или выберите Workspace");
             String result=AgentExecutionEngine.executeReadOnly(workspace,account,workspaceId,name,a);
