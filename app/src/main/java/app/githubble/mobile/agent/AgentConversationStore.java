@@ -239,6 +239,9 @@ public final class AgentConversationStore {
     }
 
     public synchronized void appendEvent(String owner,String id,String role,String content,JSONArray operations) {
+        appendRich(owner,id,role,content,operations,null);
+    }
+    public synchronized void appendRich(String owner,String id,String role,String content,JSONArray operations,JSONArray attachments) {
         ensure(owner);
         safeId(id);
         if (!contains(readIndex(owner), id) && !prefs.getBoolean(key(owner,"pending_"+id),false)) return; // deleted while a request was running
@@ -261,7 +264,8 @@ public final class AgentConversationStore {
             next.put(new JSONObject().put("role",role)
                     .put("body",body.substring(0,Math.min(body.length(),MAX_BODY)))
                     .put("at",System.currentTimeMillis())
-                    .put("operations","system".equals(role)&&operations!=null?new JSONArray(operations.toString()):new JSONArray()));
+                    .put("operations","system".equals(role)&&operations!=null?new JSONArray(operations.toString()):new JSONArray())
+                    .put("attachments",attachments==null?new JSONArray():new JSONArray(attachments.toString())));
             JSONArray index=readIndex(owner), order=new JSONArray();
             JSONObject active=null;
             for(int i=0;i<index.length();i++) {

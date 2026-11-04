@@ -17,13 +17,14 @@ import org.json.JSONObject;
  */
 public final class AgentConversationArchive extends SQLiteOpenHelper {
     private static final String DB_NAME="git-agent-chat-archive.db";
-    public AgentConversationArchive(Context context){super(context.getApplicationContext(),DB_NAME,null,2);}
+    public AgentConversationArchive(Context context){super(context.getApplicationContext(),DB_NAME,null,3);}
     @Override public void onCreate(SQLiteDatabase db){
-        db.execSQL("CREATE TABLE archived_messages(id TEXT PRIMARY KEY, owner TEXT NOT NULL, thread TEXT NOT NULL, at INTEGER NOT NULL, role TEXT NOT NULL, body TEXT NOT NULL, operations TEXT NOT NULL DEFAULT '[]')");
+        db.execSQL("CREATE TABLE archived_messages(id TEXT PRIMARY KEY, owner TEXT NOT NULL, thread TEXT NOT NULL, at INTEGER NOT NULL, role TEXT NOT NULL, body TEXT NOT NULL, operations TEXT NOT NULL DEFAULT '[]', attachments TEXT NOT NULL DEFAULT '[]')");
         db.execSQL("CREATE INDEX idx_archive_thread ON archived_messages(owner,thread,at)");
         db.execSQL("CREATE INDEX idx_archive_owner ON archived_messages(owner,at)");
     }
     @Override public void onUpgrade(SQLiteDatabase db,int oldVersion,int newVersion){
+        if(oldVersion<3)db.execSQL("ALTER TABLE archived_messages ADD COLUMN attachments TEXT NOT NULL DEFAULT '[]'");
         if(oldVersion<2)db.execSQL("ALTER TABLE archived_messages ADD COLUMN operations TEXT NOT NULL DEFAULT '[]'");
     }
     private static String key(String owner,String thread,JSONObject message) throws Exception{
@@ -41,16 +42,17 @@ public final class AgentConversationArchive extends SQLiteOpenHelper {
         values.put("at",message.optLong("at"));values.put("role",message.optString("role"));
         values.put("body",message.optString("body"));
         values.put("operations",message.optJSONArray("operations")==null?"[]":message.optJSONArray("operations").toString());
+        values.put("attachments",message.optJSONArray("attachments")==null?"[]":message.optJSONArray("attachments").toString());
         getWritableDatabase().insertWithOnConflict("archived_messages",null,values,SQLiteDatabase.CONFLICT_IGNORE);
     }
     public synchronized JSONArray read(String owner,String thread,int limit) throws Exception{
         JSONArray descending=new JSONArray(),chronological=new JSONArray();
         String[] args={owner,thread};
-        String sql="SELECT role,body,at,operations FROM archived_messages WHERE owner=? AND thread=? ORDER BY at DESC,id DESC LIMIT "+
+        String sql="SELECT role,body,at,operations,attachments FROM archived_messages WHERE owner=? AND thread=? ORDER BY at DESC,id DESC LIMIT "+
             Math.max(1,Math.min(10000,limit));
         try(Cursor c=getReadableDatabase().rawQuery(sql,args)){
             while(c.moveToNext())descending.put(new JSONObject().put("role",c.getString(0))
-                .put("body",c.getString(1)).put("at",c.getLong(2)).put("operations",new JSONArray(c.getString(3))));
+                .put("body",c.getString(1)).put("at",c.getLong(2)).put("operations",new JSONArray(c.getString(3))).put("attachments",new JSONArray(c.getString(4))));
         }
         for(int i=descending.length()-1;i>=0;i--)chronological.put(descending.opt(i));
         return chronological;
@@ -59,11 +61,11 @@ public final class AgentConversationArchive extends SQLiteOpenHelper {
         JSONArray result=new JSONArray();
         if(query==null||query.trim().length()<2)return result;
         String needle="%"+query.trim().replace("\\","\\\\").replace("%","\\%").replace("_","\\_")+"%";
-        String sql="SELECT thread,role,body,at,operations FROM archived_messages WHERE owner=? AND body LIKE ? ESCAPE '\\' ORDER BY at DESC LIMIT "+
+        String sql="SELECT thread,role,body,at,operations,attachments FROM archived_messages WHERE owner=? AND body LIKE ? ESCAPE '\\' ORDER BY at DESC LIMIT "+
             Math.max(1,Math.min(100,limit));
         try(Cursor c=getReadableDatabase().rawQuery(sql,new String[]{owner,needle})){
             while(c.moveToNext())result.put(new JSONObject().put("thread",c.getString(0))
-                .put("role",c.getString(1)).put("body",c.getString(2)).put("at",c.getLong(3)).put("operations",new JSONArray(c.getString(4))));
+                .put("role",c.getString(1)).put("body",c.getString(2)).put("at",c.getLong(3)).put("operations",new JSONArray(c.getString(4))).put("attachments",new JSONArray(c.getString(5))));
         }
         return result;
     }

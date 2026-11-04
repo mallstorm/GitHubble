@@ -57,6 +57,7 @@ public final class AgentChatScreen {
         void voiceSettings();
         void cancelRequest();
         void draftChanged(String draft);
+        default void exportMedia(String path,String mime){}
     }
 
     private final Activity activity;
@@ -296,6 +297,7 @@ public final class AgentChatScreen {
         content.setLineSpacing(dp(2),1.05f);
         content.setPadding(0,dp(3),0,dp(4));
         content.setText(markdown(body));
+        content.setLinkTextColor(accent);content.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
         bubble.addView(content,new LinearLayout.LayoutParams(-1,-2));
         // Only host-authored structured events can display completed file operations.
         if(system){
@@ -303,6 +305,27 @@ public final class AgentChatScreen {
             for(int i=0;operations!=null&&i<operations.length();i++){
                 JSONObject op=operations.optJSONObject(i);if(op!=null)fileOperation(bubble,op);
             }
+        }
+        JSONArray media=entry.optJSONArray("attachments");
+        for(int i=0;media!=null&&i<media.length();i++){
+            JSONObject item=media.optJSONObject(i);if(item==null)continue;
+            try{
+                java.io.File root=new java.io.File(activity.getFilesDir(),"attachments").getCanonicalFile();
+                java.io.File file=new java.io.File(item.optString("path")).getCanonicalFile();
+                if(!file.isFile()||!file.getPath().startsWith(root.getPath()+java.io.File.separator)||!item.optString("mime").startsWith("image/"))continue;
+                android.graphics.BitmapFactory.Options bounds=new android.graphics.BitmapFactory.Options();bounds.inJustDecodeBounds=true;
+                android.graphics.BitmapFactory.decodeFile(file.getPath(),bounds);bounds.inJustDecodeBounds=false;bounds.inSampleSize=1;
+                while(bounds.outWidth/bounds.inSampleSize>720||bounds.outHeight/bounds.inSampleSize>720)bounds.inSampleSize*=2;
+                android.graphics.Bitmap bitmap=android.graphics.BitmapFactory.decodeFile(file.getPath(),bounds);if(bitmap==null)continue;
+                ImageView preview=new ImageView(activity);preview.setImageBitmap(bitmap);preview.setScaleType(ImageView.ScaleType.FIT_CENTER);
+                preview.setContentDescription("Изображение: "+item.optString("name"));bubble.addView(preview,new LinearLayout.LayoutParams(dp(260),dp(220)));
+                String path=file.getPath(),mime=item.optString("mime","image/png");
+                TextView save=label("⤓  Сохранить изображение",12,true,accent);save.setPadding(0,dp(8),0,dp(8));
+                save.setOnClickListener(v->actions.exportMedia(path,mime));preview.setOnClickListener(v->{
+                    ImageView full=new ImageView(activity);full.setImageBitmap(bitmap);full.setAdjustViewBounds(true);
+                    new android.app.AlertDialog.Builder(activity).setView(full).setPositiveButton("Сохранить",(d,w)->actions.exportMedia(path,mime)).setNegativeButton("Закрыть",null).show();
+                });bubble.addView(save);
+            }catch(Exception unavailable){/* Keep text history readable when media was removed. */}
         }
         if(!system){
             TextView copy=label("⧉  Копировать",11,false,muted);
@@ -381,6 +404,12 @@ public final class AgentChatScreen {
                 if(close>open+1)formatted.setSpan(new android.text.style.TypefaceSpan("monospace"),
                     open,close-1,android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
                 pos=Math.max(open+1,close-1);
+            }
+            java.util.regex.Matcher link=java.util.regex.Pattern.compile("\\[([^\\]]+)\\]\\((https?://[^\\s)]+)\\)").matcher(formatted.toString());
+            while(link.find()){
+                int start=link.start(),end=link.end();String title=link.group(1),url=link.group(2);
+                formatted.replace(start,end,title);formatted.setSpan(new android.text.style.URLSpan(url),start,start+title.length(),android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                link=java.util.regex.Pattern.compile("\\[([^\\]]+)\\]\\((https?://[^\\s)]+)\\)").matcher(formatted.toString());
             }
             output.append(formatted);
         }

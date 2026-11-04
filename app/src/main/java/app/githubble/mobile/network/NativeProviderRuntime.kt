@@ -41,7 +41,7 @@ class NativeProviderRuntime(context:Context,private val store:OmniChatConnection
         var attachment:LocalAttachment?=null
         if(image!=null){
             require(image.size<=20*1024*1024){"Фото должно быть до 20 MiB"}
-            val dir=File(app.filesDir,"agent-media").apply{mkdirs()}
+            val dir=File(app.filesDir,"attachments").apply{mkdirs()}
             val f=File(dir,"input-${UUID.randomUUID()}."+if(mime=="image/png")"png" else "jpg");f.writeBytes(image)
             attachment=LocalAttachment("Фото",mime?:"image/jpeg",f.path,f.length())
         }

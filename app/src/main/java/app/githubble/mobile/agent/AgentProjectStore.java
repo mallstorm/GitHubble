@@ -136,5 +136,9 @@ public final class AgentProjectStore {
         conversations.appendEvent(account,thread,"system",body,operations);
     }
 
+    public synchronized void appendAttachments(String owner,String thread,String role,String body,JSONArray attachments){
+        conversations.appendRich(owner,thread,role,body,null,attachments);
+    }
+
 }
 

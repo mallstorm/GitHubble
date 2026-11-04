@@ -969,8 +969,9 @@ class ApiGateway(private val context: Context) {
         val normalizedSize = requestedSize.takeIf {
             it in setOf("1024x1024", "1024x1536", "1536x1024")
         } ?: "1024x1024"
+        val imageModel=if(action=="edit"||referenceImages.isNotEmpty())"gpt-image-2.5-sunburst" else "gpt-image-2.5-flare"
         val tool = JSONObject()
-            .put("type", "image_generation")
+            .put("type", "image_generation").put("model",imageModel)
             .put("action", if (referenceImages.isNotEmpty() && action == "generate") "edit" else action)
             .put("size", normalizedSize)
         val body = JSONObject()
@@ -1007,7 +1008,7 @@ class ApiGateway(private val context: Context) {
         var encoded = ""
         var revised = ""
         var callId = ""
-        var actualImageModel = provider.model
+        var actualImageModel = imageModel
         for (i in 0 until output.length()) {
             val item = output.optJSONObject(i) ?: continue
             if (item.optString("type") != "image_generation_call") continue

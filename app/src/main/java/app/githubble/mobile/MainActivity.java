@@ -274,7 +274,12 @@ public class MainActivity extends Activity {
         }
         prefs = getSharedPreferences("githubble", MODE_PRIVATE);
         if(b!=null){pendingAgentTextAccount=b.getString("agent_text_account","");
-            pendingAgentTextConversation=b.getString("agent_text_conversation","");}
+            pendingAgentTextConversation=b.getString("agent_text_conversation","");
+            String camera=b.getString("agent_camera_uri","");agentCameraUri=camera.isEmpty()?null:Uri.parse(camera);
+            selectingAgentImageOwner=b.getString("agent_image_owner","");selectingAgentImageThread=b.getString("agent_image_thread","");selectingAgentImageOcr=b.getBoolean("agent_image_ocr",false);
+            pendingAgentImageOwner=b.getString("agent_pending_image_owner","");pendingAgentImageThread=b.getString("agent_pending_image_thread","");
+            String image=b.getString("agent_pending_image_uri","");pendingAgentImageUri=image.isEmpty()?null:Uri.parse(image);
+            agentMediaExportPath=b.getString("agent_export_path","");agentMediaExportOwner=b.getString("agent_export_owner","");agentMediaExportThread=b.getString("agent_export_thread","");}
         repositoriesGrid = prefs.getBoolean("repositories_grid", false);
         repositoriesSort = prefs.getString("repositories_sort", "updated");
         secureStore = new SecureStore(this);
@@ -643,6 +648,7 @@ public class MainActivity extends Activity {
             @Override public void showConversations() { agentShowConversations(owner); }
             @Override public void openTools() { agentShowChatTools(owner); }
             @Override public void openAttachments() { agentShowAttachments(owner); }
+            @Override public void exportMedia(String path,String mime){agentExportMedia(path,mime);}
             @Override public void openAgentSettings() { navigate(MainActivity.this::showSettingsGitAgentWorkspace); }
             @Override public void voiceInput(EditText input, ImageView microphone) {
                 toggleVoiceInput(input, microphone);
@@ -1860,23 +1866,165 @@ public class MainActivity extends Activity {
         dialog[0]=ui.present(body,true);
     }
 
+    private Uri agentCameraUri;
+    private String agentMediaExportPath="",agentMediaExportOwner="",agentMediaExportThread="";
+    private static final int REQUEST_AGENT_CAMERA=2724,REQUEST_AGENT_EXPORT_MEDIA=2725;
+
+    private void agentCaptureImage(String owner,boolean ocr){
+        if(!owner.equals(accountStore.activeCacheKey()))return;
+        if(aiConnections.selectedProvider(owner).isEmpty()||!aiConnections.isConfigured(owner,aiConnections.selectedProvider(owner))){agentChooseComposerModel(owner);return;}
+        try{
+            File directory=new File(getFilesDir(),"agent-media");directory.mkdirs();
+            File target=File.createTempFile("capture-",".jpg",directory);
+            agentCameraUri=androidx.core.content.FileProvider.getUriForFile(this,getPackageName()+".agentmedia",target);
+            selectingAgentImageOwner=owner;selectingAgentImageThread=agentProjects.activeConversation(owner);selectingAgentImageOcr=ocr;
+            Intent capture=new Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE);
+            capture.putExtra(android.provider.MediaStore.EXTRA_OUTPUT,agentCameraUri);
+            capture.setClipData(ClipData.newRawUri("Фото",agentCameraUri));
+            capture.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+            startActivityForResult(capture,REQUEST_AGENT_CAMERA);
+        }catch(Exception e){toast("Камера недоступна: "+e.getMessage());}
+    }
+
+    private void agentConfirmImage(String owner,String chat,Uri chosen,boolean ocr){
+        if(!owner.equals(accountStore.activeCacheKey())||!chat.equals(agentProjects.activeConversation(owner)))return;
+        String mime=getContentResolver().getType(chosen);
+        if(!java.util.Arrays.asList("image/jpeg","image/png","image/webp").contains(mime)){toast("Нужны JPEG, PNG или WebP");return;}
+        new AlertDialog.Builder(this).setTitle(ocr?"Распознать текст на фото?":"Прикрепить фото?")
+            .setMessage("Изображение до 20 MiB будет отправлено выбранному провайдеру после нажатия кнопки отправки.")
+            .setPositiveButton("Прикрепить",(d,w)->{
+                if(!owner.equals(accountStore.activeCacheKey())||!chat.equals(agentProjects.activeConversation(owner)))return;
+                pendingAgentImageUri=chosen;pendingAgentImageOwner=owner;pendingAgentImageThread=chat;
+                String key=agentDraftKey(owner,chat);
+                if(ocr&&prefs.getString(key,"").trim().isEmpty())prefs.edit().putString(key,"Распознай и выпиши весь текст на изображении, сохрани структуру и таблицы.").apply();
+                toast("Фото прикреплено к следующему сообщению");agentRefreshIfCurrent(owner);
+            }).setNegativeButton("Отмена",null).show();
+    }
+
+    private void agentPhotoTool(String owner,boolean question){
+        if(question){
+            EditText text=new EditText(this);text.setHint("Что спросить по изображению?");text.setMinLines(2);
+            new AlertDialog.Builder(this).setTitle("Вопрос по изображению").setView(text)
+                .setPositiveButton("Выбрать фото",(d,w)->{
+                    if(!owner.equals(accountStore.activeCacheKey()))return;
+                    String value=text.getText().toString().trim();if(value.isEmpty())value="Ответь на вопрос по изображению и объясни детали.";
+                    prefs.edit().putString(agentDraftKey(owner,agentProjects.activeConversation(owner)),value).apply();agentPickImageAttachment(owner,false);
+                }).setNegativeButton("Отмена",null).show();
+        }else{
+            prefs.edit().putString(agentDraftKey(owner,agentProjects.activeConversation(owner)),"Подробно проанализируй фотографию: объекты, детали, состояние и контекст. Отделяй видимое от предположений.").apply();
+            agentPickImageAttachment(owner,false);
+        }
+    }
+
+    private void agentExportMedia(String path,String mime){
+        try{
+            File root=new File(getFilesDir(),"attachments").getCanonicalFile(),file=new File(path).getCanonicalFile();
+            if(!file.isFile()||!file.getPath().startsWith(root.getPath()+File.separator))throw new IOException("Файл недоступен");
+            agentMediaExportPath=file.getPath();agentMediaExportOwner=accountStore.activeCacheKey();agentMediaExportThread=agentProjects.activeConversation(agentMediaExportOwner);
+            Intent intent=new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType(mime);
+            intent.putExtra(Intent.EXTRA_TITLE,file.getName());startActivityForResult(intent,REQUEST_AGENT_EXPORT_MEDIA);
+        }catch(Exception e){toast("Не удалось сохранить: "+e.getMessage());}
+    }
+
+    private void agentShowWebSearch(String owner){
+        EditText query=new EditText(this);query.setHint("Что найти в интернете?");query.setMinLines(2);
+        new AlertDialog.Builder(this).setTitle("Веб-поиск").setMessage("Поиск отправит запрос публичным поисковым системам. Результаты будут доступны выбранной модели.")
+            .setView(query).setPositiveButton("Найти",(d,w)->{
+                if(!owner.equals(accountStore.activeCacheKey()))return;
+                String q=query.getText().toString().trim();if(q.length()<2){toast("Введите запрос");return;}
+                app.githubble.mobile.agent.NativeWebSearch.enable(this,owner,true);
+                agentSend(owner,"Найди в интернете с помощью web_search и приведи ссылки на реальные источники: "+q,true);
+            }).setNeutralButton("Выключить поиск",(d,w)->app.githubble.mobile.agent.NativeWebSearch.enable(this,owner,false))
+            .setNegativeButton("Отмена",null).show();
+    }
+
+    private void agentShowPlugins(String owner){
+        if(!owner.equals(accountStore.activeCacheKey()))return;
+        app.githubble.mobile.agent.NativePluginRegistry registry=new app.githubble.mobile.agent.NativePluginRegistry(this,owner);
+        GitAgentUi ui=new GitAgentUi(this,BG,CARD,TEXT,MUTED,GREEN,BORDER);LinearLayout body=ui.body("Плагины и MCP",true);final Dialog[] sheet={null};
+        ui.note(body,"HTTPS-расширения GET/POST и Streamable HTTP MCP. Ключи плагинов хранятся отдельно от ключей моделей. Каждый вызов подтверждается; в режиме планирования записи через плагины запрещены.");
+        ui.action(body,"Добавить плагин или MCP","Название, HTTPS endpoint и отдельный bearer",GREEN,()->{sheet[0].dismiss();agentEditPlugin(owner,null);});
+        JSONArray plugins=registry.list();for(int i=0;i<plugins.length();i++){
+            JSONObject plugin=plugins.optJSONObject(i);if(plugin==null)continue;
+            String id=plugin.optString("id");
+            ui.action(body,(plugin.optBoolean("enabled")?"✓ ":"")+plugin.optString("name"),plugin.optString("kind")+" · "+plugin.optString("url"),GREEN,()->{
+                sheet[0].dismiss();new AlertDialog.Builder(this).setTitle(plugin.optString("name"))
+                    .setItems(new String[]{"Проверить / обновить инструменты","Включить / выключить","Изменить","Удалить"},(d,n)->{
+                        if(!owner.equals(accountStore.activeCacheKey()))return;
+                        if(n==0){ProgressDialog progress=ProgressDialog.show(this,"Плагин","Получаем инструменты…",true,false);io.execute(()->{try{String result=registry.discover(id);runOnUiThread(()->{progress.dismiss();if(owner.equals(accountStore.activeCacheKey()))new AlertDialog.Builder(this).setTitle("Плагин").setMessage(result).setPositiveButton("ОК",null).show();});}catch(Exception e){runOnUiThread(()->{progress.dismiss();if(owner.equals(accountStore.activeCacheKey()))errorDialog("Проверка плагина",e.getMessage());});}});}
+                        else if(n==1){registry.toggle(id);agentShowPlugins(owner);}
+                        else if(n==2)agentEditPlugin(owner,plugin);
+                        else new AlertDialog.Builder(this).setTitle("Удалить плагин?").setMessage(plugin.optString("name")).setPositiveButton("Удалить",(v,w)->{if(owner.equals(accountStore.activeCacheKey())){registry.remove(id);agentShowPlugins(owner);}}).setNegativeButton("Отмена",null).show();
+                    }).show();
+            });
+        }
+        sheet[0]=ui.present(body,true);
+    }
+
+    private void agentEditPlugin(String owner,JSONObject old){
+        JSONObject existing=old==null?new JSONObject():old;
+        LinearLayout form=new LinearLayout(this);form.setOrientation(LinearLayout.VERTICAL);form.setPadding(dp(18),0,dp(18),0);
+        String[] hints={"Название","Публичный HTTPS URL","GET / POST / MCP","Bearer · пусто — сохранить","MCP версия: 2025-11-25 / 2026-07-28"};
+        String[] values={existing.optString("name"),existing.optString("url"),existing.optString("kind","POST"),"",existing.optString("version","2025-11-25")};
+        EditText[] inputs=new EditText[hints.length];for(int i=0;i<inputs.length;i++){inputs[i]=new EditText(this);inputs[i].setTextColor(TEXT);inputs[i].setHint(hints[i]);inputs[i].setText(values[i]);inputs[i].setSingleLine(true);if(i==3)inputs[i].setInputType(129);form.addView(inputs[i]);}
+        AlertDialog d=new AlertDialog.Builder(this).setTitle("Плагин / MCP").setView(form).setPositiveButton("Сохранить",null).setNegativeButton("Отмена",null).create();
+        d.setOnShowListener(v->d.getButton(-1).setOnClickListener(w->{
+            if(!owner.equals(accountStore.activeCacheKey())){d.dismiss();return;}
+            try{new app.githubble.mobile.agent.NativePluginRegistry(this,owner).save(existing.optString("id"),inputs[0].getText().toString(),inputs[1].getText().toString(),inputs[2].getText().toString().trim().toUpperCase(Locale.ROOT),inputs[3].getText().toString(),inputs[4].getText().toString().trim());inputs[3].setText("");d.dismiss();agentShowPlugins(owner);}
+            catch(Exception e){errorDialog("Плагин не сохранён",e.getMessage());}
+        }));d.show();
+    }
+
+    private void agentGenerateImage(String owner){
+        if(!owner.equals(accountStore.activeCacheKey()))return;
+        if(!app.githubble.mobile.agent.AgentPermissionPolicy.mayWrite(agentPermission(owner),agentPlanning(owner))){toast("Выключите планирование и разрешите изменения");return;}
+        String provider=aiConnections.selectedProvider(owner);
+        if(provider.isEmpty()||!aiConnections.isConfigured(owner,provider)){agentChooseComposerModel(owner);return;}
+        String thread=agentProjects.activeConversation(owner);
+        LinearLayout form=new LinearLayout(this);form.setOrientation(LinearLayout.VERTICAL);form.setPadding(dp(18),0,dp(18),0);
+        EditText prompt=new EditText(this);prompt.setHint("Опишите изображение");prompt.setMinLines(3);prompt.setTextColor(TEXT);form.addView(prompt);
+        EditText model=new EditText(this);model.setHint("Модель генерации / основная модель ChatGPT");model.setSingleLine(true);model.setTextColor(TEXT);model.setText(app.githubble.mobile.network.NativeMediaRuntime.defaultModel(aiConnections,owner,provider));form.addView(model);
+        EditText size=new EditText(this);size.setSingleLine(true);size.setHint("Размер");size.setText("1024x1024");size.setTextColor(TEXT);form.addView(size);
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Создание изображения · "+aiConnections.displayName(provider)).setMessage("Запрос выполняется через выбранное подключение и учитывает тариф провайдера.").setView(form).setPositiveButton("Создать",null).setNegativeButton("Отмена",null).create();
+        dialog.setOnShowListener(v->dialog.getButton(-1).setOnClickListener(w->{
+            if(!owner.equals(accountStore.activeCacheKey())||!thread.equals(agentProjects.activeConversation(owner))){dialog.dismiss();return;}
+            String request=prompt.getText().toString().trim(),selectedModel=model.getText().toString().trim(),selectedSize=size.getText().toString().trim();
+            if(!app.githubble.mobile.agent.AgentPermissionPolicy.mayWrite(agentPermission(owner),agentPlanning(owner))){toast("Планирование или доступ только для чтения");return;}
+            if(request.length()<2||selectedModel.isEmpty()){prompt.setError("Нужны описание и модель");return;}
+            if(!aiRequestsInFlight.add(owner)){toast("Другой запрос ещё выполняется");return;}
+            dialog.dismiss();aiCanceledRequests.remove(owner);long ticket=aiTicketCounter.incrementAndGet();aiRequestTickets.put(owner,ticket);
+            String credential=aiConnections.credential(owner,provider);
+            agentProjects.appendToConversation(owner,thread,"user","Создай изображение: "+request);agentRefreshIfCurrent(owner);
+            java.util.concurrent.Future<?> future=io.submit(()->{
+                try{
+                    if(Thread.currentThread().isInterrupted()||aiCanceledRequests.contains(owner)||!app.githubble.mobile.agent.AgentPermissionPolicy.mayWrite(agentPermission(owner),agentPlanning(owner))||!owner.equals(accountStore.activeCacheKey())||!credential.equals(aiConnections.credential(owner,provider)))throw new java.util.concurrent.CancellationException("Подключение изменилось");
+                    JSONObject result=app.githubble.mobile.network.NativeMediaRuntime.generate(this,aiConnections,owner,provider,selectedModel,request,selectedSize);
+                    if(!aiCanceledRequests.contains(owner)&&java.util.Objects.equals(aiRequestTickets.get(owner),ticket))
+                        agentProjects.appendAttachments(owner,thread,"agent","Изображение создано · "+selectedModel,result.getJSONArray("attachments"));
+                }catch(Exception e){if(!aiCanceledRequests.contains(owner)&&java.util.Objects.equals(aiRequestTickets.get(owner),ticket))agentProjects.appendToConversation(owner,thread,"system","Генерация изображения: "+e.getMessage());}
+                finally{if(aiRequestTickets.remove(owner,ticket)){aiRequestsInFlight.remove(owner);aiActiveFutures.remove(owner);}runOnUiThread(()->agentRefreshIfCurrent(owner));}
+            });aiActiveFutures.put(owner,future);
+        }));dialog.show();
+    }
+
     private void agentShowAttachments(String owner) {
         if(!owner.equals(accountStore.activeCacheKey()))return;
         GitAgentUi ui=new GitAgentUi(this,BG,CARD,TEXT,MUTED,GREEN,BORDER);LinearLayout body=ui.body("Добавить",true);
         final Dialog[] dialog={null};LinearLayout quick=ui.row();
-        String unavailable="Мультимодальный транспорт ещё не подключён. Доступны текстовые файлы и GitHub-инструменты.";
-        ui.tile(quick,"Камера",R.drawable.ic_agent_camera,0xFF1C9C76,()->agentUnavailable("Камера · недоступно",unavailable));
+        ui.tile(quick,"Камера",R.drawable.ic_agent_camera,0xFF1C9C76,()->{dialog[0].dismiss();agentCaptureImage(owner,false);});
         ui.tile(quick,"Фото",R.drawable.ic_agent_photo,0xFF347EE2,()->{dialog[0].dismiss();agentPickImageAttachment(owner,false);});
         ui.tile(quick,"Файлы",R.drawable.ic_agent_attach,0xFFE5A126,()->{dialog[0].dismiss();agentPickTextAttachment(owner);});
-        ui.tile(quick,"Сканировать текст",R.drawable.ic_agent_scan,0xFF8E59DE,()->{dialog[0].dismiss();agentPickImageAttachment(owner,true);});
+        ui.tile(quick,"Сканировать текст",R.drawable.ic_agent_scan,0xFF8E59DE,()->{dialog[0].dismiss();new AlertDialog.Builder(this).setTitle("Источник текста").setItems(new String[]{"Камера","Галерея"},(d,n)->{if(n==0)agentCaptureImage(owner,true);else agentPickImageAttachment(owner,true);}).show();});
         body.addView(quick,new LinearLayout.LayoutParams(-1,ui.dp(106)));
         ui.section(body,"Инструменты с изображениями");
-        ui.note(body,"Фото и OCR работают через поддерживаемые Vision API (OpenAI, Gemini, OpenRouter). "+
-            "Изображение отправляется только после подтверждения и отправки сообщения. Live и генерация изображений ещё не подключены.");
+        ui.note(body,"Фото, вопросы и OCR используют мультимодальный протокол выбранного подключения. Изображение отправляется после подтверждения и отправки. Генерация зависит от модели и тарифа провайдера.");
         String[] titles={"Анализ фотографии","Вопрос по изображению","Создание изображения","Веб-поиск","Плагины"};
         int[] colors={0xFF8A42DC,0xFF179BB5,0xFFD957A3,0xFF3572DC,0xFF209F77};
-        for(int i=0;i<titles.length;i++){String title=titles[i];
-            ui.action(body,title,"Пока недоступно",colors[i],()->agentUnavailable(title,"Этот инструмент ещё не подключён в Git Agent."));}
+        for(int i=0;i<titles.length;i++){String title=titles[i];final int action=i;
+            ui.action(body,title,new String[]{"Подробный разбор выбранной фотографии","Ваш вопрос и выбранное изображение","OpenAI / Gemini / Grok / совместимый image API","Реальные источники и ссылки","HTTPS-расширения и MCP"}[i],colors[i],()->{
+                dialog[0].dismiss();if(!owner.equals(accountStore.activeCacheKey()))return;
+                switch(action){case 0:agentPhotoTool(owner,false);break;case 1:agentPhotoTool(owner,true);break;case 2:agentGenerateImage(owner);break;case 3:agentShowWebSearch(owner);break;case 4:agentShowPlugins(owner);break;}
+            });}
         ui.section(body,"Инструменты GitHubble");
         String[] tools={"Создать или изменить код","Импорт GitHub → Workspace","Привязать репозиторий","GitHub Actions","APK и артефакты","Проекты","AI-подключения","Все инструменты"};
         for(int i=0;i<tools.length;i++){final int action=i;
@@ -1910,13 +2058,7 @@ public class MainActivity extends Activity {
                 }, (d, index) -> {
                     switch (index) {
                         case 0: agentPickTextAttachment(owner); break;
-                        case 1:
-                            new AlertDialog.Builder(this).setTitle("Мультимедиа Git Agent")
-                                    .setMessage("Галерея, камера, изображения и видео будут подключены к "
-                                            + "мультимодальному движку отдельно. Текущий AI API-транспорт "
-                                            + "поддерживает текст, поэтому отправлять изображение как текст нельзя.")
-                                    .setPositiveButton("ОК", null).show();
-                            break;
+                        case 1: agentShowAttachments(owner);break;
                         case 2: agentGenerateProjectCode(owner, ""); break;
                         case 3:
                             new AlertDialog.Builder(this).setTitle("Проекты GitHub")
@@ -1949,7 +2091,7 @@ public class MainActivity extends Activity {
         if(!owner.equals(accountStore.activeCacheKey()))return;
         String provider=aiConnections.selectedProvider(owner);
         if(!OmniChatChatClient.supportsVision(provider)||!aiConnections.isConfigured(owner,provider)){
-            toast("Для фото нужны OpenAI API, Gemini API или OpenRouter с моделью Vision");return;
+            toast("Выберите подключение и модель с поддержкой изображений");return;
         }
         selectingAgentImageOwner=owner;
         selectingAgentImageThread=agentProjects.activeConversation(owner);
@@ -1967,7 +2109,7 @@ public class MainActivity extends Activity {
             if(in==null)throw new IOException("Изображение недоступно");
             byte[] buffer=new byte[16384];int n;
             while((n=in.read(buffer))!=-1){
-                if(out.size()+n>1024*1024)throw new IOException("Фото больше 1 МБ; уменьшите разрешение");
+                if(out.size()+n>20*1024*1024)throw new IOException("Фото больше 20 MiB; уменьшите разрешение");
                 out.write(buffer,0,n);
             }
         }
@@ -8908,34 +9050,20 @@ public class MainActivity extends Activity {
     @Override protected void onActivityResult(int requestCode,int resultCode,Intent data){
         super.onActivityResult(requestCode,resultCode,data);
         if(agentFeatures!=null&&agentFeatures.result(requestCode,resultCode,data))return;
-        if(requestCode==REQUEST_AGENT_IMAGE_FILE){
-            String owner=selectingAgentImageOwner,chat=selectingAgentImageThread;
-            boolean ocr=selectingAgentImageOcr;
+        if(requestCode==REQUEST_AGENT_EXPORT_MEDIA){
+            String path=agentMediaExportPath,owner=agentMediaExportOwner,thread=agentMediaExportThread;
+            agentMediaExportPath="";agentMediaExportOwner="";agentMediaExportThread="";
+            if(resultCode==RESULT_OK&&data!=null&&data.getData()!=null&&owner.equals(accountStore.activeCacheKey())&&thread.equals(agentProjects.activeConversation(owner))){
+                Uri destination=data.getData();io.execute(()->{try(InputStream input=new java.io.FileInputStream(path);java.io.OutputStream out=getContentResolver().openOutputStream(destination)){
+                    if(out==null)throw new IOException("Файл назначения недоступен");byte[] buffer=new byte[8192];int n;while((n=input.read(buffer))!=-1)out.write(buffer,0,n);runOnUiThread(()->toast("Изображение сохранено"));
+                }catch(Exception e){runOnUiThread(()->errorDialog("Сохранение изображения",e.getMessage()));}});
+            }return;
+        }
+        if(requestCode==REQUEST_AGENT_IMAGE_FILE||requestCode==REQUEST_AGENT_CAMERA){
+            String owner=selectingAgentImageOwner,chat=selectingAgentImageThread;boolean ocr=selectingAgentImageOcr;
             selectingAgentImageOwner="";selectingAgentImageThread="";selectingAgentImageOcr=false;
-            if(resultCode==RESULT_OK&&data!=null&&data.getData()!=null
-                    &&owner.equals(accountStore.activeCacheKey())
-                    &&chat.equals(agentProjects.activeConversation(owner))){
-                Uri chosen=data.getData();
-                String mime=getContentResolver().getType(chosen);
-                if(!"image/jpeg".equals(mime)&&!"image/png".equals(mime)&&!"image/webp".equals(mime)){
-                    toast("Поддерживаются только JPEG, PNG и WebP");return;
-                }
-                new AlertDialog.Builder(this).setTitle(ocr?"Распознать текст на фото?":"Прикрепить фото?")
-                    .setMessage("Выбранное изображение (до 1 МБ) будет отправлено AI-провайдеру "+
-                        "только после нажатия кнопки отправки. Фото не сохраняется в переписке.")
-                    .setPositiveButton("Прикрепить",(d,w)->{
-                        if(!owner.equals(accountStore.activeCacheKey())
-                            ||!chat.equals(agentProjects.activeConversation(owner)))return;
-                        pendingAgentImageUri=chosen;pendingAgentImageOwner=owner;pendingAgentImageThread=chat;
-                        if(ocr){
-                            String key=agentDraftKey(owner,chat);
-                            if(prefs.getString(key,"").trim().isEmpty())
-                                prefs.edit().putString(key,"Распознай и выпиши весь текст на изображении.").apply();
-                        }
-                        toast("Фото прикреплено к следующему сообщению");
-                        agentRefreshIfCurrent(owner);
-                    }).setNegativeButton("Отмена",null).show();
-            }
+            Uri selected=requestCode==REQUEST_AGENT_CAMERA?agentCameraUri:data==null?null:data.getData();agentCameraUri=null;
+            if(resultCode==RESULT_OK&&selected!=null)agentConfirmImage(owner,chat,selected,ocr);
             return;
         }
         if (requestCode == REQUEST_AGENT_TEXT_FILE) {
@@ -9573,6 +9701,10 @@ public class MainActivity extends Activity {
         if(screenState!=null)screenState.save(outState);
         outState.putString("agent_text_account",pendingAgentTextAccount);
         outState.putString("agent_text_conversation",pendingAgentTextConversation);
+        outState.putString("agent_camera_uri",agentCameraUri==null?"":agentCameraUri.toString());
+        outState.putString("agent_image_owner",selectingAgentImageOwner);outState.putString("agent_image_thread",selectingAgentImageThread);outState.putBoolean("agent_image_ocr",selectingAgentImageOcr);
+        outState.putString("agent_pending_image_owner",pendingAgentImageOwner);outState.putString("agent_pending_image_thread",pendingAgentImageThread);outState.putString("agent_pending_image_uri",pendingAgentImageUri==null?"":pendingAgentImageUri.toString());
+        outState.putString("agent_export_path",agentMediaExportPath);outState.putString("agent_export_owner",agentMediaExportOwner);outState.putString("agent_export_thread",agentMediaExportThread);
         featureState.save(outState);
         super.onSaveInstanceState(outState);
     }
