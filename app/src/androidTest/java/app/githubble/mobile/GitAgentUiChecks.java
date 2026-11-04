@@ -256,16 +256,16 @@ final class GitAgentUiChecks {
                 }catch(Exception error){throw new RuntimeException(error);}
             });
             host.waitForIdleSync();Thread.sleep(300);screenshot(host,directory,"integrated-chat.png");
-            // Settings must expose all AI controls in one native section, directly
-            // below Data and synchronization and above Security.
+            // Settings must expose all AI controls in one native category, directly
+            // below Data and security and above About.
             onMain(host,()->{
                 try{
                     java.lang.reflect.Method settings=MainActivity.class.getDeclaredMethod("showSettings");
                     settings.setAccessible(true);settings.invoke(activity);
                     View root=activity.getWindow().getDecorView();
-                    View data=find(root,"Данные и синхронизация");
+                    View data=find(root,"Данные и безопасность");
                     View agent=find(root,"Git Agent и Workspace");
-                    View security=find(root,"Безопасность");
+                    View security=find(root,"О приложении");
                     if(data==null||agent==null||security==null)
                         throw new AssertionError("Central AI settings category missing");
                     // Check actual child order instead of screen coordinates:

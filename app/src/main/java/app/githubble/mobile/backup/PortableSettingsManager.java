@@ -14,9 +14,10 @@ import java.util.Set;
 public final class PortableSettingsManager {
     private static final List<String> ALLOWED_SETTINGS=Arrays.asList(
             "theme","launcher_icon","translator_auto","translator_provider","translator_endpoint","translator_model",
-            "tracking_interval_hours","tracking_notify_new_repo","tracking_notify_releases","tracking_notify_popularity",
+            "tracking_interval_hours","tracking_notify_new_repositories","tracking_notify_releases","tracking_notify_popularity",
             "tracking_notify_pushes","tracking_notify_status","tracking_star_threshold","tracking_fork_threshold",
-            "tracking_release_check_limit","diff_mode","diff_collapse_context");
+            "tracking_release_check_limit","diff_mode","diff_collapse_context",
+            "ui_card_density","repositories_grid","repositories_sort","voice_search_language");
     private final SharedPreferences prefs;private final TrackingDatabase tracking;
     public PortableSettingsManager(SharedPreferences prefs,TrackingDatabase tracking){this.prefs=prefs;this.tracking=tracking;}
 

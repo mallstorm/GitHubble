@@ -57,6 +57,7 @@ import app.githubble.mobile.agent.OAuthSubscriptions;
 import app.githubble.mobile.agent.OmniChatChatClient;
 import app.githubble.mobile.build.BuildRunFilter;
 import app.githubble.mobile.ui.SearchScreen;
+import app.githubble.mobile.ui.SettingsScreen;
 import app.githubble.mobile.tracking.TrackingDatabase;
 import app.githubble.mobile.tracking.TrackingEngine;
 import app.githubble.mobile.tracking.TrackingJobService;
@@ -240,6 +241,7 @@ public class MainActivity extends Activity {
     private static final int REQUEST_REPOSITORY_FILE = 2712;
     private static final int REQUEST_VOICE_AUDIO = 2720;
     private static final int REQUEST_LOCAL_AVATAR = 2721;
+    private static final int REQUEST_SETTINGS_NOTIFICATIONS = 2722;
     private SpeechRecognizer voiceRecognizer;
     private EditText voiceTarget;
     private ImageView voiceButton;
@@ -527,7 +529,7 @@ public class MainActivity extends Activity {
                     @Override public void openRepositories(){openRoot(MainActivity.this::showMyRepositories);}
                     @Override public void openChat(){openRoot(MainActivity.this::showAgentChat);}
                     @Override public void openActivity(){openRoot(MainActivity.this::showNotifications);}
-                    @Override public void openSettings(){openRoot(MainActivity.this::showSettings);}
+                    @Override public void openSettings(){settingsQuery="";openRoot(MainActivity.this::showSettings);}
                 });
     }
 
@@ -3608,7 +3610,9 @@ public class MainActivity extends Activity {
     }
 
 
-    private void showVoiceLanguageChooser(){
+    private void showVoiceLanguageChooser(){showVoiceLanguageChooser(null);}
+
+    private void showVoiceLanguageChooser(Runnable afterChange){
         final String[] labels={"Русский (ru-RU)","English (en-US)"};
         String lang=prefs.getString("voice_search_language",
                 "ru".equalsIgnoreCase(Locale.getDefault().getLanguage())?"ru-RU":"en-US");
@@ -3617,6 +3621,7 @@ public class MainActivity extends Activity {
                     prefs.edit().putString("voice_search_language",index==0?"ru-RU":"en-US").apply();
                     dialog.dismiss();
                     toast(index==0?"Голосовой ввод: русский":"Voice input: English");
+                    if(afterChange!=null)afterChange.run();
                 })
                 .setNegativeButton("Отмена",null).show();
     }
@@ -6495,7 +6500,7 @@ public class MainActivity extends Activity {
         profileSecurityTile(security,R.drawable.ic_lock,"Сеанс активен",
                 "Управление аккаунтом",GREEN,()->navigate(this::showSettingsAccount));
         profileSecurityTile(security,R.drawable.ic_settings,"Токен защищён",
-                "Android Keystore",0xFF347EE0,()->navigate(this::showSettingsSecurity));
+                "Android Keystore · мои данные",0xFF347EE0,()->navigate(this::showSettingsData));
         content.addView(security,new LinearLayout.LayoutParams(-1,-2));
     }
 
@@ -7111,6 +7116,8 @@ public class MainActivity extends Activity {
     private void showTrackingSettings(){
         setCurrentScreen(this::showTrackingSettings);shell("Настройки наблюдения",false);
         settingsPanelHeader("Настройки наблюдения","Интервал, события и ограничения GitHub API",R.drawable.ic_bell);
+        settingsActionRow("Наблюдаемые разработчики",trackingDb.statistics().optInt("developers",0)+" · добавить или убрать",
+                () -> navigate(this::showTracking));
         sectionTitle("Фоновая проверка",null);
         settingsActionRow("Интервал",prefs.getInt("tracking_interval_hours",6)+" ч",this::showTrackingIntervalChooser);
         settingsRow("Последняя проверка",formatEpoch(prefs.getLong("tracking_last_global_check",0L)));
@@ -7348,155 +7355,8 @@ public class MainActivity extends Activity {
     }
 
 
-    private void showAccountCenter(){
-        setCurrentScreen(this::showAccountCenter);
-        shell("Аккаунт GitHub",false);
-        settingsPanelHeader("Billing и Actions","Обзор квоты, storage и расходов",R.drawable.ic_settings);
-        if(!isSignedIn()){
-            accountRequiredCard("Подключите GitHub, чтобы загрузить данные аккаунта и Actions.");
-            return;
-        }
-        final long generation=screenGeneration.get();
-        final String accountId=currentAccountId();
-        final LinearLayout host=content;
-
-        sectionTitle("GitHub Actions · обзор",null);
-        LinearLayout actionsCard=billingSurface();
-        actionsCard.addView(billingHeader(R.drawable.ic_history,"GitHub Actions","Использование минут",GREEN));
-        TextView accountMeta=text("Аккаунт: загрузка…",11,false);accountMeta.setTextColor(MUTED);
-        accountMeta.setPadding(0,dp(8),0,dp(5));actionsCard.addView(accountMeta);
-
-        LinearLayout minuteLine=new LinearLayout(this);minuteLine.setGravity(Gravity.CENTER_VERTICAL);
-        TextView minuteUsage=text("Загружаем Billing…",12,true);
-        TextView minutePercent=text("—",12,true);minutePercent.setTextColor(GREEN);minutePercent.setGravity(Gravity.END);
-        minuteLine.addView(minuteUsage,new LinearLayout.LayoutParams(0,-2,1));
-        minuteLine.addView(minutePercent,new LinearLayout.LayoutParams(dp(54),-2));
-        actionsCard.addView(minuteLine);
-        ProgressBar minuteProgress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);
-        styleBillingProgress(minuteProgress,0,GREEN);
-        LinearLayout.LayoutParams mp=new LinearLayout.LayoutParams(-1,dp(8));mp.setMargins(0,dp(5),0,dp(8));
-        actionsCard.addView(minuteProgress,mp);
-
-        LinearLayout minuteMetrics=new LinearLayout(this);
-        TextView usedValue=text("—",20,true),usedDetail=text("По данным GitHub Billing API",10,false);
-        TextView leftValue=text("—",20,true),leftDetail=text("Расчёт GitHubble",10,false);
-        minuteMetrics.addView(billingMetric(R.drawable.ic_history,"Использовано",usedValue,usedDetail,GREEN),
-                new LinearLayout.LayoutParams(0,-2,1));
-        LinearLayout.LayoutParams leftLp=new LinearLayout.LayoutParams(0,-2,1);leftLp.setMargins(dp(8),0,0,0);
-        minuteMetrics.addView(billingMetric(R.drawable.ic_history,"Осталось",leftValue,leftDetail,GREEN),leftLp);
-        actionsCard.addView(minuteMetrics);
-        card(actionsCard);
-
-        sectionTitle("Хранилище Actions",null);
-        LinearLayout storageCard=billingSurface();
-        storageCard.addView(billingHeader(R.drawable.ic_repository,"Артефакты и cache",
-                "Артефакты сравниваются с лимитом тарифа; cache учитывается отдельно",0xFF7A43D1));
-        long cachedArtifacts=prefs.getLong(billingCacheKey("artifact_bytes"),-1L);
-        long cachedCache=prefs.getLong(billingCacheKey("cache_bytes"),-1L);
-        long cachedAt=prefs.getLong(billingCacheKey("inventory_at"),0L);
-        TextView storageLine=text(cachedArtifacts<0?"Хранилище ещё не сканировалось":
-                "Артефакты: "+formatAccountBytes(cachedArtifacts)+" · скан "+billingUtcTime(cachedAt),12,true);
-        storageLine.setPadding(0,dp(9),0,0);storageCard.addView(storageLine);
-        ProgressBar storageProgress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);
-        styleBillingProgress(storageProgress,0,GREEN);
-        LinearLayout.LayoutParams sp=new LinearLayout.LayoutParams(-1,dp(8));sp.setMargins(0,dp(6),0,dp(7));
-        storageCard.addView(storageProgress,sp);
-        TextView storageLimit=text("Лимит артефактов: определяем…",11,false);storageLimit.setTextColor(MUTED);
-        storageCard.addView(storageLimit);
-
-        LinearLayout storageMetrics=new LinearLayout(this);storageMetrics.setPadding(0,dp(8),0,0);
-        TextView artifactValue=text(cachedArtifacts<0?"—":formatAccountBytes(cachedArtifacts),17,true);
-        TextView artifactDetail=text("Инвентаризация",10,false);
-        TextView cacheValue=text(cachedCache<0?"—":formatAccountBytes(cachedCache),17,true);
-        TextView cacheDetail=text("Отдельная квота cache",10,false);
-        storageMetrics.addView(billingMetric(R.drawable.ic_repository,"Артефакты",artifactValue,artifactDetail,0xFF7A43D1),
-                new LinearLayout.LayoutParams(0,-2,1));
-        LinearLayout.LayoutParams cacheLp=new LinearLayout.LayoutParams(0,-2,1);cacheLp.setMargins(dp(8),0,0,0);
-        storageMetrics.addView(billingMetric(R.drawable.ic_repository,"Cache",cacheValue,cacheDetail,GREEN),cacheLp);
-        storageCard.addView(storageMetrics);
-        TextView storageNote=text("Объём артефактов и cache получаем инвентаризацией репозиториев. Это не выдаётся за официальный остаток Billing.",10,false);
-        storageNote.setTextColor(MUTED);storageNote.setPadding(0,dp(9),0,0);storageCard.addView(storageNote);
-        card(storageCard);
-
-        sectionTitle("Быстрые действия",null);
-        GridLayout quick=new GridLayout(this);quick.setColumnCount(adaptiveColumns(2));
-        addBillingQuickAction(quick,R.drawable.ic_history,"Обновить Billing","Минуты, тариф и период",()->{
-            api.invalidatePrefix("https://api.github.com/users/");
-            showAccountCenter();
-        });
-        addBillingQuickAction(quick,R.drawable.ic_repository,"Сканировать хранилище","Артефакты и cache по репозиториям",
-                ()->navigate(this::showActionsStorageRepositories));
-        addBillingQuickAction(quick,R.drawable.ic_repository,"Менеджер артефактов","Скачивание, удаление и retention",
-                ()->navigate(this::showActionsStorageRepositories));
-        addBillingQuickAction(quick,R.drawable.ic_settings,"Детализация стоимости","Расход, скидки и Net в USD",
-                ()->navigate(()->showActionsBillingCost("")));
-        content.addView(quick,new LinearLayout.LayoutParams(-1,-2));
-
-        sectionTitle("Хранилище Actions",null);
-        settingsActionRow("Детали хранилища","Репозитории, артефакты, cache и очистка",
-                ()->navigate(this::showActionsStorageRepositories));
-        sectionTitle("Оплата GitHub",null);
-        settingsActionRow("Расходы и платежи","Стоимость Actions, бюджеты и диагностика",
-                ()->navigate(()->showActionsBillingCost("")));
-        sectionTitle("Доступ и диагностика",null);
-        settingsActionRow("Приватные репозитории","Разрешения GitHub App и доступ",
-                this::openPrivateRepositoryAccess);
-
-        io.execute(()->{
-            try{
-                AccountOperationsController.BillingSnapshot result=accountOperations.loadBillingOverview();
-                runOnUiThread(()->{
-                    if(!accountViewIsCurrent(generation,accountId)||host!=content)return;
-                    accountMeta.setText("Аккаунт: @"+(result.login.isEmpty()?"—":result.login)
-                            +"   ·   Тариф: "+(result.planName.isEmpty()?"—":result.planName)
-                            +"   ·   Период: "+result.billingPeriod+" UTC");
-                    if(result.billingApiAvailable&&result.minutesUsed>=0){
-                        usedValue.setText(formatBillingMinutes(result.minutesUsed)+" мин");
-                        long limit=result.minutesLimit;
-                        if(limit>0){
-                            double remaining=Math.max(0d,limit-result.minutesUsed);
-                            int percent=(int)Math.round(Math.max(0d,Math.min(100d,result.minutesUsed*100d/limit)));
-                            minuteUsage.setText(formatBillingMinutes(result.minutesUsed)+" из "+limit+" минут");
-                            minutePercent.setText(percent+"%");
-                            styleBillingProgress(minuteProgress,percent,GREEN);
-                            leftValue.setText(formatBillingMinutes(remaining)+" мин");
-                            leftDetail.setText("из "+limit+" мин · расчёт GitHubble");
-                        }else{
-                            minuteUsage.setText(formatBillingMinutes(result.minutesUsed)+" мин");
-                            minutePercent.setText("—");
-                            leftValue.setText("—");
-                            leftDetail.setText("Лимит тарифа не определён");
-                        }
-                    }else{
-                        usedValue.setText("Недоступно");
-                        usedDetail.setText(result.billingWarning.isEmpty()?"Billing API не вернул использование":result.billingWarning);
-                        minuteUsage.setText("Официальное использование недоступно");
-                        minutePercent.setText("—");
-                        leftValue.setText("—");
-                    }
-                    if(result.storageLimitBytes>0){
-                        storageLimit.setText("Лимит артефактов тарифа: "+formatAccountBytes(result.storageLimitBytes)
-                                +(cachedCache>=0?" · cache "+formatAccountBytes(cachedCache)+" считается отдельно":""));
-                        if(cachedArtifacts>=0){
-                            int percent=(int)Math.round(Math.max(0d,Math.min(100d,cachedArtifacts*100d/result.storageLimitBytes)));
-                            styleBillingProgress(storageProgress,percent,GREEN);
-                            long free=Math.max(0L,result.storageLimitBytes-cachedArtifacts);
-                            artifactDetail.setText(percent+"% лимита · расчётно свободно "+formatAccountBytes(free));
-                        }
-                    }else storageLimit.setText("Лимит артефактов для тарифа не определён.");
-                    prefs.edit().putLong(billingCacheKey("billing_at"),System.currentTimeMillis()).apply();
-                });
-            }catch(Exception error){
-                runOnUiThread(()->{
-                    if(!accountViewIsCurrent(generation,accountId)||host!=content)return;
-                    minuteUsage.setText("Billing недоступен");
-                    usedValue.setText("Ошибка");
-                    usedDetail.setText(error.getMessage()==null?"Не удалось получить отчёт":error.getMessage());
-                    accountMeta.setText("Не удалось обновить данные аккаунта");
-                });
-            }
-        });
-    }
+    /** Billing, storage and access now live on the account settings screen. */
+    private void showAccountCenter(){showSettingsAccount();}
 
     private void startAccountInventory(long generation,String accountId,
                                        TextView status,ProgressBar progress,LinearLayout rows,
@@ -8394,110 +8254,639 @@ public class MainActivity extends Activity {
         return String.format(Locale.US,"%.2f GB",mb/1024d);
     }
 
+    /** Search query of the settings root page; kept while the page re-renders. */
+    private String settingsQuery="";
+
+    private HomeScreen.Palette settingsPalette(){
+        return new HomeScreen.Palette(BG,CARD,SUBTLE,TEXT,MUTED,GREEN,BORDER,tileColors,"dark".equals(activeTheme));
+    }
+
+    /** Re-renders the settings page that is on screen after a value changed. */
+    private void rerenderSettings(){
+        if(currentScreen!=null)currentScreen.run();
+    }
+
+    /**
+     * Settings root: six categories, each opening one screen with everything
+     * related to it. The search field finds any option inside any category.
+     */
     private void showSettings(){
         rememberScreen("settings",null);
         setCurrentScreen(this::showSettings);
         shell("Настройки",false);
-        settingsDashboardHeader();
-        settingsCategoryCard("Аккаунт и доступ",
-                "Профиль, GitHub App, приватные репозитории",
-                R.drawable.ic_profile, 0xFF25994F,
-                () -> navigate(this::showSettingsAccount));
-        settingsCategoryCard("Интерфейс",
-                "Темы, язык, перевод содержимого",
-                R.drawable.ic_tools, 0xFF8654D3,
-                () -> navigate(this::showSettingsInterface));
-        settingsCategoryCard("Уведомления",
-                "Наблюдение, события и фоновые проверки",
-                R.drawable.ic_bell, 0xFF387DE2,
-                () -> navigate(this::showSettingsNotifications));
-        settingsCategoryCard("Данные и синхронизация",
-                "Кэш, офлайн-очередь, резервные копии",
-                R.drawable.ic_repository, 0xFF179B9C,
-                () -> navigate(this::showSettingsData));
-        settingsCategoryCard("Git Agent и Workspace",
-                "Модели, подписки, агент, проекты, память и сеть",
-                R.drawable.ic_agent_link, 0xFF5966B5,
-                () -> navigate(this::showSettingsGitAgentWorkspace));
-        settingsCategoryCard("Безопасность",
-                "Защита токена, данные и выход из аккаунта",
-                R.drawable.ic_lock, 0xFFE18C32,
-                () -> navigate(this::showSettingsSecurity));
-        settingsCategoryCard("О приложении",
-                "Версия, диагностика, сведения о сборке",
-                R.drawable.ic_settings, 0xFF657A88,
-                () -> navigate(this::showSettingsAbout));
+        final boolean signedIn=isSignedIn();
+        final String login=getProfileLogin();
+        final String owner=accountStore.activeCacheKey();
+        final int[] accent=tileColors;
+        List<SettingsScreen.Category> categories=new ArrayList<>();
+        categories.add(new SettingsScreen.Category(R.drawable.ic_profile,"Аккаунт и GitHub",
+                signedIn?(login.isEmpty()?"":"@"+login+" · ")+"аккаунты, доступ, минуты и хранилище Actions"
+                        :"Вход, аккаунты и доступ к репозиториям",
+                accent[0],()->navigate(this::showSettingsAccount),settingsAccountSearchSections()));
+        categories.add(new SettingsScreen.Category(R.drawable.ic_tools,"Интерфейс",
+                "Тема: "+themeDisplayName()+" · карточки, diff, перевод",
+                accent[2],()->navigate(this::showSettingsInterface),settingsInterfaceSections()));
+        categories.add(new SettingsScreen.Category(R.drawable.ic_bell,"Уведомления и фон",
+                (appNotificationsAllowed()?"Уведомления включены":"Уведомления выключены")
+                        +" · наблюдение, мониторинг сборок",
+                accent[3],()->navigate(this::showSettingsNotifications),settingsNotificationSections()));
+        categories.add(new SettingsScreen.Category(R.drawable.ic_repository,"Данные и безопасность",
+                "Кэш "+cacheSizeText()+" · офлайн-очередь, копия, мои данные",
+                accent[6],()->navigate(this::showSettingsData),settingsDataSections()));
+        String provider=aiConnections.selectedProvider(owner);
+        categories.add(new SettingsScreen.Category(R.drawable.ic_agent_link,"Git Agent и Workspace",
+                (provider.isEmpty()?"Модель не выбрана":"Модель: "+aiConnections.displayName(provider))
+                        +" · подписки, Workspace, сеть",
+                accent[1],()->navigate(this::showSettingsGitAgentWorkspace),settingsAgentSections(owner)));
+        categories.add(new SettingsScreen.Category(R.drawable.ic_settings,"О приложении",
+                "Версия "+BuildConfig.VERSION_NAME+" · диагностика",
+                accent[7],()->navigate(this::showSettingsAbout),settingsAboutSections()));
+
+        JSONObject profile=getCachedProfile();
+        String displayName=cleanNullable(profile.optString("name",""));
+        SettingsScreen.Header header=new SettingsScreen.Header(createProfileAvatar(dp(48)),
+                signedIn?(displayName.isEmpty()?(login.isEmpty()?"GitHub подключён":"@"+login):displayName):"Гостевой режим",
+                signedIn?(login.isEmpty()?"Открыть профиль":"@"+login+" · открыть профиль"):"Войдите, чтобы видеть свои репозитории",
+                signedIn?()->navigate(this::showProfile):this::startSmartLogin);
+        new SettingsScreen(this,content,settingsPalette())
+                .renderRoot(header,categories,settingsQuery,query->settingsQuery=query);
     }
 
-    private void settingsDashboardHeader(){
-        LinearLayout hero=new LinearLayout(this);
-        hero.setGravity(Gravity.CENTER_VERTICAL);
-        hero.setPadding(dp(12),dp(12),dp(12),dp(12));
-        hero.setBackground(round(SUBTLE,18,BORDER,1));
-        ImageView icon=imageIcon(R.drawable.ic_settings, Color.WHITE, 11);
-        icon.setBackground(round(GREEN,13,0,0));
-        hero.addView(icon,new LinearLayout.LayoutParams(dp(48),dp(48)));
-        LinearLayout title=new LinearLayout(this);
-        title.setOrientation(LinearLayout.VERTICAL);
-        title.setPadding(dp(11),0,dp(4),0);
-        TextView name=text("Настройки GitHubble",18,true);
-        name.setPadding(0,0,0,0);
-        name.setSingleLine(true);
-        name.setEllipsize(TextUtils.TruncateAt.END);
-        title.addView(name);
-        TextView caption=text("Управление приложением и GitHub",11,false);
-        caption.setTextColor(MUTED);
-        caption.setPadding(0,dp(3),0,0);
-        caption.setMaxLines(2);
-        title.addView(caption);
-        hero.addView(title,new LinearLayout.LayoutParams(0,-2,1));
-        LinearLayout.LayoutParams hp=new LinearLayout.LayoutParams(-1,-2);
-        hp.setMargins(0,0,0,dp(12));
-        content.addView(hero,hp);
-        TextView state=text(isSignedIn()?
-                (getProfileLogin().isEmpty()?"GitHub подключён":"Подключён: @"+getProfileLogin()):
-                "Гостевой режим · аккаунт не подключён",11,false);
-        state.setTextColor(GREEN);
-        state.setPadding(dp(3),0,0,dp(9));
-        state.setMaxLines(2);
-        content.addView(state);
+    /** Account rows the root search can find; the account screen itself also shows live quotas. */
+    private List<SettingsScreen.Section> settingsAccountSearchSections(){
+        List<SettingsScreen.Section> sections=new ArrayList<>();
+        String login=getProfileLogin();
+        SettingsScreen.Section accounts=new SettingsScreen.Section("Аккаунты");
+        accounts.add(SettingsScreen.Item.action(R.drawable.ic_profile,"Аккаунты GitHub",
+                accountStore.count()+" из "+GitHubAccountStore.MAX_ACCOUNTS+(login.isEmpty()?"":" · активен @"+login),
+                "мультиаккаунт переключить сменить удалить профиль",()->navigate(this::showSettingsAccount)));
+        if(accountStore.canAddAccount())accounts.add(SettingsScreen.Item.action(R.drawable.ic_github_mark,
+                "Добавить аккаунт GitHub","Вход через официальный Device Flow",
+                "вход войти логин новый аккаунт",this::startSmartLogin));
+        if(isSignedIn())accounts.add(SettingsScreen.Item.danger(R.drawable.ic_back,"Выйти из аккаунта",
+                login.isEmpty()?"Удалить локальный сеанс":"Удалить локальный сеанс @"+login,
+                "выход выйти отключить signout logout",this::confirmSignOut));
+        sections.add(accounts);
+        SettingsScreen.Section quotas=new SettingsScreen.Section("Доступ и квоты");
+        quotas.add(SettingsScreen.Item.action(R.drawable.ic_lock,"Доступ к репозиториям",
+                "Установка GitHub App и приватные репозитории",
+                "github app gihubble разрешения права private приватные установка",this::openPrivateRepositoryAccess));
+        quotas.add(SettingsScreen.Item.action(R.drawable.ic_history,"Минуты и тариф GitHub Actions",
+                "Использование минут, лимит тарифа, период",
+                "billing тариф минуты квоты план",()->navigate(this::showSettingsAccount)));
+        quotas.add(SettingsScreen.Item.action(R.drawable.ic_repository,"Артефакты и cache Actions",
+                "Сканирование, скачивание, срок хранения, очистка",
+                "хранилище артефакты cache кэш retention очистка",()->navigate(this::showActionsStorageRepositories)));
+        quotas.add(SettingsScreen.Item.action(R.drawable.ic_settings,"Расходы и бюджеты",
+                "Стоимость Actions, скидки, бюджеты в USD",
+                "оплата расходы бюджет стоимость деньги",()->navigate(()->showActionsBillingCost(""))));
+        sections.add(quotas);
+        return sections;
     }
 
-    private void settingsCategoryCard(String title,String subtitle,int iconResource,int accent,Runnable action){
-        LinearLayout row=new LinearLayout(this);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(11),dp(11),dp(9),dp(11));
-        row.setBackground(round(CARD,15,BORDER,1));
+    /**
+     * Everything about the GitHub account on one screen: saved accounts,
+     * repository access, Actions minutes, storage, costs and the API limit.
+     */
+    private void showSettingsAccount(){
+        setCurrentScreen(this::showSettingsAccount);
+        shell("Аккаунт и GitHub",false);
+        final boolean signedIn=isSignedIn();
+        final String login=getProfileLogin();
+        final int accent=tileColors[0];
+        JSONObject profile=getCachedProfile();
+        String name=cleanNullable(profile.optString("name",""));
+        final SettingsScreen.Header header=new SettingsScreen.Header(createProfileAvatar(dp(48)),
+                signedIn?(name.isEmpty()?(login.isEmpty()?"GitHub подключён":"@"+login):name):"Гостевой режим",
+                signedIn?(login.isEmpty()?"":"@"+login+" · ")+"тариф: загрузка…"
+                        :"Войдите через GitHub, чтобы увидеть аккаунт, доступ и квоты",
+                signedIn?()->navigate(this::showProfile):this::startSmartLogin);
+        List<SettingsScreen.Section> sections=new ArrayList<>();
 
-        ImageView pictogram=imageIcon(iconResource,Color.WHITE,10);
-        pictogram.setBackground(round(accent,11,0,0));
-        pictogram.setContentDescription(title);
-        row.addView(pictogram,new LinearLayout.LayoutParams(dp(45),dp(45)));
+        SettingsScreen.Section accounts=new SettingsScreen.Section(
+                "Аккаунты · "+accountStore.count()+" из "+GitHubAccountStore.MAX_ACCOUNTS);
+        for(GitHubAccountStore.Account account:accountStore.listAccounts()){
+            if(account.active)accounts.add(SettingsScreen.Item.action(R.drawable.ic_profile,account.displayName(),
+                    "Активный · открыть профиль","",()->navigate(this::showProfile)));
+            else accounts.add(SettingsScreen.Item.action(R.drawable.ic_profile,account.displayName(),
+                    "Переключиться или удалить с устройства","",()->chooseSavedAccountAction(account)));
+        }
+        if(accountStore.canAddAccount())accounts.add(SettingsScreen.Item.action(R.drawable.ic_github_mark,
+                "Добавить аккаунт GitHub","Вход через официальный Device Flow, пароль не передаётся","",
+                this::startSmartLogin));
+        sections.add(accounts);
+        if(!signedIn){
+            new SettingsScreen(this,content,settingsPalette()).renderPage(header,accent,sections);
+            return;
+        }
+        final long generation=screenGeneration.get();
+        final String accountId=currentAccountId();
+        final LinearLayout host=content;
 
-        LinearLayout labels=new LinearLayout(this);
-        labels.setOrientation(LinearLayout.VERTICAL);
-        labels.setPadding(dp(11),0,dp(3),0);
-        TextView heading=text(title,15,true);
-        heading.setPadding(0,0,0,0);
-        heading.setSingleLine(true);
-        heading.setEllipsize(TextUtils.TruncateAt.END);
-        labels.addView(heading,new LinearLayout.LayoutParams(-1,-2));
-        TextView detail=text(subtitle,11,false);
-        detail.setTextColor(MUTED);
-        detail.setPadding(0,dp(3),0,0);
-        detail.setMaxLines(2);
-        detail.setEllipsize(TextUtils.TruncateAt.END);
-        labels.addView(detail,new LinearLayout.LayoutParams(-1,-2));
-        row.addView(labels,new LinearLayout.LayoutParams(0,-2,1));
-        TextView arrow=text("›",26,false);
-        arrow.setTextColor(MUTED);
-        arrow.setGravity(Gravity.CENTER);
-        row.addView(arrow,new LinearLayout.LayoutParams(dp(20),dp(42)));
-        row.setContentDescription(title+". "+subtitle);
-        row.setOnClickListener(v->action.run());
-        LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,-2);
-        params.setMargins(0,0,0,dp(9));
-        content.addView(row,params);
+        RepositoryStore.Snapshot snapshot=repositoryStore.read(accountId);
+        int total=snapshot.repositories.length(),privateCount=0;
+        for(int i=0;i<total;i++){
+            JSONObject repo=snapshot.repositories.optJSONObject(i);
+            if(repo!=null&&repo.optBoolean("private",false))privateCount++;
+        }
+        SettingsScreen.Section access=new SettingsScreen.Section("Доступ к репозиториям");
+        access.add(SettingsScreen.Item.info(R.drawable.ic_repository,"Доступно репозиториев",
+                snapshot.hasData()?total+" · приватных "+privateCount+", публичных "+(total-privateCount)
+                        :"Список ещё не синхронизирован","" ));
+        access.add(SettingsScreen.Item.info(R.drawable.ic_history,"Последняя синхронизация",
+                snapshot.lastSyncedAt>0?formatEpoch(snapshot.lastSyncedAt):"ещё не выполнялась",""));
+        access.add(SettingsScreen.Item.action(R.drawable.ic_lock,"Настроить доступ GitHub App",
+                "Установка и выбор приватных репозиториев","",this::openPrivateRepositoryAccess));
+        sections.add(access);
+
+        LinearLayout minutesCard=settingsQuotaCard();
+        TextView minuteUsage=text("Загружаем данные Billing…",13,true);minuteUsage.setPadding(0,0,0,0);
+        TextView minutePercent=text("—",13,true);minutePercent.setTextColor(GREEN);minutePercent.setGravity(Gravity.END);
+        LinearLayout minuteLine=new LinearLayout(this);minuteLine.setGravity(Gravity.CENTER_VERTICAL);
+        minuteLine.addView(minuteUsage,new LinearLayout.LayoutParams(0,-2,1));
+        minuteLine.addView(minutePercent,new LinearLayout.LayoutParams(dp(56),-2));
+        minutesCard.addView(minuteLine);
+        ProgressBar minuteProgress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);
+        styleBillingProgress(minuteProgress,0,GREEN);
+        LinearLayout.LayoutParams mp=new LinearLayout.LayoutParams(-1,dp(8));mp.setMargins(0,dp(8),0,dp(10));
+        minutesCard.addView(minuteProgress,mp);
+        LinearLayout minuteMetrics=new LinearLayout(this);
+        TextView usedValue=text("—",20,true),usedDetail=text("По данным GitHub Billing API",11,false);
+        TextView leftValue=text("—",20,true),leftDetail=text("Расчёт GitHubble",11,false);
+        minuteMetrics.addView(billingMetric(R.drawable.ic_history,"Использовано",usedValue,usedDetail,GREEN),
+                new LinearLayout.LayoutParams(0,-2,1));
+        LinearLayout.LayoutParams leftLp=new LinearLayout.LayoutParams(0,-2,1);leftLp.setMargins(dp(8),0,0,0);
+        minuteMetrics.addView(billingMetric(R.drawable.ic_history,"Осталось",leftValue,leftDetail,GREEN),leftLp);
+        minutesCard.addView(minuteMetrics);
+        TextView period=text("Период: определяем…",12,false);period.setTextColor(MUTED);period.setPadding(0,dp(10),0,0);
+        minutesCard.addView(period);
+        SettingsScreen.Section minutes=new SettingsScreen.Section("GitHub Actions · минуты");
+        minutes.add(minutesCard);
+        minutes.add(SettingsScreen.Item.action(R.drawable.ic_history,"Обновить данные Billing",
+                "Запросить использование и тариф заново","",()->{
+                    api.invalidatePrefix("https://api.github.com/users/");
+                    showSettingsAccount();
+                }));
+        sections.add(minutes);
+
+        long cachedArtifacts=prefs.getLong(billingCacheKey("artifact_bytes"),-1L);
+        long cachedCache=prefs.getLong(billingCacheKey("cache_bytes"),-1L);
+        long cachedAt=prefs.getLong(billingCacheKey("inventory_at"),0L);
+        LinearLayout storageCard=settingsQuotaCard();
+        TextView storageLine=text(cachedArtifacts<0?"Хранилище ещё не сканировалось":
+                "Артефакты: "+formatAccountBytes(cachedArtifacts)+" · скан "+billingUtcTime(cachedAt),13,true);
+        storageLine.setPadding(0,0,0,0);storageCard.addView(storageLine);
+        ProgressBar storageProgress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);
+        styleBillingProgress(storageProgress,0,GREEN);
+        LinearLayout.LayoutParams sp=new LinearLayout.LayoutParams(-1,dp(8));sp.setMargins(0,dp(8),0,dp(8));
+        storageCard.addView(storageProgress,sp);
+        TextView storageLimit=text("Лимит артефактов: определяем…",12,false);storageLimit.setTextColor(MUTED);
+        storageCard.addView(storageLimit);
+        LinearLayout storageMetrics=new LinearLayout(this);storageMetrics.setPadding(0,dp(10),0,0);
+        TextView artifactValue=text(cachedArtifacts<0?"—":formatAccountBytes(cachedArtifacts),17,true);
+        TextView artifactDetail=text("Инвентаризация",11,false);
+        TextView cacheValue=text(cachedCache<0?"—":formatAccountBytes(cachedCache),17,true);
+        TextView cacheDetail=text("Отдельная квота cache",11,false);
+        storageMetrics.addView(billingMetric(R.drawable.ic_repository,"Артефакты",artifactValue,artifactDetail,0xFF7A43D1),
+                new LinearLayout.LayoutParams(0,-2,1));
+        LinearLayout.LayoutParams cacheLp=new LinearLayout.LayoutParams(0,-2,1);cacheLp.setMargins(dp(8),0,0,0);
+        storageMetrics.addView(billingMetric(R.drawable.ic_repository,"Cache",cacheValue,cacheDetail,GREEN),cacheLp);
+        storageCard.addView(storageMetrics);
+        SettingsScreen.Section storage=new SettingsScreen.Section("Хранилище и расходы Actions");
+        storage.add(storageCard);
+        storage.add(SettingsScreen.Item.action(R.drawable.ic_repository,"Артефакты и cache по репозиториям",
+                "Сканирование, скачивание, срок хранения, очистка","",()->navigate(this::showActionsStorageRepositories)));
+        storage.add(SettingsScreen.Item.action(R.drawable.ic_settings,"Расходы и бюджеты",
+                "Стоимость Actions, скидки, бюджеты в USD","",()->navigate(()->showActionsBillingCost(""))));
+        storage.note("Объём артефактов и cache считается по найденным объектам репозиториев, это не официальный остаток квоты.");
+        sections.add(storage);
+
+        SettingsScreen.Section limits=new SettingsScreen.Section("GitHub API");
+        limits.add(SettingsScreen.Item.info(R.drawable.ic_github_mark,"Лимит запросов",githubApiLimitText(),""));
+        sections.add(limits);
+        SettingsScreen.Section exit=new SettingsScreen.Section("");
+        exit.add(SettingsScreen.Item.danger(R.drawable.ic_back,"Выйти из аккаунта",
+                login.isEmpty()?"Удалить локальный сеанс GitHub":"Удалить локальный сеанс @"+login,"",this::confirmSignOut));
+        sections.add(exit);
+        new SettingsScreen(this,content,settingsPalette()).renderPage(header,accent,sections);
+
+        io.execute(()->{
+            try{
+                AccountOperationsController.BillingSnapshot result=accountOperations.loadBillingOverview();
+                runOnUiThread(()->{
+                    if(!accountViewIsCurrent(generation,accountId)||host!=content)return;
+                    header.setSubtitle((result.login.isEmpty()?"":"@"+result.login+" · ")
+                            +"тариф: "+(result.planName.isEmpty()?"не определён":result.planName));
+                    period.setText("Период: "+result.billingPeriod+" UTC");
+                    if(result.billingApiAvailable&&result.minutesUsed>=0){
+                        usedValue.setText(formatBillingMinutes(result.minutesUsed)+" мин");
+                        long limit=result.minutesLimit;
+                        if(limit>0){
+                            double remaining=Math.max(0d,limit-result.minutesUsed);
+                            int percent=(int)Math.round(Math.max(0d,Math.min(100d,result.minutesUsed*100d/limit)));
+                            minuteUsage.setText(formatBillingMinutes(result.minutesUsed)+" из "+limit+" минут");
+                            minutePercent.setText(percent+"%");
+                            styleBillingProgress(minuteProgress,percent,GREEN);
+                            leftValue.setText(formatBillingMinutes(remaining)+" мин");
+                            leftDetail.setText("из "+limit+" мин · расчёт GitHubble");
+                        }else{
+                            minuteUsage.setText(formatBillingMinutes(result.minutesUsed)+" мин");
+                            minutePercent.setText("—");
+                            leftValue.setText("—");
+                            leftDetail.setText("Лимит тарифа не определён");
+                        }
+                    }else{
+                        usedValue.setText("Недоступно");
+                        usedDetail.setText(result.billingWarning.isEmpty()?"Billing API не вернул использование":result.billingWarning);
+                        minuteUsage.setText("Официальное использование недоступно");
+                        minutePercent.setText("—");
+                        leftValue.setText("—");
+                    }
+                    if(result.storageLimitBytes>0){
+                        storageLimit.setText("Лимит артефактов тарифа: "+formatAccountBytes(result.storageLimitBytes)
+                                +(cachedCache>=0?" · cache "+formatAccountBytes(cachedCache)+" считается отдельно":""));
+                        if(cachedArtifacts>=0){
+                            int percent=(int)Math.round(Math.max(0d,Math.min(100d,cachedArtifacts*100d/result.storageLimitBytes)));
+                            styleBillingProgress(storageProgress,percent,GREEN);
+                            long free=Math.max(0L,result.storageLimitBytes-cachedArtifacts);
+                            artifactDetail.setText(percent+"% лимита · свободно ≈"+formatAccountBytes(free));
+                        }
+                    }else storageLimit.setText("Лимит артефактов для тарифа не определён.");
+                    prefs.edit().putLong(billingCacheKey("billing_at"),System.currentTimeMillis()).apply();
+                });
+            }catch(Exception error){
+                runOnUiThread(()->{
+                    if(!accountViewIsCurrent(generation,accountId)||host!=content)return;
+                    header.setSubtitle((login.isEmpty()?"":"@"+login+" · ")+"тариф не загрузился");
+                    minuteUsage.setText("Billing недоступен");
+                    usedValue.setText("Ошибка");
+                    usedDetail.setText(error.getMessage()==null?"Не удалось получить отчёт":error.getMessage());
+                });
+            }
+        });
+    }
+
+    private LinearLayout settingsQuotaCard(){
+        LinearLayout box=new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(14),dp(14),dp(14),dp(14));
+        box.setBackground(round(CARD,16,BORDER,1));
+        return box;
+    }
+
+    private String githubApiLimitText(){
+        int remaining=api.getRemaining();
+        if(remaining<0)return "Остаток станет известен после первого запроса";
+        long reset=api.getResetEpochSeconds();
+        return "Осталось "+remaining+" запросов"+(reset>0?" · сброс "+formatEpoch(reset*1000L):"");
+    }
+
+    private void chooseSavedAccountAction(GitHubAccountStore.Account account){
+        new AlertDialog.Builder(this).setTitle(account.displayName())
+                .setItems(new String[]{"Переключиться на этот аккаунт","Удалить с устройства"},(dialog,which)->{
+                    if(which==0)switchGitHubAccount(account);
+                    else confirmRemoveGitHubAccount(account);
+                }).setNegativeButton("Отмена",null).show();
+    }
+
+    private List<SettingsScreen.Section> settingsInterfaceSections(){
+        List<SettingsScreen.Section> sections=new ArrayList<>();
+        SettingsScreen.Section look=new SettingsScreen.Section("Оформление");
+        look.add(SettingsScreen.Item.action(R.drawable.ic_tools,"Тема оформления",
+                themeDisplayName()+" · меняет и иконку приложения",
+                "тема цвет тёмная темная светлая бежевая иконка dark",this::chooseThemeDialog));
+        look.add(SettingsScreen.Item.action(R.drawable.ic_home,"Карточки на главной",
+                "spacious".equals(prefs.getString("ui_card_density","compact"))?"Свободные":"Компактные",
+                "размер карточек плитки главная компактный свободный",this::chooseCardDensityDialog));
+        look.add(SettingsScreen.Item.toggle(R.drawable.ic_repository,"Репозитории плитками",
+                "Сетка вместо списка на вкладке «Репозитории»","сетка список плитки вид",
+                new SettingsScreen.Toggle(){
+                    @Override public boolean get(){return repositoriesGrid;}
+                    @Override public void set(boolean on){repositoriesGrid=on;prefs.edit().putBoolean("repositories_grid",on).apply();}
+                }));
+        look.add(SettingsScreen.Item.action(R.drawable.ic_repository,"Сортировка репозиториев",
+                "По умолчанию: "+repositorySortLabel(),"сортировка порядок звёзды название",
+                this::chooseRepositorySortDialog));
+        sections.add(look);
+        SettingsScreen.Section code=new SettingsScreen.Section("Код и изменения");
+        code.add(SettingsScreen.Item.action(R.drawable.ic_pull_request,"Сравнение изменений",
+                "split".equals(featureState.diffMode)?"Split · две колонки":"Unified · одна колонка",
+                "diff сравнение split unified pull request коммит",this::chooseDiffModeDialog));
+        code.add(SettingsScreen.Item.toggle(R.drawable.ic_pull_request,"Сворачивать неизменённые строки",
+                "Показывать в diff только контекст вокруг правок","diff контекст свернуть",
+                new SettingsScreen.Toggle(){
+                    @Override public boolean get(){return featureState.collapseDiffContext;}
+                    @Override public void set(boolean on){featureState.collapseDiffContext=on;prefs.edit().putBoolean("diff_collapse_context",on).apply();}
+                }));
+        sections.add(code);
+        SettingsScreen.Section translation=new SettingsScreen.Section("Перевод содержимого");
+        translation.add(SettingsScreen.Item.action(R.drawable.ic_globe,"Провайдер перевода",translatorDisplayName(),
+                "перевод переводчик api ключ endpoint openai libretranslate модель",this::configureTranslatorSettings));
+        translation.add(SettingsScreen.Item.toggle(R.drawable.ic_globe,"Автоперевод",
+                "Переводить иностранный текст при открытии","перевод автоматически язык",
+                new SettingsScreen.Toggle(){
+                    @Override public boolean get(){return prefs.getBoolean("translator_auto",false);}
+                    @Override public void set(boolean on){prefs.edit().putBoolean("translator_auto",on).apply();}
+                }));
+        translation.add(SettingsScreen.Item.action(R.drawable.ic_ai,"Как работает перевод",
+                "Код и Markdown не искажаются · в кэше "+translationCache.count()+" документов",
+                "перевод справка markdown код кэш",this::showTranslationInfo));
+        sections.add(translation);
+        return sections;
+    }
+
+    private void showSettingsInterface(){
+        setCurrentScreen(this::showSettingsInterface);
+        shell("Интерфейс",false);
+        new SettingsScreen(this,content,settingsPalette()).renderPage(null,tileColors[2],settingsInterfaceSections());
+    }
+
+    private List<SettingsScreen.Section> settingsNotificationSections(){
+        List<SettingsScreen.Section> sections=new ArrayList<>();
+        SettingsScreen.Section system=new SettingsScreen.Section("Уведомления");
+        system.add(SettingsScreen.Item.action(R.drawable.ic_bell,"Уведомления Android",
+                appNotificationsAllowed()?"Разрешены":"Выключены · нажмите, чтобы включить",
+                "уведомления разрешение push системные",this::openAppNotificationSettings));
+        sections.add(system);
+        SettingsScreen.Section watch=new SettingsScreen.Section("Что отслеживать");
+        watch.add(SettingsScreen.Item.action(R.drawable.ic_history,"Наблюдение за разработчиками",
+                trackingDb.statistics().optInt("developers",0)+" разработчиков · проверка каждые "
+                        +prefs.getInt("tracking_interval_hours",6)+" ч · события и пороги",
+                "наблюдение отслеживание разработчики интервал релизы звёзды фон",
+                ()->navigate(this::showTrackingSettings)));
+        watch.add(SettingsScreen.Item.action(R.drawable.ic_android,"Мониторинг сборок Actions",
+                BuildMonitor.watched(this).size()+" проектов · уведомления, автоскачивание APK",
+                "сборки actions apk артефакты мониторинг автоскачивание wi-fi",
+                ()->navigate(this::showBuildMonitorSettings)));
+        sections.add(watch);
+        SettingsScreen.Section diagnostics=new SettingsScreen.Section("Если уведомления не приходят");
+        diagnostics.add(SettingsScreen.Item.action(R.drawable.ic_settings,"Диагностика фоновых задач",
+                "JobScheduler, экономия батареи, MIUI/HyperOS",
+                "диагностика фон батарея jobscheduler miui hyperos автозапуск",
+                ()->navigate(this::showTrackingDiagnostics)));
+        diagnostics.note("Отдельные push-уведомления об Issues и Pull Requests пока не реализованы.");
+        sections.add(diagnostics);
+        return sections;
+    }
+
+    private void showSettingsNotifications(){
+        setCurrentScreen(this::showSettingsNotifications);
+        shell("Уведомления и фон",false);
+        new SettingsScreen(this,content,settingsPalette()).renderPage(null,tileColors[3],settingsNotificationSections());
+    }
+
+    private List<SettingsScreen.Section> settingsDataSections(){
+        List<SettingsScreen.Section> sections=new ArrayList<>();
+        SettingsScreen.Section storage=new SettingsScreen.Section("Данные на устройстве");
+        storage.add(SettingsScreen.Item.action(R.drawable.ic_repository,"Офлайн-кэш",
+                cacheSizeText()+" · "+entityCache.count()+" объектов, "+translationCache.count()+" переводов",
+                "кэш cache офлайн очистить место память",this::showCacheDialog));
+        int pending=features.offlineQueue.count(OfflineActionQueue.PENDING);
+        int conflicts=features.offlineQueue.count(OfflineActionQueue.CONFLICT);
+        int failed=features.offlineQueue.count(OfflineActionQueue.FAILED);
+        storage.add(SettingsScreen.Item.action(R.drawable.ic_history,"Офлайн-очередь",
+                pending+" ожидают · "+conflicts+" конфликтов · "+failed+" ошибок",
+                "офлайн очередь отложенные конфликты синхронизация",()->navigate(this::showOfflineQueue)));
+        sections.add(storage);
+        SettingsScreen.Section privacy=new SettingsScreen.Section("Перенос и конфиденциальность");
+        privacy.add(SettingsScreen.Item.action(R.drawable.ic_star,"Резервная копия настроек",
+                "Экспорт и импорт JSON без токенов","резервная копия backup экспорт импорт перенос",
+                ()->navigate(this::showPortableBackup)));
+        privacy.add(SettingsScreen.Item.action(R.drawable.ic_lock,"Мои данные",
+                "Экспорт или удаление всех локальных данных","конфиденциальность приватность удалить экспорт",
+                ()->navigate(this::showPrivacyAndData)));
+        privacy.add(SettingsScreen.Item.info(R.drawable.ic_lock,"Защита токена",
+                isSignedIn()?"Зашифрован Android Keystore":"Нет активного сеанса","токен безопасность keystore шифрование"));
+        privacy.note("PIN-код и биометрическая блокировка приложения пока не реализованы.");
+        sections.add(privacy);
+        return sections;
+    }
+
+    private void showSettingsData(){
+        setCurrentScreen(this::showSettingsData);
+        shell("Данные и безопасность",false);
+        new SettingsScreen(this,content,settingsPalette()).renderPage(null,tileColors[6],settingsDataSections());
+    }
+
+    /** Central home for all OmniChat-derived settings, grouped by purpose. */
+    private List<SettingsScreen.Section> settingsAgentSections(String owner){
+        List<SettingsScreen.Section> sections=new ArrayList<>();
+        final boolean accountReady=owner!=null&&!owner.isBlank()&&!"guest".equals(owner);
+        final String provider=aiConnections.selectedProvider(owner);
+        final AgentProjectStore.Project project=agentProjects.project(owner);
+
+        SettingsScreen.Section model=new SettingsScreen.Section("Модель и агент");
+        model.add(SettingsScreen.Item.action(R.drawable.ic_omni_robot,"Текущая модель",
+                provider.isEmpty()?"Не выбрана":aiConnections.displayName(provider)+" · "+aiConnections.model(owner,provider),
+                "модель ai llm выбрать",()->agentChooseComposerModel(owner)));
+        model.add(SettingsScreen.Item.action(R.drawable.ic_agent_auto_awesome,"Режим и исполнитель",
+                "Агент всегда включён · планирование и уровни разрешений",
+                "агент режим исполнитель разрешения планирование",()->agentShowAgentSettings(owner)));
+        model.add(SettingsScreen.Item.action(R.drawable.ic_agent_scan,"Обновление каталога моделей",
+                "Запросить список моделей выбранного подключения","каталог модели обновить",
+                ()->agentDiscoverAiModels(owner)));
+        model.add(SettingsScreen.Item.action(R.drawable.ic_history,"Использование и квоты",
+                "Токены из ответов API и локальные запросы","использование квоты токены лимиты",
+                ()->agentShowUsage(owner)));
+        if(!accountReady)model.note("Локальный режим: модели, чат, подписки и Workspace работают без GitHub. Для репозиториев и Actions нужен вход.");
+        sections.add(model);
+
+        SettingsScreen.Section connections=new SettingsScreen.Section("Подключения и подписки");
+        connections.add(SettingsScreen.Item.action(R.drawable.ic_agent_link,"Подключения API",
+                "Добавить, изменить и отключить API-провайдеры","api ключ провайдер подключение",
+                ()->agentConfigureAiProvider(owner)));
+        connections.add(SettingsScreen.Item.action(R.drawable.ic_profile,"Аккаунты и подписки",
+                "OpenAI, Cline, Gemini, Grok, Claude и другие","подписки аккаунты oauth",
+                ()->agentShowSubscriptions(owner,false)));
+        connections.add(SettingsScreen.Item.action(R.drawable.ic_agent_public,"Subscription Proxy",
+                "OAuth-сессии и доступные модели подписок","proxy прокси подписки oauth",
+                ()->agentShowSubscriptions(owner,true)));
+        connections.add(SettingsScreen.Item.action(R.drawable.ic_agent_extension,"Google Antigravity OAuth",
+                "Прямой OAuth и каталог моделей Cloud Code","google gemini antigravity oauth",
+                ()->agentBeginSubscription(owner,"gemini-antigravity")));
+        connections.add(SettingsScreen.Item.action(R.drawable.ic_agent_question_answer,"Каталог провайдеров",
+                "Поддерживаемые и планируемые сервисы","каталог провайдеры сервисы",
+                this::agentShowProviderCatalog));
+        sections.add(connections);
+
+        SettingsScreen.Section workspace=new SettingsScreen.Section("Workspace и память");
+        workspace.add(SettingsScreen.Item.action(R.drawable.ic_projects,"Рабочие пространства",
+                project.workspaceId.isEmpty()?"Локальные проекты и привязка к чатам":"Активен: "+project.name,
+                "workspace проект рабочее пространство",()->agentFeatures(owner).workspace()));
+        workspace.add(SettingsScreen.Item.action(R.drawable.ic_repository,"Файлы и инструменты Workspace",
+                "Редактор, индекс, поиск, snapshots, ZIP и папки","файлы редактор индекс zip snapshot",
+                ()->agentFeatures(owner).files()));
+        workspace.add(SettingsScreen.Item.action(R.drawable.ic_ai,"Память Git Agent",
+                "Контекст проектов, импорт и экспорт","память контекст",()->agentFeatures(owner).memory()));
+        workspace.add(SettingsScreen.Item.action(R.drawable.ic_history,"История и архив диалогов",
+                "Поиск по перепискам и экспорт JSON","история архив диалоги чат",()->agentFeatures(owner).history()));
+        sections.add(workspace);
+
+        SettingsScreen.Section rights=new SettingsScreen.Section("Что разрешено модели");
+        rights.add(SettingsScreen.Item.toggle(R.drawable.ic_lock,"Доступ AI к файлам Workspace",
+                "Модель сможет читать и искать файлы проекта. По умолчанию выключено",
+                "доступ файлы чтение разрешение",settingsPreferenceToggle("ai_tool_file_read_"+owner,false)));
+        rights.add(SettingsScreen.Item.toggle(R.drawable.ic_github_mark,"Чтение GitHub моделью",
+                "Список репозиториев, ветки и метаданные; OAuth-токен не передаётся. По умолчанию выключено",
+                "github чтение разрешение репозитории",settingsPreferenceToggle("ai_tool_github_read_"+owner,false)));
+        rights.add(SettingsScreen.Item.action(R.drawable.ic_github_mark,"Проверить GitHub-подключение",
+                "Аккаунт, видимые репозитории и доступ API","проверить подключение github",
+                ()->agentShowGitHubConnection(owner)));
+        sections.add(rights);
+
+        SettingsScreen.Section github=new SettingsScreen.Section("Действия агента с GitHub");
+        github.add(SettingsScreen.Item.action(R.drawable.ic_repository,"Репозитории GitHub",
+                "Доступные репозитории активного аккаунта","репозитории список",()->agentListRepositories(owner)));
+        github.add(SettingsScreen.Item.action(R.drawable.ic_repository,"Создать репозиторий",
+                "Запросит подтверждение имени и приватности","создать репозиторий новый",
+                ()->agentCreateRepository(owner,"",true)));
+        github.add(SettingsScreen.Item.action(R.drawable.ic_release,"Опубликовать Workspace в GitHub",
+                "Проверить файлы, выбрать ветку, создать коммит","опубликовать коммит push",
+                ()->agentPublishWorkspace(owner)));
+        github.add(SettingsScreen.Item.action(R.drawable.ic_agent_auto_awesome,"Автоматическая разработка",
+                "План AI, подтверждение и точка восстановления","автоматическая разработка код генерация",
+                ()->agentGenerateProjectCode(owner,"")));
+        github.add(SettingsScreen.Item.action(R.drawable.ic_android,"Сборки и диагностика",
+                "GitHub Actions и анализ результатов","сборки actions диагностика",()->agentChooseWorkflow(owner)));
+        github.add(SettingsScreen.Item.danger(R.drawable.ic_repository,"Удалить свой репозиторий",
+                "Двойное подтверждение и проверка прав","удалить репозиторий",()->agentDeleteRepository(owner,"")));
+        sections.add(github);
+
+        SettingsScreen.Section network=new SettingsScreen.Section("Сеть и голос");
+        network.add(SettingsScreen.Item.action(R.drawable.ic_globe,"DNS и Smart Routing",
+                "Системный DNS, DoH, DoT, проверки провайдеров","dns doh dot сеть маршрутизация",
+                ()->agentFeatures(owner).network()));
+        network.add(SettingsScreen.Item.action(R.drawable.ic_lock,"Xray / VLESS",
+                "Зашифрованные профили, подключение и переключение","xray vless vpn прокси",
+                ()->agentFeatures(owner).xray()));
+        network.add(SettingsScreen.Item.action(R.drawable.ic_mic,"Диктовка",
+                "en-US".equals(voiceLanguage())?"English (en-US)":"Русский (ru-RU)",
+                "голос микрофон диктовка речь язык",()->showVoiceLanguageChooser(this::rerenderSettings)));
+        network.note("Live, мультимедиа, OCR, MCP и панель реальных квот появятся здесь после реализации.");
+        sections.add(network);
+        return sections;
+    }
+
+    private void showSettingsGitAgentWorkspace(){
+        setCurrentScreen(this::showSettingsGitAgentWorkspace);
+        shell("Git Agent и Workspace",false);
+        new SettingsScreen(this,content,settingsPalette())
+                .renderPage(null,tileColors[1],settingsAgentSections(accountStore.activeCacheKey()));
+    }
+
+    private List<SettingsScreen.Section> settingsAboutSections(){
+        List<SettingsScreen.Section> sections=new ArrayList<>();
+        SettingsScreen.Section about=new SettingsScreen.Section("GitHubble");
+        about.add(SettingsScreen.Item.action(R.drawable.ic_settings,"Версия "+BuildConfig.VERSION_NAME,
+                "Канал "+BuildConfig.RC_CHANNEL+" · сведения о сборке",
+                "версия сборка канал release candidate",()->navigate(this::showReleaseCandidateStatus)));
+        about.add(SettingsScreen.Item.action(R.drawable.ic_tools,"Экспорт диагностики",
+                "ZIP без токенов и API-ключей","диагностика логи отчёт ошибка zip",this::exportDiagnostics));
+        sections.add(about);
+        return sections;
+    }
+
+    private void showSettingsAbout(){
+        setCurrentScreen(this::showSettingsAbout);
+        shell("О приложении",false);
+        new SettingsScreen(this,content,settingsPalette()).renderPage(null,tileColors[7],settingsAboutSections());
+    }
+
+    private SettingsScreen.Toggle settingsPreferenceToggle(String key,boolean defaultValue){
+        return new SettingsScreen.Toggle(){
+            @Override public boolean get(){return prefs.getBoolean(key,defaultValue);}
+            @Override public void set(boolean on){prefs.edit().putBoolean(key,on).apply();}
+        };
+    }
+
+    /** Re-reads UI preferences that are cached in fields (after a backup import). */
+    private void reloadUiPreferences(){
+        repositoriesGrid=prefs.getBoolean("repositories_grid",false);
+        repositoriesSort=prefs.getString("repositories_sort","updated");
+        featureState.diffMode=prefs.getString("diff_mode",featureState.diffMode);
+        featureState.collapseDiffContext=prefs.getBoolean("diff_collapse_context",featureState.collapseDiffContext);
+    }
+
+    private void chooseThemeDialog(){
+        final String[] ids={"light","beige","dark"};
+        final String[] labels={"Светлая — белая и зелёная","Бежевая — тёплая и зелёная","Тёмная — графитовая и зелёная"};
+        int checked="beige".equals(activeTheme)?1:"dark".equals(activeTheme)?2:0;
+        new AlertDialog.Builder(this).setTitle("Тема оформления")
+                .setSingleChoiceItems(labels,checked,(dialog,which)->{
+                    dialog.dismiss();
+                    if(ids[which].equals(activeTheme))return;
+                    prefs.edit().putString("theme",ids[which]).apply();
+                    switchLauncherIcon(ids[which]);
+                    applyTheme();
+                    rerenderSettings();
+                }).setNegativeButton("Отмена",null).show();
+    }
+
+    private void chooseCardDensityDialog(){
+        final String[] ids={"compact","spacious"};
+        final String[] labels={"Компактные — больше информации на экране","Свободные — крупные плитки и рекомендации"};
+        int checked="spacious".equals(prefs.getString("ui_card_density","compact"))?1:0;
+        new AlertDialog.Builder(this).setTitle("Карточки на главной")
+                .setSingleChoiceItems(labels,checked,(dialog,which)->{
+                    dialog.dismiss();
+                    prefs.edit().putString("ui_card_density",ids[which]).apply();
+                    rerenderSettings();
+                }).setNegativeButton("Отмена",null).show();
+    }
+
+    private void chooseRepositorySortDialog(){
+        final String[] values={"updated","name","stars"};
+        final String[] labels={"Недавно обновлённые","По названию","По звёздам"};
+        int checked=0;for(int i=0;i<values.length;i++)if(values[i].equals(repositoriesSort))checked=i;
+        new AlertDialog.Builder(this).setTitle("Сортировка репозиториев")
+                .setSingleChoiceItems(labels,checked,(dialog,which)->{
+                    dialog.dismiss();
+                    repositoriesSort=values[which];
+                    prefs.edit().putString("repositories_sort",repositoriesSort).apply();
+                    rerenderSettings();
+                }).setNegativeButton("Отмена",null).show();
+    }
+
+    private void chooseDiffModeDialog(){
+        final String[] values={"unified","split"};
+        final String[] labels={"Unified — одна колонка","Split — две колонки, было и стало"};
+        int checked="split".equals(featureState.diffMode)?1:0;
+        new AlertDialog.Builder(this).setTitle("Сравнение изменений")
+                .setSingleChoiceItems(labels,checked,(dialog,which)->{
+                    dialog.dismiss();
+                    featureState.diffMode=values[which];
+                    prefs.edit().putString("diff_mode",values[which]).apply();
+                    rerenderSettings();
+                }).setNegativeButton("Отмена",null).show();
+    }
+
+    private String voiceLanguage(){
+        return prefs.getString("voice_search_language",
+                "ru".equalsIgnoreCase(Locale.getDefault().getLanguage())?"ru-RU":"en-US");
+    }
+
+    private boolean appNotificationsAllowed(){
+        if(Build.VERSION.SDK_INT>=33&&checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+                !=PackageManager.PERMISSION_GRANTED)return false;
+        NotificationManager manager=(NotificationManager)getSystemService(NOTIFICATION_SERVICE);
+        return manager==null||manager.areNotificationsEnabled();
+    }
+
+    private void openAppNotificationSettings(){
+        if(Build.VERSION.SDK_INT>=33&&checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+                !=PackageManager.PERMISSION_GRANTED&&!prefs.getBoolean("notification_permission_asked",false)){
+            prefs.edit().putBoolean("notification_permission_asked",true).apply();
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},REQUEST_SETTINGS_NOTIFICATIONS);
+            return;
+        }
+        try{
+            Intent intent=new Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS);
+            intent.putExtra(android.provider.Settings.EXTRA_APP_PACKAGE,getPackageName());
+            startActivity(intent);
+        }catch(Exception error){
+            try{startActivity(TrackingDiagnostics.appDetailsIntent(this));}
+            catch(Exception ignored){toast("Откройте настройки уведомлений Android вручную");}
+        }
     }
 
     private void settingsSubheader(String title,String subtitle,int icon){
@@ -8525,11 +8914,7 @@ public class MainActivity extends Activity {
     }
 
     private boolean isSettingsDetail(){
-        return "Аккаунт и доступ".equals(currentTitle)||"Интерфейс".equals(currentTitle)
-            ||"Уведомления".equals(currentTitle)||"Данные и синхронизация".equals(currentTitle)
-            ||"Git Agent и Workspace".equals(currentTitle)
-            ||"Безопасность".equals(currentTitle)||"О приложении".equals(currentTitle)
-            ||"Настройки наблюдения".equals(currentTitle)||"Мониторинг сборок".equals(currentTitle)||"Оформление".equals(currentTitle)||"Размер карточек".equals(currentTitle)
+        return "Настройки наблюдения".equals(currentTitle)||"Мониторинг сборок".equals(currentTitle)
             ||"Конфиденциальность и данные".equals(currentTitle)||"Резервная копия".equals(currentTitle);
     }
 
@@ -8575,27 +8960,6 @@ public class MainActivity extends Activity {
         return R.drawable.ic_profile;
     }
 
-
-    private void showSettingsAccount(){
-        setCurrentScreen(this::showSettingsAccount);
-        shell("Аккаунт и доступ",false);
-        settingsSubheader("Аккаунт и GitHub","Подключение и разрешения",R.drawable.ic_profile);
-        String login=getProfileLogin();
-        settingsActionRow("Личный профиль",isSignedIn()?
-                (login.isEmpty()?"GitHub подключён":"@"+login):"Не подключён",
-                () -> navigate(this::showProfile));
-        settingsActionRow("Аккаунты GitHub",accountStore.count()+" из "+GitHubAccountStore.MAX_ACCOUNTS+
-                (login.isEmpty()?"":" · активен @"+login),
-                () -> navigate(this::showAccountSwitcher));
-        settingsActionRow("GitHub App","Подключение, тариф и Actions",
-                () -> navigate(this::showAccountCenter));
-        settingsActionRow("Менеджер хранилища Actions","Артефакты, срок хранения и очистка по проектам",
-                () -> navigate(this::showActionsStorageRepositories));
-        settingsActionRow("Приватные репозитории","Разрешения и синхронизация",
-                this::openPrivateRepositoryAccess);
-        if(isSignedIn())settingsActionRow("Отключить аккаунт","Удалить локальный сеанс",
-                this::confirmSignOut);
-    }
 
     private void showAccountSwitcher(){
         setCurrentScreen(this::showAccountSwitcher);
@@ -8646,7 +9010,7 @@ public class MainActivity extends Activity {
         if(!accountStore.switchTo(account.id)){toast("Не удалось открыть сохранённую сессию @"+account.login);return;}
         onActiveGitHubAccountChanged();
         toast("Активный аккаунт: "+account.displayName());
-        showAccountSwitcher();
+        if("Аккаунт и GitHub".equals(currentTitle))showSettingsAccount();else showAccountSwitcher();
         refreshActiveAccountAfterSwitch();
     }
 
@@ -8696,7 +9060,7 @@ public class MainActivity extends Activity {
         clearLocalDataForGitHubAccount(account,scope);
         accountStore.remove(account.id);
         onActiveGitHubAccountChanged();
-        showAccountSwitcher();
+        if("Аккаунт и GitHub".equals(currentTitle))showSettingsAccount();else showAccountSwitcher();
         if(isSignedIn()||oauth.canRefresh())refreshActiveAccountAfterSwitch();
     }
 
@@ -8759,184 +9123,6 @@ public class MainActivity extends Activity {
         }catch(Exception e){return Integer.toHexString(identity.hashCode());}
     }
 
-    private void showSettingsInterface(){
-        setCurrentScreen(this::showSettingsInterface);
-        shell("Интерфейс",false);
-        settingsSubheader("Внешний вид","Оформление и перевод содержимого",R.drawable.ic_tools);
-        settingsActionRow("Тема оформления",themeDisplayName(),() -> navigate(this::showThemeChooser));
-        settingsActionRow("Размер карточек", "spacious".equals(prefs.getString("ui_card_density","compact")) ? "Свободный" : "Компактный", () -> navigate(this::showCardSizeChooser));
-        settingsRow("Язык интерфейса","Русский · другие языки пока не поддерживаются");
-        sectionTitle("Перевод",null);
-        settingsActionRow("Как работает перевод","Защита кода и Markdown",this::showTranslationInfo);
-        settingsActionRow("Провайдер перевода",translatorDisplayName(),this::configureTranslatorSettings);
-        settingsToggleRow("Автоперевод","Переводить иностранный контент при открытии",
-                "translator_auto",false);
-        settingsRow("Кэш переводов",translationCache.count()+" документов");
-    }
-
-    private void showSettingsNotifications(){
-        setCurrentScreen(this::showSettingsNotifications);
-        shell("Уведомления",false);
-        settingsSubheader("События и наблюдение","Настройки реальных фоновых проверок",R.drawable.ic_bell);
-        settingsActionRow("Наблюдаемые разработчики",
-                trackingDb.statistics().optInt("developers",0)+" разработчиков",
-                () -> navigate(this::showTracking));
-        settingsActionRow("Мониторинг сборок GitHub",
-                "APK, ZIP, завершение Actions и уведомления",
-                () -> navigate(this::showBuildMonitorSettings));
-        settingsActionRow("Центр сборок",
-                "Последние запуски и доступные артефакты",
-                () -> navigate(this::showBuildCenter));
-        settingsActionRow("Фоновые проверки",
-                "Интервал и типы уведомлений",() -> navigate(this::showTrackingSettings));
-        settingsActionRow("Диагностика фона","JobScheduler и ограничения системы",
-                this::showTrackingDiagnostics);
-        settingsActionRow("Открыть активность","События доступных источников GitHub",
-                () -> navigate(this::showNotifications));
-        TextView hint=text("Отдельное управление push-уведомлениями Issues и PR пока не реализовано. "+
-                "Настройки выше относятся к отслеживанию разработчиков и репозиториев.",11,false);
-        hint.setTextColor(MUTED);
-        card(hint);
-    }
-
-    private void showSettingsData(){
-        setCurrentScreen(this::showSettingsData);
-        shell("Данные и синхронизация",false);
-        settingsSubheader("Локальные данные","Кэш, офлайн и резервные копии",R.drawable.ic_repository);
-        settingsActionRow("Центр сборок и артефакты",
-                "Сборки, APK, скачивание и локальный архив",
-                () -> navigate(this::showBuildCenter));
-        settingsActionRow("Хранилище Actions","Правила хранения, загрузки, удаление и квоты",
-                () -> navigate(this::showActionsStorageRepositories));
-        settingsActionRow("Мониторинг сборок",
-                "Выбор проектов, фоновые проверки и уведомления",
-                () -> navigate(this::showBuildMonitorSettings));
-        settingsActionRow("Офлайн-кэш",cacheSizeText(),this::showCacheDialog);
-        int pending=features.offlineQueue.count(OfflineActionQueue.PENDING);
-        int conflicts=features.offlineQueue.count(OfflineActionQueue.CONFLICT);
-        int failed=features.offlineQueue.count(OfflineActionQueue.FAILED);
-        settingsActionRow("Офлайн-очередь",
-                pending+" ожидают · "+conflicts+" конфликтов · "+failed+" ошибок",
-                () -> navigate(this::showOfflineQueue));
-        settingsActionRow("Резервная копия","Избранное, наблюдение и настройки",
-                () -> navigate(this::showPortableBackup));
-        settingsActionRow("Фоновые проверки","Интервал синхронизации наблюдения",
-                () -> navigate(this::showTrackingSettings));
-        settingsRow("Кэш объектов GitHub",entityCache.count()+" объектов");
-        settingsRow("Остаток GitHub API",
-                api.getRemaining()<0?"Не определён":String.valueOf(api.getRemaining()));
-    }
-
-    /** Central home for all OmniChat-derived settings. Future controls belong here,
-     * not in the Git Agent chat drawer or GitHub account/security preferences. */
-    private void showSettingsGitAgentWorkspace(){
-        setCurrentScreen(this::showSettingsGitAgentWorkspace);
-        shell("Git Agent и Workspace",false);
-        settingsSubheader("Git Agent и Workspace",
-                "Единый центр настроек AI, рабочих пространств и подключений",
-                R.drawable.ic_agent_link);
-        final String owner=accountStore.activeCacheKey();
-        final boolean accountReady=owner!=null&&!owner.isBlank()&&!"guest".equals(owner);
-        // Local guest AI credentials are encrypted and do not require GitHub OAuth.
-        final String provider=aiConnections.selectedProvider(owner);
-        final AgentProjectStore.Project project=agentProjects.project(owner);
-        if(!accountReady) {
-            TextView hint=text("Локальный режим: AI-модели, чат, подписки и Workspace доступны "+
-                    "без GitHub. Для репозиториев и Actions необходим отдельный вход.",12,false);
-            hint.setTextColor(MUTED);card(hint);
-        }
-
-        sectionTitle("Агент и модели",null);
-        settingsActionRow("Режим и исполнитель",
-                "Агент всегда включён · планирование и уровни разрешений",
-                ()->agentShowAgentSettings(owner));
-        settingsActionRow("Текущая модель",
-                provider.isEmpty()?"Не выбрана":aiConnections.displayName(provider)+" · "+aiConnections.model(owner,provider),
-                ()->agentChooseComposerModel(owner));
-        settingsActionRow("Подключения API",
-                "Добавить, изменить и отключить API-провайдеры",
-                ()->agentConfigureAiProvider(owner));
-        settingsActionRow("Аккаунты и подписки",
-                "OpenAI, Cline, Gemini, Grok, Claude и другие",
-                ()->agentShowSubscriptions(owner,false));
-        settingsActionRow("Subscription Proxy",
-                "OAuth-сессии и доступные модели подписок",
-                ()->agentShowSubscriptions(owner,true));
-        settingsActionRow("Обновление каталога моделей",
-                "Запросить список моделей выбранного подключения",
-                ()->agentDiscoverAiModels(owner));
-        settingsActionRow("Каталог провайдеров",
-                "Информация о поддерживаемых и планируемых сервисах",
-                this::agentShowProviderCatalog);
-        settingsActionRow("Google Antigravity OAuth",
-                "Прямой OAuth и серверный каталог моделей Cloud Code",
-                ()->agentBeginSubscription(owner,"gemini-antigravity"));
-        settingsActionRow("Использование и квоты",
-                "Токены из ответов API и локальные запросы",
-                ()->agentShowUsage(owner));
-
-        sectionTitle("Workspace и контекст",null);
-        settingsActionRow("Рабочие пространства",
-                project.workspaceId.isEmpty()?"Локальные проекты и привязка к чатам":"Активен: "+project.name,
-                ()->agentFeatures(owner).workspace());
-        settingsActionRow("Файлы и инструменты Workspace",
-                "Редактор, индекс, поиск, snapshots, ZIP и папки устройства",
-                ()->agentFeatures(owner).files());
-        settingsActionRow("Память Git Agent",
-                "Запоминание, контекст проектов, импорт и экспорт",
-                ()->agentFeatures(owner).memory());
-        settingsActionRow("История и архив диалогов",
-                "Поиск по старым перепискам и экспорт JSON",
-                ()->agentFeatures(owner).history());
-        settingsToggleRow("Доступ AI к файлам Workspace",
-                "При включении выбранный AI-провайдер сможет читать файлы и искать по проекту. Выключено по умолчанию.",
-                "ai_tool_file_read_"+owner,false);
-        settingsToggleRow("Чтение GitHub моделью",
-                "Разрешить AI-провайдеру получать через Git Agent список репозиториев, ветки и метаданные. "+
-                "GitHub OAuth-токен модели не передаётся. Выключено по умолчанию.",
-                "ai_tool_github_read_"+owner,false);
-        settingsActionRow("Проверить GitHub-подключение",
-                "Авторизованный аккаунт, видимые репозитории и доступ API",
-                ()->agentShowGitHubConnection(owner));
-        settingsActionRow("Репозитории GitHub",
-                "Показать доступные репозитории активного аккаунта",
-                ()->agentListRepositories(owner));
-        settingsActionRow("Создать репозиторий",
-                "GitHub API · запросит подтверждение имени и приватности",
-                ()->agentCreateRepository(owner,"",true));
-        settingsActionRow("Опубликовать Workspace в GitHub",
-                "Проверить файлы, выбрать ветку и создать подтверждённый коммит",
-                ()->agentPublishWorkspace(owner));
-        settingsActionRow("Удалить свой репозиторий",
-                "Опасная операция: двойное подтверждение и проверка прав",
-                ()->agentDeleteRepository(owner,""));
-        settingsActionRow("Автоматическая разработка",
-                "План AI, подтверждение и точка восстановления",
-                ()->agentGenerateProjectCode(owner,""));
-        settingsActionRow("Сборки и диагностика",
-                "GitHub Actions и анализ результатов",
-                ()->agentChooseWorkflow(owner));
-
-        sectionTitle("Сеть и маршрутизация",null);
-        settingsActionRow("DNS и Smart Routing",
-                "Системный DNS, DoH, DoT, реестр и проверки провайдеров",
-                ()->agentFeatures(owner).network());
-        settingsActionRow("Xray / VLESS",
-                "Зашифрованные профили, подключение и переключение",
-                ()->agentFeatures(owner).xray());
-
-        sectionTitle("Голос и дополнительные функции",null);
-        settingsActionRow("Диктовка",
-                "Язык распознавания и голосовой ввод",
-                this::showVoiceLanguageChooser);
-        TextView planned=text(
-                "Live, мультимедиа, OCR, MCP, полноценная оркестрация и "+
-                "панель реальных квот появятся здесь после реализации. "+
-                "Недоступные функции не выдаются за рабочие.",12,false);
-        planned.setTextColor(MUTED);
-        card(planned);
-    }
-
     /** Local request statistics; remaining provider subscription quotas need official APIs. */
     private void agentShowUsage(String owner){
         if(!owner.equals(accountStore.activeCacheKey()))return;
@@ -8959,39 +9145,6 @@ public class MainActivity extends Activity {
             "Токены отображаются лишь тогда, когда провайдер вернул usage. "+
             "Остатки тарифных квот будут добавляться только через подтверждённые официальные методы провайдеров.",12,false);
         note.setTextColor(MUTED);card(note);
-    }
-
-    private void showSettingsSecurity(){
-        setCurrentScreen(this::showSettingsSecurity);
-        shell("Безопасность",false);
-        settingsSubheader("Защита данных","Сеанс GitHub и локальная конфиденциальность",R.drawable.ic_lock);
-        settingsRow("Защита токена",isSignedIn()?"Android Keystore":"Нет активного сеанса");
-        settingsActionRow("Конфиденциальность и данные",
-                "Экспорт и удаление локальных данных",() -> navigate(this::showPrivacyAndData));
-        settingsActionRow("Разрешения GitHub App","Проверка доступа",
-                this::openPrivateRepositoryAccess);
-        if(isSignedIn())settingsActionRow("Выйти из GitHub","Завершить локальный сеанс",
-                this::confirmSignOut);
-        TextView hint=text("PIN-код и биометрическая блокировка самого приложения пока не реализованы. "+
-                "Шифрование токена не заменяет блокировку входа в GitHubble.",11,false);
-        hint.setTextColor(MUTED);
-        card(hint);
-    }
-
-    private void showSettingsAbout(){
-        setCurrentScreen(this::showSettingsAbout);
-        shell("О приложении",false);
-        settingsSubheader("GitHubble "+BuildConfig.VERSION_NAME,
-                "Нативный Android-клиент GitHub",R.drawable.ic_settings);
-        settingsRow("Версия",BuildConfig.VERSION_NAME);
-        settingsRow("Канал",BuildConfig.RC_CHANNEL);
-        settingsRow("GitHub App","GiHubble");
-        settingsActionRow("Сведения о сборке","Release Candidate и состояние приложения",
-                () -> navigate(this::showReleaseCandidateStatus));
-        settingsActionRow("Экспорт диагностики","ZIP без OAuth-токена и API-ключей",
-                this::exportDiagnostics);
-        settingsActionRow("Диагностика фоновых задач","JobScheduler и MIUI",
-                this::showTrackingDiagnostics);
     }
 
     private void showOfflineQueue(){
@@ -9038,6 +9191,10 @@ public class MainActivity extends Activity {
 
     @Override public void onRequestPermissionsResult(int requestCode,String[] permissions,int[] grantResults){
         super.onRequestPermissionsResult(requestCode,permissions,grantResults);
+        if(requestCode==REQUEST_SETTINGS_NOTIFICATIONS){
+            if("Настройки".equals(currentTitle)||"Уведомления и фон".equals(currentTitle))rerenderSettings();
+            return;
+        }
         if(requestCode==REQUEST_VOICE_AUDIO){
             if(grantResults.length>0&&grantResults[0]==PackageManager.PERMISSION_GRANTED){
                 if(voiceTarget!=null&&voiceTarget.isAttachedToWindow())beginVoiceInput();
@@ -9088,7 +9245,7 @@ public class MainActivity extends Activity {
         if(requestCode==REQUEST_REPOSITORY_FOLDER||requestCode==REQUEST_REPOSITORY_ZIP||requestCode==REQUEST_REPOSITORY_FILE){handleRepositoryImportUri(requestCode,uri);return;}
         if(requestCode==REQUEST_EXPORT_PORTABLE){try(OutputStream out=getContentResolver().openOutputStream(uri)){if(out==null)throw new IOException("Не удалось открыть файл");out.write(pendingPortableExport.getBytes(StandardCharsets.UTF_8));out.flush();pendingPortableExport="";toast("Резервная копия сохранена");}catch(Exception e){errorDialog("Ошибка экспорта",e.getMessage());}}
         else if(requestCode==REQUEST_EXPORT_USER_DATA){try(OutputStream out=getContentResolver().openOutputStream(uri)){if(out==null)throw new IOException("Не удалось открыть файл");out.write(pendingUserDataExport.getBytes(StandardCharsets.UTF_8));out.flush();pendingUserDataExport="";toast("Данные пользователя экспортированы");}catch(Exception e){errorDialog("Ошибка экспорта данных",e.getMessage());}}
-        else if(requestCode==REQUEST_IMPORT_PORTABLE){try(InputStream in=getContentResolver().openInputStream(uri)){if(in==null)throw new IOException("Не удалось открыть файл");JSONObject root=new JSONObject(readAll(in));PortableSettingsManager.ImportResult r=features.portableSettings.importData(root);applyTheme();TrackingJobService.schedule(this,prefs.getInt("tracking_interval_hours",6));new AlertDialog.Builder(this).setTitle("Импорт завершён").setMessage("Добавлено избранных: "+r.favoritesAdded+"\nДобавлено разработчиков: "+r.developersAdded+"\nПрименено настроек: "+r.settingsApplied).setPositiveButton("ОК",(d,w)->showPortableBackup()).show();}catch(Exception e){errorDialog("Ошибка импорта",e.getMessage());}}
+        else if(requestCode==REQUEST_IMPORT_PORTABLE){try(InputStream in=getContentResolver().openInputStream(uri)){if(in==null)throw new IOException("Не удалось открыть файл");JSONObject root=new JSONObject(readAll(in));PortableSettingsManager.ImportResult r=features.portableSettings.importData(root);reloadUiPreferences();applyTheme();TrackingJobService.schedule(this,prefs.getInt("tracking_interval_hours",6));new AlertDialog.Builder(this).setTitle("Импорт завершён").setMessage("Добавлено избранных: "+r.favoritesAdded+"\nДобавлено разработчиков: "+r.developersAdded+"\nПрименено настроек: "+r.settingsApplied).setPositiveButton("ОК",(d,w)->showPortableBackup()).show();}catch(Exception e){errorDialog("Ошибка импорта",e.getMessage());}}
     }
 
     private void settingsRow(String title,String value){settingsActionRow(title,value,null);}
@@ -9251,41 +9408,6 @@ public class MainActivity extends Activity {
     }
 
     private String themeDisplayName(){ return "beige".equals(activeTheme)?"Бежевая":"dark".equals(activeTheme)?"Тёмная":"Светлая"; }
-
-    private void showThemeChooser(){
-        setCurrentScreen(this::showThemeChooser);shell("Оформление",false);
-        settingsPanelHeader("Тема оформления","Выберите цветовую схему GitHubble",R.drawable.ic_tools);
-        String[] ids={"light","beige","dark"};
-        String[] titles={"Светлая","Бежевая","Тёмная"};
-        String[] descriptions={"Белая и зелёная","Тёплая, бежевая и зелёная","Графитовая и зелёная"};
-        for(int i=0;i<ids.length;i++){
-            final String theme=ids[i];
-            nestedSettingsRow(titles[i]+(theme.equals(activeTheme)?"  ✓":""),
-                    descriptions[i],R.drawable.ic_tools,theme.equals(activeTheme)?GREEN:0xFF7D6E9F,()->{
-                        prefs.edit().putString("theme",theme).apply();
-                        switchLauncherIcon(theme);
-                        applyTheme();
-                        showThemeChooser();
-                    });
-        }
-    }
-
-    private void showCardSizeChooser(){
-        setCurrentScreen(this::showCardSizeChooser);shell("Размер карточек",false);
-        settingsPanelHeader("Размер карточек",
-                "Влияет на плитки и рекомендации главной страницы",R.drawable.ic_tools);
-        String density=prefs.getString("ui_card_density","compact");
-        nestedSettingsRow("Компактный"+("compact".equals(density)?"  ✓":""),
-                "Больше информации на одном экране",R.drawable.ic_repository,GREEN,()->{
-                    prefs.edit().putString("ui_card_density","compact").apply();showCardSizeChooser();
-                });
-        nestedSettingsRow("Свободный"+("spacious".equals(density)?"  ✓":""),
-                "Увеличенные плитки и карточки рекомендаций",R.drawable.ic_repository,GREEN,()->{
-                    prefs.edit().putString("ui_card_density","spacious").apply();showCardSizeChooser();
-                });
-        TextView hint=text("Изменение применяется при следующем открытии главной страницы.",11,false);
-        hint.setTextColor(MUTED);card(hint);
-    }
 
     private ComponentName launcherAliasComponent(String suffix){
         String activityClass=MainActivity.class.getName();
@@ -9641,6 +9763,7 @@ public class MainActivity extends Activity {
                     if(!requestedToken.equals(secureStore.get("github_token")))return;
                     if("Профиль".equals(currentTitle))renderProfilePage(false);
                     else if("Аккаунты GitHub".equals(currentTitle))showAccountSwitcher();
+                    else if("Аккаунт и GitHub".equals(currentTitle))showSettingsAccount();
                     if(checkInstallation&&openInstall){
                         toast("GiHubble не установлен для @"+login+" — открываем установку");
                         openGitHubAppInstallPage();
