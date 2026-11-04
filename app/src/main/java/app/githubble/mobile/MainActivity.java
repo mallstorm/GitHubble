@@ -289,7 +289,7 @@ public class MainActivity extends Activity {
         aiGithub = new GitHubAgentBridge(accountStore, secureStore, api);
         aiConnections = new OmniChatConnectionStore(this, secureStore);
         oauthSubscriptions=new OAuthSubscriptions(this,aiConnections);
-        aiChatClient = new OmniChatChatClient(oauthSubscriptions);
+        aiChatClient = new OmniChatChatClient(this,oauthSubscriptions,aiConnections);
         aiUsage = new app.githubble.mobile.agent.AiUsageLedger(this);
         oauth = new OAuthManager(this, secureStore);
         migrateLegacyAccountCache();
@@ -1118,9 +1118,16 @@ public class MainActivity extends Activity {
         TextView instructions = text("Настройка " + aiConnections.displayName(provider)
                 + ". Ключ хранится зашифрованным для текущего AI-профиля.", 12, false);
         fields.addView(instructions);
+        JSONObject config=aiConnections.configuration(expected,provider);
+        EditText endpoint=new EditText(this);endpoint.setSingleLine(true);endpoint.setTextColor(TEXT);
+        endpoint.setHint("API base URL · HTTPS или локальный HTTP");endpoint.setText(config.optString("base_url"));fields.addView(endpoint);
+        EditText protocol=new EditText(this);protocol.setSingleLine(true);protocol.setTextColor(TEXT);
+        protocol.setHint("openai-chat / openai-responses / anthropic / gemini / ollama");protocol.setText(config.optString("protocol","openai-chat"));fields.addView(protocol);
+        EditText scope=new EditText(this);scope.setSingleLine(true);scope.setTextColor(TEXT);
+        scope.setHint("Folder / Account ID / OAuth scope при необходимости");scope.setText(config.optString("auth_scope"));fields.addView(scope);
         EditText model = new EditText(this);
         model.setSingleLine(true);
-        model.setHint("ID модели (например, gpt-5-mini)");
+        model.setHint("ID модели · пусто — загрузить каталог сервера");
         model.setTextColor(TEXT);
         model.setText(aiConnections.model(expected, provider));
         fields.addView(model);
@@ -1139,11 +1146,13 @@ public class MainActivity extends Activity {
             try {
                 if (!expected.equals(accountStore.activeCacheKey()))
                     throw new IllegalStateException("GitHub-аккаунт изменился");
-                aiConnections.save(expected, provider, model.getText().toString(), key.getText().toString());
+                aiConnections.configure(expected,provider,endpoint.getText().toString(),protocol.getText().toString(),scope.getText().toString());
+                aiConnections.saveApiConnection(expected,provider,model.getText().toString(),key.getText().toString());
                 key.setText("");
                 dialog.dismiss();
                 toast("AI-подключение сохранено");
                 agentRefreshIfCurrent(expected);
+                agentDiscoverAiModels(expected);
             } catch (Exception error) {
                 new AlertDialog.Builder(this).setTitle("Не удалось подключить AI")
                         .setMessage(error.getMessage()).setPositiveButton("ОК", null).show();
@@ -1191,7 +1200,7 @@ public class MainActivity extends Activity {
     private void agentDiscoverAiModels(String expected) {
         if (!expected.equals(accountStore.activeCacheKey())) return;
         String provider = aiConnections.selectedProvider(expected);
-        if (provider.isEmpty() || !(OAuthSubscriptions.supports(provider)?aiConnections.hasKey(expected,provider):aiConnections.isConfigured(expected, provider))) {
+        if (provider.isEmpty() || !aiConnections.hasKey(expected,provider)) {
             agentChooseComposerModel(expected); return;
         }
         ProgressDialog loading = ProgressDialog.show(this, "Git Agent",
@@ -1199,12 +1208,12 @@ public class MainActivity extends Activity {
         String key = aiConnections.credential(expected, provider);
         io.execute(() -> {
             try {
-                java.util.List<String> models = aiChatClient.discoverModels(provider, key);
+                java.util.List<String> models = aiChatClient.discoverModelsForAccount(expected,provider,key);
                 runOnUiThread(() -> {
                     loading.dismiss();
                     if (!expected.equals(accountStore.activeCacheKey())) return;
                     aiConnections.cacheModels(expected, provider, models);
-                    if(!models.isEmpty()&&OAuthSubscriptions.supports(provider)&&aiConnections.model(expected,provider).isEmpty()){
+                    if(!models.isEmpty()&&aiConnections.model(expected,provider).isEmpty()){
                         aiConnections.save(expected,provider,models.get(0),"");agentRefreshIfCurrent(expected);
                     }
                     if (models.isEmpty()) {
@@ -1439,7 +1448,7 @@ public class MainActivity extends Activity {
         ui.note(body,"AI-подписки доступны без GitHub. OAuth-сессии шифруются "+
             "для текущего профиля приложения.");
         final Dialog[] sheet={null};
-        for(String provider:new String[]{OAuthSubscriptions.OPENAI,OAuthSubscriptions.CLINE,OAuthSubscriptions.KIMI,OAuthSubscriptions.GROK,"gemini-antigravity","claude-subscription"}){
+        for(String provider:proxy?new String[]{"proxy-chatgpt","proxy-gemini","proxy-claude","proxy-grok"}:new String[]{"chatgpt-plan",OAuthSubscriptions.CLINE,OAuthSubscriptions.KIMI,OAuthSubscriptions.GROK,"gemini-antigravity","claude-subscription"}){
             boolean saved=aiConnections.hasKey(owner,provider);
             String detail="Войти через OAuth · без API-ключа";
             if(saved){
@@ -1451,9 +1460,7 @@ public class MainActivity extends Activity {
                 if(!aiConnections.isConfigured(owner,provider))detail="Сессия сохранена · требуется загрузить модели";
             }
             final boolean connected=saved;
-            ui.action(body,"gemini-antigravity".equals(provider)
-                ?"Google Antigravity · старый Cloud Code (не поддерживается)"
-                :aiConnections.displayName(provider),detail,0xFF276D8A,()->{
+            ui.action(body,aiConnections.displayName(provider),detail,0xFF276D8A,()->{
                 sheet[0].dismiss();if(!owner.equals(accountStore.activeCacheKey()))return;
                 if(!connected){agentBeginSubscription(owner,provider);return;}
                 new AlertDialog.Builder(this).setTitle(aiConnections.displayName(provider))
@@ -1471,6 +1478,16 @@ public class MainActivity extends Activity {
                     }).setNegativeButton("Закрыть",null).show();
             });
         }
+        if(proxy){
+            ui.action(body,"Внешний CLIProxyAPI","Свой endpoint / bearer · модели загружаются с сервера",0xFF276D8A,()->{sheet[0].dismiss();agentEditAiProvider(owner,"proxy-external");});
+            ui.action(body,"NVIDIA NIM","Отдельный ключ и каталог Subscription Proxy",0xFF276D8A,()->{sheet[0].dismiss();agentEditAiProvider(owner,"proxy-nvidia");});
+        }else{
+            ui.section(body,"Аккаунты API-сервисов");
+            for(String service:new String[]{"openrouter","polza","vsegpt","requesty","opencode-zen","opencode-go","cohere","cloudflare","nvidia","groq","mistral","anthropic","gigachat","yandex"}){
+                if(!OmniChatConnectionStore.supported().containsKey(service))continue;
+                ui.action(body,aiConnections.displayName(service),aiConnections.hasKey(owner,service)?"Подключено · изменить / обновить модели":"Подключить API-аккаунт",0xFF276D8A,()->{sheet[0].dismiss();agentEditAiProvider(owner,service);});
+            }
+        }
         ui.action(body,"Маршрутизация и DNS","Общий сетевой движок API и подписок · Xray",0xFF14846C,()->{sheet[0].dismiss();agentFeatures(owner).network();});
         if(proxy)ui.note(body,"Gemini Antigravity / Cloud Code и Claude Code используют браузерный OAuth с возвратом в приложение. Gemini Web с cookie-сессией — отдельный, пока не перенесённый транспорт.");
         sheet[0]=ui.present(body,true);
@@ -1482,10 +1499,7 @@ public class MainActivity extends Activity {
     }
 
     private void agentBeginSubscription(String owner,String provider){
-        if("gemini-antigravity".equals(provider)){
-            agentShowAntigravityMigration(owner);return;
-        }
-        if(app.githubble.mobile.network.BrowserSubscriptions.supports(provider)){agentBeginBrowserSubscription(owner,provider);return;}
+        if(app.githubble.mobile.network.NativeSubscriptionRuntime.supports(provider)){agentBeginBrowserSubscription(owner,provider);return;}
         if(!owner.equals(accountStore.activeCacheKey()))return;
         AtomicBoolean cancelled=new AtomicBoolean(false),old=subscriptionAttempts.put(owner,cancelled);if(old!=null)old.set(true);
         ProgressDialog progress=ProgressDialog.show(this,aiConnections.displayName(provider),"Получаем код входа…",true,true);
@@ -1568,20 +1582,20 @@ public class MainActivity extends Activity {
         progress.setOnCancelListener(d->cancelled.set(true));
         io.execute(()->{
             try{
-                app.githubble.mobile.network.BrowserSubscriptions.Login login=app.githubble.mobile.network.BrowserSubscriptions.begin(provider);
+                app.githubble.mobile.network.NativeSubscriptionRuntime.Login login=app.githubble.mobile.network.NativeSubscriptionRuntime.begin(this,owner,provider);
                 runOnUiThread(()->{
                     progress.dismiss();if(!subscriptionAttemptCurrent(owner,cancelled)){login.cancel();return;}
                     java.util.concurrent.atomic.AtomicReference<java.util.concurrent.Future<?>> waiting=new java.util.concurrent.atomic.AtomicReference<>();
                     AlertDialog dialog=new AlertDialog.Builder(this).setTitle(aiConnections.displayName(provider))
-                        .setMessage("Откройте браузер и подтвердите вход. Возврат на localhost завершит подключение автоматически. Код API не требуется.")
+                        .setMessage(login.getDetail()+"\n\nОткройте браузер и подтвердите вход. Ключ API не требуется.")
                         .setPositiveButton("Открыть браузер",null).setNegativeButton("Отмена",null).create();
                     dialog.setOnDismissListener(d->{cancelled.set(true);subscriptionAttempts.remove(owner,cancelled);login.cancel();java.util.concurrent.Future<?> f=waiting.get();if(f!=null)f.cancel(true);});
                     dialog.setOnShowListener(d->dialog.getButton(-1).setOnClickListener(v->{if(subscriptionAttemptCurrent(owner,cancelled))openWeb(login.getUrl());}));dialog.show();
                     waiting.set(io.submit(()->{
                         try{
-                            JSONObject session=app.githubble.mobile.network.BrowserSubscriptions.await(login);session.put("owner",owner);
+                            JSONObject session=app.githubble.mobile.network.NativeSubscriptionRuntime.await(login);session.put("owner",owner);
                             java.util.List<String> models=new ArrayList<>();String failure="";
-                            try{models=app.githubble.mobile.network.BrowserSubscriptions.discoverInitial(provider,session);}catch(Exception catalog){failure=catalog.getMessage();}
+                            try{models=app.githubble.mobile.network.NativeSubscriptionRuntime.discoverInitial(provider,session);}catch(Exception catalog){failure=catalog.getMessage();}
                             final java.util.List<String> catalog=models;final String warning=failure;
                             runOnUiThread(()->{
                                 if(!subscriptionAttemptCurrent(owner,cancelled)){dialog.dismiss();return;}
@@ -1694,7 +1708,7 @@ public class MainActivity extends Activity {
                     if(Thread.currentThread().isInterrupted())throw new InterruptedException("Отменено");
                     JSONArray input=new JSONArray().put(new JSONObject()
                         .put("role","user").put("body",prompt));
-                    String response=aiChatClient.complete(provider,model,credential,input,
+                    String response=aiChatClient.completeForAccount(owner,provider,model,credential,input,
                         context,allowFileRead?project.repository:"");
                     aiUsage.record(owner,provider,model,OmniChatChatClient.takeUsage());
                     return response;
@@ -1811,7 +1825,7 @@ public class MainActivity extends Activity {
                 list.removeAllViews();String query=search.getText().toString().trim().toLowerCase(Locale.ROOT);
                 for(String provider:OmniChatConnectionStore.supported().keySet()){
                     if(!aiConnections.isConfigured(owner,provider))continue;
-                    boolean subscription=OAuthSubscriptions.supports(provider);
+                    boolean subscription=OAuthSubscriptions.supports(provider)||provider.startsWith("proxy-");
                     if("Подписки".equals(filter[0])&&!subscription || "API".equals(filter[0])&&subscription)continue;
                     for(String model:aiConnections.models(owner,provider)){
                         String category=aiConnections.modelGroup(owner,provider,model);
@@ -2228,7 +2242,7 @@ public class MainActivity extends Activity {
                         response=app.githubble.mobile.agent.ProjectRuntime.analyze(instructions->{
                             JSONArray prompt=new JSONArray().put(
                                 new JSONObject().put("role","user").put("body",instructions));
-                            String result=aiChatClient.complete(provider,model,credential,
+                            String result=aiChatClient.completeForAccount(expected,provider,model,credential,
                                 prompt,"Native Git Agent tool execution",allowGithub?activeProject.repository:"");
                             aiUsage.record(expected,provider,model,OmniChatChatClient.takeUsage());
                             return result;
@@ -2238,11 +2252,11 @@ public class MainActivity extends Activity {
                             scopeGuard,tools);
                     }else if(imageUri!=null){
                         String mime=getContentResolver().getType(imageUri);
-                        response=aiChatClient.completeWithImage(provider,model,credential,snapshot,
+                        response=aiChatClient.completeWithImageForAccount(expected,provider,model,credential,snapshot,
                             context,agentMode?activeProject.repository:"",mime,agentReadImage(imageUri));
                         aiUsage.record(expected,provider,model,OmniChatChatClient.takeUsage());
                     }else {
-                        response=aiChatClient.complete(provider,model,credential,snapshot,
+                        response=aiChatClient.completeForAccount(expected,provider,model,credential,snapshot,
                             context,agentMode?activeProject.repository:"");
                         aiUsage.record(expected,provider,model,OmniChatChatClient.takeUsage());
                     }
@@ -2252,7 +2266,7 @@ public class MainActivity extends Activity {
                         try{agentMemory.recordEpisode(expected,activeProject.workspaceId,activeChat,message,response);}catch(Exception ignored){}
                         if(agentMemory.shouldLearn(expected,activeProject.workspaceId,message))try{
                             JSONArray extract=new JSONArray().put(new JSONObject().put("role","user").put("body",agentMemory.extractionPrompt(message,response,activeProject.name)));
-                            String learned=aiChatClient.complete(provider,model,credential,extract,"Memory extraction","");
+                            String learned=aiChatClient.completeForAccount(expected,provider,model,credential,extract,"Memory extraction","");
                             aiUsage.record(expected,provider,model,OmniChatChatClient.takeUsage());
                             if(java.util.Objects.equals(aiRequestTickets.get(expected),ticket)&&!aiCanceledRequests.contains(expected))agentMemory.learn(expected,activeProject.workspaceId,activeChat,learned);
                         }catch(Exception memoryError){/* The answer succeeds independently of memory extraction. */}
@@ -2355,7 +2369,7 @@ public class MainActivity extends Activity {
                                     + "\nUSER TASK:\n" + request;
                             JSONArray messages = new JSONArray()
                                     .put(new JSONObject().put("role", "user").put("body", instructions));
-                            String output = aiChatClient.complete(provider,
+                            String output = aiChatClient.completeForAccount(expected,provider,
                                     pinnedModel, pinnedCredential, messages,
                                     agentContext(expected,p,agentProjects.activeConversation(expected),request), p.repository);
                             AgentFilePlan plan = AgentFilePlan.parse(output);
@@ -8713,8 +8727,8 @@ public class MainActivity extends Activity {
                 "Информация о поддерживаемых и планируемых сервисах",
                 this::agentShowProviderCatalog);
         settingsActionRow("Google Antigravity OAuth",
-                "Устаревший Google Cloud Code не поддерживает личные тарифы 2026",
-                ()->agentShowAntigravityMigration(owner));
+                "Прямой OAuth и серверный каталог моделей Cloud Code",
+                ()->agentBeginSubscription(owner,"gemini-antigravity"));
         settingsActionRow("Использование и квоты",
                 "Токены из ответов API и локальные запросы",
                 ()->agentShowUsage(owner));

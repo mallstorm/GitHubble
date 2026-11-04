@@ -188,11 +188,7 @@ class SubscriptionProxyGeminiClient {
             val objectModels = result.optJSONObject("models") ?: continue
             val ids = objectModels.keys().asSequence()
                 .map { it.trim() }
-                .filter {
-                    (it.startsWith("gemini-", ignoreCase = true) || it.startsWith("claude-",ignoreCase=true) ||
-                        it.startsWith("lyria-", ignoreCase = true)) &&
-                        it !in INTERNAL_MODELS
-                }
+                .filter { it.isNotBlank() && it.length<=160 }
                 .distinct()
                 .sorted()
                 .toList()
@@ -481,4 +477,5 @@ private fun htmlEscape(value: String): String = value
     .replace("\"", "&quot;")
     .replace("'", "&#39;")
 }
+
 

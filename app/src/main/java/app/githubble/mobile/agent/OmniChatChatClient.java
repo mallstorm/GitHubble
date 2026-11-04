@@ -16,8 +16,28 @@ import java.nio.charset.StandardCharsets;
  */
 public final class OmniChatChatClient {
     private final OAuthSubscriptions subscriptions;
+    private app.githubble.mobile.network.NativeProviderRuntime nativeRuntime;
     public OmniChatChatClient(){this.subscriptions=null;}
     public OmniChatChatClient(OAuthSubscriptions subscriptions){this.subscriptions=subscriptions;}
+    public OmniChatChatClient(android.content.Context context,OAuthSubscriptions subscriptions,OmniChatConnectionStore store){
+        this.subscriptions=subscriptions;this.nativeRuntime=new app.githubble.mobile.network.NativeProviderRuntime(context,store);
+    }
+    public static void reportUsage(long input,long output,boolean reported){LAST_USAGE.set(new Usage(input,output,reported));}
+    public String completeForAccount(String owner,String provider,String model,String credential,JSONArray transcript,String project,String repository)throws Exception{
+        LAST_USAGE.remove();
+        if(nativeRuntime!=null&&nativeRuntime.handles(provider))return nativeRuntime.complete(provider,model,credential,owner,transcript,
+            "Вы Git Agent. Отвечайте на языке пользователя. Не заявляйте выполнение без инструментального результата.\n"+project+"\n"+repository);
+        return complete(provider,model,credential,transcript,project,repository);
+    }
+    public String completeWithImageForAccount(String owner,String provider,String model,String credential,JSONArray transcript,String project,String repository,String mime,byte[] image)throws Exception{
+        LAST_USAGE.remove();
+        if(nativeRuntime!=null&&nativeRuntime.handles(provider))return nativeRuntime.complete(provider,model,credential,owner,transcript,project+"\n"+repository,mime,image);
+        return completeWithImage(provider,model,credential,transcript,project,repository,mime,image);
+    }
+    public java.util.List<String> discoverModelsForAccount(String owner,String provider,String credential)throws Exception{
+        if(nativeRuntime!=null&&nativeRuntime.handles(provider))return nativeRuntime.models(provider,credential,owner);
+        return discoverModels(provider,credential);
+    }
     /** Reported by an AI API for the current worker thread; not a subscription quota. */
     public static final class Usage {
         public final long inputTokens,outputTokens;
@@ -76,7 +96,7 @@ public final class OmniChatChatClient {
     }
 
     public static boolean supportsVision(String provider){
-        return "openai".equals(provider)||"gemini".equals(provider)||"openrouter".equals(provider);
+        return app.githubble.mobile.network.NativeSubscriptionRuntime.supports(provider)||java.util.Arrays.asList("openai","gemini","openrouter","anthropic","xai","groq","mistral","together","nvidia","ollama","custom","proxy-external").contains(provider);
     }
 
     public String completeWithImage(String provider,String model,String credential,

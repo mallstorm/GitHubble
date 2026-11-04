@@ -47,7 +47,7 @@ public final class OAuthSubscriptions {
     }
     /** Pure protocol fixture entry point: tests never connect to real accounts. */
     public OAuthSubscriptions(Transport transport){this.store=null;this.device="test-device";this.transport=transport;}
-    public static boolean supports(String id){return OPENAI.equals(id)||CLINE.equals(id)||KIMI.equals(id)||GROK.equals(id)||app.githubble.mobile.network.BrowserSubscriptions.supports(id);}
+    public static boolean supports(String id){return OPENAI.equals(id)||CLINE.equals(id)||KIMI.equals(id)||GROK.equals(id)||app.githubble.mobile.network.BrowserSubscriptions.supports(id)||app.githubble.mobile.network.NativeSubscriptionRuntime.supports(id);}
     private Map<String,String> headers(String provider){
         Map<String,String> h=new LinkedHashMap<>();h.put("User-Agent","GitHubble-GitAgent/1.0");
         if(KIMI.equals(provider)){
