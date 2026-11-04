@@ -35,6 +35,8 @@ public final class OmniChatConnectionStore {
         NAMES.put(OAuthSubscriptions.GROK,"xAI Grok · OAuth");
         NAMES.put("claude-subscription","Claude Code · OAuth");
         NAMES.put("gemini-antigravity","Gemini Antigravity · OAuth");
+        NAMES.put("openrouter-account","OpenRouter Account · OAuth");
+        NAMES.put("kilo-account","Kilo Code · OAuth");
         NAMES.put("chatgpt-plan","ChatGPT · OAuth без Codex CLI");
         NAMES.put("proxy-chatgpt","ChatGPT · Subscription Proxy");
         NAMES.put("proxy-gemini","Gemini / Cloud Code · Subscription Proxy");
@@ -118,7 +120,7 @@ public final class OmniChatConnectionStore {
 
     public synchronized void saveSubscription(String account,String provider,org.json.JSONObject session,java.util.List<String> models){
         if(!OAuthSubscriptions.supports(provider))throw new IllegalArgumentException("Не OAuth-провайдер");
-        if(session.optString("access_token").isEmpty()||!OAuthSubscriptions.GROK.equals(app.githubble.mobile.network.NativeSubscriptionRuntime.base(provider))&&session.optString("refresh_token").isEmpty())throw new IllegalArgumentException("Нет подтверждённой OAuth-сессии");
+        if(session.optString("access_token").isEmpty()||!java.util.Arrays.asList(OAuthSubscriptions.GROK,"openrouter-account","kilo-account").contains(app.githubble.mobile.network.NativeSubscriptionRuntime.base(provider))&&session.optString("refresh_token").isEmpty())throw new IllegalArgumentException("Нет подтверждённой OAuth-сессии");
         try{session=new org.json.JSONObject(session.toString()).put("owner",account).put("provider",provider);
             vault.put(key(account,provider),session.toString());
             String scope=namespace(account);

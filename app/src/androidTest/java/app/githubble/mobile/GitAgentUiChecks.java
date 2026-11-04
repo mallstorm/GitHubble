@@ -51,6 +51,7 @@ final class GitAgentUiChecks {
         if(!"openai".equals(connections.selectedProvider(account)) || !connections.isConfigured(account,"openai")
                 || connections.models(account,"openai").size()!=2 || connections.isConfigured(other,"openai"))
             throw new AssertionError("Connection/catalog persistence or account isolation failed");
+        if(app.githubble.mobile.network.NativeProviderCatalog.names().size()<40)throw new AssertionError("Full provider registry missing");
         connections.disconnect(account,"openai");
         if(connections.hasKey(account,"openai"))throw new AssertionError("Disconnected key retained");
         // Regression: choosing an AI model when GitHub is not signed in.
@@ -67,7 +68,7 @@ final class GitAgentUiChecks {
         org.json.JSONObject oauth=new org.json.JSONObject().put("access_token","local-test-access")
             .put("refresh_token","local-test-refresh").put("expires_at",System.currentTimeMillis()+3600000);
         for(String subscription:new String[]{app.githubble.mobile.agent.OAuthSubscriptions.KIMI,
-                app.githubble.mobile.agent.OAuthSubscriptions.GROK}){
+                app.githubble.mobile.agent.OAuthSubscriptions.GROK,"chatgpt-plan","proxy-chatgpt","proxy-gemini","proxy-claude","proxy-grok","openrouter-account","kilo-account"}){
         connections.saveSubscription(account,subscription,oauth,java.util.Arrays.asList("verified-test-model"));
         connections=new app.githubble.mobile.agent.OmniChatConnectionStore(context,vault);
         String originalSession=connections.credential(account,subscription);
@@ -150,6 +151,8 @@ final class GitAgentUiChecks {
                 true,true,true,()->3,()->{},()->{});
             if(planTools.handles("write_files")||planTools.handles("create_repository")||!planTools.handles("read_file"))
                 throw new AssertionError("Planning mode does not enforce read-only capabilities");
+            JSONArray media=new JSONArray().put(new org.json.JSONObject().put("name","fixture.png").put("mime","image/png").put("path","private-fixture").put("origin","assistant_generated").put("replayToModel",false));
+            projects.appendAttachments(toolOwner,toolThread,"agent","Generated image fixture",media);
             // Move structured operations to SQLite and verify they survive archival.
             for(int i=0;i<85;i++)projects.appendToConversation(toolOwner,toolThread,"user","Archive tool event "+i);
             JSONArray archivedTools=projects.fullHistory(toolOwner,toolThread,10000);
@@ -159,6 +162,15 @@ final class GitAgentUiChecks {
                 if(ops!=null&&ops.length()>0&&ops.getJSONObject(0).optInt("added")==2)restoredOperation=true;
             }
             if(!restoredOperation)throw new AssertionError("Archive lost structured file operations");
+            boolean restoredMedia=false;for(int i=0;i<archivedTools.length();i++)if("Generated image fixture".equals(archivedTools.getJSONObject(i).optString("body")))restoredMedia=archivedTools.getJSONObject(i).getJSONArray("attachments").length()==1;
+            if(!restoredMedia)throw new AssertionError("Archive lost generated media metadata");
+            app.githubble.mobile.agent.NativePluginRegistry plugins=new app.githubble.mobile.agent.NativePluginRegistry(context,toolOwner);
+            try{plugins.save("","Unsafe","http://127.0.0.1/tool","POST","","2025-11-25");throw new AssertionError("Unsafe plugin URL accepted");}catch(IllegalArgumentException expected){}
+            plugins.save("","Fixture","https://example.org/tool","POST","fixture-plugin-secret","2025-11-25");
+            String pluginId=plugins.list().getJSONObject(0).getString("id");
+            if(new app.githubble.mobile.agent.NativePluginRegistry(context,other).list().length()!=0)throw new AssertionError("Plugins cross accounts");
+            if(plugins.catalog().contains("fixture-plugin-secret"))throw new AssertionError("Plugin secret leaked into model catalog");
+            plugins.toggle(pluginId);if(plugins.operation("ext_"+pluginId)!=null)throw new AssertionError("Disabled plugin remains callable");plugins.remove(pluginId);
             app.githubble.mobile.agent.WorkspaceHub workspaceHub=new app.githubble.mobile.agent.WorkspaceHub(context);
             String smokeId=workspaceHub.create(account,"Local Workspace smoke").getString("id");
             workspaceHub.saveFile(account,smokeId,"src/Smoke.kt","class Smoke { fun original() = 1 }\n");

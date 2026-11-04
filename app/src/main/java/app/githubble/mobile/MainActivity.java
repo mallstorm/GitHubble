@@ -1454,7 +1454,7 @@ public class MainActivity extends Activity {
         ui.note(body,"AI-подписки доступны без GitHub. OAuth-сессии шифруются "+
             "для текущего профиля приложения.");
         final Dialog[] sheet={null};
-        for(String provider:proxy?new String[]{"proxy-chatgpt","proxy-gemini","proxy-claude","proxy-grok"}:new String[]{"chatgpt-plan",OAuthSubscriptions.CLINE,OAuthSubscriptions.KIMI,OAuthSubscriptions.GROK,"gemini-antigravity","claude-subscription"}){
+        for(String provider:proxy?new String[]{"proxy-chatgpt","proxy-gemini","proxy-claude","proxy-grok"}:new String[]{"chatgpt-plan","openrouter-account","kilo-account",OAuthSubscriptions.CLINE,OAuthSubscriptions.KIMI,OAuthSubscriptions.GROK,"gemini-antigravity","claude-subscription"}){
             boolean saved=aiConnections.hasKey(owner,provider);
             String detail="Войти через OAuth · без API-ключа";
             if(saved){

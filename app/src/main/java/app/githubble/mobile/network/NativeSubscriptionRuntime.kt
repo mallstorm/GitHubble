@@ -14,13 +14,14 @@ object NativeSubscriptionRuntime {
     const val CHATGPT="chatgpt-plan"
     private val locks=ConcurrentHashMap<String,Any>()
     @JvmStatic fun base(p:String):String=when(p){"proxy-chatgpt"->CHATGPT;"proxy-gemini"->"gemini-antigravity";"proxy-claude"->"claude-subscription";"proxy-grok"->"grok-subscription";else->p}
-    @JvmStatic fun supports(p:String):Boolean=base(p) in setOf(CHATGPT,"gemini-antigravity","claude-subscription","grok-subscription")
+    @JvmStatic fun supports(p:String):Boolean=base(p) in setOf(CHATGPT,"gemini-antigravity","claude-subscription","grok-subscription","openrouter-account","kilo-account")
     class Login(val provider:String,val url:String,val detail:String,internal val session:Any){
         val cancelled=AtomicBoolean(false)
-        fun cancel(){cancelled.set(true);when(val s=session){is ChatGptPlanClient.Login->ChatGptPlanClient().cancel(s);is SubscriptionProxyClaudeClient.LoginSession->SubscriptionProxyClaudeClient().cancel(s);is SubscriptionProxyGeminiClient.LoginSession->SubscriptionProxyGeminiClient().cancel(s)}}
+        fun cancel(){cancelled.set(true);when(val s=session){is NativeAccountOAuth.Session->s.server?.close();is ChatGptPlanClient.Login->ChatGptPlanClient().cancel(s);is SubscriptionProxyClaudeClient.LoginSession->SubscriptionProxyClaudeClient().cancel(s);is SubscriptionProxyGeminiClient.LoginSession->SubscriptionProxyGeminiClient().cancel(s)}}
     }
     @JvmStatic fun begin(context:Context,owner:String,p:String):Login=runBlocking {
         when(base(p)){
+            "openrouter-account","kilo-account"->NativeAccountOAuth.begin(p).let{Login(p,it.url,"Вход в аккаунт · OAuth",it)}
             CHATGPT->{
                 val prefs=context.getSharedPreferences("git_agent_chatgpt_host",0)
                 val host=prefs.getString(owner,"").orEmpty().ifBlank{"urn:uuid:"+UUID.randomUUID().also{prefs.edit().putString(owner,"urn:uuid:$it").apply()}}
@@ -41,6 +42,7 @@ object NativeSubscriptionRuntime {
     fun grok(j:JSONObject)=SubscriptionProxyStore.GrokCredentials(j.getString("access_token"),j.optString("refresh_token"),j.optString("id_token"),j.optString("token_type","Bearer"),j.optLong("expires_at"),j.optString("identity"),j.optString("subject"),j.optString("token_endpoint"))
     @JvmStatic fun await(login:Login):JSONObject=runBlocking {
         val j=when(val s=login.session){
+            is NativeAccountOAuth.Session->NativeAccountOAuth.await(s){login.cancelled.get()}
             is ChatGptPlanClient.Login->encode(ChatGptPlanClient().awaitCredentials(s))
             is SubscriptionProxyGeminiClient.LoginSession->encode(SubscriptionProxyGeminiClient().awaitCredentials(s))
             is SubscriptionProxyClaudeClient.LoginSession->encode(SubscriptionProxyClaudeClient().awaitCredentials(s))
@@ -58,6 +60,7 @@ object NativeSubscriptionRuntime {
     }
     @JvmStatic fun discoverInitial(p:String,j:JSONObject):List<String> = runBlocking {
         when(base(p)){
+            "openrouter-account","kilo-account"->NativeAccountOAuth.models(base(p),j.getString("access_token"))
             CHATGPT->ChatGptPlanClient().modelCatalog(ChatGptPlanClient.Credentials.fromJson(j.toString())?:error("Нет ChatGPT credentials"))
             "gemini-antigravity"->SubscriptionProxyGeminiClient().modelCatalogWithEndpoint(gemini(j)).let{j.put("base_url",it.apiBaseUrl);it.models}
             "claude-subscription"->SubscriptionProxyClaudeClient().modelCatalog(claude(j))

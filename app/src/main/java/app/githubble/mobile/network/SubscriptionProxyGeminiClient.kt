@@ -186,19 +186,15 @@ class SubscriptionProxyGeminiClient {
                 )
             }.onFailure { lastError = it }.getOrNull() ?: continue
             val objectModels = result.optJSONObject("models") ?: continue
-            val ids = objectModels.keys().asSequence()
-                .map { it.trim() }
-                .filter { it.isNotBlank() && it.length<=160 }
-                .distinct()
-                .sorted()
-                .toList()
-            val merged = ids.distinct().sorted()
+            val merged = serverModelIds(objectModels)
             if (merged.isNotEmpty()) return@withContext CatalogResult(merged, base)
         }
         throw (lastError ?: ApiFailure("Google Cloud Code не вернул доступные модели"))
     }
 
     companion object {
+        internal fun serverModelIds(models:JSONObject):List<String> = models.keys().asSequence().map{it.trim()}.filter{it.isNotBlank()&&it.length<=160}.distinct().sorted().toList()
+
         const val CLIENT_ID =
             "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com"
         const val CLIENT_SECRET = "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"

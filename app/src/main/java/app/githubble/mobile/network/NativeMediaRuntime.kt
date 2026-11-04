@@ -30,7 +30,7 @@ object NativeMediaRuntime {
         val blobs=mutableListOf<Pair<ByteArray,String>>()
         when {
             NativeSubscriptionRuntime.base(p)==NativeSubscriptionRuntime.CHATGPT->{
-                val r=runtime.gateway().generateOpenAiResponsesImage(entity,key,prompt,size);blobs+=r.bytes to r.mime
+                val r=runtime.gateway().generateOpenAiResponsesImage(entity,key,prompt,requestedSize=size);blobs+=r.bytes to r.mime
             }
             NativeSubscriptionRuntime.base(p)=="gemini-antigravity"->{
                 val r=runtime.gateway().generateSubscriptionProxyGeminiImage(entity,key,listOf(MessageEntity(chatId=1,role="user",content=prompt)),when(size){"1536x1024"->"3:2";"1024x1536"->"2:3";else->"1:1"})
@@ -49,7 +49,7 @@ object NativeMediaRuntime {
                     target=ApiGateway.endpoint(entity.baseUrl,ApiGateway.GEMINI,"models","${model.removePrefix("models/")}:generateContent")
                     body=JSONObject().put("contents",JSONArray().put(JSONObject().put("role","user").put("parts",JSONArray().put(JSONObject().put("text",prompt)))))
                         .put("generationConfig",JSONObject().put("responseModalities",JSONArray().put("TEXT").put("IMAGE")))
-                }else if(p=="openrouter"){
+                }else if(p=="openrouter"||NativeSubscriptionRuntime.base(p) in setOf("openrouter-account","kilo-account")){
                     target=ApiGateway.endpoint(entity.baseUrl,ApiGateway.CHAT,"chat","completions")
                     body=JSONObject().put("model",model).put("modalities",JSONArray().put("image").put("text"))
                         .put("messages",JSONArray().put(JSONObject().put("role","user").put("content",prompt)))

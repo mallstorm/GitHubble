@@ -21,6 +21,8 @@ class NativeProviderRuntime(context:Context,private val store:OmniChatConnection
         if(NativeSubscriptionRuntime.supports(p)){
             val j=NativeSubscriptionRuntime.current(p,raw,store);key=j.getString("access_token")
             when(NativeSubscriptionRuntime.base(p)){
+                "openrouter-account"->{type="openrouter";base="https://openrouter.ai/api/v1";protocol=ApiGateway.CHAT}
+                "kilo-account"->{type="kilo-gateway";base="https://api.kilo.ai/api/openrouter";protocol=ApiGateway.CHAT}
                 NativeSubscriptionRuntime.CHATGPT->{type="subscription-proxy-chatgpt";base=ChatGptPlanClient.API_BASE_URL;protocol=ApiGateway.RESPONSES}
                 "gemini-antigravity"->{type="subscription-proxy-gemini";base=j.optString("base_url").takeIf{it in listOf(SubscriptionProxyGeminiClient.DAILY_API,SubscriptionProxyGeminiClient.API_ENDPOINT)}?:SubscriptionProxyGeminiClient.DAILY_API;scope=j.getString("project_id");protocol=ApiGateway.GEMINI}
                 "claude-subscription"->{type="subscription-proxy-claude";base="https://api.anthropic.com/v1";protocol=ApiGateway.ANTHROPIC}

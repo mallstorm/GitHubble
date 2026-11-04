@@ -10,8 +10,11 @@ object NativeProviderCatalog {
     private var profiles:Map<String,Profile> = emptyMap()
     @Synchronized @JvmStatic fun initialize(context:Context){
         if(profiles.isNotEmpty())return
+        profiles=parse(context.assets.open("omnichat/provider_catalog.json").bufferedReader().use{it.readText()})
+    }
+    internal fun parse(raw:String):Map<String,Profile>{
         val result=linkedMapOf<String,Profile>()
-        val items=JSONArray(context.assets.open("omnichat/provider_catalog.json").bufferedReader().use{it.readText()})
+        val items=JSONArray(raw)
         for(i in 0 until items.length()){
             val j=items.getJSONObject(i);val id=j.getString("id");val auth=j.optString("auth_type","bearer")
             if(auth !in setOf("bearer","x-api-key","none","gigachat-oauth","yandex-api-key"))continue
@@ -23,7 +26,7 @@ object NativeProviderCatalog {
         result["custom"]=Profile("custom","Свой OpenAI-совместимый API","",ApiGateway.CHAT,"bearer")
         result["proxy-external"]=Profile("proxy-external","Внешний CLIProxyAPI","http://127.0.0.1:8787/v1",ApiGateway.CHAT,"bearer")
         result["proxy-nvidia"]=Profile("proxy-nvidia","NVIDIA NIM · Subscription Proxy","https://integrate.api.nvidia.com/v1",ApiGateway.CHAT,"bearer")
-        profiles=result
+        return result
     }
     @JvmStatic fun names():Map<String,String> = profiles.mapValues{it.value.name}
     @JvmStatic fun profile(id:String):Profile=profiles[id]?:error("Нет API-профиля: $id")
