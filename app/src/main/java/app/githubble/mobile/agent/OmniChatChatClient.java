@@ -38,8 +38,8 @@ public final class OmniChatChatClient {
 
     private static final int MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
     private static final int MAX_HISTORY_TURNS = 28;
-    private static final int MAX_TEXT_CHARS = 20000;
-    private static final int MAX_INPUT_BYTES = 130 * 1024;
+    private static final int MAX_TEXT_CHARS = 80000;
+    private static final int MAX_INPUT_BYTES = 256 * 1024;
 
     static String endpoint(String provider) {
         switch (provider) {
@@ -68,8 +68,9 @@ public final class OmniChatChatClient {
             if (!"user".equals(role) && !"assistant".equals(role)) continue;
             String value = entry.optString("body", "").trim();
             if (value.isEmpty()) continue;
-            messages.put(new JSONObject().put("role", role)
-                    .put("content", value.substring(0, Math.min(MAX_TEXT_CHARS, value.length()))));
+            if(value.length()>MAX_TEXT_CHARS)throw new IllegalArgumentException(
+                "Сообщение превышает лимит контекста; сократите задачу или объём инструментов");
+            messages.put(new JSONObject().put("role", role).put("content",value));
         }
         return messages;
     }
@@ -307,4 +308,5 @@ public final class OmniChatChatClient {
         }
     }
 }
+
 

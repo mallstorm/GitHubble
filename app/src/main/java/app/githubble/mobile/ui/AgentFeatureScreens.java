@@ -23,6 +23,11 @@ public final class AgentFeatureScreens {
         this.a=a;this.owner=owner;this.active=active;this.projects=projects;this.memory=memory;this.io=io;this.ui=new GitAgentUi(a,bg);this.refresh=refresh;
         chat=projects.activeConversation(owner);workspaces=new WorkspaceHub(a);
     }
+    public AgentFeatureScreens(Activity a,String owner,Supplier<String> active,AgentProjectStore projects,MemoryHub memory,ExecutorService io,int bg,int surface,int text,int muted,int accent,int border,Runnable refresh){
+        this.a=a;this.owner=owner;this.active=active;this.projects=projects;this.memory=memory;this.io=io;
+        this.ui=new GitAgentUi(a,bg,surface,text,muted,accent,border);this.refresh=refresh;
+        chat=projects.activeConversation(owner);workspaces=new WorkspaceHub(a);
+    }
     private boolean current(){return owner.equals(active.get())&&chat.equals(projects.activeConversation(owner))&&!a.isDestroyed();}
     private String wid(){return projects.project(owner).workspaceId;}
     private interface Action {void run()throws Exception;}
@@ -206,3 +211,4 @@ public final class AgentFeatureScreens {
     }
     private String read(Uri uri,int max)throws Exception{try(InputStream in=a.getContentResolver().openInputStream(uri);ByteArrayOutputStream out=new ByteArrayOutputStream()){if(in==null)throw new IOException("Файл недоступен");byte[] b=new byte[4096];int n;while((n=in.read(b))!=-1){if(out.size()+n>max)throw new IOException("Файл слишком большой");out.write(b,0,n);}return out.toString("UTF-8");}}
 }
+

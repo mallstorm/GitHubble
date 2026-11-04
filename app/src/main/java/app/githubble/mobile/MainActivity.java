@@ -127,7 +127,7 @@ public class MainActivity extends Activity {
     private app.githubble.mobile.agent.WorkspaceHub agentWorkspaces;
     private app.githubble.mobile.ui.AgentFeatureScreens agentFeatures;
     private app.githubble.mobile.ui.AgentFeatureScreens agentFeatures(String owner){
-        agentFeatures=new app.githubble.mobile.ui.AgentFeatureScreens(this,owner,()->accountStore.activeCacheKey(),agentProjects,agentMemory,io,BG,()->agentRefreshIfCurrent(owner));
+        agentFeatures=new app.githubble.mobile.ui.AgentFeatureScreens(this,owner,()->accountStore.activeCacheKey(),agentProjects,agentMemory,io,BG,CARD,TEXT,MUTED,GREEN,BORDER,()->agentRefreshIfCurrent(owner));
         return agentFeatures;
     }
     private String agentContext(String owner,AgentProjectStore.Project project,String thread,String query){
@@ -2099,7 +2099,7 @@ public class MainActivity extends Activity {
         agentProjects.appendToConversation(expected, activeChat, "user", message);
         // Answer repo inventory via the user's authenticated GitHub session.
         // Do not ask a subscription model to guess the account or repository count.
-        if(imageUri==null &&
+        if(imageUri==null && (message.trim().startsWith("/")||!prefs.getBoolean("ai_tool_github_read_"+expected,false))&&
             app.githubble.mobile.agent.GitHubReadLoop.isDirectRepositoryQuestion(message)){
             if("guest".equals(expected)||!isSignedIn()){
                 agentProjects.appendToConversation(expected,activeChat,"system",
@@ -2229,7 +2229,7 @@ public class MainActivity extends Activity {
                             JSONArray prompt=new JSONArray().put(
                                 new JSONObject().put("role","user").put("body",instructions));
                             String result=aiChatClient.complete(provider,model,credential,
-                                prompt,context,allowGithub?activeProject.repository:"");
+                                prompt,"Native Git Agent tool execution",allowGithub?activeProject.repository:"");
                             aiUsage.record(expected,provider,model,OmniChatChatClient.takeUsage());
                             return result;
                         },aiGithub,agentWorkspaces,expected,activeProject.repository,

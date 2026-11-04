@@ -41,7 +41,7 @@ public final class NativeAgentToolHost implements ProjectRuntime.ToolHost {
             result+="\nPROJECT: create_workspace {name,instructions} (empty local project; no GitHub needed).";
             if(filesEnabled)result+="\nLOCAL WRITE: write_files {summary,files:[{path,content}]} (1–12 complete UTF-8 files, 80 KiB/file, 240 KiB total; checkpoint and stale-file checks).";
             if(githubEnabled){
-                result+="\nGITHUB WRITE: "+GitHubAgentOperations.WRITE_CATALOG;
+                result+="\nGITHUB WRITE: "+GitHubAgentOperations.WRITE_CATALOG+" attach_repository {repository,branch}, import_repository {repository,branch} (new bounded text Workspace; not a Git clone).";
                 if(filesEnabled)result+=" publish_workspace {commit_message} (only linked repository/branch; bounded text snapshot; no deletions).";
             }
         }
@@ -54,7 +54,7 @@ public final class NativeAgentToolHost implements ProjectRuntime.ToolHost {
         if(filesEnabled&&java.util.Arrays.asList("list_files","read_file","search_files","symbol_index").contains(name))return true;
         if(writeDenied||!AgentPermissionPolicy.mayWrite(permission.getAsInt(),planning))return false;
         return "create_workspace".equals(name)||(filesEnabled&&"write_files".equals(name))
-            ||(githubEnabled&&(GitHubAgentOperations.WRITES.contains(name)
+            ||(githubEnabled&&("attach_repository".equals(name)||"import_repository".equals(name)||GitHubAgentOperations.WRITES.contains(name)
                 ||(filesEnabled&&"publish_workspace".equals(name))));
     }
     private void check(){
@@ -123,7 +123,7 @@ public final class NativeAgentToolHost implements ProjectRuntime.ToolHost {
             if(workspaceId.isEmpty())throw new IllegalArgumentException("Сначала создайте Workspace");
             AgentFilePlan plan=AgentFilePlan.parse(a.toString());
             WorkspaceChangeReview review=WorkspaceChangeReview.capture(workspace,account,workspaceId,plan,true);
-            if(!review.hasChanges())return new JSONObject().put("unchanged",true).toString();
+            if(!review.hasChanges()){event("Файлы без изменений",review.operations);return new JSONObject().put("unchanged",true).toString();}
             if(!approve("Запись файлов",review.preview()+"\n\n"+plan.preview(),false,false))return denied(name);
             check();requireWrite();
             event("Записываются файлы проекта…",null);
@@ -144,13 +144,34 @@ public final class NativeAgentToolHost implements ProjectRuntime.ToolHost {
             event("✓ Проект опубликован в "+repository+" / "+branch+" · "+result.toString(),null);
             return result.toString();
         }
+        if("attach_repository".equals(name)||"import_repository".equals(name)){
+            String repo=GitHubAgentOperations.repository(a,repository),ref=a.optString("branch",branch);
+            AgentGitWorkspace.validateRepository(repo,ref);
+            if(!approve(name,repo+" / "+ref+"\n"+("import_repository".equals(name)?
+                    "Импорт до 180 текстовых файлов / 8 MiB в новый Workspace; существующий проект сохранится отдельно.":
+                    "Привязка репозитория к текущему диалогу; локальные файлы сохраняются."),false,false))return denied(name);
+            check();requireWrite();github.requireAccount(account);
+            JSONObject result;
+            if("import_repository".equals(name)){
+                result=RepositoryWorkspaceImporter.copy(github.toolApi(account),()->{check();github.requireAccount(account);},workspace,account,repo,ref);
+                check();workspaceId=result.getString("workspace_id");
+            }else{
+                result=github.repositoryDetails(account,repo);git.inspect(account,repo,ref);check();
+            }
+            repository=repo;branch=ref;
+            AgentProjectStore.Project current=projects.project(account);
+            projects.save(new AgentProjectStore.Project(account,current.name.isEmpty()?repo:current.name,repository,branch,workspaceId));
+            event("✓ "+name+" · "+repo+" / "+ref,null);
+            return result.toString();
+        }
         // Exact immutable arguments are presented before dispatch, not a paraphrase of the task.
         if(!approve(name,a.toString(2),true,GitHubAgentOperations.sensitive(name)))return denied(name);
         check();requireWrite();github.requireAccount(account);
         JSONObject result=GitHubAgentOperations.write(github,account,name,a,repository,branch);
+        event("✓ "+name+" · "+result.optString("html_url",result.optString("full_name","выполнено")),null);
         // Creating a repository should make it the project's target without losing local files.
         if("create_repository".equals(name)){
-            check();
+            try{check();}catch(java.util.concurrent.CancellationException changed){return result.toString();}
             String full=result.optString("full_name","");
             if(!full.isEmpty()){
                 AgentProjectStore.Project current=projects.project(account);
@@ -159,7 +180,6 @@ public final class NativeAgentToolHost implements ProjectRuntime.ToolHost {
                 // The runtime's target remains pinned; subsequent tools must pass repository explicitly.
             }
         }
-        event("✓ "+name+" · "+result.optString("html_url",result.optString("full_name","выполнено")),null);
         return result.toString();
     }
     private void requireWrite(){

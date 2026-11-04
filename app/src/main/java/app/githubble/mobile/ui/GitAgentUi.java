@@ -47,7 +47,7 @@ public final class GitAgentUi {
     public Dialog present(LinearLayout body,boolean bottom){
         Dialog dialog=new Dialog(activity);ScrollView scroll=new ScrollView(activity);
         scroll.setFillViewport(false);scroll.setVerticalScrollBarEnabled(false);scroll.addView(body);
-        scroll.setBackground(shape(!bottom&&!dark?0xFFEDE7F0:background,28,0));scroll.setClipToOutline(true);
+        scroll.setBackground(shape(background,28,0));scroll.setClipToOutline(true);
         dialog.setContentView(scroll);dialog.setCanceledOnTouchOutside(true);
         Window w=dialog.getWindow();
         if(w!=null){w.setBackgroundDrawableResource(android.R.color.transparent);

@@ -11,14 +11,14 @@ import org.json.JSONObject;
 
 /** Explicit tool surface, never an arbitrary URL/method supplied by a model. */
 public final class GitHubAgentOperations {
-    public static final Set<String> READS=set("github_profile","github_usage","github_rate_limit",
+    public static final Set<String> READS=set("github_profile","github_usage","github_rate_limit","github_capabilities",
         "repository_branches","repository_read_file","repository_issues","repository_pulls",
         "issue_details","pull_request_details");
     public static final Set<String> WRITES=set("create_repository","create_branch",
         "update_repository","update_account_profile","create_issue","update_issue",
         "create_pull_request","merge_pull_request","dispatch_workflow");
     public static final String READ_CATALOG="github_profile {}, github_usage {} (usage, not remaining quota), "+
-        "github_rate_limit {}, repository_branches {repository}, "+
+        "github_rate_limit {}, github_capabilities {} (GitHub App installations and grants), repository_branches {repository}, "+
         "repository_read_file {repository,path,branch}, repository_issues {repository}, "+
         "repository_pulls {repository}, issue_details {repository,number}, "+
         "pull_request_details {repository,number}.";
@@ -62,6 +62,18 @@ public final class GitHubAgentOperations {
                 "public_repos","total_private_repos","followers","following","plan","created_at","updated_at");
         }
         if("github_rate_limit".equals(name))return api.getJson("https://api.github.com/rate_limit");
+        if("github_capabilities".equals(name)){
+            JSONObject raw=api.getJson("https://api.github.com/user/installations?per_page=100");
+            org.json.JSONArray grants=new org.json.JSONArray(),items=raw.optJSONArray("installations");
+            for(int i=0;items!=null&&i<items.length();i++){
+                JSONObject item=items.getJSONObject(i);
+                grants.put(pick(item,"id","account","permissions","repository_selection","suspended_at"));
+            }
+            return new JSONObject().put("installations",grants).put("total_count",raw.optInt("total_count"))
+                .put("partial",raw.optInt("total_count")>grants.length())
+                .put("settings_url","https://github.com/settings/installations")
+                .put("note","These are installation grants, not proof that every API operation is allowed. AI cannot elevate GitHub App registration, account security, payment or billing permissions.");
+        }
         if("github_usage".equals(name)){
             AccountOperationsController.BillingSnapshot b=new AccountOperationsController(api).loadBillingOverview();
             return new JSONObject().put("login",b.login).put("plan",b.planName)

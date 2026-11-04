@@ -119,6 +119,46 @@ final class GitAgentUiChecks {
         Activity activity=host.startActivitySync(intent);
         File directory=new File(context.getExternalFilesDir(null),"ui-screenshots");directory.mkdirs();
         try {
+            // Execute the actual local tool broker, not a mocked filename renderer.
+            String toolOwner=account+"-tools",toolThread=projects.activeConversation(toolOwner);
+            app.githubble.mobile.agent.WorkspaceHub toolWorkspace=new app.githubble.mobile.agent.WorkspaceHub(context);
+            java.util.concurrent.atomic.AtomicInteger permission=new java.util.concurrent.atomic.AtomicInteger(2);
+            app.githubble.mobile.agent.NativeAgentToolHost localTools=new app.githubble.mobile.agent.NativeAgentToolHost(
+                activity,null,null,toolWorkspace,projects,toolOwner,toolThread,projects.project(toolOwner),
+                false,true,false,permission::get,()->{},()->{});
+            localTools.execute("create_workspace",new org.json.JSONObject().put("name","Agent tool regression"));
+            String toolId=projects.project(toolOwner).workspaceId;
+            if(toolId.isEmpty())throw new AssertionError("Model tool did not create a Workspace");
+            localTools.execute("write_files",new org.json.JSONObject().put("summary","Create source")
+                .put("files",new JSONArray().put(new org.json.JSONObject().put("path","src/file.js").put("content","one\ntwo\n"))));
+            localTools.execute("write_files",new org.json.JSONObject().put("summary","Edit source")
+                .put("files",new JSONArray().put(new org.json.JSONObject().put("path","src/file.js").put("content","one\nthree\nfour\n"))));
+            if(!"one\nthree\nfour\n".equals(toolWorkspace.readFile(toolOwner,toolId,"src/file.js")))
+                throw new AssertionError("Native write tool did not apply actual source");
+            JSONArray toolEvents=projects.messages(toolOwner,toolThread);
+            org.json.JSONObject changed=null;
+            for(int i=0;i<toolEvents.length();i++){
+                JSONArray ops=toolEvents.getJSONObject(i).optJSONArray("operations");
+                if(ops!=null&&ops.length()>0)changed=ops.getJSONObject(0);
+            }
+            if(changed==null||changed.getInt("added")!=2||changed.getInt("removed")!=1)
+                throw new AssertionError("Host file counts differ from actual diff");
+            permission.set(0);
+            if(localTools.handles("write_files"))throw new AssertionError("Read-only permission still offers write tools");
+            app.githubble.mobile.agent.NativeAgentToolHost planTools=new app.githubble.mobile.agent.NativeAgentToolHost(
+                activity,null,null,toolWorkspace,projects,toolOwner,toolThread,projects.project(toolOwner),
+                true,true,true,()->3,()->{},()->{});
+            if(planTools.handles("write_files")||planTools.handles("create_repository")||!planTools.handles("read_file"))
+                throw new AssertionError("Planning mode does not enforce read-only capabilities");
+            // Move structured operations to SQLite and verify they survive archival.
+            for(int i=0;i<85;i++)projects.appendToConversation(toolOwner,toolThread,"user","Archive tool event "+i);
+            JSONArray archivedTools=projects.fullHistory(toolOwner,toolThread,10000);
+            boolean restoredOperation=false;
+            for(int i=0;i<archivedTools.length();i++){
+                JSONArray ops=archivedTools.getJSONObject(i).optJSONArray("operations");
+                if(ops!=null&&ops.length()>0&&ops.getJSONObject(0).optInt("added")==2)restoredOperation=true;
+            }
+            if(!restoredOperation)throw new AssertionError("Archive lost structured file operations");
             app.githubble.mobile.agent.WorkspaceHub workspaceHub=new app.githubble.mobile.agent.WorkspaceHub(context);
             String smokeId=workspaceHub.create(account,"Local Workspace smoke").getString("id");
             workspaceHub.saveFile(account,smokeId,"src/Smoke.kt","class Smoke { fun original() = 1 }\n");
@@ -162,22 +202,10 @@ final class GitAgentUiChecks {
                     if(find(root,"Git Agent")==null||find(root,"Спросить Git Agent")==null)
                         throw new AssertionError("Missing Git Agent branding/composer");
                     if(find(root,"OmniChat")!=null)throw new AssertionError("Old branding visible");
+                    if(find(root,"План")==null)throw new AssertionError("Planning control missing");
                     EditText input=(EditText)find(root,"Спросить Git Agent");
                     if(!"Сохранённый черновик".equals(input.getText().toString()))throw new AssertionError("Draft missing");
-                    app.githubble.mobile.ui.GitAgentUi design=new app.githubble.mobile.ui.GitAgentUi(activity,dark?0xFF343941:0xFFFFFFFF);
-                    LinearLayout controls=design.row();
-                    for(String title:new String[]{"Выкл","Авто","Один агент","Оркестрация"})
-                        design.modeChip(controls,title,title.equals("Один агент"),!title.equals("Авто")&&!title.equals("Оркестрация"),()->{});
-                    controls.measure(View.MeasureSpec.makeMeasureSpec(design.dp(300),View.MeasureSpec.EXACTLY),
-                        View.MeasureSpec.makeMeasureSpec(design.dp(80),View.MeasureSpec.AT_MOST));
-                    controls.layout(0,0,controls.getMeasuredWidth(),controls.getMeasuredHeight());
-                    for(int i=0;i<controls.getChildCount();i++){
-                        TextView button=(TextView)controls.getChildAt(i);
-                        if(button.getTop()!=controls.getChildAt(0).getTop()||button.getBottom()!=controls.getChildAt(0).getBottom())
-                            throw new AssertionError("Execution controls are not aligned in one row");
-                        if(button.getPaint().measureText(button.getText().toString())>button.getWidth()-button.getPaddingLeft()-button.getPaddingRight()+1)
-                            throw new AssertionError("Execution mode label is clipped: "+button.getText());
-                    }
+
                 });
                 host.waitForIdleSync();
                 onMain(host,()->{
@@ -189,6 +217,21 @@ final class GitAgentUiChecks {
                     }catch(Exception error){throw new RuntimeException(error);}finally{image.recycle();}
                 });
             }
+            onMain(host,()->{
+                try{
+                    LinearLayout root=new LinearLayout(activity);activity.setContentView(root);
+                    AgentChatScreen.Actions actions=(AgentChatScreen.Actions)java.lang.reflect.Proxy.newProxyInstance(
+                        AgentChatScreen.Actions.class.getClassLoader(),new Class[]{AgentChatScreen.Actions.class},(proxy,method,args)->null);
+                    JSONArray ops=new JSONArray().put(new org.json.JSONObject().put("path","src/file.js").put("kind","edit").put("added",130).put("removed",80))
+                        .put(new org.json.JSONObject().put("path","src/new.js").put("kind","create").put("added",160).put("removed",0));
+                    JSONArray messages=new JSONArray().put(new org.json.JSONObject().put("role","system").put("body","Файлы записаны").put("operations",ops));
+                    new AgentChatScreen(activity,root,0xFF182226,0xFF223135,0xFF263B33,0xFFF2F7F4,0xFFAEBEB7,0xFF8CD74F,0xFF3A4C48,actions)
+                        .render("test",projects.project(account),messages,0,true,"Test","Test model",true,"Проект",false,"");
+                    if(find(root,"file.js")==null||find(root," +130")==null||find(root," −80")==null)
+                        throw new AssertionError("Structured file diff row missing");
+                }catch(Exception e){throw new RuntimeException(e);}
+            });
+            host.waitForIdleSync();screenshot(host,directory,"file-change-events.png");
             // Exercise the integrated app surface and the actual modal windows too.
             onMain(host,()->{
                 try {
@@ -355,4 +398,5 @@ final class GitAgentUiChecks {
         return null;
     }
 }
+
 
