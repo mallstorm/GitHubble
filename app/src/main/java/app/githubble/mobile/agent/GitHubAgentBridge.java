@@ -42,6 +42,8 @@ public final class GitHubAgentBridge {
         }
     }
 
+    GitHubApiClient toolApi(String expected){return scopedApi(expected);}
+
     public JSONObject createRepository(String expected, String name, String description, boolean privateRepo)
             throws Exception {
         GitHubApiClient bound = scopedApi(expected);
@@ -152,6 +154,8 @@ public final class GitHubAgentBridge {
     /** Model-visible read tools: no mutation endpoints or access token disclosure. */
     public JSONObject executeReadOnly(String expected,String name,JSONObject args,String linkedRepo,String branch)throws Exception{
         if(args==null)args=new JSONObject();
+        if(GitHubAgentOperations.READS.contains(name))
+            return GitHubAgentOperations.read(this,expected,name,args,linkedRepo,branch);
         switch(name){
             case "github_account":return activeIdentity(expected);
             case "list_repositories":return listAccessibleRepositories(expected);
@@ -217,3 +221,4 @@ public final class GitHubAgentBridge {
             throw new IllegalArgumentException("Ожидается репозиторий OWNER/REPO");
     }
 }
+

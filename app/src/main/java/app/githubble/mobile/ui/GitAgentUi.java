@@ -22,6 +22,10 @@ public final class GitAgentUi {
         background=dark?0xFF424850:0xFFF8F2FA;line=dark?0xFF6F7B86:0xFFD7DFE5;
         primary=dark?0xFFCCD8E0:0xFF435B69;
     }
+    public GitAgentUi(Activity activity,int appBackground,int surface,int foreground,int secondary,int accent,int border){
+        this.activity=activity;dark=Color.luminance(appBackground)<.4f;
+        background=surface;text=foreground;muted=secondary;primary=accent;line=border;
+    }
     public int dp(float v){return Math.round(v*activity.getResources().getDisplayMetrics().density);}
     public GradientDrawable shape(int color,int radius,int border){
         GradientDrawable d=new GradientDrawable();d.setColor(color);d.setCornerRadius(dp(radius));

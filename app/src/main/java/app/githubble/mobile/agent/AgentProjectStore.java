@@ -132,4 +132,9 @@ public final class AgentProjectStore {
     public synchronized void appendToConversation(String accountId, String id, String role, String body) {
         conversations.append(accountId, id, role, body);
     }
+    public synchronized void appendOperations(String account,String thread,String body,JSONArray operations){
+        conversations.appendEvent(account,thread,"system",body,operations);
+    }
+
 }
+

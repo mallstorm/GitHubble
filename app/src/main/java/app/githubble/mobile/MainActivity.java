@@ -652,7 +652,7 @@ public class MainActivity extends Activity {
             @Override public void draftChanged(String value) { prefs.edit().putString(agentDraftKey(owner, renderedThread), value).apply(); }
             @Override public void selectMode(boolean agentMode) {
                 if(!owner.equals(accountStore.activeCacheKey()))return;
-                prefs.edit().putBoolean("ai_chat_agent_mode_" + owner, agentMode).apply();
+                prefs.edit().putBoolean(agentPlanningKey(owner,renderedThread),agentMode).apply();
             }
             @Override public void send(String prompt, boolean agentMode) {
                 agentSend(owner, prompt, agentMode);
@@ -671,7 +671,7 @@ public class MainActivity extends Activity {
             }
         }
         screen.render(label, project, agentProjects.messages(owner), OmniChatProviderCatalog.load(this).length(),
-                prefs.getBoolean("ai_chat_agent_mode_" + owner, false),
+                prefs.getBoolean(agentPlanningKey(owner,selectedThread),false),
                 connected ? aiConnections.displayName(provider) : "нет",
                 connected ? aiConnections.model(owner, provider) : "", connected,
                 title, aiRequestsInFlight.contains(owner), prefs.getString(agentDraftKey(owner, agentProjects.activeConversation(owner)), ""));
@@ -1243,7 +1243,7 @@ public class MainActivity extends Activity {
     /** OmniChat-style left navigation drawer: independent conversations per GitHub account. */
     private void agentShowConversations(String owner) {
         if (!owner.equals(accountStore.activeCacheKey())) return;
-        GitAgentUi ui=new GitAgentUi(this,BG);
+        GitAgentUi ui=new GitAgentUi(this,BG,CARD,TEXT,MUTED,GREEN,BORDER);
         final Dialog drawer = new Dialog(this);
         LinearLayout panel = new LinearLayout(this);
         panel.setOrientation(LinearLayout.VERTICAL);
@@ -1406,46 +1406,27 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** Long press on the gray/green robot mirrors OmniChat's agent configuration shortcut. */
-    private void agentShowAgentSettings(String owner) {
-        if (!owner.equals(accountStore.activeCacheKey())) return;
-        GitAgentUi ui=new GitAgentUi(this,BG);
-        LinearLayout body=ui.body("Агент и оркестрация",false);
-        ui.section(body,"Режим выполнения");
-        boolean enabled=prefs.getBoolean("ai_chat_agent_mode_"+owner,false);
-        final Dialog[] dialog={null};
-        LinearLayout modes=ui.row();
-        ui.modeChip(modes,"Выкл",!enabled,true,()->agentSetMode(owner,0,dialog[0]));
-        ui.modeChip(modes,"Авто",false,false,()->{});
-        ui.modeChip(modes,"Один агент",enabled,true,()->agentSetMode(owner,1,dialog[0]));
-        ui.modeChip(modes,"Оркестрация",false,false,()->{});
-        body.addView(modes);
-        ui.note(body,enabled?"Анализ и генерация файлов. Записи в GitHub требуют подтверждения.":"Обычный чат без файловых инструментов.");
-        ui.section(body,"Подключённая AI-модель");
-        ui.action(body,"Выбрать модель","Cline, OpenAI, Grok и другие подключения",0xFF2E9D68,
-                ()->{dialog[0].dismiss();agentChooseComposerModel(owner);});
-        LinearLayout approval=ui.row();approval.setPadding(ui.dp(12),ui.dp(12),ui.dp(12),ui.dp(12));
-        approval.setBackground(ui.shape(ui.dark?0xFF515963:0xFFF0EBF3,18,0));
-        TextView caption=ui.label("Автоодобрение проекта\nGitHub-записи всегда требуют подтверждения",14,true);
-        approval.addView(caption,new LinearLayout.LayoutParams(0,-2,1));
-        Switch toggle=new Switch(this);toggle.setChecked(false);toggle.setEnabled(false);approval.addView(toggle);body.addView(approval);
-        ui.section(body,"Роли оркестрации");
-        for(String role:new String[]{"Архитектор","Исполнитель","Ревьюер","Отладчик"}){
-            LinearLayout row=ui.row();row.setPadding(0,ui.dp(8),0,ui.dp(8));
-            Switch active=new Switch(this);active.setChecked("Исполнитель".equals(role));active.setEnabled(false);
-            row.addView(active);TextView name=ui.label(role+"\n"+("Исполнитель".equals(role)?"Текущая модель":"Не подключено"),13,true);
-            row.addView(name,new LinearLayout.LayoutParams(0,-2,1));
-            TextView model=ui.label("Модель",12,false);model.setTextColor(ui.muted);row.addView(model);body.addView(row);
-        }
-        ui.note(body,"Авто и несколько ролей пока недоступны. Работает один исполнитель с выбранной моделью.");
-        TextView done=ui.label("Готово",14,true);done.setGravity(Gravity.END);done.setPadding(0,ui.dp(12),0,ui.dp(8));
-        done.setOnClickListener(v->dialog[0].dismiss());body.addView(done);dialog[0]=ui.present(body,false);
+    private String agentPlanningKey(String owner,String thread){return "ai_planning_"+owner+"_"+thread;}
+    private boolean agentPlanning(String owner){
+        return prefs.getBoolean(agentPlanningKey(owner,agentProjects.activeConversation(owner)),false);
     }
-
-    private void agentSetMode(String owner,int mode,Dialog dialog){
+    private int agentPermission(String owner){
+        return app.githubble.mobile.agent.AgentPermissionPolicy.normalize(
+            prefs.getInt("ai_execution_permission_"+owner,1));
+    }
+    private void agentShowAgentSettings(String owner) {
         if(!owner.equals(accountStore.activeCacheKey()))return;
-        prefs.edit().putBoolean("ai_chat_agent_mode_"+owner,mode!=0).apply();
-        if(dialog!=null)dialog.dismiss();agentRefreshIfCurrent(owner);
+        String[] labels=app.githubble.mobile.agent.AgentPermissionPolicy.LABELS;
+        new AlertDialog.Builder(this).setTitle("Разрешения Git Agent")
+            .setSingleChoiceItems(labels,agentPermission(owner),(d,which)->{
+                if(!owner.equals(accountStore.activeCacheKey())){d.dismiss();return;}
+                Runnable save=()->{prefs.edit().putInt("ai_execution_permission_"+owner,which).apply();d.dismiss();agentRefreshIfCurrent(owner);};
+                if(which>=2)new AlertDialog.Builder(this).setTitle(labels[which])
+                    .setMessage(which==3?"Запрошенные изменения файлов и обычные записи в GitHub будут выполняться автоматически. Профиль, настройки репозитория, merge и запуск workflow требуют отдельного подтверждения. Доступ на чтение настраивается отдельно.":"Запрошенные локальные изменения будут применяться автоматически с точками восстановления. Записи в GitHub требуют подтверждения. Доступ на чтение настраивается отдельно.")
+                    .setPositiveButton("Включить",(v,w)->save.run()).setNegativeButton("Отмена",null).show();
+                else save.run();
+            }).setNeutralButton("Доступ к данным",(d,w)->navigate(this::showSettingsGitAgentWorkspace))
+            .setPositiveButton("Готово",null).show();
     }
 
     private void agentUnavailable(String title,String reason){
@@ -1454,7 +1435,7 @@ public class MainActivity extends Activity {
 
     private void agentShowSubscriptions(String owner,boolean proxy){
         if(!owner.equals(accountStore.activeCacheKey()))return;
-        GitAgentUi ui=new GitAgentUi(this,BG);LinearLayout body=ui.body(proxy?"Subscription proxy":"Аккаунты и подписки",true);
+        GitAgentUi ui=new GitAgentUi(this,BG,CARD,TEXT,MUTED,GREEN,BORDER);LinearLayout body=ui.body(proxy?"Subscription proxy":"Аккаунты и подписки",true);
         ui.note(body,"AI-подписки доступны без GitHub. OAuth-сессии шифруются "+
             "для текущего профиля приложения.");
         final Dialog[] sheet={null};
@@ -1514,7 +1495,7 @@ public class MainActivity extends Activity {
                 OAuthSubscriptions.DeviceLogin login=oauthSubscriptions.begin(provider);
                 runOnUiThread(()->{
                     progress.dismiss();if(!subscriptionAttemptCurrent(owner,cancelled))return;
-                    GitAgentUi ui=new GitAgentUi(this,BG);LinearLayout body=ui.column();body.setPadding(dp(20),dp(8),dp(20),dp(12));
+                    GitAgentUi ui=new GitAgentUi(this,BG,CARD,TEXT,MUTED,GREEN,BORDER);LinearLayout body=ui.column();body.setPadding(dp(20),dp(8),dp(20),dp(12));
                     ui.note(body,"Подтвердите вход на странице провайдера. Код действителен ограниченное время.");
                     TextView code=ui.label(login.userCode,28,true);code.setTextIsSelectable(true);code.setGravity(Gravity.CENTER);body.addView(code);
                     TextView status=ui.label("Ожидание подтверждения…",13,false);status.setPadding(0,dp(14),0,0);body.addView(status);
@@ -1668,6 +1649,9 @@ public class MainActivity extends Activity {
             toast("Опишите задачу (5–12000 символов)");return;
         }
         if(!owner.equals(accountStore.activeCacheKey()))return;
+        if(!app.githubble.mobile.agent.AgentPermissionPolicy.mayWrite(agentPermission(owner),agentPlanning(owner))){
+            toast("Планирование или только чтение: запись файлов отключена");return;
+        }
         String provider=aiConnections.selectedProvider(owner);
         if(provider.isEmpty()||!aiConnections.isConfigured(owner,provider)){
             agentChooseComposerModel(owner);return;
@@ -1745,18 +1729,20 @@ public class MainActivity extends Activity {
                                         agentWorkspaces.requireRemoteRevision(owner,workspaceId,
                                             project.repository,project.branch,repair.head);
                                     }
+                                    if(!app.githubble.mobile.agent.AgentPermissionPolicy.mayWrite(agentPermission(owner),agentPlanning(owner)))
+                                        throw new SecurityException("Запись файлов отключена");
                                     AgentExecutionEngine.Applied applied=
                                         app.githubble.mobile.agent.WorkspaceChangeReview.applyApproved(
                                             this,agentWorkspaces,owner,workspaceId,plan,review);
                                     JSONObject info=agentWorkspaces.info(owner,workspaceId);
                                     agentWorkspaces.configure(owner,workspaceId,info.optString("name",project.name),
                                         "DEVELOPMENT",info.optString("instructions",""));
-                                    agentProjects.appendToConversation(owner,thread,"system",
+                                    agentProjects.appendOperations(owner,thread,
                                         "Изменения применены локально: "+applied.files+
                                         " файлов. Новых: "+review.created+
                                         ", изменённых: "+review.modified+
                                         ". Checkpoint: "+applied.checkpointId+
-                                        ". GitHub не изменён. Для публикации: /workspace push.");
+                                        ". GitHub не изменён. Для публикации: /workspace push.",review.operations);
                                     if(repair!=null)runOnUiThread(()->{
                                         if(!owner.equals(accountStore.activeCacheKey())||
                                             !thread.equals(agentProjects.activeConversation(owner))||
@@ -1801,7 +1787,7 @@ public class MainActivity extends Activity {
 
     private void agentChooseComposerModel(String owner) {
         if (!owner.equals(accountStore.activeCacheKey())) return;
-        GitAgentUi ui=new GitAgentUi(this,BG);LinearLayout body=ui.body("Выбор модели",true);
+        GitAgentUi ui=new GitAgentUi(this,BG,CARD,TEXT,MUTED,GREEN,BORDER);LinearLayout body=ui.body("Выбор модели",true);
         final Dialog[] dialog={null};
         ui.note(body,"Выберите модель или добавьте подключение. Для AI вход в GitHub не нужен.");
         boolean any=false;
@@ -1862,7 +1848,7 @@ public class MainActivity extends Activity {
 
     private void agentShowAttachments(String owner) {
         if(!owner.equals(accountStore.activeCacheKey()))return;
-        GitAgentUi ui=new GitAgentUi(this,BG);LinearLayout body=ui.body("Добавить",true);
+        GitAgentUi ui=new GitAgentUi(this,BG,CARD,TEXT,MUTED,GREEN,BORDER);LinearLayout body=ui.body("Добавить",true);
         final Dialog[] dialog={null};LinearLayout quick=ui.row();
         String unavailable="Мультимодальный транспорт ещё не подключён. Доступны текстовые файлы и GitHub-инструменты.";
         ui.tile(quick,"Камера",R.drawable.ic_agent_camera,0xFF1C9C76,()->agentUnavailable("Камера · недоступно",unavailable));
@@ -2096,10 +2082,13 @@ public class MainActivity extends Activity {
                 }).setNegativeButton("Закрыть", null).show();
     }
 
-    private void agentSend(String expected, String message, boolean agentMode) {
+    private void agentSend(String expected, String message, boolean ignoredLegacyMode) {
+        final boolean agentMode=true;
         if (!expected.equals(accountStore.activeCacheKey())) { toast("Аккаунт проекта изменился"); return; }
         if(aiRequestsInFlight.contains(expected)){toast("Предыдущий запрос ещё выполняется");return;}
         final String activeChat = agentProjects.activeConversation(expected);
+        final boolean planning=agentPlanning(expected);
+        final boolean mayWrite=app.githubble.mobile.agent.AgentPermissionPolicy.mayWrite(agentPermission(expected),planning);
         final Uri imageUri=expected.equals(pendingAgentImageOwner)
             &&activeChat.equals(pendingAgentImageThread)?pendingAgentImageUri:null;
         if(imageUri!=null){
@@ -2137,33 +2126,11 @@ public class MainActivity extends Activity {
                 }
             });return;
         }
+        if(mayWrite){
         boolean workspaceImport=app.githubble.mobile.agent.RepositoryWorkspaceImporter.isImportIntent(message);
         if(imageUri==null && workspaceImport){
             agentImportRepositoryToWorkspace(expected,message);
             return;
-        }
-        java.util.regex.Matcher create = java.util.regex.Pattern.compile(
-                "(?iu)(?:создай|создать)\\s+(?:(приватный|публичный)\\s+)?репозиторий\\s+([A-Za-z0-9_.-]+)")
-                .matcher(message);
-        if (imageUri==null && create.find()) {
-            String visibility = create.group(1);
-            agentRefreshIfCurrent(expected);
-            agentCreateRepository(expected, create.group(2), !"публичный".equalsIgnoreCase(visibility));
-            return;
-        }
-        AgentProjectStore.Project before=agentProjects.project(expected);
-        boolean createdWorkspaceForThisMessage=false;
-        if(agentMode&&before.workspaceId.isEmpty()){
-            String name=app.githubble.mobile.agent.ProjectWorkspaceSupport.INSTANCE.projectCreationName(message);
-            if(name!=null)try{
-                JSONObject created=agentWorkspaces.create(expected,name);
-                String workspace=created.getString("id");
-                agentWorkspaces.configure(expected,workspace,name,"PLANNING","");
-                agentWorkspaces.saveFile(expected,workspace,"docs/CONTEXT.md","# Задача проекта\n"+app.githubble.mobile.memory.MemoryPolicy.INSTANCE.redactSecrets(message));
-                agentProjects.save(new AgentProjectStore.Project(expected,name,before.repository,before.branch,workspace));
-                createdWorkspaceForThisMessage=true;
-                agentProjects.appendToConversation(expected,activeChat,"system","Создан Workspace «"+name+"». Репозиторий автоматически не создаётся и не закрепляется.");
-            }catch(Exception e){agentProjects.appendToConversation(expected,activeChat,"system","Workspace: "+e.getMessage());}
         }
         AgentProjectStore.Project p = agentProjects.project(expected);
         if(agentMode&&!p.workspaceId.isEmpty()&&app.githubble.mobile.agent.ProjectWorkspaceSupport.INSTANCE.architectureSelectionIntent(message))try{
@@ -2209,17 +2176,6 @@ public class MainActivity extends Activity {
             agentChooseWorkflow(expected);
             return;
         }
-        // Positive implementation requests become reviewed local file proposals,
-        // not chat-only promises or immediate GitHub mutations.
-        if(imageUri==null&&agentMode&&!createdWorkspaceForThisMessage&&!p.workspaceId.isEmpty()
-            &&app.githubble.mobile.agent.ProjectWorkIntent.requestsFileProposal(message)){
-            agentGenerateLocalCode(expected,p,message.startsWith("/code ")
-                ?message.substring(6):message);
-            return;
-        }
-        if (imageUri==null && agentMode && (lower.startsWith("/code ") || lower.contains("создай исходники") || lower.contains("создай файлы"))) {
-            agentGenerateProjectCode(expected, lower.startsWith("/code ") ? message.substring(6) : message);
-            return;
         }
         {
             String provider = aiConnections.selectedProvider(expected);
@@ -2242,19 +2198,32 @@ public class MainActivity extends Activity {
             agentRefreshIfCurrent(expected);
             java.util.concurrent.Future<?> call = io.submit(() -> {
                 try {
-                    String context=agentContext(expected,agentMode||!activeProject.workspaceId.isEmpty()
-                        ?activeProject:new AgentProjectStore.Project(expected,"","","main",""),activeChat,message);
+                    String context=agentContext(expected,activeProject,activeChat,message)+
+                        (planning?"\nPLANNING: inspect, reason and plan only. Do not write, create, publish or run builds.":
+                        "\nYou are an agent by default. Discuss and reason normally until the user requests implementation.");
                     String response;
-                    boolean githubIntent=message.toLowerCase(java.util.Locale.ROOT)
-                        .matches("(?s).*(?:github|репозитор|ветк[аиу]|pull request|workflow|git action|issue).*");
                     // Both GitHub and Workspace are available to the same agent when
                     // account-scoped permissions are explicitly enabled.
                     boolean allowGithub=!"guest".equals(expected)&&isSignedIn()
                         &&prefs.getBoolean("ai_tool_github_read_"+expected,false);
-                    boolean allowFiles=prefs.getBoolean("ai_tool_file_read_"+expected,false)
-                            &&!activeProject.workspaceId.isEmpty();
-                    boolean toolMode=imageUri==null&&((agentMode&&(allowGithub||allowFiles))
-                            ||(githubIntent&&allowGithub));
+                    boolean allowFiles=prefs.getBoolean("ai_tool_file_read_"+expected,false);
+                    boolean toolMode=imageUri==null;
+                    Runnable scopeGuard=()->{
+                        if(!expected.equals(accountStore.activeCacheKey())
+                            ||!activeChat.equals(agentProjects.activeConversation(expected))
+                            ||!java.util.Objects.equals(aiRequestTickets.get(expected),ticket)
+                            ||aiCanceledRequests.contains(expected)||agentPlanning(expected)!=planning)
+                            throw new java.util.concurrent.CancellationException("Контекст запроса изменился");
+                        if(allowGithub){
+                            aiGithub.requireAccount(expected);
+                            if(!prefs.getBoolean("ai_tool_github_read_"+expected,false))throw new SecurityException("Доступ GitHub отозван");
+                        }
+                        if(allowFiles&&!prefs.getBoolean("ai_tool_file_read_"+expected,false))throw new SecurityException("Доступ к файлам отозван");
+                    };
+                    app.githubble.mobile.agent.NativeAgentToolHost tools=new app.githubble.mobile.agent.NativeAgentToolHost(
+                        this,aiGithub,new AgentGitWorkspace(accountStore,secureStore),agentWorkspaces,
+                        agentProjects,expected,activeChat,activeProject,allowGithub,allowFiles,planning,
+                        ()->agentPermission(expected),scopeGuard,()->agentRefreshIfCurrent(expected));
                     if(toolMode){
                         response=app.githubble.mobile.agent.ProjectRuntime.analyze(instructions->{
                             JSONArray prompt=new JSONArray().put(
@@ -2266,7 +2235,7 @@ public class MainActivity extends Activity {
                         },aiGithub,agentWorkspaces,expected,activeProject.repository,
                             activeProject.branch,activeProject.workspaceId,message,context,
                             allowGithub,allowFiles,
-                            allowGithub?()->aiGithub.requireAccount(expected):null);
+                            scopeGuard,tools);
                     }else if(imageUri!=null){
                         String mime=getContentResolver().getType(imageUri);
                         response=aiChatClient.completeWithImage(provider,model,credential,snapshot,
@@ -8723,7 +8692,7 @@ public class MainActivity extends Activity {
 
         sectionTitle("Агент и модели",null);
         settingsActionRow("Режим и исполнитель",
-                "Chat / Agent, подключённая модель, подтверждения операций",
+                "Агент всегда включён · планирование и уровни разрешений",
                 ()->agentShowAgentSettings(owner));
         settingsActionRow("Текущая модель",
                 provider.isEmpty()?"Не выбрана":aiConnections.displayName(provider)+" · "+aiConnections.model(owner,provider),
@@ -9658,4 +9627,5 @@ public class MainActivity extends Activity {
     private void errorDialog(String title,String message){new AlertDialog.Builder(this).setTitle(title).setMessage(message==null?"Неизвестная ошибка":message).setPositiveButton("ОК",null).show();}
     private void toast(String s){Toast.makeText(this,s,Toast.LENGTH_SHORT).show();}
 }
+
 

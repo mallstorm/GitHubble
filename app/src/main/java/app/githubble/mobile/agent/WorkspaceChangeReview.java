@@ -18,6 +18,7 @@ public final class WorkspaceChangeReview {
     private static final int MAX_FILES = AgentFilePlan.MAX_FILES;
     private final LinkedHashMap<String,String> expected = new LinkedHashMap<>();
     private final LinkedHashMap<String,String> proposed = new LinkedHashMap<>();
+    public final JSONArray operations = new JSONArray();
     public final int created;
     public final int modified;
     public final int unchanged;
@@ -56,6 +57,7 @@ public final class WorkspaceChangeReview {
         if(hub==null||plan==null)throw new IllegalArgumentException("Нет Workspace или плана");
         if(plan.files.length()>MAX_FILES)throw new IllegalArgumentException("Слишком много файлов");
         int added=0,changed=0,same=0;
+        JSONArray operations=new JSONArray();
         StringBuilder details=new StringBuilder();
         LinkedHashMap<String,String> expected=new LinkedHashMap<>();
         LinkedHashMap<String,String> proposed=new LinkedHashMap<>();
@@ -78,13 +80,20 @@ public final class WorkspaceChangeReview {
             if(!present){added++;details.append("+ новый: ");}
             else if(before.equals(after)){same++;details.append("= без изменений: ");}
             else{changed++;details.append("~ изменится: ");}
-            details.append(path).append('\n');
+            FileChangeStats diff=FileChangeStats.between(old,text);
+            operations.put(new JSONObject().put("path",path)
+                .put("kind",!present?"create":before.equals(after)?"unchanged":"edit")
+                .put("added",diff.added).put("removed",diff.removed)
+                .put("approximate",diff.approximate));
+            details.append(path).append("  ").append(diff.approximate?"≈":"")
+                .append("+").append(diff.added).append(" -").append(diff.removed).append('\n');
             if(path.startsWith(".github/workflows/"))
                 details.append("  ⚠ Файл GitHub Actions: проверяйте содержимое до публикации\n");
         }
         WorkspaceChangeReview result=new WorkspaceChangeReview(added,changed,same,
             "Новых файлов: "+added+"\nИзменяемых: "+changed+
             "\nБез изменений: "+same+"\n\n"+details);
+        for(int i=0;i<operations.length();i++)result.operations.put(operations.getJSONObject(i));
         result.expected.putAll(expected);
         result.proposed.putAll(proposed);
         return result;
@@ -132,3 +141,4 @@ public final class WorkspaceChangeReview {
             +"|sk-[A-Za-z0-9_-]{32,}).*");
     }
 }
+

@@ -69,13 +69,8 @@ public final class AgentChatScreen {
                            int subtle, int text, int muted, int accent, int border, Actions actions) {
         this.activity = activity;
         this.root = root;
-        this.background = Color.luminance(background) < .4f ? 0xFF343941 : Color.WHITE;
-        this.surface = Color.luminance(background) < .4f ? 0xFF424850 : 0xFFF2F4F6;
-        this.subtle = Color.luminance(background) < .4f ? 0xFF515963 : 0xFFF2F4F6;
-        this.text = Color.luminance(background) < .4f ? 0xFFF2F3F5 : 0xFF222B31;
-        this.muted = Color.luminance(background) < .4f ? 0xFFDFE4E9 : 0xFF52616B;
-        this.accent = Color.luminance(background) < .4f ? 0xFFCCD8E0 : 0xFF435B69;
-        this.border = Color.luminance(background) < .4f ? 0xFF6F7B86 : 0xFFD7DFE5;
+        this.background=background;this.surface=surface;this.subtle=subtle;
+        this.text=text;this.muted=muted;this.accent=accent;this.border=border;
         this.actions = actions;
         this.dark = Color.luminance(background) < .4f;
     }
@@ -192,19 +187,21 @@ public final class AgentChatScreen {
         tools.addView(glyph("+","Вложения и инструменты",actions::openAttachments,28),
                 new LinearLayout.LayoutParams(dp(42),dp(44)));
 
-        ImageView robot=icon(R.drawable.ic_omni_robot,"Агентский режим",agentMode?0xFF2E9D68:muted);
-        robot.setBackgroundColor(Color.TRANSPARENT);
-        robot.setContentDescription(agentMode?"Агент включён. Нажмите для выключения":
-                "Обычный чат. Нажмите для включения агента");
+        ImageView robot=icon(R.drawable.ic_omni_robot,"Агент · разрешения",0xFF2E9D68);
+        robot.setOnClickListener(v->actions.openAgentSettings());
+        tools.addView(robot,new LinearLayout.LayoutParams(dp(43),dp(43)));
+        // The boolean is now planning state; agent execution is always available.
         final boolean[] currentMode={agentMode};
-        robot.setOnClickListener(v->{
+        TextView plan=label("План",12,true,agentMode?accent:muted);
+        plan.setGravity(Gravity.CENTER);plan.setContentDescription("Режим планирования: только чтение");
+        plan.setBackground(shape(agentMode?subtle:Color.TRANSPARENT,14,border,1));
+        plan.setOnClickListener(v->{
             currentMode[0]=!currentMode[0];
-            robot.setColorFilter(currentMode[0]?0xFF2E9D68:muted);
-            robot.setContentDescription(currentMode[0]?"Агент включён":"Обычный чат");
+            plan.setTextColor(currentMode[0]?accent:muted);
+            plan.setBackground(shape(currentMode[0]?subtle:Color.TRANSPARENT,14,border,1));
             actions.selectMode(currentMode[0]);
         });
-        robot.setOnLongClickListener(v->{actions.openAgentSettings();return true;});
-        tools.addView(robot,new LinearLayout.LayoutParams(dp(43),dp(43)));
+        tools.addView(plan,new LinearLayout.LayoutParams(dp(48),dp(38)));
 
         LinearLayout model=new LinearLayout(activity);
         model.setOrientation(LinearLayout.VERTICAL);
@@ -247,7 +244,7 @@ public final class AgentChatScreen {
             if(value.isEmpty()){input.setError("Введите сообщение");return;}
             if(value.length()>4900){input.setError("Сообщение превышает 4900 символов. Разбейте его на части.");return;}
             actions.draftChanged("");
-            actions.send(value,currentMode[0]);
+            actions.send(value,true);
         });
         LinearLayout.LayoutParams sendParams=new LinearLayout.LayoutParams(dp(42),dp(42));
         sendParams.leftMargin=dp(3);
@@ -300,6 +297,13 @@ public final class AgentChatScreen {
         content.setPadding(0,dp(3),0,dp(4));
         content.setText(markdown(body));
         bubble.addView(content,new LinearLayout.LayoutParams(-1,-2));
+        // Only host-authored structured events can display completed file operations.
+        if(system){
+            JSONArray operations=entry.optJSONArray("operations");
+            for(int i=0;operations!=null&&i<operations.length();i++){
+                JSONObject op=operations.optJSONObject(i);if(op!=null)fileOperation(bubble,op);
+            }
+        }
         if(!system){
             TextView copy=label("⧉  Копировать",11,false,muted);
             copy.setPadding(dp(3),dp(5),dp(3),dp(3));
@@ -312,6 +316,26 @@ public final class AgentChatScreen {
         }
         wrapper.addView(bubble,new LinearLayout.LayoutParams(-2,-2));
         transcript.addView(wrapper,new LinearLayout.LayoutParams(-1,-2));
+    }
+
+    private void fileOperation(LinearLayout parent,JSONObject op){
+        String path=op.optString("path"),kind=op.optString("kind");
+        String folder=path.contains("/")?path.substring(0,path.lastIndexOf('/')):"Проект";
+        TextView directory=label("📂  "+folder,11,false,muted);
+        directory.setPadding(dp(2),dp(7),0,dp(2));parent.addView(directory);
+        LinearLayout row=horizontal();row.setGravity(Gravity.CENTER_VERTICAL);
+        TextView pencil=glyph("✎","create".equals(kind)?"Файл создан":"Файл изменён",null,18);
+        pencil.setTextColor(accent);row.addView(pencil,new LinearLayout.LayoutParams(dp(26),dp(30)));
+        TextView file=label(path.substring(path.lastIndexOf('/')+1),13,true,text);
+        file.setSingleLine();file.setEllipsize(TextUtils.TruncateAt.MIDDLE);
+        file.setContentDescription(path);row.addView(file,new LinearLayout.LayoutParams(0,-2,1));
+        int added=op.optInt("added"),removed=op.optInt("removed");
+        if(op.optBoolean("approximate"))row.addView(label("≈ ",12,false,muted));
+        TextView plus=label(" +"+added,12,true,0xFF2E9D68);row.addView(plus);
+        TextView minus=label(" −"+removed,12,true,removed>0?0xFFE06464:muted);row.addView(minus);
+        if("unchanged".equals(kind))row.addView(label(" · без изменений",10,false,muted));
+        row.setContentDescription(path+" добавлено "+added+", удалено "+removed);
+        parent.addView(row,new LinearLayout.LayoutParams(-1,-2));
     }
 
     /** Render common ChatGPT markdown without leaking ** or code fences into UI. */
@@ -439,4 +463,5 @@ public final class AgentChatScreen {
         return (int)(value*activity.getResources().getDisplayMetrics().density+.5f);
     }
 }
+
 
