@@ -22,7 +22,7 @@ internal class GigaChatAuth(
     private data class Session(val token: String, val expiresAtMs: Long)
     private val sessions = mutableMapOf<String, Session>()
     private val mutex = Mutex()
-    private val http = OkHttpClient.Builder().dns(NetworkDnsPolicy.dns()).addInterceptor(NetworkDnsPolicy.feedbackInterceptor()).followRedirects(false).followSslRedirects(false)
+    private val http = OkHttpClient.Builder().dns(NetworkDnsPolicy.dns()).proxySelector(InAppVlessRouter.proxySelector()).addInterceptor(NetworkDnsPolicy.feedbackInterceptor()).followRedirects(false).followSslRedirects(false)
         .connectTimeout(20, TimeUnit.SECONDS).readTimeout(30, TimeUnit.SECONDS).build()
 
     private fun fingerprint(authorizationKey: String, scope: String): String {

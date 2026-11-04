@@ -41,7 +41,7 @@ class SubscriptionProxyGeminiClient {
 
     private val jsonType = "application/json; charset=utf-8".toMediaType()
     private val client = OkHttpClient.Builder()
-        .dns(NetworkDnsPolicy.dns())
+        .dns(NetworkDnsPolicy.dns()).proxySelector(InAppVlessRouter.proxySelector())
         .addInterceptor(NetworkDnsPolicy.feedbackInterceptor())
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(45, TimeUnit.SECONDS)

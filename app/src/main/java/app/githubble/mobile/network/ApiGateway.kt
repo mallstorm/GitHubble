@@ -47,7 +47,7 @@ data class CloudflareAccount(val id: String, val name: String)
 /** HTTP transport and wire-protocol adapters. Never follows redirects carrying user API keys. */
 class ApiGateway(private val context: Context) {
     private val client = OkHttpClient.Builder()
-        .dns(NetworkDnsPolicy.dns())
+        .dns(NetworkDnsPolicy.dns()).proxySelector(InAppVlessRouter.proxySelector())
         .addInterceptor(NetworkDnsPolicy.feedbackInterceptor())
         .connectTimeout(20, TimeUnit.SECONDS)
         .writeTimeout(60, TimeUnit.SECONDS)

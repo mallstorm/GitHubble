@@ -174,7 +174,7 @@ class NvidiaNimClient(
             model.trim().lowercase() in KNOWN_FREE_CHAT_ENDPOINTS
 
         private fun defaultClient(): OkHttpClient = OkHttpClient.Builder()
-            .dns(NetworkDnsPolicy.dns())
+            .dns(NetworkDnsPolicy.dns()).proxySelector(InAppVlessRouter.proxySelector())
             .addInterceptor(NetworkDnsPolicy.feedbackInterceptor())
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(35, TimeUnit.SECONDS)

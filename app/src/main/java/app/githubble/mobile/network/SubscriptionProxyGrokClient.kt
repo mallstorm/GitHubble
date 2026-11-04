@@ -44,7 +44,7 @@ class SubscriptionProxyGrokClient {
     private val pollPenaltySeconds = ConcurrentHashMap<String, Long>()
 
     private val client = OkHttpClient.Builder()
-        .dns(NetworkDnsPolicy.dns())
+        .dns(NetworkDnsPolicy.dns()).proxySelector(InAppVlessRouter.proxySelector())
         .addInterceptor(NetworkDnsPolicy.feedbackInterceptor())
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(40, TimeUnit.SECONDS)
