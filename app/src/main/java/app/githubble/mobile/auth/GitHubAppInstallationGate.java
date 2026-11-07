@@ -32,6 +32,19 @@ public final class GitHubAppInstallationGate {
         return false;
     }
 
+    /** An organization installation can provide all access needed by this user. */
+    public static boolean hasUsableInstallation(JSONObject response) {
+        if (response == null) return false;
+        JSONArray items = response.optJSONArray("installations");
+        for (int i=0;items!=null && i<items.length();i++) {
+            JSONObject item=items.optJSONObject(i);
+            if (item==null || item.optLong("id",0)<=0 || !item.isNull("suspended_at")) continue;
+            JSONObject account=item.optJSONObject("account");
+            if (account!=null && !account.optString("login", "").isEmpty()) return true;
+        }
+        return false;
+    }
+
     public static String installUrl(String appSlug) {
         String slug = appSlug == null ? "" : appSlug.trim().toLowerCase(Locale.ROOT);
         if (!slug.matches("[a-z0-9](?:[a-z0-9-]{0,98}[a-z0-9])?")) slug = "gihubble";

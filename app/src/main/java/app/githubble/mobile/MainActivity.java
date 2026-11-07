@@ -3811,69 +3811,9 @@ public class MainActivity extends Activity {
 
     /** Native GitHub notifications; requires Notifications: Read on the current token. */
     private void showGitHubInbox(){
-        setCurrentScreen(this::showGitHubInbox);
-        shell("Уведомления GitHub",true);
-        heroBanner("GitHub Inbox","Непрочитанные уведомления",R.drawable.ic_bell);
-        if(!isSignedIn()){accountRequiredCard("Для просмотра уведомлений войдите в GitHub.");return;}
-        final long generation=screenGeneration.get();
-        final String account=currentAccountId();
-        final LinearLayout destination=content;
-        Button refresh=compactButton("Обновить");
-        refresh.setOnClickListener(v->showGitHubInbox());
-        destination.addView(refresh,new LinearLayout.LayoutParams(-1,dp(48)));
-        ProgressBar loading=new ProgressBar(this);destination.addView(loading);
-        io.execute(()->{
-            try{
-                JSONArray notifications=getArray("https://api.github.com/notifications?all=false&per_page=50");
-                runOnUiThread(()->{
-                    if(generation!=screenGeneration.get()||destination!=content
-                            ||!account.equals(currentAccountId()))return;
-                    destination.removeView(loading);
-                    if(notifications.length()==0){card(text("Непрочитанных уведомлений нет.",13,false));return;}
-                    sectionTitle("Непрочитанные · "+notifications.length(),null);
-                    for(int i=0;i<notifications.length();i++){
-                        JSONObject item=notifications.optJSONObject(i);if(item==null)continue;
-                        JSONObject repository=item.optJSONObject("repository");
-                        JSONObject subject=item.optJSONObject("subject");
-                        if(repository==null||subject==null)continue;
-                        String full=repository.optString("full_name","");
-                        String type=subject.optString("type","");
-                        String url=subject.optString("url","");
-                        String thread=item.optString("id","");
-                        LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.VERTICAL);
-                        row.addView(text(subject.optString("title","Уведомление GitHub"),14,true));
-                        TextView meta=text(full+" · "+type+" · "+formatGitHubDate(item.optString("updated_at","")),11,false);
-                        meta.setTextColor(MUTED);row.addView(meta);
-                        row.setOnClickListener(v->{
-                            int marker=url.lastIndexOf("/"+("PullRequest".equals(type)?"pulls/":"issues/"));
-                            int number=0;
-                            if(marker>=0)try{
-                                number=Integer.parseInt(url.substring(url.lastIndexOf('/')+1));
-                            }catch(Exception ignored){}
-                            if(CommitDetailController.validRepository(full)){
-                                final int selected=number;
-                                if(selected>0&&"PullRequest".equals(type))navigate(()->showPullDetail(full,selected));
-                                else if(selected>0&&"Issue".equals(type))navigate(()->showIssueDetail(full,selected));
-                                else navigate(()->showRepository(full));
-                            }
-                            if(thread.matches("[0-9]+"))io.execute(()->{
-                                try{api.executeJson("PATCH","https://api.github.com/notifications/threads/"+thread,
-                                        new JSONObject(),true);}catch(Exception ignored){}
-                            });
-                        });
-                        card(row);
-                    }
-                });
-            }catch(Exception error){
-                runOnUiThread(()->{
-                    if(generation!=screenGeneration.get()||destination!=content
-                            ||!account.equals(currentAccountId()))return;
-                    destination.removeView(loading);
-                    errorCard("Не удалось загрузить уведомления",error.getMessage());
-                    card(text("Проверьте разрешение Notifications: Read для GitHub App.",12,false));
-                });
-            }
-        });
+        setCurrentScreen(this::showGitHubInbox);shell("Уведомления GitHub",true);
+        card(text("Вход через GiHubble не поддерживает GitHub Notifications API. Для Inbox доступен официальный сайт GitHub.",14,false));
+        Button open=button("Открыть GitHub Inbox");open.setOnClickListener(v->openSecureGitHubPage("https://github.com/notifications"));content.addView(open);
     }
 
     /** Native Actions run and job details; browser is optional for raw log files. */
@@ -5227,7 +5167,7 @@ public class MainActivity extends Activity {
         addAction(upload,"Открыть файлы",()->navigate(()->showRepositoryFiles(full,defaultBranch,"")));content.addView(upload);
         sectionTitle("Git и публикация",null);GridLayout actions=new GridLayout(this);actions.setColumnCount(adaptiveColumns(2));
         addAction(actions,"Создать fork",()->showForkDialog(full));addAction(actions,"Новая ветка",()->showCreateBranchDialog(full,defaultBranch));addAction(actions,"Новый тег",()->showCreateTagDialog(full,defaultBranch));addAction(actions,"Новый Release",()->showCreateReleaseDialog(full,defaultBranch));addAction(actions,"Actions / место",()->navigate(()->showActionsStorage(full)));addAction(actions,"Коммиты "+defaultBranch,()->navigate(()->showRepositoryCommits(full,defaultBranch)));content.addView(actions);
-        boolean isPrivate=repo!=null&&repo.optBoolean("private",false);boolean admin=repo==null||repo.optJSONObject("permissions")==null||repo.optJSONObject("permissions").optBoolean("admin",true);
+        boolean isPrivate=repo!=null&&repo.optBoolean("private",false);boolean admin=repo!=null&&repo.optJSONObject("permissions")!=null&&repo.optJSONObject("permissions").optBoolean("admin",false);
         sectionTitle("Настройки репозитория",null);
         Button retention=button("⚙  Хранилище Actions · срок и лимиты");
         retention.setOnClickListener(v->navigate(()->showActionsStorage(full)));
@@ -5341,10 +5281,13 @@ public class MainActivity extends Activity {
     private void showIssueDetail(String full,int number) {
         rememberScreen("issue",routeArgs("full",full,"number",number));
         setCurrentScreen(() -> showIssueDetail(full,number)); shell("Issue #"+number,true); ProgressBar pb=new ProgressBar(this);content.addView(pb);
+        final long generation=screenGeneration.get();final String account=currentAccountId();final LinearLayout destination=content;
+        final GitHubApiClient scoped;
+        try{scoped=api.bindCurrentSession();}catch(Exception e){errorCard("Аккаунт изменился",e.getMessage());return;}
         io.execute(() -> {try {
-            JSONObject issue=getJson("https://api.github.com/repos/"+full+"/issues/"+number);
-            JSONArray comments=getArray("https://api.github.com/repos/"+full+"/issues/"+number+"/comments?per_page=100");
-            runOnUiThread(() -> {
+            JSONObject issue=scoped.getJson("https://api.github.com/repos/"+full+"/issues/"+number);
+            JSONArray comments=scoped.getArray("https://api.github.com/repos/"+full+"/issues/"+number+"/comments?per_page=100");
+            runOnUiThread(() -> {if(!screenRequestCurrent(generation,account,destination))return;
                 content.removeView(pb);
                 heroBanner(issue.optString("title"),full,R.drawable.ic_issue);
                 JSONObject author=issue.optJSONObject("user");
@@ -5372,7 +5315,7 @@ public class MainActivity extends Activity {
                     Button react=button("👍");long commentId=c.optLong("id",0);react.setOnClickListener(v->postCommentReaction(full,commentId,"+1"));b.addView(react,new LinearLayout.LayoutParams(dp(74),dp(40)));card(b);
                 }
             });
-        }catch(Exception e){runOnUiThread(() -> {content.removeView(pb);errorCard("Не удалось открыть Issue",e.getMessage());});}});
+        }catch(Exception e){runOnUiThread(() -> {if(!screenRequestCurrent(generation,account,destination))return;content.removeView(pb);errorCard("Не удалось открыть Issue",e.getMessage());});}});
     }
 
     private void showIssueEditor(String full,int number,String oldTitle,String oldBody,String baseUpdatedAt){
@@ -5470,13 +5413,16 @@ public class MainActivity extends Activity {
     private void showPullDetail(String full,int number) {
         rememberScreen("pull",routeArgs("full",full,"number",number));
         setCurrentScreen(() -> showPullDetail(full,number));shell("PR #"+number,true);ProgressBar pb=new ProgressBar(this);content.addView(pb);
+        final long generation=screenGeneration.get();final String account=currentAccountId();final LinearLayout destination=content;
+        final GitHubApiClient scoped;
+        try{scoped=api.bindCurrentSession();}catch(Exception e){errorCard("Аккаунт изменился",e.getMessage());return;}
         io.execute(() -> {try {
-            JSONObject pull=getJson("https://api.github.com/repos/"+full+"/pulls/"+number);
-            JSONArray comments=getArray("https://api.github.com/repos/"+full+"/issues/"+number+"/comments?per_page=50");
+            JSONObject pull=scoped.getJson("https://api.github.com/repos/"+full+"/pulls/"+number);
+            JSONArray comments=scoped.getArray("https://api.github.com/repos/"+full+"/issues/"+number+"/comments?per_page=50");
             JSONArray reviews;
-            try{reviews=getArray("https://api.github.com/repos/"+full+"/pulls/"+number+"/reviews?per_page=50");}catch(Exception ignored){reviews=new JSONArray();}
+            try{reviews=scoped.getArray("https://api.github.com/repos/"+full+"/pulls/"+number+"/reviews?per_page=50");}catch(Exception ignored){reviews=new JSONArray();}
             JSONArray finalReviews=reviews;
-            runOnUiThread(() -> {
+            runOnUiThread(() -> {if(!screenRequestCurrent(generation,account,destination))return;
                 content.removeView(pb);heroBanner(pull.optString("title"),full,R.drawable.ic_pull_request);
                 JSONObject author=pull.optJSONObject("user");String state=pull.optBoolean("merged",false)?"Слит":pull.optString("state","open").equals("open")?"Открыт":"Закрыт";
                 TextView meta=text((author==null?"":author.optString("login",""))+" · "+state+" · "+pull.optJSONObject("head").optString("ref","")+" → "+pull.optJSONObject("base").optString("ref",""),11,false);meta.setTextColor(MUTED);card(meta);
@@ -5499,7 +5445,7 @@ public class MainActivity extends Activity {
                 for(int i=0;i<comments.length();i++){JSONObject c=comments.optJSONObject(i);if(c==null)continue;LinearLayout b=new LinearLayout(this);b.setOrientation(LinearLayout.VERTICAL);JSONObject u=c.optJSONObject("user");b.addView(text(u==null?"GitHub":u.optString("login","GitHub"),13,true));b.addView(translatableMarkdownPanel("pr-comment:"+c.optLong("id",0),c.optString("body",""),c.optString("updated_at","")));card(b);}
                 if(finalReviews.length()>0){sectionTitle("Ревью: "+finalReviews.length(),null);for(int i=0;i<finalReviews.length();i++){JSONObject r=finalReviews.optJSONObject(i);if(r==null)continue;LinearLayout b=new LinearLayout(this);b.setOrientation(LinearLayout.VERTICAL);JSONObject u=r.optJSONObject("user");b.addView(text((u==null?"GitHub":u.optString("login","GitHub"))+" · "+reviewStateLabel(r.optString("state","")),13,true));String body=r.optString("body","");if(!body.isEmpty())b.addView(translatableMarkdownPanel("pr-review:"+r.optLong("id",0),body,r.optString("submitted_at","")));card(b);}}
             });
-        }catch(Exception e){runOnUiThread(() -> {content.removeView(pb);errorCard("Не удалось открыть PR",e.getMessage());});}});
+        }catch(Exception e){runOnUiThread(() -> {if(!screenRequestCurrent(generation,account,destination))return;content.removeView(pb);errorCard("Не удалось открыть PR",e.getMessage());});}});
     }
 
     private String reviewStateLabel(String state){
@@ -8343,6 +8289,81 @@ public class MainActivity extends Activity {
      * Everything about the GitHub account on one screen: saved accounts,
      * repository access, Actions minutes, storage, costs and the API limit.
      */
+    private void showAccountControls(){
+        rememberScreen("account_controls",null);
+        setCurrentScreen(this::showAccountControls);shell("Управление аккаунтом",false);
+        if(!isSignedIn()){accountRequiredCard("Подключите GitHub для управления аккаунтом.");return;}
+        final long generation=screenGeneration.get();final String account=currentAccountId();final LinearLayout destination=content;
+        final app.githubble.mobile.controller.GitHubAccountController controller;
+        try{controller=new app.githubble.mobile.controller.GitHubAccountController(api.bindCurrentSession());}
+        catch(Exception e){errorCard("Аккаунт изменился",e.getMessage());return;}
+        Button blocked=button("Заблокированные пользователи");blocked.setOnClickListener(v->navigate(()->showBlockedUsers(1,true)));content.addView(blocked);
+        Button limit=button("Ограничения взаимодействия");limit.setOnClickListener(v->navigate(this::showAccountInteractionLimits));content.addView(limit);
+        Button access=button("Принять новые права на GitHub");access.setOnClickListener(v->openSecureGitHubPage("https://github.com/settings/installations"));content.addView(access);
+        card(text("Новые права нужно подтвердить для установки и пользовательской авторизации. При отказе доступа повторите вход через GitHub. Права установки не заменяют права личного аккаунта.",13,false));
+        Button auth=button("Обновить пользовательскую авторизацию");auth.setOnClickListener(v->showReauthorizeActiveAccountDialog());content.addView(auth);
+        ProgressBar loading=new ProgressBar(this);content.addView(loading);
+        io.execute(()->{try{JSONObject root=controller.installations();runOnUiThread(()->{
+            if(!screenRequestCurrent(generation,account,destination))return;destination.removeView(loading);
+            JSONArray installations=root.optJSONArray("installations");sectionTitle("Установки и согласованные права",null);
+            if(installations.length()==0)card(text("Доступных установок нет. Настройте доступ GiHubble на GitHub.",13,false));
+            for(int i=0;i<installations.length();i++){JSONObject item=installations.optJSONObject(i);if(item==null)continue;JSONObject owner=item.optJSONObject("account");
+                card(text((owner==null?"GitHub":owner.optString("login"))+" · "+("all".equals(item.optString("repository_selection"))?"Все репозитории":"Выбранные репозитории")+(item.isNull("suspended_at")?"":" · приостановлена"),15,true));
+                JSONObject permissions=item.optJSONObject("permissions");if(permissions!=null)card(text(permissions.toString(),12,false));
+            }
+        });}catch(Exception e){runOnUiThread(()->{if(!screenRequestCurrent(generation,account,destination))return;destination.removeView(loading);errorCard("Не удалось проверить доступ",e.getMessage());});}});
+    }
+
+    private void showBlockedUsers(int page,boolean first){
+        if(first){rememberScreen("account_blocks",null);setCurrentScreen(()->showBlockedUsers(1,true));shell("Заблокированные пользователи",false);}
+        if(!isSignedIn()){accountRequiredCard("Подключите GitHub.");return;}
+        final long generation=screenGeneration.get();final String account=currentAccountId();final LinearLayout destination=content;
+        final app.githubble.mobile.controller.GitHubAccountController controller;
+        try{controller=new app.githubble.mobile.controller.GitHubAccountController(api.bindCurrentSession());}
+        catch(Exception e){errorCard("Аккаунт изменился",e.getMessage());return;}
+        if(first){Button add=button("Заблокировать пользователя");add.setOnClickListener(v->{EditText login=new EditText(this);login.setSingleLine(true);login.setHint("GitHub login без @");new AlertDialog.Builder(this).setTitle("Блокировка в GitHub").setView(login).setPositiveButton("Продолжить",(d,w)->{final String selected=login.getText().toString().trim();confirmAccountChange(controller,generation,account,destination,"Заблокировать @"+selected+"?",()->controller.block(selected,true),()->showBlockedUsers(1,true));}).setNegativeButton("Отмена",null).show();});content.addView(add);}
+        ProgressBar loading=new ProgressBar(this);content.addView(loading);
+        io.execute(()->{try{JSONArray users=controller.blocks(page);runOnUiThread(()->{
+            if(!screenRequestCurrent(generation,account,destination))return;destination.removeView(loading);
+            if(first&&users.length()==0)card(text("Заблокированных пользователей нет.",13,false));
+            for(int i=0;i<users.length();i++){JSONObject user=users.optJSONObject(i);if(user==null)continue;String login=user.optString("login");Button row=button("@"+login+" · Разблокировать");row.setOnClickListener(v->confirmAccountChange(controller,generation,account,destination,"Разблокировать @"+login+"?",()->controller.block(login,false),()->showBlockedUsers(1,true)));content.addView(row);}
+            if(users.length()==100)addLoadMoreButton("Показать ещё",()->showBlockedUsers(page+1,false));
+        });}catch(Exception e){runOnUiThread(()->{if(!screenRequestCurrent(generation,account,destination))return;destination.removeView(loading);errorCard("Не удалось загрузить блокировки",e.getMessage());});}});
+    }
+
+    private interface AccountChange { void run() throws Exception; }
+    private void confirmAccountChange(app.githubble.mobile.controller.GitHubAccountController controller,long generation,String account,LinearLayout destination,String title,AccountChange change,Runnable reload){
+        if(!screenRequestCurrent(generation,account,destination))return;
+        new AlertDialog.Builder(this).setTitle(title).setMessage("Изменение будет выполнено в GitHub для активного аккаунта.").setPositiveButton("Подтвердить",(d,w)->{
+            if(!screenRequestCurrent(generation,account,destination))return;
+            ProgressDialog progress=ProgressDialog.show(this,"GitHub","Сохраняем…",true,false);
+            io.execute(()->{try{change.run();runOnUiThread(()->{progress.dismiss();if(!screenRequestCurrent(generation,account,destination))return;toast("Изменение принято GitHub");reload.run();});}
+            catch(Exception e){runOnUiThread(()->{progress.dismiss();if(screenRequestCurrent(generation,account,destination))errorDialog("Не удалось подтвердить изменение",e.getMessage());});}});
+        }).setNegativeButton("Отмена",null).show();
+    }
+
+    private void showAccountInteractionLimits(){
+        rememberScreen("account_limits",null);
+        setCurrentScreen(this::showAccountInteractionLimits);shell("Ограничения взаимодействия",false);
+        if(!isSignedIn()){accountRequiredCard("Подключите GitHub.");return;}
+        final long generation=screenGeneration.get();final String account=currentAccountId();final LinearLayout destination=content;
+        final app.githubble.mobile.controller.GitHubAccountController controller;
+        try{controller=new app.githubble.mobile.controller.GitHubAccountController(api.bindCurrentSession());}
+        catch(Exception e){errorCard("Аккаунт изменился",e.getMessage());return;}
+        ProgressBar loading=new ProgressBar(this);content.addView(loading);
+        io.execute(()->{try{JSONObject state=controller.limits();runOnUiThread(()->{
+            if(!screenRequestCurrent(generation,account,destination))return;destination.removeView(loading);
+            String[] ids={"existing_users","contributors_only","collaborators_only"};String[] labels={"Существующие пользователи","Участники проектов","Соавторы репозиториев"};
+            String active=state.optString("limit","");String activeLabel=active;for(int i=0;i<ids.length;i++)if(ids[i].equals(active))activeLabel=labels[i];
+            card(text(active.isEmpty()?"Ограничения не установлены":"Сейчас: "+activeLabel+"\nДо: "+state.optString("expires_at",""),14,true));
+            Spinner type=new Spinner(this);type.setAdapter(new ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,labels));content.addView(type);
+            String[] expiry={"one_day","three_days","one_week","one_month","six_months"};Spinner duration=new Spinner(this);duration.setAdapter(new ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,new String[]{"1 день","3 дня","1 неделя","1 месяц","6 месяцев"}));content.addView(duration);
+            card(text("GitHub ограничит создание Issues, PR и комментариев в ваших репозиториях согласно выбранному режиму.",13,false));
+            Button save=button("Установить ограничение");save.setOnClickListener(v->{final String chosen=ids[type.getSelectedItemPosition()],period=expiry[duration.getSelectedItemPosition()];confirmAccountChange(controller,generation,account,destination,"Установить ограничения: "+labels[type.getSelectedItemPosition()]+"?",()->controller.setLimits(chosen,period),this::showAccountInteractionLimits);});content.addView(save);
+            if(!active.isEmpty()){Button clear=button("Снять ограничение");clear.setOnClickListener(v->confirmAccountChange(controller,generation,account,destination,"Снять ограничения взаимодействия?",controller::clearLimits,this::showAccountInteractionLimits));content.addView(clear);}
+        });}catch(Exception e){runOnUiThread(()->{if(!screenRequestCurrent(generation,account,destination))return;destination.removeView(loading);errorCard("Не удалось загрузить ограничения",e.getMessage());});}});
+    }
+
     private void showSettingsAccount(){
         setCurrentScreen(this::showSettingsAccount);
         shell("Аккаунт и GitHub",false);
@@ -8394,6 +8415,7 @@ public class MainActivity extends Activity {
                 snapshot.lastSyncedAt>0?formatEpoch(snapshot.lastSyncedAt):"ещё не выполнялась",""));
         access.add(SettingsScreen.Item.action(R.drawable.ic_lock,"Настроить доступ GitHub App",
                 "Установка и выбор приватных репозиториев","",this::openPrivateRepositoryAccess));
+        access.add(SettingsScreen.Item.action(R.drawable.ic_lock,"Управление аккаунтом и доступом","Блокировки, ограничения взаимодействия, права установок","",()->navigate(this::showAccountControls)));
         sections.add(access);
 
         LinearLayout minutesCard=settingsQuotaCard();
@@ -9772,8 +9794,8 @@ public class MainActivity extends Activity {
                 if(checkInstallation&&!login.isEmpty()){
                     try{
                         api.invalidatePrefix("https://api.github.com/user/installations");
-                        JSONObject installations=api.getJson("https://api.github.com/user/installations?per_page=100");
-                        missingInstallation=!GitHubAppInstallationGate.hasInstallationForLogin(installations,login);
+                        JSONObject installations=new app.githubble.mobile.controller.GitHubAccountController(api.bindCurrentSession()).installations();
+                        missingInstallation=!GitHubAppInstallationGate.hasUsableInstallation(installations);
                     }catch(Exception ignored){
                         installationCheckFailed=true;
                     }
@@ -9786,7 +9808,7 @@ public class MainActivity extends Activity {
                     else if("Аккаунты GitHub".equals(currentTitle))showAccountSwitcher();
                     else if("Аккаунт и GitHub".equals(currentTitle))showSettingsAccount();
                     if(checkInstallation&&openInstall){
-                        toast("GiHubble не установлен для @"+login+" — открываем установку");
+                        toast("Нет доступной установки GiHubble для @"+login+" — открываем установку");
                         openGitHubAppInstallPage();
                     }else if(checkInstallation&&checkFailed){
                         toast("Не удалось проверить установку GiHubble. Проверим при следующем входе.");
@@ -9810,15 +9832,15 @@ public class MainActivity extends Activity {
         io.execute(()->{
             try{
                 api.invalidatePrefix("https://api.github.com/user/installations");
-                JSONObject installations=api.getJson("https://api.github.com/user/installations?per_page=100");
-                final boolean installed=GitHubAppInstallationGate.hasInstallationForLogin(installations,login);
+                JSONObject installations=new app.githubble.mobile.controller.GitHubAccountController(api.bindCurrentSession()).installations();
+                final boolean installed=GitHubAppInstallationGate.hasUsableInstallation(installations);
                 runOnUiThread(()->{
                     if(!token.equals(secureStore.get("github_token")))return;
                     if(installed){
                         toast("GiHubble установлен для @"+login);
                         if("Аккаунты GitHub".equals(currentTitle))showAccountSwitcher();
                     }else{
-                        toast("Установка GiHubble для @"+login+" не завершена");
+                        toast("Доступная установка GiHubble для @"+login+" не завершена");
                     }
                 });
             }catch(Exception e){
@@ -9874,6 +9896,9 @@ public class MainActivity extends Activity {
             case "search": showSearch(); break;
             case "ai_chat": showAgentChat(); break;
             case "profile": showProfile(); break;
+            case "account_controls": showAccountControls(); break;
+            case "account_blocks": showBlockedUsers(1,true); break;
+            case "account_limits": showAccountInteractionLimits(); break;
             case "profile_editor": showNativeProfileEditor(); break;
             case "settings": showSettings(); break;
             case "privacy_data": showPrivacyAndData(); break;
