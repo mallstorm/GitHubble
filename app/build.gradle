@@ -6,6 +6,13 @@ def escapedGithubClientId = githubClientId.replace('\\', '\\\\').replace('\"', '
 def configuredGithubAppSlug = (project.findProperty('GITHUB_APP_SLUG') ?: System.getenv('GITHUB_APP_SLUG') ?: '').toString().trim()
 def githubAppSlug = configuredGithubAppSlug.isEmpty() ? 'gihubble' : configuredGithubAppSlug
 def escapedGithubAppSlug = githubAppSlug.replace('\\', '\\\\').replace('\"', '\\\"')
+// Distributed GitHubble APKs contain ONLY arm64-v8a native binaries.
+// CI may compile a temporary x86_64 debug build solely to run the Android 13 emulator;
+// it is never published. Release and the final PR APK are always ARM64.
+def ciEmulatorAbi = (project.findProperty('GITHUBBLE_CI_EMULATOR_ABI') ?: '').toString().trim()
+if (!ciEmulatorAbi.isEmpty() && ciEmulatorAbi != 'x86_64') {
+    throw new GradleException('Unsupported CI emulator ABI override')
+}
 def releaseVersion = new Properties()
 file('../version.properties').withInputStream { releaseVersion.load(it) }
 def appVersionName = releaseVersion.getProperty('VERSION_NAME')
@@ -28,6 +35,9 @@ android {
         buildConfigField 'boolean', 'FEATURE_FREEZE', 'false'
         buildConfigField 'String', 'RC_CHANNEL', '"' + releaseChannel + '"'
         testInstrumentationRunner 'app.githubble.mobile.RcInstrumentationTest'
+        ndk {
+            abiFilters(ciEmulatorAbi.isEmpty() ? 'arm64-v8a' : ciEmulatorAbi)
+        }
     }
     buildTypes {
         debug { applicationIdSuffix '.debug'; versionNameSuffix '-debug' }
@@ -56,3 +66,17 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
 }
+
+
+dependencies {
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+    implementation 'androidx.core:core:1.16.0'
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0'
+    implementation 'androidx.documentfile:documentfile:1.0.1'
+    implementation 'androidx.work:work-runtime-ktx:2.10.0'
+    implementation 'io.github.toolshubofficial:libxray:26.6.27'
+    testImplementation 'com.squareup.okhttp3:mockwebserver:4.12.0'
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.json:json:20240303'
+}
+

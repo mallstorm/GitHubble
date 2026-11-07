@@ -4,15 +4,27 @@
 
 ## Текущая версия
 
-- Version: `1.0.0-rc4.2.14`
-- versionCode: `61`
-- release channel: `rc4.2.14`
+- Version: `1.0.0-rc4.2.27`
+- versionCode: `74`
+- release channel: `rc4.2.27`
 - applicationId: `app.githubble.mobile`
 - minSdk: `28`
 - targetSdk / compileSdk: `36`
 - Java source/target: `17`
 - JDK для сборки: `21`
 - основная ветка: `main`
+
+### Стабилизация RC4.2.27
+
+Модернизированная версия из PR #22/#23 сохраняет Git Agent, Workspace и новые настройки.
+Исправлены гонки аккаунтов в HTTP/кэше/очереди, опасные повторы записей,
+блокировка очереди во время HTTP и загрузка private Release assets.
+Полное удаление данных выполняет Android: приложение закроется, все локальные
+AI/GitHub-профили, ключи и диалоги будут удалены; общие Downloads сохраняются.
+
+Сборка: `./gradlew --no-daemon test assembleDebug assembleRelease lintRelease`.
+Gradle Wrapper 9.5.1 с checksum включён в репозиторий. Дистрибутив ARM64.
+Подробности и проверяемые ограничения: [docs/STABILIZATION_RC427.md](docs/STABILIZATION_RC427.md).
 
 ### Что входит в RC4.2.14
 
@@ -56,7 +68,7 @@
 - голосовой ввод поискового запроса;
 - офлайн-кэш и очередь действий;
 - диагностика, экспорт состояния и контроль производительности;
-- интеграционные компоненты для GitHub Copilot / Cloud Agent;
+- AI-модели и локальные Workspace работают без входа в GitHub;
 - светлая, бежевая и тёмная визуальные линии приложения.
 
 ## Мультиаккаунт
@@ -223,7 +235,7 @@ GitHub REST API не предоставляет загрузку аватара 
 ```bash
 export ANDROID_HOME=/path/to/android-sdk
 export GITHUB_CLIENT_ID=<public GitHub App client id>
-gradle --no-daemon test assembleDebug assembleRelease
+./gradlew --no-daemon test assembleDebug assembleRelease lintRelease
 ```
 
 ### GitHub Actions
@@ -261,7 +273,7 @@ Production-signed Release APK создаётся только в `main` и то�
 - [BUILD_RELEASE_POLICY.md](BUILD_RELEASE_POLICY.md) — политика release;
 - [OAUTH_SETUP.md](OAUTH_SETUP.md) — Device Flow;
 - [GITHUB_APP_CLIENT.md](GITHUB_APP_CLIENT.md) — GitHub App;
-- [COPILOT_INTEGRATION.md](COPILOT_INTEGRATION.md) — Copilot / Cloud Agent;
+- [docs/GIT_AGENT_PROJECT_RUNTIME_V1.md](docs/GIT_AGENT_PROJECT_RUNTIME_V1.md) — Project Runtime и два режима;
 - [RC4.2.3_NATIVE_COMMITS.md](RC4.2.3_NATIVE_COMMITS.md) — встроенный просмотр коммитов;
 - [RC4.2.4_NATIVE_FIRST.md](RC4.2.4_NATIVE_FIRST.md) — native-first изменения;
 - [RC4.2.5_PROFILE_NAVIGATION.md](RC4.2.5_PROFILE_NAVIGATION.md) — профиль и навигация;
@@ -278,4 +290,4 @@ Production-signed Release APK создаётся только в `main` и то�
 
 ---
 
-**Текущий эталон исходников: GitHubble `1.0.0-rc4.2.14`, versionCode `61`.**
+**Текущий эталон исходников: GitHubble `1.0.0-rc4.2.27`, versionCode `61`.**

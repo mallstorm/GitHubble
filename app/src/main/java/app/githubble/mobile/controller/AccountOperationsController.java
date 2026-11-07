@@ -382,29 +382,6 @@ public final class AccountOperationsController {
                 author == null ? "" : author.optString("date", ""));
     }
 
-    public void resetBranchToParent(String repository, BranchHead head) throws Exception {
-        if (head == null || head.parentSha == null || head.parentSha.isEmpty()) {
-            throw new IllegalStateException("У HEAD-коммита нет родителя — откат невозможен");
-        }
-        JSONObject repositoryJson = api.getJson("https://api.github.com/repos/" + repository);
-        if (head.branch.equals(repositoryJson.optString("default_branch", ""))) {
-            throw new IllegalStateException("Откат default branch из мобильного клиента запрещён. Создайте revert-коммит через Pull Request.");
-        }
-        JSONObject currentRef = api.getJson("https://api.github.com/repos/" + repository + "/git/ref/heads/" + enc(head.branch));
-        JSONObject currentObject = currentRef.optJSONObject("object");
-        String currentSha = currentObject == null ? "" : currentObject.optString("sha", "");
-        if (!head.sha.equals(currentSha)) throw new IllegalStateException("Ветка изменилась после открытия экрана. Обновите список коммитов.");
-        JSONObject backup = new JSONObject();
-        backup.put("ref", "refs/tags/githubble-recovery-" + head.sha.substring(0, Math.min(12, head.sha.length())));
-        backup.put("sha", head.sha);
-        api.postJson("https://api.github.com/repos/" + repository + "/git/refs", backup, true);
-        JSONObject body = new JSONObject();
-        body.put("sha", head.parentSha);
-        body.put("force", false);
-        api.patchJson("https://api.github.com/repos/" + repository + "/git/refs/heads/" + enc(head.branch), body);
-        api.invalidatePrefix("https://api.github.com/repos/" + repository);
-    }
-
     private JSONArray loadOwnedRepositories() throws Exception {
         JSONArray result = new JSONArray();
         for (int page = 1; page <= 10 && result.length() < MAX_REPOSITORIES_TO_SCAN + 1; page++) {

@@ -36,7 +36,9 @@ public final class TrackingJobService extends JobService {
                     prefs.edit().putString("tracking_job_last_result", "Нет активных наблюдений").apply();
                 } else {
                     EntityCache entityCache = new EntityCache(this);
-                    GitHubApiClient api = new GitHubApiClient(new SecureStore(this), entityCache);
+                    SecureStore store=new SecureStore(this);
+                    new app.githubble.mobile.auth.OAuthManager(this,store).refreshIfNeeded(app.githubble.mobile.BuildConfig.GITHUB_CLIENT_ID);
+                    GitHubApiClient api = new GitHubApiClient(store, entityCache).bindCurrentSession();
                     TrackingEngine.CheckResult result = new TrackingEngine(this, db, api).checkAll();
                     TrackingNotificationHelper.notifyEvents(this, result.newEvents);
                     retry = result.failedDevelopers > 0 && result.checkedDevelopers == 0;

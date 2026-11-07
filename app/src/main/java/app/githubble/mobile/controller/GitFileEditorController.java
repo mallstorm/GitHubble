@@ -49,6 +49,10 @@ public final class GitFileEditorController {
     }
     public JSONObject save(String repo,String branch,String path,Snapshot original,
                            String edited,String message) throws Exception {
+        return new GitFileEditorController(api.bindCurrentSession()).saveBound(repo,branch,path,original,edited,message);
+    }
+    private JSONObject saveBound(String repo,String branch,String path,Snapshot original,
+                           String edited,String message) throws Exception {
         if(original==null||edited==null||message==null||message.trim().isEmpty())
             throw new IllegalArgumentException("Не указан файл, текст или сообщение коммита");
         byte[] bytes=edited.getBytes(StandardCharsets.UTF_8);

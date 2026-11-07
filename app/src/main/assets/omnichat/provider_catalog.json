@@ -1,0 +1,1677 @@
+[
+  {
+    "id": "openai",
+    "name": "OpenAI",
+    "category": "Direct",
+    "auth_type": "bearer",
+    "protocols": [
+      "responses",
+      "chat-completions"
+    ],
+    "preferred_protocol": "responses",
+    "executor": "openai",
+    "support_level": "native",
+    "base_url": "https://api.openai.com/v1",
+    "detection_hosts": [
+      "api.openai.com"
+    ]
+  },
+  {
+    "id": "anthropic",
+    "name": "Anthropic",
+    "category": "Direct",
+    "auth_type": "x-api-key",
+    "protocols": [
+      "messages"
+    ],
+    "preferred_protocol": "messages",
+    "executor": "anthropic",
+    "support_level": "native",
+    "base_url": "https://api.anthropic.com/v1",
+    "models_url": "https://api.anthropic.com/v1/models",
+    "headers": {
+      "anthropic-version": "2023-06-01"
+    },
+    "detection_hosts": [
+      "anthropic.com"
+    ],
+    "key_prefixes": [
+      "sk-ant-"
+    ]
+  },
+  {
+    "id": "gemini",
+    "name": "Google Gemini",
+    "category": "Direct",
+    "auth_type": "bearer",
+    "protocols": [
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "gemini",
+    "support_level": "native",
+    "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+    "models_url": "https://generativelanguage.googleapis.com/v1beta/models",
+    "quirks": {
+      "models_auth": "x-goog-api-key",
+      "native_models": "gemini"
+    },
+    "detection_hosts": [
+      "generativelanguage.googleapis.com"
+    ],
+    "key_prefixes": [
+      "AIza"
+    ]
+  },
+  {
+    "id": "gigachat",
+    "name": "GigaChat",
+    "category": "Direct",
+    "auth_type": "gigachat-oauth",
+    "protocols": [
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "gigachat",
+    "support_level": "native",
+    "base_url": "https://api.giga.chat/v1",
+    "quirks": {
+      "tools": "functions",
+      "agent_state": "functions_state_id",
+      "schema_sanitizer": "gigachat"
+    },
+    "detection_hosts": [
+      "api.giga.chat"
+    ],
+    "request_policies": {
+      "chat-completions": {
+        "remove": [
+          "parallel_tool_calls"
+        ]
+      }
+    }
+  },
+  {
+    "id": "yandex",
+    "name": "Yandex AI Studio",
+    "category": "Direct",
+    "auth_type": "yandex-api-key",
+    "protocols": [
+      "responses",
+      "chat-completions"
+    ],
+    "preferred_protocol": "responses",
+    "executor": "yandex",
+    "support_level": "native",
+    "base_url": "https://ai.api.cloud.yandex.net/v1",
+    "models_url": "https://ai.api.cloud.yandex.net/v1/models",
+    "quirks": {
+      "project_header": "OpenAI-Project",
+      "model_uri": "gpt://<folder-id>/<model>",
+      "prompt_cache": "automatic",
+      "extended_prompt_cache": "prompt_cache_retention=24h",
+      "doctor_protocols": "preferred-only"
+    },
+    "detection_hosts": [
+      "ai.api.cloud.yandex.net"
+    ]
+  },
+  {
+    "id": "nanogpt",
+    "name": "NanoGPT",
+    "category": "Gateway",
+    "auth_type": "bearer",
+    "protocols": [
+      "responses",
+      "messages",
+      "chat-completions"
+    ],
+    "preferred_protocol": "responses",
+    "executor": "openai-compatible",
+    "support_level": "preset",
+    "base_url": "https://nano-gpt.com/api/v1",
+    "models_url": "https://nano-gpt.com/api/v1/models?detailed=true",
+    "quirks": {
+      "detailed_models": "true",
+      "provider_header": "X-Provider",
+      "model_suffixes": "true",
+      "reasoning": "provider-dependent"
+    },
+    "protocol_base_urls": {
+      "responses": "https://nano-gpt.com/api/v1",
+      "messages": "https://nano-gpt.com/api/v1",
+      "chat-completions": "https://nano-gpt.com/api/v1"
+    },
+    "detection_hosts": [
+      "nano-gpt.com"
+    ]
+  },
+  {
+    "id": "openrouter",
+    "name": "OpenRouter",
+    "category": "Gateway",
+    "auth_type": "bearer",
+    "protocols": [
+      "responses",
+      "chat-completions"
+    ],
+    "preferred_protocol": "responses",
+    "executor": "openai-compatible",
+    "support_level": "preset",
+    "base_url": "https://openrouter.ai/api/v1",
+    "quirks": {
+      "responses_stateless": "true",
+      "provider_routing": "true"
+    },
+    "detection_hosts": [
+      "openrouter.ai"
+    ],
+    "key_prefixes": [
+      "sk-or-"
+    ]
+  },
+  {
+    "id": "deepseek",
+    "name": "DeepSeek",
+    "category": "Direct",
+    "auth_type": "bearer",
+    "protocols": [
+      "responses",
+      "messages",
+      "chat-completions"
+    ],
+    "preferred_protocol": "messages",
+    "executor": "openai-compatible",
+    "support_level": "preset",
+    "base_url": "https://api.deepseek.com/v1",
+    "headers": {
+      "anthropic-version": "2023-06-01"
+    },
+    "quirks": {
+      "anthropic_base": "/anthropic",
+      "thinking_tools": "supported"
+    },
+    "protocol_base_urls": {
+      "chat-completions": "https://api.deepseek.com/v1",
+      "responses": "https://api.deepseek.com/v1",
+      "messages": "https://api.deepseek.com/anthropic/v1"
+    },
+    "protocol_auth_types": {
+      "messages": "x-api-key"
+    },
+    "detection_hosts": [
+      "api.deepseek.com"
+    ]
+  },
+  {
+    "id": "groq",
+    "name": "Groq",
+    "category": "Inference",
+    "auth_type": "bearer",
+    "protocols": [
+      "responses",
+      "chat-completions"
+    ],
+    "preferred_protocol": "responses",
+    "executor": "openai-compatible",
+    "support_level": "preset",
+    "base_url": "https://api.groq.com/openai/v1",
+    "detection_hosts": [
+      "api.groq.com"
+    ]
+  },
+  {
+    "id": "xai",
+    "name": "xAI",
+    "category": "Direct",
+    "auth_type": "bearer",
+    "protocols": [
+      "responses",
+      "chat-completions"
+    ],
+    "preferred_protocol": "responses",
+    "executor": "openai-compatible",
+    "support_level": "preset",
+    "base_url": "https://api.x.ai/v1",
+    "detection_hosts": [
+      "api.x.ai"
+    ],
+    "key_prefixes": [
+      "xai-"
+    ]
+  },
+  {
+    "id": "mistral",
+    "name": "Mistral AI",
+    "category": "Direct",
+    "auth_type": "bearer",
+    "protocols": [
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "preset",
+    "base_url": "https://api.mistral.ai/v1",
+    "detection_hosts": [
+      "api.mistral.ai"
+    ]
+  },
+  {
+    "id": "together",
+    "name": "Together AI",
+    "category": "Inference",
+    "auth_type": "bearer",
+    "protocols": [
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "preset",
+    "base_url": "https://api.together.ai/v1",
+    "detection_hosts": [
+      "api.together.ai"
+    ]
+  },
+  {
+    "id": "fireworks",
+    "name": "Fireworks AI",
+    "category": "Inference",
+    "auth_type": "bearer",
+    "protocols": [
+      "messages",
+      "chat-completions"
+    ],
+    "preferred_protocol": "messages",
+    "executor": "openai-compatible",
+    "support_level": "preset",
+    "base_url": "https://api.fireworks.ai/inference/v1",
+    "headers": {
+      "anthropic-version": "2023-06-01"
+    },
+    "protocol_base_urls": {
+      "chat-completions": "https://api.fireworks.ai/inference/v1",
+      "messages": "https://api.fireworks.ai/inference/v1"
+    },
+    "detection_hosts": [
+      "api.fireworks.ai"
+    ]
+  },
+  {
+    "id": "cerebras",
+    "name": "Cerebras",
+    "category": "Inference",
+    "auth_type": "bearer",
+    "protocols": [
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "preset",
+    "base_url": "https://api.cerebras.ai/v1",
+    "detection_hosts": [
+      "api.cerebras.ai"
+    ]
+  },
+  {
+    "id": "sambanova",
+    "name": "SambaNova",
+    "category": "Inference",
+    "auth_type": "bearer",
+    "protocols": [
+      "responses",
+      "messages",
+      "chat-completions"
+    ],
+    "preferred_protocol": "responses",
+    "executor": "openai-compatible",
+    "support_level": "preset",
+    "base_url": "https://api.sambanova.ai/v1",
+    "headers": {
+      "anthropic-version": "2023-06-01"
+    },
+    "quirks": {
+      "responses_stateless": "true"
+    },
+    "detection_hosts": [
+      "api.sambanova.ai"
+    ]
+  },
+  {
+    "id": "perplexity",
+    "name": "Perplexity",
+    "category": "Gateway",
+    "auth_type": "bearer",
+    "protocols": [
+      "responses",
+      "chat-completions"
+    ],
+    "preferred_protocol": "responses",
+    "executor": "openai-compatible",
+    "support_level": "preset",
+    "base_url": "https://api.perplexity.ai",
+    "quirks": {
+      "search_native": "true"
+    },
+    "detection_hosts": [
+      "api.perplexity.ai"
+    ]
+  },
+  {
+    "id": "alibaba",
+    "name": "Alibaba Model Studio / Qwen",
+    "category": "Cloud",
+    "auth_type": "bearer",
+    "protocols": [
+      "responses",
+      "messages",
+      "chat-completions"
+    ],
+    "preferred_protocol": "responses",
+    "executor": "openai-compatible",
+    "support_level": "preset",
+    "base_url": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+    "notes": "International endpoint preset; regional endpoints can be entered manually.",
+    "headers": {
+      "anthropic-version": "2023-06-01"
+    },
+    "protocol_base_urls": {
+      "responses": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+      "chat-completions": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+      "messages": "https://dashscope-intl.aliyuncs.com/apps/anthropic/v1"
+    },
+    "protocol_auth_types": {
+      "messages": "x-api-key"
+    },
+    "detection_hosts": [
+      "dashscope"
+    ]
+  },
+  {
+    "id": "kimi",
+    "name": "Moonshot / Kimi",
+    "category": "Direct",
+    "auth_type": "bearer",
+    "protocols": [
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "preset",
+    "base_url": "https://api.moonshot.ai/v1",
+    "quirks": {
+      "legacy_functions": "unsupported",
+      "temperature_range": "provider-specific"
+    },
+    "detection_hosts": [
+      "moonshot"
+    ]
+  },
+  {
+    "id": "minimax",
+    "name": "MiniMax",
+    "category": "Direct",
+    "auth_type": "bearer",
+    "protocols": [
+      "messages",
+      "chat-completions"
+    ],
+    "preferred_protocol": "messages",
+    "executor": "openai-compatible",
+    "support_level": "preset",
+    "base_url": "https://api.minimax.io/v1",
+    "headers": {
+      "anthropic-version": "2023-06-01"
+    },
+    "detection_hosts": [
+      "api.minimax.io"
+    ]
+  },
+  {
+    "id": "zai",
+    "name": "Z.ai / GLM",
+    "category": "Direct",
+    "auth_type": "bearer",
+    "protocols": [
+      "messages",
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "preset",
+    "base_url": "https://api.z.ai/api/paas/v4",
+    "detection_hosts": [
+      "api.z.ai",
+      "bigmodel.cn"
+    ]
+  },
+  {
+    "id": "siliconflow",
+    "name": "SiliconFlow",
+    "category": "Gateway",
+    "auth_type": "bearer",
+    "protocols": [
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "preset",
+    "base_url": "https://api.siliconflow.com/v1",
+    "detection_hosts": [
+      "siliconflow.com"
+    ]
+  },
+  {
+    "id": "volcengine",
+    "name": "Volcengine Ark",
+    "category": "Cloud",
+    "auth_type": "bearer",
+    "protocols": [
+      "messages",
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "template",
+    "requires_base_url": true,
+    "notes": "Enter the regional Ark inference base URL from your account."
+  },
+  {
+    "id": "nvidia",
+    "name": "NVIDIA NIM / AI Endpoints",
+    "category": "Inference",
+    "auth_type": "bearer",
+    "protocols": [
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "preset",
+    "base_url": "https://integrate.api.nvidia.com/v1",
+    "notes": "For self-hosted NIM replace Base URL with the local /v1 endpoint.",
+    "detection_hosts": [
+      "integrate.api.nvidia.com"
+    ]
+  },
+  {
+    "id": "cloudflare",
+    "name": "Cloudflare Workers AI",
+    "category": "Cloud",
+    "auth_type": "bearer",
+    "protocols": [
+      "responses",
+      "chat-completions"
+    ],
+    "preferred_protocol": "responses",
+    "executor": "openai-compatible",
+    "support_level": "template",
+    "requires_base_url": true,
+    "notes": "Enter the account-scoped OpenAI-compatible Workers AI endpoint."
+  },
+  {
+    "id": "huggingface",
+    "name": "Hugging Face Inference Providers",
+    "category": "Gateway",
+    "auth_type": "bearer",
+    "protocols": [
+      "responses",
+      "chat-completions"
+    ],
+    "preferred_protocol": "responses",
+    "executor": "openai-compatible",
+    "support_level": "preset",
+    "base_url": "https://router.huggingface.co/v1",
+    "detection_hosts": [
+      "router.huggingface.co"
+    ]
+  },
+  {
+    "id": "cloudru",
+    "name": "Cloud.ru Foundation Models",
+    "category": "Cloud",
+    "auth_type": "bearer",
+    "protocols": [
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "template",
+    "requires_base_url": true,
+    "notes": "Enter the OpenAI-compatible endpoint issued for your project."
+  },
+  {
+    "id": "azure",
+    "name": "Azure OpenAI / Microsoft Foundry",
+    "category": "Cloud",
+    "auth_type": "api-key",
+    "protocols": [
+      "responses",
+      "chat-completions"
+    ],
+    "preferred_protocol": "responses",
+    "executor": "openai-compatible",
+    "support_level": "template",
+    "requires_base_url": true,
+    "notes": "Enter the resource/project v1 base URL. Authentication can be overridden per connection."
+  },
+  {
+    "id": "bedrock",
+    "name": "Amazon Bedrock compatible gateway",
+    "category": "Cloud",
+    "auth_type": "bearer",
+    "protocols": [
+      "responses",
+      "messages",
+      "chat-completions"
+    ],
+    "preferred_protocol": "responses",
+    "executor": "openai-compatible",
+    "support_level": "template",
+    "requires_base_url": true,
+    "notes": "Use an OpenAI/Anthropic-compatible Bedrock gateway. Native AWS SigV4 is not enabled in the API-key setup flow."
+  },
+  {
+    "id": "cohere",
+    "name": "Cohere",
+    "category": "Direct",
+    "auth_type": "bearer",
+    "protocols": [
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "preset",
+    "base_url": "https://api.cohere.ai/compatibility/v1",
+    "notes": "Official Cohere OpenAI Compatibility API.",
+    "detection_hosts": [
+      "api.cohere.ai"
+    ]
+  },
+  {
+    "id": "ai21",
+    "name": "AI21",
+    "category": "Direct",
+    "auth_type": "bearer",
+    "protocols": [
+      "native"
+    ],
+    "preferred_protocol": "native",
+    "executor": "unsupported-native",
+    "support_level": "reserved",
+    "base_url": "https://api.ai21.com/studio/v1",
+    "notes": "Native profile reserved for a future translation driver."
+  },
+  {
+    "id": "replicate",
+    "name": "Replicate",
+    "category": "Gateway",
+    "auth_type": "bearer",
+    "protocols": [
+      "predictions"
+    ],
+    "preferred_protocol": "predictions",
+    "executor": "unsupported-native",
+    "support_level": "reserved",
+    "base_url": "https://api.replicate.com/v1",
+    "notes": "Prediction API profile reserved for non-chat workloads."
+  },
+  {
+    "id": "ollama",
+    "name": "Ollama",
+    "category": "Local",
+    "auth_type": "none",
+    "protocols": [
+      "messages",
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "local",
+    "base_url": "http://127.0.0.1:11434/v1",
+    "api_key_optional": true,
+    "quirks": {
+      "local": "true"
+    },
+    "detection_hosts": [
+      "127.0.0.1:11434",
+      "localhost:11434"
+    ]
+  },
+  {
+    "id": "lmstudio",
+    "name": "LM Studio",
+    "category": "Local",
+    "auth_type": "none",
+    "protocols": [
+      "responses",
+      "messages",
+      "chat-completions"
+    ],
+    "preferred_protocol": "responses",
+    "executor": "openai-compatible",
+    "support_level": "local",
+    "base_url": "http://127.0.0.1:1234/v1",
+    "api_key_optional": true,
+    "quirks": {
+      "local": "true"
+    },
+    "detection_hosts": [
+      "127.0.0.1:1234",
+      "localhost:1234"
+    ]
+  },
+  {
+    "id": "vllm",
+    "name": "vLLM",
+    "category": "Local",
+    "auth_type": "none",
+    "protocols": [
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "local",
+    "base_url": "http://127.0.0.1:8000/v1",
+    "api_key_optional": true,
+    "quirks": {
+      "local": "true"
+    }
+  },
+  {
+    "id": "localai",
+    "name": "LocalAI",
+    "category": "Local",
+    "auth_type": "none",
+    "protocols": [
+      "responses",
+      "messages",
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "local",
+    "base_url": "http://127.0.0.1:8080/v1",
+    "api_key_optional": true,
+    "quirks": {
+      "local": "true"
+    }
+  },
+  {
+    "id": "deepinfra",
+    "name": "DeepInfra",
+    "category": "Inference",
+    "auth_type": "bearer",
+    "protocols": [
+      "responses",
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "template",
+    "requires_base_url": true,
+    "notes": "OpenAI-compatible template. Enter the exact /v1-compatible Base URL for your deployment/account; OmniBridge will probe the endpoint before saving."
+  },
+  {
+    "id": "hyperbolic",
+    "name": "Hyperbolic",
+    "category": "Inference",
+    "auth_type": "bearer",
+    "protocols": [
+      "responses",
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "template",
+    "requires_base_url": true,
+    "notes": "OpenAI-compatible template. Enter the exact /v1-compatible Base URL for your deployment/account; OmniBridge will probe the endpoint before saving."
+  },
+  {
+    "id": "novita",
+    "name": "Novita AI",
+    "category": "Inference",
+    "auth_type": "bearer",
+    "protocols": [
+      "responses",
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "template",
+    "requires_base_url": true,
+    "notes": "OpenAI-compatible template. Enter the exact /v1-compatible Base URL for your deployment/account; OmniBridge will probe the endpoint before saving."
+  },
+  {
+    "id": "friendli",
+    "name": "FriendliAI",
+    "category": "Inference",
+    "auth_type": "bearer",
+    "protocols": [
+      "responses",
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "template",
+    "requires_base_url": true,
+    "notes": "OpenAI-compatible template. Enter the exact /v1-compatible Base URL for your deployment/account; OmniBridge will probe the endpoint before saving."
+  },
+  {
+    "id": "predibase",
+    "name": "Predibase",
+    "category": "Inference",
+    "auth_type": "bearer",
+    "protocols": [
+      "responses",
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "template",
+    "requires_base_url": true,
+    "notes": "OpenAI-compatible template. Enter the exact /v1-compatible Base URL for your deployment/account; OmniBridge will probe the endpoint before saving."
+  },
+  {
+    "id": "featherless",
+    "name": "Featherless AI",
+    "category": "Inference",
+    "auth_type": "bearer",
+    "protocols": [
+      "responses",
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "template",
+    "requires_base_url": true,
+    "notes": "OpenAI-compatible template. Enter the exact /v1-compatible Base URL for your deployment/account; OmniBridge will probe the endpoint before saving."
+  },
+  {
+    "id": "chutes",
+    "name": "Chutes",
+    "category": "Inference",
+    "auth_type": "bearer",
+    "protocols": [
+      "responses",
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "template",
+    "requires_base_url": true,
+    "notes": "OpenAI-compatible template. Enter the exact /v1-compatible Base URL for your deployment/account; OmniBridge will probe the endpoint before saving."
+  },
+  {
+    "id": "venice",
+    "name": "Venice AI",
+    "category": "Gateway",
+    "auth_type": "bearer",
+    "protocols": [
+      "responses",
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "template",
+    "requires_base_url": true,
+    "notes": "OpenAI-compatible template. Enter the exact /v1-compatible Base URL for your deployment/account; OmniBridge will probe the endpoint before saving."
+  },
+  {
+    "id": "kluster",
+    "name": "Kluster.ai",
+    "category": "Inference",
+    "auth_type": "bearer",
+    "protocols": [
+      "responses",
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "template",
+    "requires_base_url": true,
+    "notes": "OpenAI-compatible template. Enter the exact /v1-compatible Base URL for your deployment/account; OmniBridge will probe the endpoint before saving."
+  },
+  {
+    "id": "nebius",
+    "name": "Nebius AI Studio",
+    "category": "Cloud",
+    "auth_type": "bearer",
+    "protocols": [
+      "responses",
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "template",
+    "requires_base_url": true,
+    "notes": "OpenAI-compatible template. Enter the exact /v1-compatible Base URL for your deployment/account; OmniBridge will probe the endpoint before saving."
+  },
+  {
+    "id": "scaleway",
+    "name": "Scaleway Generative APIs",
+    "category": "Cloud",
+    "auth_type": "bearer",
+    "protocols": [
+      "responses",
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "template",
+    "requires_base_url": true,
+    "notes": "OpenAI-compatible template. Enter the exact /v1-compatible Base URL for your deployment/account; OmniBridge will probe the endpoint before saving."
+  },
+  {
+    "id": "ovhcloud",
+    "name": "OVHcloud AI Endpoints",
+    "category": "Cloud",
+    "auth_type": "bearer",
+    "protocols": [
+      "responses",
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "template",
+    "requires_base_url": true,
+    "notes": "OpenAI-compatible template. Enter the exact /v1-compatible Base URL for your deployment/account; OmniBridge will probe the endpoint before saving."
+  },
+  {
+    "id": "databricks",
+    "name": "Databricks Model Serving",
+    "category": "Cloud",
+    "auth_type": "bearer",
+    "protocols": [
+      "responses",
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "template",
+    "requires_base_url": true,
+    "notes": "OpenAI-compatible template. Enter the exact /v1-compatible Base URL for your deployment/account; OmniBridge will probe the endpoint before saving."
+  },
+  {
+    "id": "watsonx",
+    "name": "IBM watsonx.ai compatible endpoint",
+    "category": "Cloud",
+    "auth_type": "bearer",
+    "protocols": [
+      "responses",
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "template",
+    "requires_base_url": true,
+    "notes": "OpenAI-compatible template. Enter the exact /v1-compatible Base URL for your deployment/account; OmniBridge will probe the endpoint before saving."
+  },
+  {
+    "id": "baseten",
+    "name": "Baseten Model APIs",
+    "category": "Inference",
+    "auth_type": "bearer",
+    "protocols": [
+      "responses",
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "template",
+    "requires_base_url": true,
+    "notes": "OpenAI-compatible template. Enter the exact /v1-compatible Base URL for your deployment/account; OmniBridge will probe the endpoint before saving."
+  },
+  {
+    "id": "modal",
+    "name": "Modal OpenAI-compatible endpoint",
+    "category": "Inference",
+    "auth_type": "bearer",
+    "protocols": [
+      "responses",
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "template",
+    "requires_base_url": true,
+    "notes": "OpenAI-compatible template. Enter the exact /v1-compatible Base URL for your deployment/account; OmniBridge will probe the endpoint before saving."
+  },
+  {
+    "id": "lepton",
+    "name": "Lepton AI",
+    "category": "Inference",
+    "auth_type": "bearer",
+    "protocols": [
+      "responses",
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "template",
+    "requires_base_url": true,
+    "notes": "OpenAI-compatible template. Enter the exact /v1-compatible Base URL for your deployment/account; OmniBridge will probe the endpoint before saving."
+  },
+  {
+    "id": "runpod",
+    "name": "RunPod Serverless / Pods",
+    "category": "Inference",
+    "auth_type": "bearer",
+    "protocols": [
+      "responses",
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "template",
+    "requires_base_url": true,
+    "notes": "OpenAI-compatible template. Enter the exact /v1-compatible Base URL for your deployment/account; OmniBridge will probe the endpoint before saving."
+  },
+  {
+    "id": "lambda",
+    "name": "Lambda Inference API",
+    "category": "Inference",
+    "auth_type": "bearer",
+    "protocols": [
+      "responses",
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "template",
+    "requires_base_url": true,
+    "notes": "OpenAI-compatible template. Enter the exact /v1-compatible Base URL for your deployment/account; OmniBridge will probe the endpoint before saving."
+  },
+  {
+    "id": "nscale",
+    "name": "Nscale AI",
+    "category": "Inference",
+    "auth_type": "bearer",
+    "protocols": [
+      "responses",
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "template",
+    "requires_base_url": true,
+    "notes": "OpenAI-compatible template. Enter the exact /v1-compatible Base URL for your deployment/account; OmniBridge will probe the endpoint before saving."
+  },
+  {
+    "id": "requesty",
+    "name": "Requesty",
+    "category": "Gateway",
+    "auth_type": "bearer",
+    "protocols": [
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "preset",
+    "requires_base_url": true,
+    "notes": "OpenAI-compatible gateway with zero-cost and paid models.",
+    "base_url": "https://router.requesty.ai/v1",
+    "detection_hosts": [
+      "router.requesty.ai"
+    ]
+  },
+  {
+    "id": "portkey",
+    "name": "Portkey AI Gateway",
+    "category": "Gateway",
+    "auth_type": "bearer",
+    "protocols": [
+      "responses",
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "template",
+    "requires_base_url": true,
+    "notes": "OpenAI-compatible template. Enter the exact /v1-compatible Base URL for your deployment/account; OmniBridge will probe the endpoint before saving."
+  },
+  {
+    "id": "helicone",
+    "name": "Helicone AI Gateway",
+    "category": "Gateway",
+    "auth_type": "bearer",
+    "protocols": [
+      "responses",
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "template",
+    "requires_base_url": true,
+    "notes": "OpenAI-compatible template. Enter the exact /v1-compatible Base URL for your deployment/account; OmniBridge will probe the endpoint before saving."
+  },
+  {
+    "id": "litellm",
+    "name": "LiteLLM Proxy",
+    "category": "Gateway",
+    "auth_type": "bearer",
+    "protocols": [
+      "responses",
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "template",
+    "requires_base_url": true,
+    "notes": "OpenAI-compatible template. Enter the exact /v1-compatible Base URL for your deployment/account; OmniBridge will probe the endpoint before saving."
+  },
+  {
+    "id": "oneapi",
+    "name": "One API / OneAPI-compatible Gateway",
+    "category": "Gateway",
+    "auth_type": "bearer",
+    "protocols": [
+      "responses",
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "template",
+    "requires_base_url": true,
+    "notes": "OpenAI-compatible template. Enter the exact /v1-compatible Base URL for your deployment/account; OmniBridge will probe the endpoint before saving."
+  },
+  {
+    "id": "newapi",
+    "name": "New API Gateway",
+    "category": "Gateway",
+    "auth_type": "bearer",
+    "protocols": [
+      "responses",
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "template",
+    "requires_base_url": true,
+    "notes": "OpenAI-compatible template. Enter the exact /v1-compatible Base URL for your deployment/account; OmniBridge will probe the endpoint before saving."
+  },
+  {
+    "id": "openwebui",
+    "name": "Open WebUI OpenAI-compatible API",
+    "category": "Local",
+    "auth_type": "none",
+    "protocols": [
+      "responses",
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "local-template",
+    "requires_base_url": true,
+    "api_key_optional": true,
+    "notes": "OpenAI-compatible template. Enter the exact /v1-compatible Base URL for your deployment/account; OmniBridge will probe the endpoint before saving.",
+    "quirks": {
+      "local": "true"
+    }
+  },
+  {
+    "id": "llamacpp",
+    "name": "llama.cpp server",
+    "category": "Local",
+    "auth_type": "none",
+    "protocols": [
+      "responses",
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "local-template",
+    "requires_base_url": true,
+    "api_key_optional": true,
+    "notes": "OpenAI-compatible template. Enter the exact /v1-compatible Base URL for your deployment/account; OmniBridge will probe the endpoint before saving.",
+    "quirks": {
+      "local": "true"
+    }
+  },
+  {
+    "id": "sglang",
+    "name": "SGLang Runtime",
+    "category": "Local",
+    "auth_type": "none",
+    "protocols": [
+      "responses",
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "local-template",
+    "requires_base_url": true,
+    "api_key_optional": true,
+    "notes": "OpenAI-compatible template. Enter the exact /v1-compatible Base URL for your deployment/account; OmniBridge will probe the endpoint before saving.",
+    "quirks": {
+      "local": "true"
+    }
+  },
+  {
+    "id": "aphrodite",
+    "name": "Aphrodite Engine",
+    "category": "Local",
+    "auth_type": "none",
+    "protocols": [
+      "responses",
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "local-template",
+    "requires_base_url": true,
+    "api_key_optional": true,
+    "notes": "OpenAI-compatible template. Enter the exact /v1-compatible Base URL for your deployment/account; OmniBridge will probe the endpoint before saving.",
+    "quirks": {
+      "local": "true"
+    }
+  },
+  {
+    "id": "xinference",
+    "name": "Xinference",
+    "category": "Local",
+    "auth_type": "none",
+    "protocols": [
+      "responses",
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "local-template",
+    "requires_base_url": true,
+    "api_key_optional": true,
+    "notes": "OpenAI-compatible template. Enter the exact /v1-compatible Base URL for your deployment/account; OmniBridge will probe the endpoint before saving.",
+    "quirks": {
+      "local": "true"
+    }
+  },
+  {
+    "id": "tgi",
+    "name": "Hugging Face TGI",
+    "category": "Local",
+    "auth_type": "none",
+    "protocols": [
+      "responses",
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "local-template",
+    "requires_base_url": true,
+    "api_key_optional": true,
+    "notes": "OpenAI-compatible template. Enter the exact /v1-compatible Base URL for your deployment/account; OmniBridge will probe the endpoint before saving.",
+    "quirks": {
+      "local": "true"
+    }
+  },
+  {
+    "id": "jan",
+    "name": "Jan Local API",
+    "category": "Local",
+    "auth_type": "none",
+    "protocols": [
+      "responses",
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "local-template",
+    "requires_base_url": true,
+    "api_key_optional": true,
+    "notes": "OpenAI-compatible template. Enter the exact /v1-compatible Base URL for your deployment/account; OmniBridge will probe the endpoint before saving.",
+    "quirks": {
+      "local": "true"
+    }
+  },
+  {
+    "id": "msty",
+    "name": "Msty Local API",
+    "category": "Local",
+    "auth_type": "none",
+    "protocols": [
+      "responses",
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "local-template",
+    "requires_base_url": true,
+    "api_key_optional": true,
+    "notes": "OpenAI-compatible template. Enter the exact /v1-compatible Base URL for your deployment/account; OmniBridge will probe the endpoint before saving.",
+    "quirks": {
+      "local": "true"
+    }
+  },
+  {
+    "id": "koboldcpp",
+    "name": "KoboldCpp OpenAI API",
+    "category": "Local",
+    "auth_type": "none",
+    "protocols": [
+      "responses",
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "local-template",
+    "requires_base_url": true,
+    "api_key_optional": true,
+    "notes": "OpenAI-compatible template. Enter the exact /v1-compatible Base URL for your deployment/account; OmniBridge will probe the endpoint before saving.",
+    "quirks": {
+      "local": "true"
+    }
+  },
+  {
+    "id": "tabbyapi",
+    "name": "TabbyAPI",
+    "category": "Local",
+    "auth_type": "none",
+    "protocols": [
+      "responses",
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "local-template",
+    "requires_base_url": true,
+    "api_key_optional": true,
+    "notes": "OpenAI-compatible template. Enter the exact /v1-compatible Base URL for your deployment/account; OmniBridge will probe the endpoint before saving.",
+    "quirks": {
+      "local": "true"
+    }
+  },
+  {
+    "id": "textgenwebui",
+    "name": "text-generation-webui OpenAI API",
+    "category": "Local",
+    "auth_type": "none",
+    "protocols": [
+      "responses",
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "local-template",
+    "requires_base_url": true,
+    "api_key_optional": true,
+    "notes": "OpenAI-compatible template. Enter the exact /v1-compatible Base URL for your deployment/account; OmniBridge will probe the endpoint before saving.",
+    "quirks": {
+      "local": "true"
+    }
+  },
+  {
+    "id": "stepfun",
+    "name": "StepFun / Step API",
+    "category": "Direct",
+    "auth_type": "bearer",
+    "protocols": [
+      "responses",
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "template",
+    "requires_base_url": true,
+    "notes": "OpenAI-compatible template. Enter the exact /v1-compatible Base URL for your deployment/account; OmniBridge will probe the endpoint before saving."
+  },
+  {
+    "id": "baichuan",
+    "name": "Baichuan AI",
+    "category": "Direct",
+    "auth_type": "bearer",
+    "protocols": [
+      "responses",
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "template",
+    "requires_base_url": true,
+    "notes": "OpenAI-compatible template. Enter the exact /v1-compatible Base URL for your deployment/account; OmniBridge will probe the endpoint before saving."
+  },
+  {
+    "id": "upstage",
+    "name": "Upstage",
+    "category": "Direct",
+    "auth_type": "bearer",
+    "protocols": [
+      "responses",
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "template",
+    "requires_base_url": true,
+    "notes": "OpenAI-compatible template. Enter the exact /v1-compatible Base URL for your deployment/account; OmniBridge will probe the endpoint before saving."
+  },
+  {
+    "id": "ppio",
+    "name": "PPIO Model API",
+    "category": "Inference",
+    "auth_type": "bearer",
+    "protocols": [
+      "responses",
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "template",
+    "requires_base_url": true,
+    "notes": "OpenAI-compatible template. Enter the exact /v1-compatible Base URL for your deployment/account; OmniBridge will probe the endpoint before saving."
+  },
+  {
+    "id": "modelscope",
+    "name": "ModelScope compatible endpoint",
+    "category": "Gateway",
+    "auth_type": "bearer",
+    "protocols": [
+      "responses",
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "template",
+    "requires_base_url": true,
+    "notes": "OpenAI-compatible template. Enter the exact /v1-compatible Base URL for your deployment/account; OmniBridge will probe the endpoint before saving."
+  },
+  {
+    "id": "qianfan",
+    "name": "Baidu Qianfan compatible endpoint",
+    "category": "Cloud",
+    "auth_type": "bearer",
+    "protocols": [
+      "responses",
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "template",
+    "requires_base_url": true,
+    "notes": "OpenAI-compatible template. Enter the exact /v1-compatible Base URL for your deployment/account; OmniBridge will probe the endpoint before saving."
+  },
+  {
+    "id": "hunyuan",
+    "name": "Tencent Hunyuan compatible endpoint",
+    "category": "Cloud",
+    "auth_type": "bearer",
+    "protocols": [
+      "responses",
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "template",
+    "requires_base_url": true,
+    "notes": "OpenAI-compatible template. Enter the exact /v1-compatible Base URL for your deployment/account; OmniBridge will probe the endpoint before saving."
+  },
+  {
+    "id": "byteplus",
+    "name": "BytePlus ModelArk",
+    "category": "Cloud",
+    "auth_type": "bearer",
+    "protocols": [
+      "responses",
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "template",
+    "requires_base_url": true,
+    "notes": "OpenAI-compatible template. Enter the exact /v1-compatible Base URL for your deployment/account; OmniBridge will probe the endpoint before saving."
+  },
+  {
+    "id": "aihubmix",
+    "name": "AiHubMix",
+    "category": "Gateway",
+    "auth_type": "bearer",
+    "protocols": [
+      "responses",
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "template",
+    "requires_base_url": true,
+    "notes": "OpenAI-compatible template. Enter the exact /v1-compatible Base URL for your deployment/account; OmniBridge will probe the endpoint before saving."
+  },
+  {
+    "id": "302ai",
+    "name": "302.AI Gateway",
+    "category": "Gateway",
+    "auth_type": "bearer",
+    "protocols": [
+      "responses",
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "template",
+    "requires_base_url": true,
+    "notes": "OpenAI-compatible template. Enter the exact /v1-compatible Base URL for your deployment/account; OmniBridge will probe the endpoint before saving."
+  },
+  {
+    "id": "infini",
+    "name": "Infini-AI compatible endpoint",
+    "category": "Inference",
+    "auth_type": "bearer",
+    "protocols": [
+      "responses",
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "template",
+    "requires_base_url": true,
+    "notes": "OpenAI-compatible template. Enter the exact /v1-compatible Base URL for your deployment/account; OmniBridge will probe the endpoint before saving."
+  },
+  {
+    "id": "custom",
+    "name": "Custom / Auto-detect",
+    "category": "Custom",
+    "auth_type": "bearer",
+    "protocols": [
+      "responses",
+      "messages",
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "custom",
+    "requires_base_url": true,
+    "notes": "Same-origin endpoint discovery and protocol probing."
+  },
+  {
+    "id": "gcore",
+    "name": "Gcore AI Infrastructure",
+    "category": "Cloud",
+    "auth_type": "bearer",
+    "protocols": [
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "template",
+    "requires_base_url": true,
+    "notes": "Compatibility template. Supply the OpenAI-compatible endpoint explicitly; no vendor-specific native authentication is assumed."
+  },
+  {
+    "id": "oracle-genai",
+    "name": "Oracle OCI Generative AI compatible gateway",
+    "category": "Cloud",
+    "auth_type": "bearer",
+    "protocols": [
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "template",
+    "requires_base_url": true,
+    "notes": "Compatibility template. Supply the OpenAI-compatible endpoint explicitly; no vendor-specific native authentication is assumed."
+  },
+  {
+    "id": "digitalocean-genai",
+    "name": "DigitalOcean GenAI compatible endpoint",
+    "category": "Cloud",
+    "auth_type": "bearer",
+    "protocols": [
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "template",
+    "requires_base_url": true,
+    "notes": "Compatibility template. Supply the OpenAI-compatible endpoint explicitly; no vendor-specific native authentication is assumed."
+  },
+  {
+    "id": "akasha",
+    "name": "Akash/OpenAI-compatible deployment",
+    "category": "Inference",
+    "auth_type": "bearer",
+    "protocols": [
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "template",
+    "requires_base_url": true,
+    "notes": "Compatibility template. Supply the OpenAI-compatible endpoint explicitly; no vendor-specific native authentication is assumed."
+  },
+  {
+    "id": "anyscale-compatible",
+    "name": "Ray/OpenAI-compatible deployment",
+    "category": "Inference",
+    "auth_type": "bearer",
+    "protocols": [
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "template",
+    "requires_base_url": true,
+    "notes": "Compatibility template. Supply the OpenAI-compatible endpoint explicitly; no vendor-specific native authentication is assumed."
+  },
+  {
+    "id": "openllm",
+    "name": "OpenLLM/BentoML compatible server",
+    "category": "Local",
+    "auth_type": "none",
+    "protocols": [
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "local-template",
+    "requires_base_url": true,
+    "api_key_optional": true,
+    "notes": "Compatibility template. Supply the OpenAI-compatible endpoint explicitly; no vendor-specific native authentication is assumed.",
+    "quirks": {
+      "local": "true"
+    }
+  },
+  {
+    "id": "ray-serve",
+    "name": "Ray Serve OpenAI-compatible endpoint",
+    "category": "Local",
+    "auth_type": "none",
+    "protocols": [
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "local-template",
+    "requires_base_url": true,
+    "api_key_optional": true,
+    "notes": "Compatibility template. Supply the OpenAI-compatible endpoint explicitly; no vendor-specific native authentication is assumed.",
+    "quirks": {
+      "local": "true"
+    }
+  },
+  {
+    "id": "triton-openai",
+    "name": "Triton OpenAI-compatible adapter",
+    "category": "Local",
+    "auth_type": "none",
+    "protocols": [
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "local-template",
+    "requires_base_url": true,
+    "api_key_optional": true,
+    "notes": "Compatibility template. Supply the OpenAI-compatible endpoint explicitly; no vendor-specific native authentication is assumed.",
+    "quirks": {
+      "local": "true"
+    }
+  },
+  {
+    "id": "opencode-zen",
+    "name": "OpenCode Zen",
+    "category": "Gateway",
+    "auth_type": "bearer",
+    "protocols": [
+      "responses",
+      "messages",
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "preset",
+    "base_url": "https://opencode.ai/zen/v1",
+    "notes": "Zen API key; protocol is selected per model by OmniChat.",
+    "detection_hosts": [
+      "opencode.ai"
+    ]
+  },
+  {
+    "id": "opencode-go",
+    "name": "OpenCode Go",
+    "category": "Subscription",
+    "auth_type": "bearer",
+    "protocols": [
+      "responses",
+      "messages",
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "preset",
+    "base_url": "https://opencode.ai/zen/go/v1",
+    "notes": "OpenCode Go subscription API key; protocol is selected per model by OmniChat.",
+    "detection_hosts": [
+      "opencode.ai"
+    ]
+  },
+  {
+    "id": "kimi-code",
+    "name": "Kimi Code",
+    "category": "Subscription",
+    "auth_type": "bearer",
+    "protocols": [
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "preset",
+    "base_url": "https://api.kimi.ai/coding/v1",
+    "notes": "Third-party Kimi Code subscription endpoint. Use a Kimi Code Console API key, not a Moonshot Platform key.",
+    "detection_hosts": [
+      "api.kimi.ai"
+    ]
+  },
+  {
+    "id": "zoo-gateway",
+    "name": "Zoo Gateway",
+    "category": "Gateway",
+    "auth_type": "bearer",
+    "protocols": [
+      "chat-completions"
+    ],
+    "preferred_protocol": "chat-completions",
+    "executor": "openai-compatible",
+    "support_level": "preset",
+    "base_url": "https://www.zoocode.dev/api/gateway/v1",
+    "notes": "Zoo Code gateway API key. Dynamic model catalog.",
+    "detection_hosts": [
+      "zoocode.dev"
+    ]
+  }
+]

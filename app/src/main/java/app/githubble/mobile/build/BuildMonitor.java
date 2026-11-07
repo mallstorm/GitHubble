@@ -173,7 +173,9 @@ public final class BuildMonitor {
         if(!prefs(context).getBoolean(PREF_ENABLED,true))return 0;
         Set<String> repositories=watched(context);
         if(repositories.isEmpty())return 0;
-        GitHubApiClient api=new GitHubApiClient(new SecureStore(context));
+        SecureStore store=new SecureStore(context);
+        new app.githubble.mobile.auth.OAuthManager(context,store).refreshIfNeeded(app.githubble.mobile.BuildConfig.GITHUB_CLIENT_ID);
+        GitHubApiClient api=new GitHubApiClient(store).bindCurrentSession();
         int changes=0;
         String prefix=scope(context);
         if(!prefs(context).getBoolean(prefix+"auto_v2_migrated",false)){
@@ -182,6 +184,7 @@ public final class BuildMonitor {
             prefs(context).edit().putBoolean(prefix+"auto_v2_migrated",true).commit();
         }
         for(String repo:repositories){
+            api.requireCurrentSession();
             // Explicitly selected repos only. No public GitHub search or guessing account access.
             JSONArray response;
             try{
@@ -271,6 +274,7 @@ public final class BuildMonitor {
                     }
                 }
             }
+            api.requireCurrentSession();
             if(newestChangedRun!=null){
                 notification(context,newestChangedRun,newestChangedReady);
                 changes++;

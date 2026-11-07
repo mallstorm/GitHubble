@@ -73,7 +73,22 @@ jobs:
       - name: Fast unit tests and Debug/Release compile
         env:
           GITHUB_CLIENT_ID: ${{ secrets.GITHUB_CLIENT_ID }}
-        run: gradle --no-daemon test assembleDebug assembleRelease
+        run: ./gradlew --no-daemon test assembleDebug assembleRelease lintRelease
+
+      - name: Verify Debug/Release distributions contain ARM64 native libraries only
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from zipfile import ZipFile
+          for path in ("app/build/outputs/apk/debug/app-debug.apk",
+                       "app/build/outputs/apk/release/app-release-unsigned.apk"):
+              with ZipFile(path) as apk:
+                  libs = [name for name in apk.namelist() if name.startswith("lib/") and name.endswith(".so")]
+                  assert libs, f"{path}: no native libraries; missing Xray!"
+                  assert "lib/arm64-v8a/libgojni.so" in libs, f"{path}: ARM64 libxray missing"
+                  assert all(name.startswith("lib/arm64-v8a/") for name in libs), f"{path}: non-ARM64 libraries: {libs}"
+                  print(f"ARM64 ONLY: {path}, {len(libs)} native libraries")
+          PY
 
       - name: Extended lint and instrumentation APK (manual only)
         if: github.event_name == 'workflow_dispatch' && inputs.full_validation == true
@@ -82,7 +97,8 @@ jobs:
         shell: bash
         run: |
           set +e
-          gradle --no-daemon lintRelease assembleDebugAndroidTest
+          ./gradlew --no-daemon lintRelease
+          [ "$?" -eq 0 ] && ./gradlew --no-daemon -PGITHUBBLE_CI_EMULATOR_ABI=x86_64 assembleDebug assembleDebugAndroidTest
           result=$?
           if [ "$result" -ne 0 ]; then
             report="app/build/intermediates/lint_intermediate_text_report/release/lintReportRelease/lint-results-release.txt"
@@ -102,24 +118,78 @@ jobs:
             adb install -r app/build/outputs/apk/debug/app-debug.apk
             adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
             adb shell pm list instrumentation
-            adb shell am instrument -w app.githubble.mobile.debug.test/app.githubble.mobile.RcInstrumentationTest
+            timeout -k 10s 180s adb shell am instrument -w app.githubble.mobile.debug.test/app.githubble.mobile.RcInstrumentationTest > instrumentation-result.txt
+            cat instrumentation-result.txt
+            grep -q 'PASS: RC instrumentation suite' instrumentation-result.txt
+
+      - name: Git Agent Android 13 UI and state regression
+        if: github.event_name == 'pull_request' && (github.head_ref == 'feature/omnichat-native-agent-phase1' || github.head_ref == 'feat/unified-settings')
+        run: ./gradlew --no-daemon -PGITHUBBLE_CI_EMULATOR_ABI=x86_64 assembleDebug assembleDebugAndroidTest
+
+      - name: Free temporary runner disk for Android 13 userdata
+        if: github.event_name == 'pull_request' && (github.head_ref == 'feature/omnichat-native-agent-phase1' || github.head_ref == 'feat/unified-settings')
+        shell: bash
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          df -h .
+
+      - name: Enable KVM for Git Agent Android 13 checks
+        if: github.event_name == 'pull_request' && (github.head_ref == 'feature/omnichat-native-agent-phase1' || github.head_ref == 'feat/unified-settings')
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-git-agent-kvm.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Git Agent light and dark screenshots on Android 13
+        timeout-minutes: 8
+        if: github.event_name == 'pull_request' && (github.head_ref == 'feature/omnichat-native-agent-phase1' || github.head_ref == 'feat/unified-settings')
+        uses: ReactiveCircus/android-emulator-runner@v2
+        with:
+          api-level: 33
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -feature -Vulkan
+          disk-size: 2048M
+          emulator-boot-timeout: 180
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          script: |
+            adb install -r app/build/outputs/apk/debug/app-debug.apk
+            adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+            adb shell ime list -s
+            adb shell settings get secure default_input_method
+            adb shell settings put secure show_ime_with_hard_keyboard 1
+            timeout -k 10s 180s adb shell am instrument -w app.githubble.mobile.debug.test/app.githubble.mobile.RcInstrumentationTest > instrumentation-result.txt || true
+            cat instrumentation-result.txt
+            if ! grep -q 'PASS: RC instrumentation suite' instrumentation-result.txt; then timeout -k 5s 15s adb logcat -d -s AndroidRuntime:E || true; timeout -k 5s 10s adb shell dumpsys input_method || true; exit 1; fi
+            mkdir -p dist-pr/screenshots
+            timeout -k 5s 30s adb pull /sdcard/Android/data/app.githubble.mobile.debug/files/ui-screenshots/. dist-pr/screenshots/
 
       - name: Export PR test APK and exact tested source tree
-        if: github.event_name == 'pull_request'
+        if: ${{ success() && github.event_name == 'pull_request' }}
         shell: bash
         run: |
           set -euo pipefail
+          # The emulator used a temporary x86_64 binary. Restore the actual ARM64 distribution.
+          ./gradlew --no-daemon assembleDebug
+          python3 - <<'PY'
+          from zipfile import ZipFile
+          path = "app/build/outputs/apk/debug/app-debug.apk"
+          with ZipFile(path) as apk:
+              libs = [name for name in apk.namelist() if name.startswith("lib/") and name.endswith(".so")]
+              assert "lib/arm64-v8a/libgojni.so" in libs and all(name.startswith("lib/arm64-v8a/") for name in libs), libs
+          print("Final PR APK: arm64-v8a only")
+          PY
           mkdir -p dist-pr
           cp app/build/outputs/apk/debug/app-debug.apk "dist-pr/GitHubble-${{ steps.version.outputs.name }}-pr${{ github.event.pull_request.number }}-debug.apk"
           git archive --format=zip --output="dist-pr/GitHubble-${{ steps.version.outputs.name }}-pr${{ github.event.pull_request.number }}-sources.zip" HEAD
           test -s "dist-pr/GitHubble-${{ steps.version.outputs.name }}-pr${{ github.event.pull_request.number }}-sources.zip"
-          sha256sum dist-pr/*.apk > dist-pr/SHA256SUMS.txt
-          sha256sum dist-pr/*.zip > dist-pr/SOURCE_SHA256.txt
+          (cd dist-pr; sha256sum *.apk > SHA256SUMS.txt)
+          (cd dist-pr; sha256sum *.zip > SOURCE_SHA256.txt)
           printf '%s\n' "$(git rev-parse HEAD)" > dist-pr/SOURCE_COMMIT.txt
           printf '%s\n' "TEST DEBUG APK ONLY: PR validation, not a signed production Release." > dist-pr/SIGNING_INFO.txt
 
       - name: Publish PR test APK and sources
-        if: github.event_name == 'pull_request'
+        if: ${{ success() && github.event_name == 'pull_request' }}
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
@@ -174,8 +244,10 @@ jobs:
           cp app/build/outputs/apk/release/app-release-unsigned.apk "dist/GitHubble-${{ steps.version.outputs.name }}-release-unsigned.apk"
           git archive --format=zip --output="dist/GitHubble-${{ steps.version.outputs.name }}-main-sources.zip" HEAD
           test -s "dist/GitHubble-${{ steps.version.outputs.name }}-main-sources.zip"
-          sha256sum dist/*.apk > dist/SHA256SUMS.txt
-          sha256sum "dist/GitHubble-${{ steps.version.outputs.name }}-main-sources.zip" > dist/SOURCE_SHA256.txt
+          (cd dist; files=("GitHubble-${{ steps.version.outputs.name }}-debug.apk");
+            if [ -s "GitHubble-${{ steps.version.outputs.name }}-release.apk" ]; then files+=("GitHubble-${{ steps.version.outputs.name }}-release.apk"); fi
+            sha256sum "${files[@]}" > SHA256SUMS.txt)
+          (cd dist; sha256sum "GitHubble-${{ steps.version.outputs.name }}-main-sources.zip" > SOURCE_SHA256.txt)
           printf '%s\n' "$(git rev-parse HEAD)" > dist/SOURCE_COMMIT.txt
 
       - name: Verify and publish main bundle directly to GitHub Releases
@@ -191,8 +263,8 @@ jobs:
           test "$(cat dist/SOURCE_COMMIT.txt)" = "$GITHUB_SHA"
           test -s "dist/GitHubble-${VERSION_NAME}-debug.apk"
           test -s "dist/GitHubble-${VERSION_NAME}-main-sources.zip"
-          sha256sum -c dist/SHA256SUMS.txt
-          sha256sum -c dist/SOURCE_SHA256.txt
+          (cd dist; sha256sum -c SHA256SUMS.txt)
+          (cd dist; sha256sum -c SOURCE_SHA256.txt)
 
           tag="build-${VERSION_NAME}-${GITHUB_SHA:0:12}"
           files=(
@@ -231,3 +303,4 @@ jobs:
               --notes-file "$RUNNER_TEMP/release-notes.md" \
               --prerelease
           fi
+

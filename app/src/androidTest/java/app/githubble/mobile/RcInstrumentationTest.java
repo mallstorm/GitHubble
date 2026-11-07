@@ -13,8 +13,6 @@ import app.githubble.mobile.controller.CommitDetailController;
 import app.githubble.mobile.controller.ProfileController;
 import app.githubble.mobile.auth.DeviceCodeAssist;
 import app.githubble.mobile.database.SchemaMigrationRegistry;
-import app.githubble.mobile.controller.CopilotAgentController;
-import app.githubble.mobile.controller.CopilotPermissionReport;
 import app.githubble.mobile.diff.DiffModel;
 import app.githubble.mobile.network.GitHubApiClient;
 import app.githubble.mobile.offline.OfflineActionQueue;
@@ -48,10 +46,11 @@ public final class RcInstrumentationTest extends Instrumentation {
             testPagination();
             testRotationAndProcessDeathState(context);
             testOfflineQueue(context);
+            StabilizationChecks.run(context);
             testDatabaseSchemas(context);
             testGitHubErrorStates();
             testDiffParsing();
-            testCopilotParsing();
+            testGitAgentProjectRuntime();
             testSmartRussianSearch();
             testSmartSearchRanking();
             testAdvancedSearchModes();
@@ -64,10 +63,19 @@ public final class RcInstrumentationTest extends Instrumentation {
             testRepositoryActivityRanking(context);
             testPrivateCommitCard();
             testNativeCommitDetail();
+            GitAgentUiChecks.run(this);
             result.putString("result", "PASS: RC instrumentation suite");
             finish(0, result);
         } catch (Throwable error) {
-            result.putString("result", "FAIL: " + error.getClass().getSimpleName() + ": " + error.getMessage());
+            // Preserve the causal chain on the test device: ExceptionInInitializerError
+            // frequently hides the root exception if only its top-level message is sent.
+            android.util.Log.e("AndroidRuntime", "GitHubble instrumentation failed", error);
+            Throwable root = error;
+            while (root.getCause() != null && root.getCause() != root) root = root.getCause();
+            StackTraceElement[] frames = root.getStackTrace();
+            String location = frames.length == 0 ? "" : " at " + frames[0];
+            result.putString("result", "FAIL: " + root.getClass().getSimpleName() +
+                ": " + root.getMessage() + location);
             finish(-1, result);
         }
     }
@@ -282,17 +290,14 @@ public final class RcInstrumentationTest extends Instrumentation {
     private static void testDeviceCodeAssist(Context context) {
         DeviceCodeAssist.begin(context, "ab12-CD34", System.currentTimeMillis()+90_000L);
         eq("AB12CD34", DeviceCodeAssist.currentCode(context));
-        no(DeviceCodeAssist.isArmed(context));
-        yes(DeviceCodeAssist.arm(context));
-        yes(DeviceCodeAssist.isArmed(context));
-        DeviceCodeAssist.disarm(context);
-        no(DeviceCodeAssist.isArmed(context));
         DeviceCodeAssist.clear(context);
         eq("", DeviceCodeAssist.currentCode(context));
         // Expired codes must never be copied or used for autofill.
         DeviceCodeAssist.begin(context, "AB12-CD34", System.currentTimeMillis()-1);
         eq("", DeviceCodeAssist.currentCode(context));
-        no(DeviceCodeAssist.arm(context));
+        no(DeviceCodeAssist.copy(context));
+        DeviceCodeAssist.begin(context, "invalid", System.currentTimeMillis()+90_000L);
+        eq("", DeviceCodeAssist.currentCode(context));
     }
 
     private static void testPagination() {
@@ -327,7 +332,7 @@ public final class RcInstrumentationTest extends Instrumentation {
     }
 
     private static void testDatabaseSchemas(Context context) {
-        eq(2, SchemaMigrationRegistry.TRACKING_SCHEMA); eq(3, SchemaMigrationRegistry.OFFLINE_QUEUE_SCHEMA);
+        eq(2, SchemaMigrationRegistry.TRACKING_SCHEMA); eq(4, SchemaMigrationRegistry.OFFLINE_QUEUE_SCHEMA);
         TrackingDatabase tracking = new TrackingDatabase(context); tracking.getWritableDatabase(); tracking.clearAll();
         OfflineActionQueue queue = new OfflineActionQueue(context); queue.getWritableDatabase(); queue.clearAll();
     }
@@ -346,25 +351,11 @@ public final class RcInstrumentationTest extends Instrumentation {
     }
 
 
-    private static void testCopilotParsing() throws Exception {
-        JSONObject task = new JSONObject()
-                .put("id", "task-1")
-                .put("state", "waiting_for_user")
-                .put("repository_full_name", "owner/repo")
-                .put("artifacts", new org.json.JSONArray().put(new JSONObject()
-                        .put("provider", "github")
-                        .put("type", "pull")
-                        .put("data", new JSONObject().put("number", 42))));
-        eq("owner/repo", CopilotAgentController.repositoryFromTask(task));
-        eq(42, CopilotAgentController.pullNumber(task));
-        eq("Нужен ответ", CopilotAgentController.stateLabel("waiting_for_user"));
-        yes(CopilotAgentController.isActiveState("in_progress"));
-        no(CopilotAgentController.archiveMutationAvailable());
-        CopilotPermissionReport report = new CopilotPermissionReport();
-        report.add(new CopilotPermissionReport.Check("metadata_read", "Metadata", true, true, "ok"));
-        report.add(new CopilotPermissionReport.Check("agent_tasks_read", "Tasks", true, true, "ok"));
-        report.add(new CopilotPermissionReport.Check("contents_read", "Contents", true, true, "ok"));
-        yes(report.readyForSafeAttempt());
+    private static void testGitAgentProjectRuntime() {
+        yes(app.githubble.mobile.agent.ProjectRuntime.allowed("list_files",false,true));
+        yes(app.githubble.mobile.agent.ProjectRuntime.allowed("repository_info",true,false));
+        no(app.githubble.mobile.agent.ProjectRuntime.allowed("write_file",true,true));
+        no(app.githubble.mobile.agent.ProjectRuntime.allowed("delete_repository",true,true));
     }
 
     private static void testSmartRussianSearch() {
@@ -421,3 +412,4 @@ public final class RcInstrumentationTest extends Instrumentation {
     private static void no(boolean value){if(value)throw new AssertionError("Expected false");}
     private static void eq(Object expected,Object actual){if(expected==null?actual!=null:!expected.equals(actual))throw new AssertionError("Expected "+expected+", got "+actual);}
 }
+

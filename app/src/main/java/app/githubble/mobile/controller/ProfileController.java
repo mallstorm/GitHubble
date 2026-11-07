@@ -7,7 +7,7 @@ import org.json.JSONObject;
 public final class ProfileController {
     private final GitHubApiClient api;
     public ProfileController(GitHubApiClient api){this.api=api;}
-    public JSONObject current()throws Exception{return api.getJson("https://api.github.com/user");}
+    public JSONObject current()throws Exception{return api.getJsonFresh("https://api.github.com/user");}
     public JSONObject publicProfile(String login)throws Exception{return api.getJson("https://api.github.com/users/"+login);}
     /** GitHub REST /user: only documented editable fields, never login, avatar or password. */
     public static JSONObject editablePatch(JSONObject original,JSONObject draft)throws Exception{

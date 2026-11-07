@@ -6,7 +6,6 @@ import app.githubble.mobile.backup.PortableSettingsManager;
 import app.githubble.mobile.controller.PullRequestAdvancedController;
 import app.githubble.mobile.controller.RepositoryAdminController;
 import app.githubble.mobile.controller.RepositoryImportController;
-import app.githubble.mobile.controller.CopilotAgentController;
 import app.githubble.mobile.network.GitHubApiClient;
 import app.githubble.mobile.network.GitHubGraphQlClient;
 import app.githubble.mobile.offline.OfflineActionQueue;
@@ -23,9 +22,8 @@ public final class FeatureControllerRegistry {
     public final PullRequestAdvancedController pullAdvanced;
     public final FilePreviewController filePreview;
     public final PortableSettingsManager portableSettings;
-    public final CopilotAgentController copilot;
     public FeatureControllerRegistry(Context context, GitHubApiClient api, GitHubGraphQlClient graphql, SharedPreferences prefs, TrackingDatabase tracking){
         offlineQueue=new OfflineActionQueue(context);offlineDispatcher=new OfflineMutationDispatcher(context,api,offlineQueue);
-        repositoryAdmin=new RepositoryAdminController(api);repositoryImport=new RepositoryImportController(context,api);pullAdvanced=new PullRequestAdvancedController(api);filePreview=new FilePreviewController(api);portableSettings=new PortableSettingsManager(prefs,tracking);copilot=new CopilotAgentController(api,graphql);
+        repositoryAdmin=new RepositoryAdminController(api);repositoryImport=new RepositoryImportController(context,api);pullAdvanced=new PullRequestAdvancedController(api);filePreview=new FilePreviewController(api);portableSettings=new PortableSettingsManager(prefs,tracking);
     }
 }
