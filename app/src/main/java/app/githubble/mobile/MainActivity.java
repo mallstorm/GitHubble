@@ -9488,13 +9488,13 @@ public class MainActivity extends Activity {
 
     private void applySystemBarAppearance(){
         boolean light=!"dark".equals(activeTheme);
+        View decor=getWindow().getDecorView();
         if(Build.VERSION.SDK_INT>=30){
-            android.view.WindowInsetsController controller=getWindow().getInsetsController();
-            if(controller!=null){int mask=android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS|android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;controller.setSystemBarsAppearance(light?mask:0,mask);}
-        }else{
-            int flags=getWindow().getDecorView().getSystemUiVisibility();int mask=View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR|View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
-            getWindow().getDecorView().setSystemUiVisibility(light?flags|mask:flags&~mask);
+            android.view.WindowInsetsController controller=decor.getWindowInsetsController();
+            if(controller!=null){int mask=android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS|android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;controller.setSystemBarsAppearance(light?mask:0,mask);return;}
         }
+        int flags=decor.getSystemUiVisibility();int mask=View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR|View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+        decor.setSystemUiVisibility(light?flags|mask:flags&~mask);
     }
 
     private String themeDisplayName(){ return "beige".equals(activeTheme)?"Бежевая":"dark".equals(activeTheme)?"Тёмная":"Светлая"; }
