@@ -62,7 +62,7 @@ public final class R8SmokeInstrumentation extends Instrumentation {
       Throwable cause = error;
       while (cause.getCause() != null && cause.getCause() != cause) cause = cause.getCause();
       StackTraceElement[] frames = cause.getStackTrace();
-      result.putString("result", "FAIL: " + cause + (frames.length == 0 ? "" : " at " + frames[0]));
+      result.putString("result", "FAIL: " + cause + " at " + Arrays.toString(frames));
       code = -1;
     } finally {
       if (activity != null) {
@@ -209,7 +209,7 @@ public final class R8SmokeInstrumentation extends Instrumentation {
     throw new AssertionError("Xray SOCKS listener did not become ready", last);
   }
 
-  private static void verifyVlessRoundTrip() throws Exception {
+  private void verifyVlessRoundTrip() throws Exception {
     Class<?> api = Class.forName("libXray.LibXray");
     String version = String.valueOf(api.getMethod("xrayVersion").invoke(null));
     if (version.isEmpty() || "null".equals(version))
@@ -218,23 +218,9 @@ public final class R8SmokeInstrumentation extends Instrumentation {
     ExecutorService executor = Executors.newSingleThreadExecutor();
     byte[] payload = "GitHubble-minified-VLESS-roundtrip".getBytes(StandardCharsets.UTF_8);
     try (ServerSocket echo = new ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))) {
-      echo.setSoTimeout(10000);
+      echo.setSoTimeout(30000);
       int socks = freePort(), vless = freePort();
       while (vless == socks) vless = freePort();
-      Future<?> echoed =
-          executor.submit(
-              () -> {
-                try (Socket socket = echo.accept()) {
-                  socket.setSoTimeout(10000);
-                  byte[] data = new byte[payload.length];
-                  new DataInputStream(socket.getInputStream()).readFully(data);
-                  if (!Arrays.equals(payload, data))
-                    throw new AssertionError("Echo request corrupted");
-                  socket.getOutputStream().write(data);
-                } catch (Exception error) {
-                  throw new RuntimeException(error);
-                }
-              });
       String request =
           String.valueOf(
               api.getMethod("newXrayRunFromJSONRequest", String.class, String.class)
@@ -244,14 +230,31 @@ public final class R8SmokeInstrumentation extends Instrumentation {
       for (int i = 0; i < 100 && !Boolean.TRUE.equals(state.invoke(null)); i++) Thread.sleep(50);
       if (!Boolean.TRUE.equals(state.invoke(null)))
         throw new AssertionError("Native Xray did not start");
+      stage("Native core ready; starting echo server and SOCKS negotiation");
+      // Start the accept timeout after native startup, which can be slow on a cold emulator.
+      Future<?> echoed =
+          executor.submit(
+              () -> {
+                try (Socket socket = echo.accept()) {
+                  socket.setSoTimeout(30000);
+                  byte[] data = new byte[payload.length];
+                  new DataInputStream(socket.getInputStream()).readFully(data);
+                  if (!Arrays.equals(payload, data))
+                    throw new AssertionError("Echo request corrupted");
+                  socket.getOutputStream().write(data);
+                } catch (Exception error) {
+                  throw new RuntimeException(error);
+                }
+              });
       try (Socket tunnel = connect(socks)) {
-        tunnel.setSoTimeout(10000);
+        tunnel.setSoTimeout(30000);
         OutputStream out = tunnel.getOutputStream();
         DataInputStream in = new DataInputStream(tunnel.getInputStream());
         out.write(new byte[] {5, 1, 0});
         out.flush();
         if (in.readUnsignedByte() != 5 || in.readUnsignedByte() != 0)
           throw new AssertionError("SOCKS negotiation failed");
+        stage("SOCKS negotiated; opening VLESS route to echo");
         int port = echo.getLocalPort();
         out.write(new byte[] {5, 1, 0, 1, 127, 0, 0, 1, (byte) (port >> 8), (byte) port});
         out.flush();
@@ -263,6 +266,7 @@ public final class R8SmokeInstrumentation extends Instrumentation {
         if (length < 0) throw new AssertionError("Invalid SOCKS address");
         byte[] bound = new byte[length + 2];
         in.readFully(bound);
+        stage("VLESS route open; checking echo payload");
         out.write(payload);
         out.flush();
         byte[] received = new byte[payload.length];
