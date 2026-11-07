@@ -2,13 +2,13 @@
 
 Baseline: main e792cd757e87c7917fcab71098794d37989fa7c1, RC4.2.27. Measurements compare unsigned ARM64 Release APKs built locally with the same source version, SDK 36, JDK 21 and Gradle 9.5.1. Signing changes APK size slightly.
 
-| Payload | Baseline | R8 + resources only | R8 + resources + native debug stripping |
-|---|---:|---:|---:|
-| APK bytes | 60,008,865 | 52,326,603 | 37,721,699 |
-| DEX bytes | 9,244,656 | 1,729,380 | 1,729,380 |
-| Xray native bytes | 50,146,448 | 50,146,448 | 35,541,544 |
-| Resource payload bytes | 525,190 | 368,336 | 368,336 |
-| Reduction | — | 12.80% | 37.14% |
+| Payload | Baseline | R8 + resources + native debug stripping |
+|---|---:|---:|
+| APK bytes | 60,008,865 | 37,803,619 |
+| DEX bytes | 9,244,656 | 1,807,948 |
+| Xray native bytes | 50,146,448 | 35,541,544 |
+| Resource payload bytes | 525,190 | 368,336 |
+| Reduction | — | 37.00% |
 
 R8 alone does not optimize Go machine code. The previous build logged `Unable to strip ... libgojni.so` because no NDK was available. Pinning/installing NDK 28.2.13676358 enables standard Android native stripping. No protocol/module was removed and no native library was recompiled or replaced.
 
@@ -16,6 +16,7 @@ R8 alone does not optimize Go machine code. The previous build logged `Unable to
 
 - The pinned AAR is still io.github.toolshubofficial:libxray:26.6.27, ARM64 distribution.
 - Explicit go.** / libXray.** keep rules mirror the AAR consumer rules and preserve reflection/JNI names. No blanket app keep rule, dontobfuscate or blanket dontwarn is used.
+- Room 2.6.1's consumer rules preserve database class names but not their no-argument constructors in R8 full mode. A constructor-only rule preserves reflective database creation. The minified Android smoke caught and reproduced a WorkManager startup crash without this rule; the final size above includes the fix.
 - `tools/verify-xray-payload.py` compares every PT_LOAD segment and its flags, address, size and alignment against the original AAR. Only ELF section-table header metadata is normalized because stripping rewrites metadata for non-loaded debug sections. All loaded code/data match; 16 KiB alignment is preserved.
 - `tools/apk-size-report.py` provides an APK breakdown and the same native loaded-image comparison. The native file SHA changes after debug removal, as expected; executable/loaded content does not.
 - R8 mapping is saved as R8_MAPPING.txt for main releases. Native symbols are saved separately, filtered to the ABIs actually shipped, as NATIVE_DEBUG_SYMBOLS.zip. The full original library and symbols remain in the immutable pinned AAR too.
