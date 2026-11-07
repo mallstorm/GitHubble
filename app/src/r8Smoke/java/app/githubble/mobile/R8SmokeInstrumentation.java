@@ -128,7 +128,7 @@ public final class R8SmokeInstrumentation extends Instrumentation {
     return new JSONObject().put("network", "tcp").put("security", "none");
   }
 
-  private static JSONObject config(int socks, int vless, String id) throws Exception {
+  private static JSONObject config(int socks, int vless, int echo, String id) throws Exception {
     JSONObject inboundSocks =
         new JSONObject()
             .put("tag", "test-socks")
@@ -189,7 +189,21 @@ public final class R8SmokeInstrumentation extends Instrumentation {
             "outbounds",
             new JSONArray()
                 .put(outboundVless)
-                .put(new JSONObject().put("tag", "direct").put("protocol", "freedom")))
+                .put(
+                    new JSONObject()
+                        .put("tag", "direct")
+                        .put("protocol", "freedom")
+                        .put(
+                            "settings",
+                            new JSONObject()
+                                .put(
+                                    "finalRules",
+                                    new JSONArray()
+                                        .put(
+                                            new JSONObject()
+                                                .put("action", "allow")
+                                                .put("ip", new JSONArray().put("127.0.0.1/32"))
+                                                .put("port", String.valueOf(echo)))))))
         .put("routing", new JSONObject().put("rules", rules));
   }
 
@@ -224,7 +238,11 @@ public final class R8SmokeInstrumentation extends Instrumentation {
       String request =
           String.valueOf(
               api.getMethod("newXrayRunFromJSONRequest", String.class, String.class)
-                  .invoke(null, "", config(socks, vless, UUID.randomUUID().toString()).toString()));
+                  .invoke(
+                      null,
+                      "",
+                      config(socks, vless, echo.getLocalPort(), UUID.randomUUID().toString())
+                          .toString()));
       api.getMethod("runXrayFromJSON", String.class).invoke(null, request);
       Method state = api.getMethod("getXrayState");
       for (int i = 0; i < 100 && !Boolean.TRUE.equals(state.invoke(null)); i++) Thread.sleep(50);

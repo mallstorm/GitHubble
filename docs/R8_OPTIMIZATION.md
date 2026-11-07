@@ -27,6 +27,8 @@ The dedicated workflow runs an actual R8/resource-shrunk Release, with the same 
 
 The smoke runner deliberately has no direct app-class references and adds no test-only app keep rules. It launches MainActivity, opens Settings and Chat, resolves the real gomobile API by class/method name, starts native Xray, and transfers bytes through SOCKS → VLESS outbound → local VLESS inbound → loopback echo. No external server, personal credentials or subscription is required. It always stops the test core.
 
+Xray 26.6.27 blocks private destinations behind VLESS by default. The test configuration explicitly allows only 127.0.0.1 and the randomly assigned echo port in its freedom outbound; production profiles and core defaults are unchanged. The same roundtrip configuration was independently verified with the upstream Linux Xray 26.6.27 binary.
+
 `./gradlew -PGITHUBBLE_CI_EMULATOR_ABI=x86_64 -PGITHUBBLE_R8_SMOKE=true assembleRelease assembleReleaseAndroidTest`
 
 Normal production build: `./gradlew clean test assembleRelease lintRelease` (without smoke properties). Debug remains unminified for development. Production signing remains main-only, with the persistent project key.
