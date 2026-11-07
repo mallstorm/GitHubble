@@ -38,6 +38,7 @@ public final class R8SmokeInstrumentation extends Instrumentation {
     Activity activity = null;
     int code = 0;
     try {
+      stage("Launch minified MainActivity");
       Intent launch =
           new Intent()
               .setClassName(
@@ -51,6 +52,7 @@ public final class R8SmokeInstrumentation extends Instrumentation {
       assertVisible(app, "Git Agent и Workspace");
       click(app, "Чат");
       assertVisible(app, "Git Agent");
+      stage("Minified UI passed; starting native VLESS roundtrip");
       verifyVlessRoundTrip();
       result.putString(
           "result", "PASS: minified Release UI + JNI + SOCKS -> VLESS -> loopback echo");
@@ -69,6 +71,12 @@ public final class R8SmokeInstrumentation extends Instrumentation {
       }
     }
     finish(code, result);
+  }
+
+  private void stage(String message) {
+    Bundle status = new Bundle();
+    status.putString("stage", message);
+    sendStatus(1, status);
   }
 
   private void assertVisible(Activity app, String text) throws Exception {
