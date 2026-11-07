@@ -1,0 +1,73 @@
+name: Minified Release Xray smoke
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'app/**'
+      - 'gradle/**'
+      - '*.gradle'
+      - 'gradle.properties'
+      - 'version.properties'
+      - 'tools/apk-size-report.py'
+      - 'tools/verify-xray-payload.py'
+      - 'tools/export-native-symbols.py'
+      - '.github/workflows/r8.yml'
+permissions:
+  contents: read
+concurrency:
+  group: r8-smoke-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  release-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'ndk;28.2.13676358'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.1'
+      - name: Build actual minified Release and isolated smoke runner
+        run: ./gradlew --no-daemon --max-workers=2 -PGITHUBBLE_CI_EMULATOR_ABI=x86_64 -PGITHUBBLE_R8_SMOKE=true assembleRelease assembleReleaseAndroidTest
+      - name: Verify stripped emulator library preserves the Xray loaded image
+        run: python3 tools/verify-xray-payload.py app/build/outputs/apk/release/app-release.apk --require-stripped
+      - name: Free unused runner disk for emulator userdata
+        run: sudo rm -rf /usr/share/dotnet
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-r8-kvm.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Exercise minified UI and real Xray VLESS loopback
+        uses: ReactiveCircus/android-emulator-runner@v2
+        with:
+          api-level: 33
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -feature -Vulkan
+          emulator-boot-timeout: 180
+          disk-size: 2048M
+          script: |
+            adb install -r app/build/outputs/apk/release/app-release.apk
+            adb install -r app/build/outputs/apk/androidTest/release/app-release-androidTest.apk
+            timeout -k 10s 180s adb shell am instrument -w app.githubble.mobile.test/app.githubble.mobile.R8SmokeInstrumentation > r8-smoke-result.txt || true
+            cat r8-smoke-result.txt
+            if ! grep -q 'PASS: minified Release UI + JNI + SOCKS' r8-smoke-result.txt; then sed 's/^/::error title=Minified Release smoke::/' r8-smoke-result.txt; adb logcat -d -s AndroidRuntime:E; exit 1; fi
+      - name: Save smoke result and R8 mapping (no emulator APK distribution)
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: r8-smoke-${{ github.sha }}
+          path: |
+            r8-smoke-result.txt
+            app/build/outputs/mapping/release/
+          retention-days: 7
