@@ -12,6 +12,7 @@
 - Полный reset делегирован ActivityManager.clearApplicationUserData: Android удаляет все preferences/БД/секреты/файлы приложения и останавливает процессы/jobs. Общие Downloads и серверные данные сохраняются.
 - Private Release assets загружаются по API ID с OAuth только на api.github.com; последующие HTTPS CDN requests не содержат OAuth. Запись потоковая, неполные файлы удаляются, размер проверяется. Android 9 требует storage permission.
 - Удалён недоступный из UI и некорректный non-force reset HEAD, который оставлял recovery tag перед ошибкой. История не переписывается; для отмены изменений используется revert/PR.
+- EntityCache schema 3 удаляет старые API-ответы, которые могли получить неверного владельца в прежнем клиенте. Очередь, ключи, Workspace и другие пользовательские данные сохраняются. Первый офлайн-просмотр после обновления потребует свежей загрузки. Android-миграционный тест проверяет очистку подозрительного ответа и сохранение посторонней таблицы.
 - Cache ограничен числом/размером ответов; transport ограничивает размер body, отключает неявные authenticated redirects.
 - Wrapper 9.5.1 с distribution checksum; переносимые scripts, версия из version.properties, mapping сохраняется при наличии. Manifest проверяет только опубликованные файлы с basename-путями.
 
