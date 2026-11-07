@@ -126,7 +126,9 @@ public final class AccountAccessUiInstrumentation extends Instrumentation {
   }
 
   private static View find(View v, String text) {
-    if (v instanceof TextView && text.contentEquals(((TextView) v).getText())) return v;
+    // SettingsScreen intentionally renders section headings in uppercase.
+    if (v instanceof TextView && text.equalsIgnoreCase(((TextView) v).getText().toString()))
+      return v;
     if (v instanceof ViewGroup) {
       ViewGroup g = (ViewGroup) v;
       for (int i = 0; i < g.getChildCount(); i++) {
