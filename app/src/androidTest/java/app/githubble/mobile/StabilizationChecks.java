@@ -1,7 +1,5 @@
 package app.githubble.mobile;
 
-import org.json.JSONObject;
-
 import android.content.Context;
 import app.githubble.mobile.network.GitHubApiClient;
 import app.githubble.mobile.network.GitHubSession;
@@ -11,6 +9,7 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.*;
+import org.json.JSONObject;
 
 /**
  * Real SQLite + HTTP integration: replay cancellation, lock responsiveness and unknown outcomes.
@@ -35,12 +34,73 @@ final class StabilizationChecks {
   }
 
   static void run(Context context) throws Exception {
+    migrationDiscardsUntrustedApiCacheOnly(context);
     migrationPreservesPendingActions(context);
     queueDoesNotBlockReadersOrReplayWithAnotherAccount(context);
     uncertainMutationRemainsForReview(context);
     cancelledAuthenticationCannotReplaceSession(context);
     refreshedAuthenticationCannotReplaceAnotherAccount(context);
     allSecretDomainsCanBeCleared(context);
+  }
+
+  private static void migrationDiscardsUntrustedApiCacheOnly(Context context) throws Exception {
+    final String name = "rc427-migration-githubble_entities.db";
+    context.deleteDatabase(name);
+    Context isolated =
+        new android.content.ContextWrapper(context) {
+          @Override
+          public Context getApplicationContext() {
+            return this;
+          }
+
+          @Override
+          public java.io.File getDatabasePath(String ignored) {
+            return context.getDatabasePath(name);
+          }
+
+          @Override
+          public android.database.sqlite.SQLiteDatabase openOrCreateDatabase(
+              String ignored,
+              int mode,
+              android.database.sqlite.SQLiteDatabase.CursorFactory factory) {
+            return context.openOrCreateDatabase(name, mode, factory);
+          }
+
+          @Override
+          public android.database.sqlite.SQLiteDatabase openOrCreateDatabase(
+              String ignored,
+              int mode,
+              android.database.sqlite.SQLiteDatabase.CursorFactory factory,
+              android.database.DatabaseErrorHandler handler) {
+            return context.openOrCreateDatabase(name, mode, factory, handler);
+          }
+        };
+    try {
+      android.database.sqlite.SQLiteDatabase old = context.openOrCreateDatabase(name, 0, null);
+      old.execSQL(
+          "CREATE TABLE entities(cache_key TEXT PRIMARY KEY, entity_type TEXT NOT NULL,payload TEXT"
+              + " NOT NULL,etag TEXT,fetched_at INTEGER NOT NULL,expires_at INTEGER NOT NULL"
+              + " DEFAULT 0,last_access INTEGER NOT NULL)");
+      old.execSQL(
+          "INSERT INTO entities"
+              + " VALUES('acct:bob|fixture','profile','private-alice-response','old-etag',1,0,1)");
+      old.execSQL("CREATE TABLE durable_marker(value TEXT NOT NULL)");
+      old.execSQL("INSERT INTO durable_marker VALUES('keep-user-data')");
+      old.setVersion(2);
+      old.close();
+      try (app.githubble.mobile.cache.EntityCache migrated =
+          new app.githubble.mobile.cache.EntityCache(isolated)) {
+        if (migrated.get("acct:bob|fixture", true) != null || migrated.count() != 0)
+          throw new AssertionError("pre-fix cache survived upgrade");
+        try (android.database.Cursor c =
+            migrated.getReadableDatabase().rawQuery("SELECT value FROM durable_marker", null)) {
+          if (!c.moveToFirst() || !"keep-user-data".equals(c.getString(0)))
+            throw new AssertionError("cache migration erased unrelated data");
+        }
+      }
+    } finally {
+      context.deleteDatabase(name);
+    }
   }
 
   private static void migrationPreservesPendingActions(Context context) throws Exception {

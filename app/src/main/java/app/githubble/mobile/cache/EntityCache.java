@@ -10,7 +10,7 @@ import org.json.JSONObject;
 /** Persistent unified cache for GitHub REST/GraphQL entities and raw documents. */
 public final class EntityCache extends SQLiteOpenHelper {
     private static final String DB_NAME = "githubble_entities.db";
-    private static final int DB_VERSION = 2;
+    private static final int DB_VERSION = 3;
     private static final int MAX_ENTRIES = 1200;
 
     public static final class Entry {
@@ -35,9 +35,12 @@ public final class EntityCache extends SQLiteOpenHelper {
     }
 
     @Override public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
-        // v2 changes cache keys to include account identity. Legacy rows are harmless and
-        // age out through LRU; never destroy unrelated durable user data during upgrades.
+        // v2 scopes keys by account; v3 invalidates responses from the old racy client.
+        // Never destroy unrelated durable user data during cache upgrades.
         if (oldVersion < 2) db.execSQL("UPDATE entities SET expires_at=1 WHERE cache_key NOT LIKE 'acct:%'");
+        // Old clients could assign an in-flight response to a newly selected account.
+        // No row from that cache has a trustworthy owner. Only regenerable API data is removed.
+        if (oldVersion < 3) db.delete("entities", null, null);
     }
 
     public synchronized void put(String key, String type, String payload, String etag, long ttlMillis) {
