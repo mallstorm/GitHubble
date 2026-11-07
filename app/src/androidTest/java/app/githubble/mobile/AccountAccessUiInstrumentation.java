@@ -62,6 +62,15 @@ public final class AccountAccessUiInstrumentation extends Instrumentation {
               () -> {
                 if (find(current.getWindow().getDecorView(), "Подключение GitHub") == null)
                   throw new AssertionError("Unified settings groups missing");
+                TextView title =
+                    (TextView) find(current.getWindow().getDecorView(), "Управление аккаунтом");
+                if (title == null
+                    || title.getLayout() == null
+                    || title.getLayout().getHeight()
+                        > title.getHeight()
+                            - title.getCompoundPaddingTop()
+                            - title.getCompoundPaddingBottom())
+                  throw new AssertionError("Toolbar subtitle clipped at current font scale");
                 assertNoJson(current.getWindow().getDecorView());
               });
           capture(new File(dir, theme + "-" + scale + "-overview.png"));
@@ -69,6 +78,8 @@ public final class AccountAccessUiInstrumentation extends Instrumentation {
               () -> {
                 View row = find(current.getWindow().getDecorView(), "@example-maintainer");
                 if (row == null) throw new AssertionError("Installation missing");
+                while (row.getParent() instanceof View && !row.isClickable())
+                  row = (View) row.getParent();
                 row.requestRectangleOnScreen(
                     new android.graphics.Rect(0, 0, row.getWidth(), row.getHeight()), true);
               });

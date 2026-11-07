@@ -75,6 +75,10 @@ public final class BottomNavigationBar {
             label.setTypeface(null,selected?Typeface.BOLD:Typeface.NORMAL);
             label.setGravity(Gravity.CENTER);
             label.setSingleLine(true);
+            label.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            label.setAutoSizeTextTypeUniformWithConfiguration(8,
+                    activity.getResources().getConfiguration().fontScale>=1.25f?11:12,
+                    1,android.util.TypedValue.COMPLEX_UNIT_SP);
             cell.addView(label,new LinearLayout.LayoutParams(-1,dp(activity,24)));
             cell.setOnClickListener(v->{
                 switch(destination) {

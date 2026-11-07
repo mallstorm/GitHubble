@@ -467,12 +467,14 @@ public class MainActivity extends Activity {
         titles.setGravity(Gravity.CENTER_VERTICAL);
         TextView logo = text("GitHubble", 20, true);
         logo.setPadding(0, 0, 0, 0);
+        logo.setSingleLine(true);logo.setEllipsize(android.text.TextUtils.TruncateAt.END);
         TextView page = text(("Главная".equals(title) || "Репозитории".equals(title) || "Активность".equals(title)) ? "Ваш GitHub всегда рядом" : title, 13, false);
         page.setTextColor(MUTED);
         page.setPadding(0, 0, 0, 0);
+        page.setMaxLines(2);page.setEllipsize(android.text.TextUtils.TruncateAt.END);
         titles.addView(logo);
         titles.addView(page);
-        top.addView(titles, new LinearLayout.LayoutParams(0, dp(52), 1));
+        top.addView(titles, new LinearLayout.LayoutParams(0, -2, 1));
 
         // AI Workspace occupies the third root tab; keep GitHub search available globally.
         ImageView globalSearch = iconButton(R.drawable.ic_search, "Поиск GitHub");
@@ -490,7 +492,8 @@ public class MainActivity extends Activity {
             ap.setMargins(dp(4),0,0,0);
             top.addView(account, ap);
         }
-        root.addView(top, new LinearLayout.LayoutParams(-1, dp(isLargeText()?76:64)));
+        top.setMinimumHeight(dp(isLargeText()?76:64));
+        root.addView(top, new LinearLayout.LayoutParams(-1, -2));
         }
 
         content = new LinearLayout(this);
@@ -9479,7 +9482,18 @@ public class MainActivity extends Activity {
             tileColors=new int[]{Color.rgb(76,170,83),Color.rgb(49,132,220),Color.rgb(126,76,196),Color.rgb(242,139,45),Color.rgb(226,83,94),Color.rgb(232,183,29),Color.rgb(46,158,164),Color.rgb(94,108,104)};
         }
         getWindow().setStatusBarColor(SURFACE); getWindow().setNavigationBarColor(SURFACE);
-        if(Build.VERSION.SDK_INT>=23){ int flags=getWindow().getDecorView().getSystemUiVisibility(); if(!"dark".equals(activeTheme)) flags|=View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR; else flags&=~View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR; getWindow().getDecorView().setSystemUiVisibility(flags);}
+        applySystemBarAppearance();
+    }
+
+    private void applySystemBarAppearance(){
+        boolean light=!"dark".equals(activeTheme);
+        if(Build.VERSION.SDK_INT>=30){
+            android.view.WindowInsetsController controller=getWindow().getInsetsController();
+            if(controller!=null){int mask=android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS|android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;controller.setSystemBarsAppearance(light?mask:0,mask);}
+        }else{
+            int flags=getWindow().getDecorView().getSystemUiVisibility();int mask=View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR|View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+            getWindow().getDecorView().setSystemUiVisibility(light?flags|mask:flags&~mask);
+        }
     }
 
     private String themeDisplayName(){ return "beige".equals(activeTheme)?"Бежевая":"dark".equals(activeTheme)?"Тёмная":"Светлая"; }
