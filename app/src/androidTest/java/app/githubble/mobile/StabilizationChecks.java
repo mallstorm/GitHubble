@@ -1,5 +1,7 @@
 package app.githubble.mobile;
 
+import org.json.JSONObject;
+
 import android.content.Context;
 import app.githubble.mobile.network.GitHubApiClient;
 import app.githubble.mobile.network.GitHubSession;
