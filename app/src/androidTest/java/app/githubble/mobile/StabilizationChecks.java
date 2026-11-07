@@ -36,6 +36,8 @@ final class StabilizationChecks {
     migrationPreservesPendingActions(context);
     queueDoesNotBlockReadersOrReplayWithAnotherAccount(context);
     uncertainMutationRemainsForReview(context);
+    cancelledAuthenticationCannotReplaceSession(context);
+    refreshedAuthenticationCannotReplaceAnotherAccount(context);
     allSecretDomainsCanBeCleared(context);
   }
 
@@ -213,6 +215,58 @@ final class StabilizationChecks {
       queue.clearAll();
       queue.close();
     }
+  }
+
+  private static void cancelledAuthenticationCannotReplaceSession(Context context)
+      throws Exception {
+    SecureStore vault = new SecureStore(context);
+    vault.put("github_token", "fixture-before-login");
+    vault.put("github_login", "alice");
+    java.util.concurrent.atomic.AtomicReference<
+            app.githubble.mobile.auth.OAuthManager.DeviceSession>
+        pending = new java.util.concurrent.atomic.AtomicReference<>();
+    app.githubble.mobile.auth.OAuthManager auth =
+        new app.githubble.mobile.auth.OAuthManager(
+            context,
+            vault,
+            (url, body) -> {
+              if (url.endsWith("/device/code"))
+                return new JSONObject()
+                    .put("device_code", "fixture-device")
+                    .put("user_code", "AB12-CD34");
+              pending.get().cancel();
+              return new JSONObject().put("access_token", "must-not-replace-session");
+            });
+    app.githubble.mobile.auth.OAuthManager.DeviceSession session =
+        auth.beginDeviceFlow("fixture-client", "");
+    pending.set(session);
+    if (auth.pollDeviceFlow("fixture-client", session, 5).state
+            != app.githubble.mobile.auth.OAuthManager.PollState.DENIED
+        || !"fixture-before-login".equals(vault.get("github_token")))
+      throw new AssertionError("cancelled login overwrote session");
+    new app.githubble.mobile.auth.GitHubAccountStore(context, vault).clearAll();
+  }
+
+  private static void refreshedAuthenticationCannotReplaceAnotherAccount(Context context)
+      throws Exception {
+    SecureStore vault = new SecureStore(context);
+    vault.put("github_token", "fixture-expired-A");
+    vault.put("github_login", "alice");
+    vault.put("github_token_expires_at", "1");
+    vault.put("github_refresh_token", "fixture-refresh-A");
+    app.githubble.mobile.auth.OAuthManager auth =
+        new app.githubble.mobile.auth.OAuthManager(
+            context,
+            vault,
+            (url, body) -> {
+              vault.put("github_token", "fixture-active-B");
+              vault.put("github_login", "bob");
+              return new JSONObject().put("access_token", "refreshed-A").put("expires_in", 3600);
+            });
+    if (auth.refreshIfNeeded("fixture-client")
+        || !"fixture-active-B".equals(vault.get("github_token")))
+      throw new AssertionError("refresh from A overwrote B");
+    new app.githubble.mobile.auth.GitHubAccountStore(context, vault).clearAll();
   }
 
   private static void allSecretDomainsCanBeCleared(Context context) {

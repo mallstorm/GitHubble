@@ -51,9 +51,21 @@ public final class GitHubReleaseDownloads {
   public static Uri download(
       Context context, String name, String apiUrl, long expected, GitHubSession.Source source)
       throws Exception {
+    return download(context, name, apiUrl, expected, source, source.capture().scope);
+  }
+
+  public static Uri download(
+      Context context,
+      String name,
+      String apiUrl,
+      long expected,
+      GitHubSession.Source source,
+      String expectedScope)
+      throws Exception {
     if (!validAssetApi(apiUrl))
       throw new IllegalArgumentException("Некорректный GitHub Release asset API URL");
     GitHubSession session = source.capture();
+    if (!session.scope.equals(expectedScope)) throw new GitHubApiClient.SessionChangedException();
     requireCurrent(source, session);
     HttpURLConnection connection = null;
     Uri output = null;

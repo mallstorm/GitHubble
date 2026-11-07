@@ -5680,7 +5680,7 @@ public class MainActivity extends Activity {
         final String account=currentAccountId();
         io.execute(()->{try{
             app.githubble.mobile.network.GitHubReleaseDownloads.download(this,asset.optString("name","release.bin"),
-                asset.optString("url",""),asset.optLong("size",-1),secureStore);
+                asset.optString("url",""),asset.optLong("size",-1),secureStore,account);
             runOnUiThread(()->{progress.dismiss();if(account.equals(currentAccountId()))toast("Файл сохранён в Downloads/GitHubble");});
         }catch(Exception error){runOnUiThread(()->{progress.dismiss();if(account.equals(currentAccountId()))errorDialog("Загрузка не завершена",error.getMessage());});}});
     }
@@ -9046,8 +9046,8 @@ public class MainActivity extends Activity {
 
     private void removeGitHubAccount(GitHubAccountStore.Account account){
         String scope=account.active?currentAccountId():accountScopeForLogin(account.login);
-        clearLocalDataForGitHubAccount(account,scope);
         accountStore.remove(account.id);
+        clearLocalDataForGitHubAccount(account,scope);
         onActiveGitHubAccountChanged();
         if("Аккаунт и GitHub".equals(currentTitle))showSettingsAccount();else showAccountSwitcher();
         if(isSignedIn()||oauth.canRefresh())refreshActiveAccountAfterSwitch();
@@ -9633,12 +9633,12 @@ public class MainActivity extends Activity {
         });
         copy.setOnClickListener(v -> copyGitHubDeviceCode(session,true));
         cancel.setOnClickListener(v -> {
-            cancelled.set(true);
+            cancelled.set(true);session.cancel();
             DeviceCodeAssist.clear(this);
             dialog.dismiss();
         });
         dialog.setOnCancelListener(x -> {
-            cancelled.set(true);
+            cancelled.set(true);session.cancel();
             DeviceCodeAssist.clear(this);
         });
         dialog.show();
@@ -9709,6 +9709,7 @@ public class MainActivity extends Activity {
                 if(cancelled.get())return;
                 try{
                     OAuthManager.PollResult result=oauth.pollDeviceFlow(clientId,session,interval);
+                    if(cancelled.get())return;
                     interval=result.nextIntervalSeconds;
                     OAuthManager.PollState state=result.state;
                     runOnUiThread(() -> {if(dialog.isShowing())status.setText(result.message);});
