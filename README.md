@@ -4,9 +4,9 @@
 
 ## Текущая версия
 
-- Version: `1.0.0-rc4.2.27`
-- versionCode: `74`
-- release channel: `rc4.2.27`
+- Version: `1.0.0-rc4.2.29`
+- versionCode: `76`
+- release channel: `rc4.2.29`
 - applicationId: `app.githubble.mobile`
 - minSdk: `28`
 - targetSdk / compileSdk: `36`
@@ -204,9 +204,14 @@ GitHub REST API не предоставляет загрузку аватара 
 - Repository Administration: **Read and write**;
 - Actions: **Read** или **Read and write** для операций Actions;
 - Workflows: **Read and write**, если приложение меняет `.github/workflows/*`;
-- Notifications: **Read** для GitHub Inbox;
+- Blocking users / Interaction limits: **Read and write** для управления блокировками и ограничениями аккаунта;
+- Followers: **Read and write** для изменения подписки на пользователя;
 - Profile: **Write** для редактирования профиля;
 - Issues / Pull Requests / Discussions — для соответствующих разделов.
+
+Управление блокировками, ограничениями и сведениями об установках: **Настройки → Аккаунт и GitHub → Управление аккаунтом и доступом**. Новые права необходимо подтвердить на GitHub; пользовательская авторизация и права установки согласовываются отдельно.
+
+Notifications API не поддерживает GitHub App user tokens. Экран Inbox предлагает официальный сайт GitHub.
 
 Если permission отсутствует, приложение должно показывать реальную ошибку GitHub API или read-only режим, а не имитировать успешную операцию.
 
