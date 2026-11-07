@@ -8342,6 +8342,19 @@ public class MainActivity extends Activity {
         }).setNegativeButton("Отмена",null).show();
     }
 
+    private Spinner accountChoice(String[] values){
+        Spinner choice=new Spinner(this);
+        choice.setAdapter(new ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,values){
+            @Override public View getView(int position,View recycled,android.view.ViewGroup parent){
+                TextView row=(TextView)super.getView(position,recycled,parent);row.setTextColor(TEXT);return row;
+            }
+            @Override public View getDropDownView(int position,View recycled,android.view.ViewGroup parent){
+                TextView row=(TextView)super.getDropDownView(position,recycled,parent);row.setTextColor(TEXT);row.setBackgroundColor(CARD);return row;
+            }
+        });
+        return choice;
+    }
+
     private void showAccountInteractionLimits(){
         rememberScreen("account_limits",null);
         setCurrentScreen(this::showAccountInteractionLimits);shell("Ограничения взаимодействия",false);
@@ -8356,8 +8369,8 @@ public class MainActivity extends Activity {
             String[] ids={"existing_users","contributors_only","collaborators_only"};String[] labels={"Существующие пользователи","Участники проектов","Соавторы репозиториев"};
             String active=state.optString("limit","");String activeLabel=active;for(int i=0;i<ids.length;i++)if(ids[i].equals(active))activeLabel=labels[i];
             card(text(active.isEmpty()?"Ограничения не установлены":"Сейчас: "+activeLabel+"\nДо: "+state.optString("expires_at",""),14,true));
-            Spinner type=new Spinner(this);type.setAdapter(new ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,labels));content.addView(type);
-            String[] expiry={"one_day","three_days","one_week","one_month","six_months"};Spinner duration=new Spinner(this);duration.setAdapter(new ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,new String[]{"1 день","3 дня","1 неделя","1 месяц","6 месяцев"}));content.addView(duration);
+            content.addView(text("Кто может взаимодействовать",13,true));Spinner type=accountChoice(labels);content.addView(type);
+            String[] expiry={"one_day","three_days","one_week","one_month","six_months"};content.addView(text("Срок ограничения",13,true));Spinner duration=accountChoice(new String[]{"1 день","3 дня","1 неделя","1 месяц","6 месяцев"});content.addView(duration);
             card(text("GitHub ограничит создание Issues, PR и комментариев в ваших репозиториях согласно выбранному режиму.",13,false));
             Button save=button("Установить ограничение");save.setOnClickListener(v->{final String chosen=ids[type.getSelectedItemPosition()],period=expiry[duration.getSelectedItemPosition()];confirmAccountChange(controller,generation,account,destination,"Установить ограничения: "+labels[type.getSelectedItemPosition()]+"?",()->controller.setLimits(chosen,period),this::showAccountInteractionLimits);});content.addView(save);
             if(!active.isEmpty()){Button clear=button("Снять ограничение");clear.setOnClickListener(v->confirmAccountChange(controller,generation,account,destination,"Снять ограничения взаимодействия?",controller::clearLimits,this::showAccountInteractionLimits));content.addView(clear);}
