@@ -4,9 +4,9 @@
 
 ## Текущая версия
 
-- Version: `1.0.0-rc4.2.28`
-- versionCode: `75`
-- release channel: `rc4.2.28`
+- Version: `1.0.0-rc4.2.29`
+- versionCode: `76`
+- release channel: `rc4.2.29`
 - applicationId: `app.githubble.mobile`
 - minSdk: `28`
 - targetSdk / compileSdk: `36`
