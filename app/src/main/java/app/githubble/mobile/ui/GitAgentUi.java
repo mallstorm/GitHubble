@@ -35,7 +35,7 @@ public final class GitAgentUi {
         TextView t=new TextView(activity);t.setText(value);t.setTextSize(size);t.setTextColor(text);
         if(bold)t.setTypeface(null,Typeface.BOLD);return t;
     }
-    public LinearLayout column(){LinearLayout v=new LinearLayout(activity);v.setOrientation(1);return v;}
+    public LinearLayout column(){LinearLayout v=new LinearLayout(activity);v.setOrientation(LinearLayout.VERTICAL);return v;}
     public LinearLayout row(){LinearLayout v=new LinearLayout(activity);v.setGravity(Gravity.CENTER_VERTICAL);return v;}
     public LinearLayout body(String title,boolean handle){
         LinearLayout body=column();body.setPadding(dp(18),dp(16),dp(18),dp(20));

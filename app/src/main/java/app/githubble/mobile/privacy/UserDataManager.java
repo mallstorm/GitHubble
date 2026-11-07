@@ -72,30 +72,10 @@ public final class UserDataManager {
         return array;
     }
 
+    /** Android clears the entire sandbox and stops this process and its jobs atomically. */
     public void deleteAllLocalData() {
-        new GitHubAccountStore(context, secureStore).clearAll();
-        secureStore.remove("translator_provider");
-        secureStore.remove("translator_endpoint");
-        secureStore.remove("translator_api_key");
-        secureStore.remove("translator_model");
-        entityCache.clear();
-        translationCache.clear();
-        trackingDatabase.clearAll();
-        offlineQueue.clearAll();
-        prefs.edit().clear().commit();
-        deleteRecursively(context.getFilesDir());
-        deleteRecursively(context.getCacheDir());
-    }
-
-    private static void deleteRecursively(File file) {
-        if (file == null || !file.exists()) return;
-        if (file.isDirectory()) {
-            File[] children = file.listFiles();
-            if (children != null) for (File child : children) deleteRecursively(child);
-        }
-        if (!file.delete() && file.isDirectory()) {
-            File[] children = file.listFiles();
-            if (children != null) for (File child : children) child.delete();
-        }
+        android.app.ActivityManager manager=context.getSystemService(android.app.ActivityManager.class);
+        if(manager==null || !manager.clearApplicationUserData())
+            throw new IllegalStateException("Android не разрешил очистку данных. Используйте настройки приложения → Хранилище → Очистить данные.");
     }
 }

@@ -12,7 +12,7 @@ files=[]
 for base in [root/'app'/'src', root/'app'/'build.gradle', root/'build.gradle', root/'settings.gradle']:
     paths=[base] if base.is_file() else sorted(p for p in base.rglob('*') if p.is_file())
     for p in paths:
-        if any(part in {'.gradle','build'} for part in p.parts): continue
+        if '.gradle' in p.relative_to(root).parts: continue
         data=p.read_bytes(); files.append({
             'SPDXID':'SPDXRef-File-'+hashlib.sha1(str(p.relative_to(root)).encode()).hexdigest()[:12],
             'fileName':'./'+str(p.relative_to(root)),

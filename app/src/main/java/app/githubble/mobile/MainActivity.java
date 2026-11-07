@@ -5376,13 +5376,14 @@ public class MainActivity extends Activity {
     }
 
     private void showIssueEditor(String full,int number,String oldTitle,String oldBody,String baseUpdatedAt){
+        final String mutationOwner=currentAccountId();
         LinearLayout form=new LinearLayout(this);form.setOrientation(LinearLayout.VERTICAL);form.setPadding(dp(18),0,dp(18),0);
         EditText title=new EditText(this);title.setHint("Заголовок");title.setSingleLine(true);title.setText(oldTitle);title.setTextColor(TEXT);title.setHintTextColor(MUTED);form.addView(title);
         EditText body=new EditText(this);body.setHint("Описание в Markdown");body.setMinLines(6);body.setGravity(Gravity.TOP);body.setText(oldBody);body.setTextColor(TEXT);body.setHintTextColor(MUTED);form.addView(body);
         new AlertDialog.Builder(this).setTitle(number>0?"Редактировать Issue":"Создать Issue").setView(form).setPositiveButton(number>0?"Сохранить":"Создать",(d,w)->{
             String titleValue=title.getText().toString().trim();String bodyValue=body.getText().toString();if(titleValue.isEmpty()){toast("Нужен заголовок");return;}
             ProgressDialog progress=ProgressDialog.show(this,"Issue",number>0?"Сохраняем…":"Создаём…",true,false);
-            io.execute(() -> {try{JSONObject payload=new JSONObject();payload.put("title",titleValue);payload.put("body",bodyValue);JSONObject result;if(number>0){String url="https://api.github.com/repos/"+full+"/issues/"+number;result=features.offlineDispatcher.executeOrQueue("PATCH",url,payload,"issue:"+full+"#"+number,"Редактирование Issue #"+number,url,"updated_at",baseUpdatedAt).response;}else result=api.postJson("https://api.github.com/repos/"+full+"/issues",payload,true);int created=result.optInt("number",number);boolean queued=result.optBoolean("queued",false);runOnUiThread(() -> {progress.dismiss();if(queued){toast("Изменение сохранено в офлайн-очереди");navigate(this::showOfflineQueue);}else{toast(number>0?"Issue обновлена":"Issue создана");navigate(() -> showIssueDetail(full,created));}});}catch(Exception e){runOnUiThread(() -> {progress.dismiss();toast("GitHub не принял изменение: "+e.getMessage());});}});
+            io.execute(() -> {try{JSONObject payload=new JSONObject();payload.put("title",titleValue);payload.put("body",bodyValue);JSONObject result;if(number>0){String url="https://api.github.com/repos/"+full+"/issues/"+number;result=features.offlineDispatcher.executeOrQueue("PATCH",url,payload,"issue:"+full+"#"+number,"Редактирование Issue #"+number,url,"updated_at",baseUpdatedAt,mutationOwner).response;}else result=api.postJson("https://api.github.com/repos/"+full+"/issues",payload,true);int created=result.optInt("number",number);boolean queued=result.optBoolean("queued",false);runOnUiThread(() -> {progress.dismiss();if(queued){toast("Изменение сохранено в офлайн-очереди");navigate(this::showOfflineQueue);}else{toast(number>0?"Issue обновлена":"Issue создана");navigate(() -> showIssueDetail(full,created));}});}catch(Exception e){runOnUiThread(() -> {progress.dismiss();toast("GitHub не принял изменение: "+e.getMessage());});}});
         }).setNegativeButton("Отмена",null).show();
     }
 
@@ -5447,6 +5448,7 @@ public class MainActivity extends Activity {
     }
 
     private void showIssueMetadataDialog(String full,int number,JSONObject issue){
+        final String mutationOwner=currentAccountId();
         ProgressDialog progress=ProgressDialog.show(this,"Метки и участники","Загрузка…",true,false);
         io.execute(()->{try{JSONArray labels=repositoryController.labels(full);JSONArray assignees=repositoryController.assignees(full);JSONArray milestones=repositoryController.milestones(full);runOnUiThread(()->{progress.dismiss();
             LinkedHashSet<String> selectedLabels=new LinkedHashSet<>();JSONArray currentLabels=issue.optJSONArray("labels");if(currentLabels!=null)for(int i=0;i<currentLabels.length();i++){JSONObject v=currentLabels.optJSONObject(i);if(v!=null)selectedLabels.add(v.optString("name"));}
@@ -5456,7 +5458,7 @@ public class MainActivity extends Activity {
             Button labelsButton=compactButton("Выбрать метки");labelsButton.setOnClickListener(v->showMultiSelect("Метки",labels,"name",selectedLabels,()->labelsState.setText(metadataSummary("Метки",selectedLabels))));box.addView(labelsButton,new LinearLayout.LayoutParams(-1,dp(48)));box.addView(labelsState);
             Button assigneesButton=compactButton("Выбрать исполнителей");assigneesButton.setOnClickListener(v->showMultiSelect("Исполнители",assignees,"login",selectedAssignees,()->assigneesState.setText(metadataSummary("Исполнители",selectedAssignees))));box.addView(assigneesButton,new LinearLayout.LayoutParams(-1,dp(48)));box.addView(assigneesState);
             Button milestoneButton=compactButton("Выбрать этап");milestoneButton.setOnClickListener(v->showMilestoneSelect(milestones,selectedMilestone,()->milestoneState.setText("Этап: "+milestoneTitle(milestones,selectedMilestone[0]))));box.addView(milestoneButton,new LinearLayout.LayoutParams(-1,dp(48)));box.addView(milestoneState);
-            AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Управление Issue #"+number).setView(box).setPositiveButton("Сохранить",null).setNegativeButton("Отмена",null).create();dialog.setOnShowListener(x->dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(false);io.execute(()->{try{JSONObject payload=new JSONObject();payload.put("labels",new JSONArray(selectedLabels));payload.put("assignees",new JSONArray(selectedAssignees));payload.put("milestone",selectedMilestone[0]==null?JSONObject.NULL:selectedMilestone[0]);String url="https://api.github.com/repos/"+full+"/issues/"+number;OfflineMutationDispatcher.Result result=features.offlineDispatcher.executeOrQueue("PATCH",url,payload,"issue-meta:"+full+"#"+number,"Метки и участники Issue #"+number,url,"updated_at",issue.optString("updated_at",""));runOnUiThread(()->{dialog.dismiss();if(result.queued){toast("Изменение сохранено в офлайн-очереди");navigate(this::showOfflineQueue);}else{toast("Метки и участники обновлены");if(issue.has("pull_request")||currentTitle.startsWith("PR #"))showPullDetail(full,number);else showIssueDetail(full,number);}});}catch(Exception e){runOnUiThread(()->{dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(true);errorDialog("Не удалось обновить Issue",e.getMessage());});}});}));dialog.show();
+            AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Управление Issue #"+number).setView(box).setPositiveButton("Сохранить",null).setNegativeButton("Отмена",null).create();dialog.setOnShowListener(x->dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(false);io.execute(()->{try{JSONObject payload=new JSONObject();payload.put("labels",new JSONArray(selectedLabels));payload.put("assignees",new JSONArray(selectedAssignees));payload.put("milestone",selectedMilestone[0]==null?JSONObject.NULL:selectedMilestone[0]);String url="https://api.github.com/repos/"+full+"/issues/"+number;OfflineMutationDispatcher.Result result=features.offlineDispatcher.executeOrQueue("PATCH",url,payload,"issue-meta:"+full+"#"+number,"Метки и участники Issue #"+number,url,"updated_at",issue.optString("updated_at",""),mutationOwner);runOnUiThread(()->{dialog.dismiss();if(result.queued){toast("Изменение сохранено в офлайн-очереди");navigate(this::showOfflineQueue);}else{toast("Метки и участники обновлены");if(issue.has("pull_request")||currentTitle.startsWith("PR #"))showPullDetail(full,number);else showIssueDetail(full,number);}});}catch(Exception e){runOnUiThread(()->{dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(true);errorDialog("Не удалось обновить Issue",e.getMessage());});}});}));dialog.show();
         });}catch(Exception e){runOnUiThread(()->{progress.dismiss();errorDialog("Не удалось загрузить данные репозитория",e.getMessage());});}});
     }
 
@@ -5644,7 +5646,7 @@ public class MainActivity extends Activity {
         download.setMinWidth(0);
         download.setMinimumWidth(0);
         download.setBackground(round(blend(CARD,GREEN,0.08f),12,GREEN,1));
-        download.setOnClickListener(v->enqueueReleaseDownload(assetName,url));
+        download.setOnClickListener(v->downloadReleaseAsset(asset));
         row.addView(download,new LinearLayout.LayoutParams(dp(102),dp(42)));
 
         LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,-2);
@@ -5667,6 +5669,20 @@ public class MainActivity extends Activity {
         int slash=value.indexOf('/');
         String type=slash>=0&&slash<value.length()-1?value.substring(slash+1):value;
         return type.replace("application/","").replace("x-","");
+    }
+
+    private void downloadReleaseAsset(JSONObject asset){
+        if(Build.VERSION.SDK_INT<=28&&checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)!=PackageManager.PERMISSION_GRANTED){
+            requestPermissions(new String[]{android.Manifest.permission.WRITE_EXTERNAL_STORAGE},302);
+            toast("Разрешите сохранение файлов и нажмите Скачать ещё раз");return;
+        }
+        ProgressDialog progress=ProgressDialog.show(this,"Загрузка файла",asset.optString("name","Release asset"),true,false);
+        final String account=currentAccountId();
+        io.execute(()->{try{
+            app.githubble.mobile.network.GitHubReleaseDownloads.download(this,asset.optString("name","release.bin"),
+                asset.optString("url",""),asset.optLong("size",-1),secureStore);
+            runOnUiThread(()->{progress.dismiss();if(account.equals(currentAccountId()))toast("Файл сохранён в Downloads/GitHubble");});
+        }catch(Exception error){runOnUiThread(()->{progress.dismiss();if(account.equals(currentAccountId()))errorDialog("Загрузка не завершена",error.getMessage());});}});
     }
 
     private void enqueueReleaseDownload(String name,String url){
@@ -5890,6 +5906,11 @@ public class MainActivity extends Activity {
         params.setMargins(0,dp(3),0,dp(3));parent.addView(holder,params);
     }
 
+    private boolean screenRequestCurrent(long generation,String account,LinearLayout destination){
+        return !isFinishing()&&!isDestroyed()&&generation==screenGeneration.get()
+            &&account.equals(currentAccountId())&&destination==content;
+    }
+
     private void showRepositoryFiles(String full,String branch,String path){
         setCurrentScreen(() -> showRepositoryFiles(full, branch, path));
         shell("Файлы",true);repoSectionHeader(full,"Файлы",path.isEmpty()?"Корень · "+branch:path,R.drawable.ic_repository);
@@ -5897,7 +5918,8 @@ public class MainActivity extends Activity {
         findByName.setOnClickListener(v->navigate(()->showFileNameSearch(full,branch,"")));
         content.addView(findByName,new LinearLayout.LayoutParams(-1,dp(49)));
         ProgressBar pb=new ProgressBar(this);content.addView(pb);
-        io.execute(()->{try{JSONArray a=getArray("https://api.github.com/repos/"+full+"/contents/"+path+"?ref="+URLEncoder.encode(branch,"UTF-8"));runOnUiThread(()->{content.removeView(pb);if(!path.isEmpty()){Button up=button("Назад к родительской папке");String parent=path.contains("/")?path.substring(0,path.lastIndexOf('/')):"";up.setOnClickListener(v->navigate(() -> showRepositoryFiles(full,branch,parent)));content.addView(up,new LinearLayout.LayoutParams(-1,dp(48)));}for(int i=0;i<a.length();i++){JSONObject o=a.optJSONObject(i);if(o==null)continue;String name=o.optString("name"),type=o.optString("type"),p=o.optString("path"),download=o.optString("download_url"),html=o.optString("html_url");long size=o.optLong("size");LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);ImageView ic=imageIcon("dir".equals(type)?R.drawable.ic_projects:R.drawable.ic_repository,"dir".equals(type)?tileColors[3]:BLUE,14);row.addView(ic,new LinearLayout.LayoutParams(dp(46),dp(46)));LinearLayout info=new LinearLayout(this);info.setOrientation(LinearLayout.VERTICAL);info.addView(text(name,15,true));TextView meta=text("dir".equals(type)?"Папка":"Файл · "+formatAssetSize(size),11,false);meta.setTextColor(MUTED);info.addView(meta);row.addView(info,new LinearLayout.LayoutParams(0,-2,1));row.setOnClickListener(v->{if("dir".equals(type))navigate(() -> showRepositoryFiles(full,branch,p));else navigate(() -> showFilePreview(full,branch,p,name,size,download,html));});card(row);}});}catch(Exception e){runOnUiThread(()->{content.removeView(pb);errorCard("Не удалось загрузить файлы",e.getMessage());});}});
+        final LinearLayout destination=content;final long generation=screenGeneration.get();final String account=currentAccountId();
+        io.execute(()->{try{JSONArray a=getArray("https://api.github.com/repos/"+full+"/contents/"+Uri.encode(path,"/")+"?ref="+URLEncoder.encode(branch,"UTF-8"));runOnUiThread(()->{if(!screenRequestCurrent(generation,account,destination))return;content.removeView(pb);if(!path.isEmpty()){Button up=button("Назад к родительской папке");String parent=path.contains("/")?path.substring(0,path.lastIndexOf('/')):"";up.setOnClickListener(v->navigate(() -> showRepositoryFiles(full,branch,parent)));content.addView(up,new LinearLayout.LayoutParams(-1,dp(48)));}for(int i=0;i<a.length();i++){JSONObject o=a.optJSONObject(i);if(o==null)continue;String name=o.optString("name"),type=o.optString("type"),p=o.optString("path"),download=o.optString("download_url"),html=o.optString("html_url");long size=o.optLong("size");LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);ImageView ic=imageIcon("dir".equals(type)?R.drawable.ic_projects:R.drawable.ic_repository,"dir".equals(type)?tileColors[3]:BLUE,14);row.addView(ic,new LinearLayout.LayoutParams(dp(46),dp(46)));LinearLayout info=new LinearLayout(this);info.setOrientation(LinearLayout.VERTICAL);info.addView(text(name,15,true));TextView meta=text("dir".equals(type)?"Папка":"Файл · "+formatAssetSize(size),11,false);meta.setTextColor(MUTED);info.addView(meta);row.addView(info,new LinearLayout.LayoutParams(0,-2,1));row.setOnClickListener(v->{if("dir".equals(type))navigate(() -> showRepositoryFiles(full,branch,p));else navigate(() -> showFilePreview(full,branch,p,name,size,download,html));});card(row);}});}catch(Exception e){runOnUiThread(()->{if(!screenRequestCurrent(generation,account,destination))return;content.removeView(pb);errorCard("Не удалось загрузить файлы",e.getMessage());});}});
     }
 
     /** Edit text inside GitHubble using GitHub Contents API, without force overwrite. */
@@ -5981,18 +6003,20 @@ public class MainActivity extends Activity {
 
     private void showFilePreview(String full,String branch,String path,String name,long size,String download,String htmlUrl){
         setCurrentScreen(()->showFilePreview(full,branch,path,name,size,download,htmlUrl));shell(name,true);repoSectionHeader(full,"Просмотр файла",path,R.drawable.ic_repository);ProgressBar pb=new ProgressBar(this);content.addView(pb);
-        io.execute(()->{try{FilePreviewController.Preview preview=features.filePreview.load(full,branch,path,name,size,download,htmlUrl);runOnUiThread(()->{content.removeView(pb);renderFilePreview(full,preview,download);
+        final LinearLayout destination=content;final long generation=screenGeneration.get();final String account=currentAccountId();
+        io.execute(()->{try{FilePreviewController.Preview preview=features.filePreview.load(full,branch,path,name,size,download,htmlUrl);runOnUiThread(()->{if(!screenRequestCurrent(generation,account,destination))return;content.removeView(pb);renderFilePreview(full,preview,download);
             if(preview.type==FilePreviewController.Type.TEXT&&preview.declaredSize<=512*1024){
                 Button edit=compactButton("Редактировать и создать коммит");
                 edit.setOnClickListener(v->navigate(()->showFileEditor(full,branch,path)));
                 content.addView(edit,new LinearLayout.LayoutParams(-1,dp(48)));
             }
-        });}catch(Exception e){runOnUiThread(()->{content.removeView(pb);errorCard("Не удалось открыть файл",e.getMessage());if(htmlUrl!=null&&!htmlUrl.isEmpty()){Button web=button("Открыть на GitHub");web.setOnClickListener(v->openWeb(htmlUrl));content.addView(web,new LinearLayout.LayoutParams(-1,dp(48)));}});}});
+        });}catch(Exception e){runOnUiThread(()->{if(!screenRequestCurrent(generation,account,destination))return;content.removeView(pb);errorCard("Не удалось открыть файл",e.getMessage());if(htmlUrl!=null&&!htmlUrl.isEmpty()){Button web=button("Открыть на GitHub");web.setOnClickListener(v->openWeb(htmlUrl));content.addView(web,new LinearLayout.LayoutParams(-1,dp(48)));}});}});
     }
 
     private void showRemotePreview(String name,String download,String htmlUrl){
         setCurrentScreen(()->showRemotePreview(name,download,htmlUrl));shell(name,true);heroBanner(name,"Просмотр изменённого файла",R.drawable.ic_repository);ProgressBar pb=new ProgressBar(this);content.addView(pb);
-        io.execute(()->{try{FilePreviewController.Preview preview=features.filePreview.loadRemote(name,download,htmlUrl);runOnUiThread(()->{content.removeView(pb);renderFilePreview("Pull Request",preview,download);});}catch(Exception e){runOnUiThread(()->{content.removeView(pb);errorCard("Встроенный просмотр недоступен",e.getMessage());if(htmlUrl!=null&&!htmlUrl.isEmpty()){Button web=button("Открыть на GitHub");web.setOnClickListener(v->openWeb(htmlUrl));content.addView(web,new LinearLayout.LayoutParams(-1,dp(48)));}});}});
+        final LinearLayout destination=content;final long generation=screenGeneration.get();final String account=currentAccountId();
+        io.execute(()->{try{FilePreviewController.Preview preview=features.filePreview.loadRemote(name,download,htmlUrl);runOnUiThread(()->{if(!screenRequestCurrent(generation,account,destination))return;content.removeView(pb);renderFilePreview("Pull Request",preview,download);});}catch(Exception e){runOnUiThread(()->{if(!screenRequestCurrent(generation,account,destination))return;content.removeView(pb);errorCard("Встроенный просмотр недоступен",e.getMessage());if(htmlUrl!=null&&!htmlUrl.isEmpty()){Button web=button("Открыть на GitHub");web.setOnClickListener(v->openWeb(htmlUrl));content.addView(web,new LinearLayout.LayoutParams(-1,dp(48)));}});}});
     }
 
     private void renderFilePreview(String scope,FilePreviewController.Preview preview,String downloadUrl){
@@ -6734,10 +6758,11 @@ public class MainActivity extends Activity {
     private void refreshProfileData(boolean userInitiated){
         if(!isSignedIn()||!profileRefreshInFlight.compareAndSet(false,true))return;
         final String requestedAccount=currentAccountId();
+        final app.githubble.mobile.network.GitHubSession profileSession=secureStore.capture();
         io.execute(() -> {try{
             JSONObject user=profileController.current();
             if(!requestedAccount.equals(currentAccountId())){profileRefreshInFlight.set(false);return;}
-            cacheGitHubProfile(user);
+            if(!cacheGitHubProfile(user,profileSession))return;
             downloadAvatar(user.optString("avatar_url",""));
             try{
                 RepositoryAccessController.SyncResult result=repositoryAccess.sync(false);
@@ -6755,13 +6780,19 @@ public class MainActivity extends Activity {
     }
     private String profileCacheKey(){return "github_profile_json_"+currentGitHubCacheKey();}
     private String avatarUrlCacheKey(){return "github_avatar_url_"+currentGitHubCacheKey();}
-    private void cacheGitHubProfile(JSONObject user){
+    private void cacheGitHubProfile(JSONObject user){cacheGitHubProfile(user,secureStore.capture());}
+    private boolean cacheGitHubProfile(JSONObject user,app.githubble.mobile.network.GitHubSession expected){
+        synchronized(SecureStore.SESSION_LOCK){
+            if(!secureStore.isCurrent(expected))return false;
+
         String login=user.optString("login","");
         String name=cleanNullable(user.optString("name",""));
         secureStore.put("github_login",login);
         secureStore.put("github_name",name);
         accountStore.captureCurrentSession(user.optLong("id",0L),login,name);
         prefs.edit().putString(profileCacheKey(),user.toString()).putString(avatarUrlCacheKey(),user.optString("avatar_url","")).apply();
+                return true;
+        }
     }
     private JSONObject getCachedProfile(){try{return new JSONObject(prefs.getString(profileCacheKey(),"{}"));}catch(Exception e){return new JSONObject();}}
     private String getProfileLogin(){JSONObject p=getCachedProfile();String login=p.optString("login","");if(login.isEmpty())login=secureStore.get("github_login");return login;}
@@ -7585,7 +7616,7 @@ public class MainActivity extends Activity {
 
         io.execute(()->{
             try{
-                JSONObject profile=api.getJson("https://api.github.com/user");
+                JSONObject profile=api.getJsonFresh("https://api.github.com/user");
                 String login=profile.optString("login","");
                 JSONObject planJson=profile.optJSONObject("plan");
                 String planName=planJson==null?"":planJson.optString("name","");
@@ -8190,10 +8221,11 @@ public class MainActivity extends Activity {
         repoSectionHeader(full,"Коммиты","Ветка "+branch,R.drawable.ic_history);
         TextView warning=text("Опасное принудительное удаление HEAD убрано. Для отмены изменений используйте revert-коммит и Pull Request на GitHub — история ветки останется восстанавливаемой.",12,false);warning.setTextColor(MUTED);card(warning);
         ProgressBar pb=new ProgressBar(this);content.addView(pb);
+        final LinearLayout destination=content;final long generation=screenGeneration.get();final String account=currentAccountId();
         io.execute(()->{
             try{
                 JSONArray commits=getArray("https://api.github.com/repos/"+full+"/commits?sha="+Uri.encode(branch)+"&per_page=30");
-                runOnUiThread(()->{
+                runOnUiThread(()->{if(!screenRequestCurrent(generation,account,destination))return;
                     content.removeView(pb);sectionTitle("Последние коммиты",null);
                     for(int i=0;i<commits.length();i++){
                         JSONObject item=commits.optJSONObject(i);if(item==null)continue;
@@ -8206,44 +8238,7 @@ public class MainActivity extends Activity {
                         card(row);
                     }
                 });
-            }catch(Exception e){runOnUiThread(()->{content.removeView(pb);errorCard("Не удалось загрузить коммиты",e.getMessage());});}
-        });
-    }
-
-    private void showDeleteHeadCommitDialog(String full,String branch){
-        ProgressDialog load=ProgressDialog.show(this,"HEAD-коммит","Проверка ветки…",true,false);
-        io.execute(()->{
-            try{
-                AccountOperationsController.BranchHead head=accountOperations.loadBranchHead(full,branch);
-                runOnUiThread(()->{
-                    load.dismiss();
-                    String summary=firstLine(head.message)+"\n\nHEAD: "+shortSha(head.sha)+"\nРодитель: "+shortSha(head.parentSha)+"\n\nВетка будет принудительно перемещена назад на один коммит.";
-                    new AlertDialog.Builder(this).setTitle("Удалить последний коммит?")
-                            .setMessage(summary).setNegativeButton("Отмена",null)
-                            .setPositiveButton("Продолжить",(d,w)->confirmHeadReset(full,head)).show();
-                });
-            }catch(Exception e){runOnUiThread(()->{load.dismiss();errorDialog("Откат недоступен",e.getMessage());});}
-        });
-    }
-
-    private void confirmHeadReset(String full,AccountOperationsController.BranchHead head){
-        EditText input=new EditText(this);input.setHint(shortSha(head.sha));input.setSingleLine(true);
-        new AlertDialog.Builder(this).setTitle("Подтверждение переписывания истории")
-                .setMessage("Введите короткий SHA удаляемого HEAD-коммита: "+shortSha(head.sha))
-                .setView(input).setNegativeButton("Отмена",null)
-                .setPositiveButton("Удалить HEAD",(d,w)->{
-                    if(!shortSha(head.sha).equals(input.getText().toString().trim())){toast("SHA не совпадает — операция отменена");return;}
-                    performHeadReset(full,head);
-                }).show();
-    }
-
-    private void performHeadReset(String full,AccountOperationsController.BranchHead head){
-        ProgressDialog progress=ProgressDialog.show(this,"Коммиты","Перемещение ветки…",true,false);
-        io.execute(()->{
-            try{
-                accountOperations.resetBranchToParent(full,head);
-                runOnUiThread(()->{progress.dismiss();new AlertDialog.Builder(this).setTitle("HEAD удалён").setMessage("Ветка "+head.branch+" теперь указывает на "+shortSha(head.parentSha)).setPositiveButton("Обновить",(d,w)->showRepositoryCommits(full,head.branch)).show();});
-            }catch(Exception e){runOnUiThread(()->{progress.dismiss();errorDialog("Не удалось изменить ветку",e.getMessage());});}
+            }catch(Exception e){runOnUiThread(()->{if(!screenRequestCurrent(generation,account,destination))return;content.removeView(pb);errorCard("Не удалось загрузить коммиты",e.getMessage());});}
         });
     }
 
@@ -9142,22 +9137,47 @@ public class MainActivity extends Activity {
     }
 
     private void showOfflineQueue(){
-        rememberScreen("offline_queue",null);setCurrentScreen(this::showOfflineQueue);shell("Офлайн-очередь",false);settingsPanelHeader("Отложенные изменения","Безопасный повтор после восстановления сети",R.drawable.ic_history);
-        List<OfflineActionQueue.Action> actions=features.offlineQueue.listAll();int pending=features.offlineQueue.count(OfflineActionQueue.PENDING),conflicts=features.offlineQueue.count(OfflineActionQueue.CONFLICT),failed=features.offlineQueue.count(OfflineActionQueue.FAILED);featureState.pendingOfflineActions=pending;featureState.conflicts=conflicts;
-        LinearLayout summary=new LinearLayout(this);summary.setOrientation(LinearLayout.VERTICAL);summary.addView(text("Ожидают: "+pending+" · Конфликты: "+conflicts+" · Ошибки: "+failed,15,true));TextView note=text("Токены в очереди не сохраняются. Перед повторной записью GitHubble сравнивает версию объекта на GitHub.",11,false);note.setTextColor(MUTED);summary.addView(note);card(summary);
-        Button send=button("Отправить готовые сейчас");send.setEnabled(!actions.isEmpty()&&features.offlineDispatcher.isOnline());send.setOnClickListener(v->processOfflineQueueNow());content.addView(send,new LinearLayout.LayoutParams(-1,dp(50)));
-        if(actions.isEmpty()){card(text("Очередь пуста. Изменения отправляются сразу, когда сеть доступна.",13,false));return;}
-        sectionTitle("Действия",null);for(OfflineActionQueue.Action action:actions)renderOfflineAction(action);
+        rememberScreen("offline_queue",null);setCurrentScreen(this::showOfflineQueue);shell("Офлайн-очередь",false);
+        settingsPanelHeader("Отложенные изменения","Очередь текущего аккаунта",R.drawable.ic_history);
+        final String account=currentAccountId();final long generation=screenGeneration.get();final LinearLayout destination=content;
+        ProgressBar loading=new ProgressBar(this);content.addView(loading);
+        io.execute(()->{try{
+            List<OfflineActionQueue.Action> actions=features.offlineQueue.listAccount(account);
+            runOnUiThread(()->{
+                if(!screenRequestCurrent(generation,account,destination))return;destination.removeView(loading);
+                int pending=0,conflicts=0,failed=0;for(OfflineActionQueue.Action action:actions){
+                    if(OfflineActionQueue.PENDING.equals(action.status)||OfflineActionQueue.IN_FLIGHT.equals(action.status))pending++;
+                    else if(OfflineActionQueue.CONFLICT.equals(action.status))conflicts++;else failed++;
+                }
+                featureState.pendingOfflineActions=pending;featureState.conflicts=conflicts;
+                card(text("Ожидают / выполняются: "+pending+" · Конфликты: "+conflicts+" · Требуют проверки: "+failed,14,true));
+                card(text("Версия объекта проверяется свежим запросом. Проверка и запись не атомарны: при совместном редактировании проверьте итог на GitHub. Неизвестный результат записи не повторяется автоматически.",11,false));
+                Button send=button("Отправить готовые сейчас");send.setEnabled(!actions.isEmpty()&&features.offlineDispatcher.isOnline());
+                send.setOnClickListener(v->processOfflineQueueNow());content.addView(send,new LinearLayout.LayoutParams(-1,dp(50)));
+                if(actions.isEmpty())card(text("Очередь текущего аккаунта пуста",13,false));
+                for(OfflineActionQueue.Action action:actions)renderOfflineAction(action);
+            });
+        }catch(Exception error){runOnUiThread(()->{if(!screenRequestCurrent(generation,account,destination))return;destination.removeView(loading);errorCard("Не удалось загрузить очередь",error.getMessage());});}});
     }
 
     private void processOfflineQueueNow(){
-        ProgressDialog progress=ProgressDialog.show(this,"Офлайн-очередь","Проверяем изменения и отправляем…",true,false);io.execute(()->{try{OfflineActionQueue.ProcessResult r=features.offlineQueue.processReady(api);runOnUiThread(()->{progress.dismiss();toast("Отправлено: "+r.completed+", конфликтов: "+r.conflicts+", отложено: "+r.deferred);showOfflineQueue();});}catch(Exception e){runOnUiThread(()->{progress.dismiss();errorDialog("Не удалось обработать очередь",e.getMessage());});}});
+        final String account=currentAccountId();final long generation=screenGeneration.get();final LinearLayout destination=content;ProgressDialog progress=ProgressDialog.show(this,"Офлайн-очередь","Проверяем изменения и отправляем…",true,false);io.execute(()->{try{OfflineActionQueue.ProcessResult r=features.offlineQueue.processReady(api);runOnUiThread(()->{progress.dismiss();if(!screenRequestCurrent(generation,account,destination))return;toast("Отправлено: "+r.completed+", конфликтов: "+r.conflicts+", отложено: "+r.deferred);showOfflineQueue();});}catch(Exception e){runOnUiThread(()->{progress.dismiss();errorDialog("Не удалось обработать очередь",e.getMessage());});}});
+    }
+
+    private void retryOfflineAction(OfflineActionQueue.Action action,boolean force){
+        new AlertDialog.Builder(this).setTitle(force?"Отправить поверх изменений?":"Повторить действие?")
+            .setMessage("Сначала проверьте результат на GitHub. Если предыдущая запись уже выполнилась, повтор может перезаписать более свежие данные.")
+            .setNegativeButton("Отмена",null).setPositiveButton("Повторить",(d,w)->io.execute(()->{
+                try{if(!action.accountId.equals(currentAccountId()))return;features.offlineQueue.retry(action.id,force);
+                    runOnUiThread(()->{if(action.accountId.equals(currentAccountId()))processOfflineQueueNow();});
+                }catch(Exception error){runOnUiThread(()->errorDialog("Повтор недоступен",error.getMessage()));}
+            })).show();
     }
 
     private void renderOfflineAction(OfflineActionQueue.Action action){
-        LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);String status=OfflineActionQueue.PENDING.equals(action.status)?"Ожидает сети":OfflineActionQueue.CONFLICT.equals(action.status)?"Конфликт":"Ошибка";TextView title=text(action.summary.isEmpty()?action.method+" "+action.url:action.summary,14,true);box.addView(title);TextView meta=text(status+" · попыток "+action.attempts+" · "+formatEpoch(action.createdAt),11,false);meta.setTextColor(OfflineActionQueue.CONFLICT.equals(action.status)?Color.rgb(190,120,20):OfflineActionQueue.FAILED.equals(action.status)?Color.rgb(190,55,60):MUTED);box.addView(meta);if(!action.lastError.isEmpty()){TextView error=text(action.lastError,11,false);error.setTextColor(MUTED);box.addView(error);}LinearLayout buttons=new LinearLayout(this);buttons.setPadding(0,dp(8),0,0);
-        if(OfflineActionQueue.CONFLICT.equals(action.status)){Button compare=compactButton("Сравнить");compare.setOnClickListener(v->showOfflineConflictPreview(action));buttons.addView(compare,new LinearLayout.LayoutParams(0,dp(44),1));Button force=compactButton("Всё равно отправить");force.setOnClickListener(v->{features.offlineQueue.retry(action.id,true);processOfflineQueueNow();});LinearLayout.LayoutParams fp=new LinearLayout.LayoutParams(0,dp(44),1);fp.setMargins(dp(5),0,0,0);buttons.addView(force,fp);}else{Button retry=compactButton("Повторить");retry.setOnClickListener(v->{features.offlineQueue.retry(action.id,false);processOfflineQueueNow();});buttons.addView(retry,new LinearLayout.LayoutParams(0,dp(44),1));}
-        Button discard=compactButton("Удалить");discard.setOnClickListener(v->new AlertDialog.Builder(this).setTitle("Удалить действие?").setMessage(action.summary).setPositiveButton("Удалить",(d,w)->{features.offlineQueue.discard(action.id);showOfflineQueue();}).setNegativeButton("Отмена",null).show());LinearLayout.LayoutParams dpv=new LinearLayout.LayoutParams(0,dp(44),1);dpv.setMargins(dp(5),0,0,0);buttons.addView(discard,dpv);box.addView(buttons);card(box);
+        LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);String status=OfflineActionQueue.IN_FLIGHT.equals(action.status)?"Выполняется":OfflineActionQueue.UNKNOWN.equals(action.status)?"Результат неизвестен":OfflineActionQueue.PENDING.equals(action.status)?"Ожидает сети":OfflineActionQueue.CONFLICT.equals(action.status)?"Конфликт":"Ошибка";TextView title=text(action.summary.isEmpty()?action.method+" "+action.url:action.summary,14,true);box.addView(title);TextView meta=text(status+" · попыток "+action.attempts+" · "+formatEpoch(action.createdAt),11,false);meta.setTextColor(OfflineActionQueue.CONFLICT.equals(action.status)?Color.rgb(190,120,20):OfflineActionQueue.FAILED.equals(action.status)?Color.rgb(190,55,60):MUTED);box.addView(meta);if(!action.lastError.isEmpty()){TextView error=text(action.lastError,11,false);error.setTextColor(MUTED);box.addView(error);}LinearLayout buttons=new LinearLayout(this);buttons.setPadding(0,dp(8),0,0);
+        if(OfflineActionQueue.CONFLICT.equals(action.status)){Button compare=compactButton("Сравнить");compare.setOnClickListener(v->showOfflineConflictPreview(action));buttons.addView(compare,new LinearLayout.LayoutParams(0,dp(44),1));Button force=compactButton("Всё равно отправить");force.setOnClickListener(v->retryOfflineAction(action,true));LinearLayout.LayoutParams fp=new LinearLayout.LayoutParams(0,dp(44),1);fp.setMargins(dp(5),0,0,0);buttons.addView(force,fp);}else{Button retry=compactButton("Повторить");retry.setEnabled(!OfflineActionQueue.IN_FLIGHT.equals(action.status));retry.setOnClickListener(v->retryOfflineAction(action,false));buttons.addView(retry,new LinearLayout.LayoutParams(0,dp(44),1));}
+        Button discard=compactButton("Удалить");discard.setEnabled(!OfflineActionQueue.IN_FLIGHT.equals(action.status));discard.setOnClickListener(v->new AlertDialog.Builder(this).setTitle("Удалить действие?").setMessage(action.summary).setPositiveButton("Удалить",(d,w)->{features.offlineQueue.discard(action.id);showOfflineQueue();}).setNegativeButton("Отмена",null).show());LinearLayout.LayoutParams dpv=new LinearLayout.LayoutParams(0,dp(44),1);dpv.setMargins(dp(5),0,0,0);buttons.addView(discard,dpv);box.addView(buttons);card(box);
     }
 
     private void showOfflineConflictPreview(OfflineActionQueue.Action action){
@@ -9298,7 +9318,12 @@ public class MainActivity extends Activity {
     }
 
     private void confirmDeleteAllLocalData(){
-        new AlertDialog.Builder(this).setTitle("Удалить все локальные данные?").setMessage("Будут удалены OAuth-токен, профиль, избранное, наблюдение, кэш, переводы, офлайн-очередь и настройки. На GitHub ничего не удаляется. Действие нельзя отменить.").setPositiveButton("Удалить",(d,w)->{userDataManager.deleteAllLocalData();TrackingJobService.cancel(this);Intent restart=getPackageManager().getLaunchIntentForPackage(getPackageName());if(restart!=null){restart.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP|Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_CLEAR_TASK);startActivity(restart);}finishAffinity();}).setNegativeButton("Отмена",null).show();
+        new AlertDialog.Builder(this).setTitle("Удалить все локальные данные?")
+            .setMessage("Android удалит все аккаунты, AI-ключи и подписки, диалоги, Workspace, настройки и кэш. Приложение закроется. Скачанные в общую папку Downloads файлы и данные на GitHub сохранятся.")
+            .setPositiveButton("Удалить",(d,w)->{
+                try{userDataManager.deleteAllLocalData();}
+                catch(Exception error){errorDialog("Очистка не выполнена",error.getMessage());}
+            }).setNegativeButton("Отмена",null).show();
     }
 
     private void showReleaseCandidateStatus(){
@@ -9730,13 +9755,14 @@ public class MainActivity extends Activity {
     private void loadAndStoreGitHubProfile(){loadAndStoreGitHubProfile(false);}
 
     private void loadAndStoreGitHubProfile(boolean checkInstallation){
-        final String requestedToken=secureStore.get("github_token");
+        final app.githubble.mobile.network.GitHubSession profileSession=secureStore.capture();
+        final String requestedToken=profileSession.token;
         if(requestedToken.isEmpty())return;
         io.execute(() -> {
             try{
-                JSONObject user=api.getJson("https://api.github.com/user");
+                JSONObject user=api.getJsonFresh("https://api.github.com/user");
                 if(!requestedToken.equals(secureStore.get("github_token")))return;
-                cacheGitHubProfile(user);
+                if(!cacheGitHubProfile(user,profileSession))return;
                 downloadAvatar(user.optString("avatar_url",""));
                 refreshNotificationCount();
                 final String login=user.optString("login","");

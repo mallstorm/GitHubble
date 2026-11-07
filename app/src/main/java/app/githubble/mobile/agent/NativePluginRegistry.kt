@@ -57,7 +57,7 @@ class NativePluginRegistry(context:Context,private val owner:String){
         for(i in 0 until rows.length()){
             val j=rows.getJSONObject(i);if(!j.optBoolean("enabled"))continue
             if(j.optString("kind")!="MCP")result.append("ext_${j.getString("id")} {query}: ").append(j.optString("name").take(80)).append(". User-configured HTTPS ${j.optString("kind")}; explicit review required.\n")
-            else {val tools=j.optJSONArray("tools")?:JSONArray();for(n in 0 until tools.length()){val t=tools.getJSONObject(n);result.append(t.getString("alias")).append(" ").append(t.optJSONObject("schema").toString().take(3500)).append(": ").append(t.optString("description").take(180)).append('\n')}}
+            else {val tools=j.optJSONArray("tools")?:JSONArray();for(n in 0 until tools.length()){val t=tools.getJSONObject(n);result.append(t.getString("alias")).append(" ").append((t.optJSONObject("schema") ?: JSONObject()).toString().take(3500)).append(": ").append(t.optString("description").take(180)).append('\n')}}
         }
         return result.toString().take(16000)
     }

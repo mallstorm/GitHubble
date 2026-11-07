@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-ANDROID_HOME="${ANDROID_HOME:-/mnt/data/offline_env/APKForge-Offline-Dev-Linux-x86_64/android-sdk}"
-JAVA_HOME="${JAVA_HOME:-/mnt/data/offline_env/APKForge-Offline-Dev-Linux-x86_64/tools/jdk-21}"
-GRADLE_BIN="${GRADLE_BIN:-/mnt/data/offline_env/APKForge-Offline-Dev-Linux-x86_64/tools/gradle/gradle-9.5.1/bin/gradle}"
+: "${ANDROID_HOME:?Set ANDROID_HOME to Android SDK path}"
+: "${JAVA_HOME:?Set JAVA_HOME to JDK 21}"
+GRADLE_BIN="${GRADLE_BIN:-$ROOT/gradlew}"
 : "${GITHUB_CLIENT_ID:?Set GITHUB_CLIENT_ID before verification}"
 export ANDROID_HOME ANDROID_SDK_ROOT="$ANDROID_HOME" JAVA_HOME
 export PATH="$JAVA_HOME/bin:$(dirname "$GRADLE_BIN"):$PATH"
 cd "$ROOT"
+source "$ROOT/version.properties"
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 for run in 1 2; do
-  "$GRADLE_BIN" --offline --no-daemon clean assembleRelease >/dev/null
+  "$GRADLE_BIN" --no-daemon clean assembleRelease >/dev/null
   cp app/build/outputs/apk/release/app-release-unsigned.apk "$TMP/run-$run.apk"
 done
 sha256sum "$TMP"/*.apk

@@ -132,6 +132,9 @@ public final class RepositoryImportController {
     }
 
     public ImportResult importFolder(String fullName, String requestedBranch, Uri treeUri, String message, ProgressListener listener) throws Exception {
+        return new RepositoryImportController(context,api.bindCurrentSession()).importFolderBound(fullName, requestedBranch, treeUri, message, listener);
+    }
+    private ImportResult importFolderBound(String fullName, String requestedBranch, Uri treeUri, String message, ProgressListener listener) throws Exception {
         List<DocEntry> entries = collectFolder(treeUri);
         if (entries.isEmpty()) throw new IllegalArgumentException("В выбранной папке нет файлов для загрузки");
         BaseState base = prepareBase(fullName, requestedBranch);
@@ -150,6 +153,9 @@ public final class RepositoryImportController {
     }
 
     public ImportResult importFile(String fullName, String requestedBranch, Uri uri, String targetPath, String message, ProgressListener listener) throws Exception {
+        return new RepositoryImportController(context,api.bindCurrentSession()).importFileBound(fullName, requestedBranch, uri, targetPath, message, listener);
+    }
+    private ImportResult importFileBound(String fullName, String requestedBranch, Uri uri, String targetPath, String message, ProgressListener listener) throws Exception {
         String path = RepositoryPathPolicy.normalize(targetPath);
         if (path.isEmpty()) path = RepositoryPathPolicy.normalize(displayName(uri));
         if (path.isEmpty()) throw new IllegalArgumentException("Не удалось определить имя файла");
@@ -166,6 +172,9 @@ public final class RepositoryImportController {
     }
 
     public ImportResult importZip(String fullName, String requestedBranch, Uri zipUri, String message, ProgressListener listener) throws Exception {
+        return new RepositoryImportController(context,api.bindCurrentSession()).importZipBound(fullName, requestedBranch, zipUri, message, listener);
+    }
+    private ImportResult importZipBound(String fullName, String requestedBranch, Uri zipUri, String message, ProgressListener listener) throws Exception {
         Preview preview = previewZip(zipUri);
         if (preview.files == 0) throw new IllegalArgumentException("В ZIP нет файлов для загрузки");
         BaseState base = prepareBase(fullName, requestedBranch);

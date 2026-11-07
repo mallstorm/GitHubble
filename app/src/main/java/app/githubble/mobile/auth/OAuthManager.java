@@ -172,12 +172,20 @@ public final class OAuthManager {
     public synchronized boolean refreshIfNeeded(String clientId) throws Exception {
         if (hasUsableToken()) return true;
         if (!canRefresh() || clientId == null || clientId.trim().isEmpty()) return false;
+        app.githubble.mobile.network.GitHubSession expected=secureStore.capture();
+        String refresh;
+        synchronized(SecureStore.SESSION_LOCK){
+            if(!secureStore.isCurrent(expected))return false;
+            refresh=secureStore.get("github_refresh_token");
+        }
         String body = "client_id=" + enc(clientId.trim())
-                + "&grant_type=refresh_token&refresh_token=" + enc(secureStore.get("github_refresh_token"));
+                + "&grant_type=refresh_token&refresh_token=" + enc(refresh);
         JSONObject response = postForm(ACCESS_TOKEN_URL, body);
         String token = response.optString("access_token", "");
         if (token.isEmpty()) return false;
         long now = System.currentTimeMillis()/1000L;
+        synchronized(SecureStore.SESSION_LOCK){
+        if(!secureStore.isCurrent(expected))return false;
         secureStore.put("github_token", token);
         secureStore.put("github_token_type", response.optString("token_type", "bearer"));
         secureStore.put("github_token_scope", response.optString("scope", secureStore.get("github_token_scope")));
@@ -187,6 +195,7 @@ public final class OAuthManager {
         long refreshTtl = response.optLong("refresh_token_expires_in", 0L);
         if (refreshTtl > 0L) secureStore.put("github_refresh_token_expires_at", String.valueOf(now+refreshTtl));
         secureStore.remove("github_reauth_required");
+        }
         accountStore.persistActiveSession();
         return true;
     }
