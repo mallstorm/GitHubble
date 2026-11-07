@@ -47,7 +47,7 @@ jobs:
         with:
           packages: platform-tools
 
-      - run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+      - run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;28.2.13676358"
 
       - uses: gradle/actions/setup-gradle@v4
         with:
@@ -89,6 +89,9 @@ jobs:
                   assert all(name.startswith("lib/arm64-v8a/") for name in libs), f"{path}: non-ARM64 libraries: {libs}"
                   print(f"ARM64 ONLY: {path}, {len(libs)} native libraries")
           PY
+
+      - name: Verify preserved Xray code and stripped Release symbols
+        run: python3 tools/verify-xray-payload.py app/build/outputs/apk/release/app-release-unsigned.apk --require-stripped
 
       - name: Extended lint and instrumentation APK (manual only)
         if: github.event_name == 'workflow_dispatch' && inputs.full_validation == true
@@ -249,6 +252,11 @@ jobs:
             sha256sum "${files[@]}" > SHA256SUMS.txt)
           (cd dist; sha256sum "GitHubble-${{ steps.version.outputs.name }}-main-sources.zip" > SOURCE_SHA256.txt)
           printf '%s\n' "$(git rev-parse HEAD)" > dist/SOURCE_COMMIT.txt
+          test -s app/build/outputs/mapping/release/mapping.txt
+          cp app/build/outputs/mapping/release/mapping.txt dist/R8_MAPPING.txt
+          if [ -s app/build/outputs/native-debug-symbols/release/native-debug-symbols.zip ]; then
+            python3 tools/export-native-symbols.py app/build/outputs/apk/release/app-release-unsigned.apk app/build/outputs/native-debug-symbols/release/native-debug-symbols.zip dist/NATIVE_DEBUG_SYMBOLS.zip
+          fi
 
       - name: Verify and publish main bundle directly to GitHub Releases
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -274,7 +282,9 @@ jobs:
             dist/SOURCE_SHA256.txt
             dist/SOURCE_COMMIT.txt
             dist/SIGNING_INFO.txt
+            dist/R8_MAPPING.txt
           )
+          if [[ -s dist/NATIVE_DEBUG_SYMBOLS.zip ]]; then files+=(dist/NATIVE_DEBUG_SYMBOLS.zip); fi
           signing_note="No production-signed Release APK was produced. Use the Debug APK for testing only."
           if [[ -s "dist/GitHubble-${VERSION_NAME}-release.apk" ]]; then
             files+=("dist/GitHubble-${VERSION_NAME}-release.apk" dist/APK_VERIFICATION.txt dist/PACKAGE_INFO.txt)

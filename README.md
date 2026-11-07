@@ -230,6 +230,7 @@ GitHub REST API не предоставляет загрузку аватара 
 - Gradle 9.5.1;
 - Android SDK platform 36;
 - Android build-tools 36.0.0;
+- Android NDK 28.2.13676358 (native debug stripping);
 - `GITHUB_CLIENT_ID` GitHub App с включённым Device Flow.
 
 ```bash
@@ -262,6 +263,13 @@ Production-signed Release APK создаётся только в `main` и то�
 - `GITHUBBLE_RELEASE_KEY_ALIAS`.
 
 Временные PR artifacts имеют короткий срок хранения; main artifacts также хранятся ограниченное время, а релизные файлы публикуются отдельно в GitHub Releases.
+
+## Оптимизация Release
+
+В ветке оптимизации Release использует R8, удаление неиспользуемых ресурсов и штатный NDK stripping. Xray/VLESS сохраняется. Удалённые native debug symbols и R8 mapping сохраняются отдельно для диагностики; они не увеличивают устанавливаемый APK.
+
+Сравнение размеров и границы проверки: [docs/R8_OPTIMIZATION.md](docs/R8_OPTIMIZATION.md).
+Для существующей рабочей папки после установки NDK нужна одна чистая сборка: `./gradlew clean assembleRelease` — старый результат без stripping может оставаться up-to-date.
 
 ## Документация
 
