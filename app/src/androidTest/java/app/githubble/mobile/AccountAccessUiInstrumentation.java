@@ -72,6 +72,15 @@ public final class AccountAccessUiInstrumentation extends Instrumentation {
                             - title.getCompoundPaddingBottom())
                   throw new AssertionError("Toolbar subtitle clipped at current font scale");
                 assertNoJson(current.getWindow().getDecorView());
+                if (android.os.Build.VERSION.SDK_INT >= 30) {
+                  int appearance =
+                      current.getWindow().getInsetsController().getSystemBarsAppearance();
+                  int mask =
+                      android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
+                          | android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;
+                  if ((appearance & mask) != ("dark".equals(theme) ? 0 : mask))
+                    throw new AssertionError("System bar icons do not match theme");
+                }
               });
           capture(new File(dir, theme + "-" + scale + "-overview.png"));
           runOnMainSync(

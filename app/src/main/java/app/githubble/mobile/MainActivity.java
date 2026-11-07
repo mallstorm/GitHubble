@@ -359,6 +359,7 @@ public class MainActivity extends Activity {
     @Override protected void onResume() {
         super.onResume();
         if (prefs == null) return;
+        getWindow().getDecorView().post(this::applySystemBarAppearance);
         BuildMonitorJobService.checkSoon(this);
         if (features != null && features.offlineDispatcher.isOnline()) io.execute(() -> { try { OfflineActionQueue.ProcessResult r=features.offlineQueue.processReady(api); if(r.completed>0||r.conflicts>0) runOnUiThread(() -> toast("Офлайн-очередь: отправлено "+r.completed+", конфликтов "+r.conflicts)); } catch (Exception ignored) {} });
         if (prefs.getBoolean(PREF_AUTH_JUST_COMPLETED, false)) {
