@@ -519,6 +519,7 @@ public class MainActivity extends Activity {
     }
 
     private LinearLayout bottomNav(String title) {
+        if("Управление аккаунтом".equals(title)||"Права установки".equals(title)||"Заблокированные пользователи".equals(title)||"Ограничения взаимодействия".equals(title))title="Настройки";
         boolean chat="Чат".equals(title),dark=Color.luminance(BG)<.4f;
         return BottomNavigationBar.create(this,title,chat?(dark?0xFF343941:Color.WHITE):SURFACE,
                 chat?(dark?0xFF515963:0xFFE9EFF3):SUBTLE,
@@ -8289,29 +8290,40 @@ public class MainActivity extends Activity {
      * Everything about the GitHub account on one screen: saved accounts,
      * repository access, Actions minutes, storage, costs and the API limit.
      */
+    private app.githubble.mobile.ui.AccountAccessScreen accountAccessScreen(LinearLayout host){
+        return new app.githubble.mobile.ui.AccountAccessScreen(this,host,settingsPalette(),new app.githubble.mobile.ui.AccountAccessScreen.Actions(){
+            public void blocks(){navigate(()->showBlockedUsers(1,true));}
+            public void limits(){navigate(MainActivity.this::showAccountInteractionLimits);}
+            public void permissions(){openSecureGitHubPage("https://github.com/settings/installations");}
+            public void authorize(){showReauthorizeActiveAccountDialog();}
+            public void refresh(){showAccountControls();}
+            public void installation(long id){navigate(()->showInstallationAccess(id));}
+        });
+    }
+
     private void showAccountControls(){
-        rememberScreen("account_controls",null);
-        setCurrentScreen(this::showAccountControls);shell("Управление аккаунтом",false);
+        rememberScreen("account_controls",null);setCurrentScreen(this::showAccountControls);shell("Управление аккаунтом",false);
         if(!isSignedIn()){accountRequiredCard("Подключите GitHub для управления аккаунтом.");return;}
+        final long generation=screenGeneration.get();final String account=currentAccountId();final LinearLayout destination=content;
+        final app.githubble.mobile.ui.AccountAccessScreen screen=accountAccessScreen(destination);screen.overview(getProfileLogin());
+        final app.githubble.mobile.controller.GitHubAccountController controller;
+        try{controller=new app.githubble.mobile.controller.GitHubAccountController(api.bindCurrentSession());}
+        catch(Exception e){screen.error(e.getMessage());return;}
+        io.execute(()->{try{JSONObject result=controller.installations();runOnUiThread(()->{if(!screenRequestCurrent(generation,account,destination))return;screen.installations(result.optJSONArray("installations"));});}
+            catch(Exception e){runOnUiThread(()->{if(screenRequestCurrent(generation,account,destination))screen.error(e.getMessage());});}});
+    }
+
+    private void showInstallationAccess(long id){
+        rememberScreen("account_installation",routeArgs("id",id));setCurrentScreen(()->showInstallationAccess(id));shell("Права установки",false);
         final long generation=screenGeneration.get();final String account=currentAccountId();final LinearLayout destination=content;
         final app.githubble.mobile.controller.GitHubAccountController controller;
         try{controller=new app.githubble.mobile.controller.GitHubAccountController(api.bindCurrentSession());}
         catch(Exception e){errorCard("Аккаунт изменился",e.getMessage());return;}
-        Button blocked=button("Заблокированные пользователи");blocked.setOnClickListener(v->navigate(()->showBlockedUsers(1,true)));content.addView(blocked);
-        Button limit=button("Ограничения взаимодействия");limit.setOnClickListener(v->navigate(this::showAccountInteractionLimits));content.addView(limit);
-        Button access=button("Принять новые права на GitHub");access.setOnClickListener(v->openSecureGitHubPage("https://github.com/settings/installations"));content.addView(access);
-        card(text("Новые права нужно подтвердить для установки и пользовательской авторизации. При отказе доступа повторите вход через GitHub. Права установки не заменяют права личного аккаунта.",13,false));
-        Button auth=button("Обновить пользовательскую авторизацию");auth.setOnClickListener(v->showReauthorizeActiveAccountDialog());content.addView(auth);
         ProgressBar loading=new ProgressBar(this);content.addView(loading);
-        io.execute(()->{try{JSONObject root=controller.installations();runOnUiThread(()->{
-            if(!screenRequestCurrent(generation,account,destination))return;destination.removeView(loading);
-            JSONArray installations=root.optJSONArray("installations");sectionTitle("Установки и согласованные права",null);
-            if(installations.length()==0)card(text("Доступных установок нет. Настройте доступ GiHubble на GitHub.",13,false));
-            for(int i=0;i<installations.length();i++){JSONObject item=installations.optJSONObject(i);if(item==null)continue;JSONObject owner=item.optJSONObject("account");
-                card(text((owner==null?"GitHub":owner.optString("login"))+" · "+("all".equals(item.optString("repository_selection"))?"Все репозитории":"Выбранные репозитории")+(item.isNull("suspended_at")?"":" · приостановлена"),15,true));
-                JSONObject permissions=item.optJSONObject("permissions");if(permissions!=null)card(text(permissions.toString(),12,false));
-            }
-        });}catch(Exception e){runOnUiThread(()->{if(!screenRequestCurrent(generation,account,destination))return;destination.removeView(loading);errorCard("Не удалось проверить доступ",e.getMessage());});}});
+        io.execute(()->{try{JSONArray items=controller.installations().getJSONArray("installations");JSONObject found=null;for(int i=0;i<items.length();i++){JSONObject item=items.optJSONObject(i);if(item!=null&&item.optLong("id")==id){found=item;break;}}
+            if(found==null)throw new IOException("Эта установка больше не доступна выбранному аккаунту");final JSONObject item=found;
+            runOnUiThread(()->{if(!screenRequestCurrent(generation,account,destination))return;destination.removeView(loading);accountAccessScreen(destination).detail(item);});
+        }catch(Exception e){runOnUiThread(()->{if(!screenRequestCurrent(generation,account,destination))return;destination.removeView(loading);errorCard("Не удалось загрузить права",e.getMessage());});}});
     }
 
     private void showBlockedUsers(int page,boolean first){
@@ -8321,12 +8333,18 @@ public class MainActivity extends Activity {
         final app.githubble.mobile.controller.GitHubAccountController controller;
         try{controller=new app.githubble.mobile.controller.GitHubAccountController(api.bindCurrentSession());}
         catch(Exception e){errorCard("Аккаунт изменился",e.getMessage());return;}
-        if(first){Button add=button("Заблокировать пользователя");add.setOnClickListener(v->{EditText login=new EditText(this);login.setSingleLine(true);login.setHint("GitHub login без @");new AlertDialog.Builder(this).setTitle("Блокировка в GitHub").setView(login).setPositiveButton("Продолжить",(d,w)->{final String selected=login.getText().toString().trim();confirmAccountChange(controller,generation,account,destination,"Заблокировать @"+selected+"?",()->controller.block(selected,true),()->showBlockedUsers(1,true));}).setNegativeButton("Отмена",null).show();});content.addView(add);}
+        if(first){
+            SettingsScreen.Section manage=new SettingsScreen.Section("Управление блокировками");
+            manage.add(SettingsScreen.Item.action(R.drawable.ic_profile,"Заблокировать пользователя","Добавить GitHub login в список блокировок","",()->{EditText login=new EditText(this);login.setSingleLine(true);login.setHint("GitHub login без @");new AlertDialog.Builder(this).setTitle("Блокировка в GitHub").setView(login).setPositiveButton("Продолжить",(d,w)->{final String selected=login.getText().toString().trim();confirmAccountChange(controller,generation,account,destination,"Заблокировать @"+selected+"?",()->controller.block(selected,true),()->showBlockedUsers(1,true));}).setNegativeButton("Отмена",null).show();}));
+            new SettingsScreen(this,content,settingsPalette()).renderPage(null,GREEN,Collections.singletonList(manage));
+        }
         ProgressBar loading=new ProgressBar(this);content.addView(loading);
         io.execute(()->{try{JSONArray users=controller.blocks(page);runOnUiThread(()->{
             if(!screenRequestCurrent(generation,account,destination))return;destination.removeView(loading);
-            if(first&&users.length()==0)card(text("Заблокированных пользователей нет.",13,false));
-            for(int i=0;i<users.length();i++){JSONObject user=users.optJSONObject(i);if(user==null)continue;String login=user.optString("login");Button row=button("@"+login+" · Разблокировать");row.setOnClickListener(v->confirmAccountChange(controller,generation,account,destination,"Разблокировать @"+login+"?",()->controller.block(login,false),()->showBlockedUsers(1,true)));content.addView(row);}
+            SettingsScreen.Section list=new SettingsScreen.Section(first?"Заблокированные пользователи":"");
+            if(first&&users.length()==0)list.note("В списке пока никого нет.");
+            for(int i=0;i<users.length();i++){JSONObject user=users.optJSONObject(i);if(user==null)continue;String login=user.optString("login");list.add(SettingsScreen.Item.action(R.drawable.ic_profile,"@"+login,"Разблокировать пользователя","",()->confirmAccountChange(controller,generation,account,destination,"Разблокировать @"+login+"?",()->controller.block(login,false),()->showBlockedUsers(1,true))));}
+            new SettingsScreen(this,content,settingsPalette()).renderPage(null,GREEN,Collections.singletonList(list));
             if(users.length()==100)addLoadMoreButton("Показать ещё",()->showBlockedUsers(page+1,false));
         });}catch(Exception e){runOnUiThread(()->{if(!screenRequestCurrent(generation,account,destination))return;destination.removeView(loading);errorCard("Не удалось загрузить блокировки",e.getMessage());});}});
     }
@@ -8342,19 +8360,6 @@ public class MainActivity extends Activity {
         }).setNegativeButton("Отмена",null).show();
     }
 
-    private Spinner accountChoice(String[] values){
-        Spinner choice=new Spinner(this);
-        choice.setAdapter(new ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,values){
-            @Override public View getView(int position,View recycled,android.view.ViewGroup parent){
-                TextView row=(TextView)super.getView(position,recycled,parent);row.setTextColor(TEXT);return row;
-            }
-            @Override public View getDropDownView(int position,View recycled,android.view.ViewGroup parent){
-                TextView row=(TextView)super.getDropDownView(position,recycled,parent);row.setTextColor(TEXT);row.setBackgroundColor(CARD);return row;
-            }
-        });
-        return choice;
-    }
-
     private void showAccountInteractionLimits(){
         rememberScreen("account_limits",null);
         setCurrentScreen(this::showAccountInteractionLimits);shell("Ограничения взаимодействия",false);
@@ -8366,15 +8371,31 @@ public class MainActivity extends Activity {
         ProgressBar loading=new ProgressBar(this);content.addView(loading);
         io.execute(()->{try{JSONObject state=controller.limits();runOnUiThread(()->{
             if(!screenRequestCurrent(generation,account,destination))return;destination.removeView(loading);
-            String[] ids={"existing_users","contributors_only","collaborators_only"};String[] labels={"Существующие пользователи","Участники проектов","Соавторы репозиториев"};
-            String active=state.optString("limit","");String activeLabel=active;for(int i=0;i<ids.length;i++)if(ids[i].equals(active))activeLabel=labels[i];
-            card(text(active.isEmpty()?"Ограничения не установлены":"Сейчас: "+activeLabel+"\nДо: "+state.optString("expires_at",""),14,true));
-            content.addView(text("Кто может взаимодействовать",13,true));Spinner type=accountChoice(labels);content.addView(type);
-            String[] expiry={"one_day","three_days","one_week","one_month","six_months"};content.addView(text("Срок ограничения",13,true));Spinner duration=accountChoice(new String[]{"1 день","3 дня","1 неделя","1 месяц","6 месяцев"});content.addView(duration);
-            card(text("GitHub ограничит создание Issues, PR и комментариев в ваших репозиториях согласно выбранному режиму.",13,false));
-            Button save=button("Установить ограничение");save.setOnClickListener(v->{final String chosen=ids[type.getSelectedItemPosition()],period=expiry[duration.getSelectedItemPosition()];confirmAccountChange(controller,generation,account,destination,"Установить ограничения: "+labels[type.getSelectedItemPosition()]+"?",()->controller.setLimits(chosen,period),this::showAccountInteractionLimits);});content.addView(save);
-            if(!active.isEmpty()){Button clear=button("Снять ограничение");clear.setOnClickListener(v->confirmAccountChange(controller,generation,account,destination,"Снять ограничения взаимодействия?",controller::clearLimits,this::showAccountInteractionLimits));content.addView(clear);}
+            String[] modes={"existing_users","contributors_only","collaborators_only"};int selected=0;
+            for(int i=0;i<modes.length;i++)if(modes[i].equals(state.optString("limit")))selected=i;
+            renderAccountLimits(controller,generation,account,destination,state,selected,0);
         });}catch(Exception e){runOnUiThread(()->{if(!screenRequestCurrent(generation,account,destination))return;destination.removeView(loading);errorCard("Не удалось загрузить ограничения",e.getMessage());});}});
+    }
+
+    private void renderAccountLimits(app.githubble.mobile.controller.GitHubAccountController controller,long generation,String account,LinearLayout destination,JSONObject state,int mode,int duration){
+        if(!screenRequestCurrent(generation,account,destination))return;
+        destination.removeAllViews();
+        String[] modes={"existing_users","contributors_only","collaborators_only"};
+        String[] labels={"Существующие пользователи","Участники проектов","Соавторы репозиториев"};
+        String[] periods={"one_day","three_days","one_week","one_month","six_months"};
+        String[] times={"1 день","3 дня","1 неделя","1 месяц","6 месяцев"};
+        String active=state.optString("limit","");String name=active;for(int i=0;i<modes.length;i++)if(modes[i].equals(active))name=labels[i];
+        List<SettingsScreen.Section> sections=new ArrayList<>();
+        SettingsScreen.Section status=new SettingsScreen.Section("Сейчас");
+        status.add(SettingsScreen.Item.info(R.drawable.ic_lock,active.isEmpty()?"Без ограничений":name,active.isEmpty()?"Дополнительные ограничения не установлены":"До "+formatGitHubDate(state.optString("expires_at")),""));sections.add(status);
+        SettingsScreen.Section options=new SettingsScreen.Section("Настроить ограничение");
+        options.add(SettingsScreen.Item.action(R.drawable.ic_profile,"Кто может взаимодействовать",labels[mode],"",()->new AlertDialog.Builder(this).setTitle("Кто может взаимодействовать").setSingleChoiceItems(labels,mode,(dialog,index)->{dialog.dismiss();renderAccountLimits(controller,generation,account,destination,state,index,duration);}).setNegativeButton("Отмена",null).show()));
+        options.add(SettingsScreen.Item.action(R.drawable.ic_history,"Новый срок",times[duration],"",()->new AlertDialog.Builder(this).setTitle("Срок ограничения").setSingleChoiceItems(times,duration,(dialog,index)->{dialog.dismiss();renderAccountLimits(controller,generation,account,destination,state,mode,index);}).setNegativeButton("Отмена",null).show()));
+        options.note("GitHub ограничит создание Issues, PR и комментариев в ваших репозиториях согласно выбранному режиму.");sections.add(options);
+        SettingsScreen.Section apply=new SettingsScreen.Section("Изменения");
+        apply.add(SettingsScreen.Item.action(R.drawable.ic_lock,"Применить ограничение",labels[mode]+" · "+times[duration],"",()->confirmAccountChange(controller,generation,account,destination,"Установить ограничения: "+labels[mode]+" на "+times[duration]+"?",()->controller.setLimits(modes[mode],periods[duration]),this::showAccountInteractionLimits)));
+        if(!active.isEmpty())apply.add(SettingsScreen.Item.action(R.drawable.ic_back,"Снять ограничение","Вернуть обычный доступ к взаимодействиям","",()->confirmAccountChange(controller,generation,account,destination,"Снять ограничения взаимодействия?",controller::clearLimits,this::showAccountInteractionLimits)));
+        sections.add(apply);new SettingsScreen(this,destination,settingsPalette()).renderPage(null,GREEN,sections);
     }
 
     private void showSettingsAccount(){
@@ -9910,6 +9931,7 @@ public class MainActivity extends Activity {
             case "ai_chat": showAgentChat(); break;
             case "profile": showProfile(); break;
             case "account_controls": showAccountControls(); break;
+            case "account_installation": showInstallationAccess(a.optLong("id")); break;
             case "account_blocks": showBlockedUsers(1,true); break;
             case "account_limits": showAccountInteractionLimits(); break;
             case "profile_editor": showNativeProfileEditor(); break;
