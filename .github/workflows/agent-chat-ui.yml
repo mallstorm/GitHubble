@@ -1,0 +1,64 @@
+name: Agent chat UI
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'app/**'
+      - '*.gradle'
+      - '.github/workflows/agent-chat-ui.yml'
+      - 'tools/publish-account-previews.py'
+permissions:
+  contents: write
+concurrency:
+  group: agent-ui-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  screenshots:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'ndk;28.2.13676358'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.1'
+      - name: Build debug-only preview and instrumentation
+        run: ./gradlew --no-daemon --max-workers=2 -PGITHUBBLE_CI_EMULATOR_ABI=x86_64 -PGITHUBBLE_AGENT_UI=true assembleDebug assembleDebugAndroidTest
+      - name: Prepare emulator
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-agent-kvm.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Verify native agent chat, tools, Markdown and keyboard
+        uses: ReactiveCircus/android-emulator-runner@v2
+        with:
+          api-level: 33
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          disk-size: 2048M
+          emulator-boot-timeout: 180
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -feature -Vulkan
+          script: |
+            adb install -r app/build/outputs/apk/debug/app-debug.apk
+            adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+            timeout -k 10s 240s adb shell am instrument -w app.githubble.mobile.debug.test/app.githubble.mobile.AgentChatUiInstrumentation > agent-ui-result.txt || true
+            cat agent-ui-result.txt
+            if ! grep -q 'PASS: agent chat UI' agent-ui-result.txt; then sed 's/^/::error title=Agent UI::/' agent-ui-result.txt; adb logcat -d -b crash | tail -50 | sed 's/^/::error title=Android crash::/'; exit 1; fi
+            mkdir -p agent-ui-screenshots
+            adb pull /sdcard/Android/data/app.githubble.mobile.debug/files/agent-ui/. agent-ui-screenshots/
+      - name: Publish synthetic screenshots for review
+        if: success() && github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREVIEW_KIND: agent-ui
+          PREVIEW_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: python3 tools/publish-account-previews.py

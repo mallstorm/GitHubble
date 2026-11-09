@@ -29,6 +29,12 @@ public final class OmniChatChatClient {
             "Вы Git Agent. Отвечайте на языке пользователя. Не заявляйте выполнение без инструментального результата.\n"+project+"\n"+repository);
         return complete(provider,model,credential,transcript,project,repository);
     }
+    public String completeStreamingForAccount(String owner,String provider,String model,String credential,JSONArray transcript,String project,String repository,java.util.function.Consumer<String> onText)throws Exception{
+        LAST_USAGE.remove();
+        if(nativeRuntime!=null&&nativeRuntime.handles(provider))return nativeRuntime.completeStreaming(provider,model,credential,owner,transcript,
+            "Вы Git Agent. Планируйте шаги самостоятельно. Отвечайте на языке пользователя. Не заявляйте выполнение без инструментального результата.\n"+project+"\n"+repository,onText);
+        return completeInternal(provider,model,credential,transcript,project,repository,null,null,onText);
+    }
     public String completeWithImageForAccount(String owner,String provider,String model,String credential,JSONArray transcript,String project,String repository,String mime,byte[] image)throws Exception{
         LAST_USAGE.remove();
         if(nativeRuntime!=null&&nativeRuntime.handles(provider))return nativeRuntime.complete(provider,model,credential,owner,transcript,project+"\n"+repository,mime,image);
@@ -117,6 +123,10 @@ public final class OmniChatChatClient {
 
     private String completeInternal(String provider,String model,String credential,
             JSONArray transcript,String project,String repository,String imageMime,byte[] image)throws Exception {
+        return completeInternal(provider,model,credential,transcript,project,repository,imageMime,image,null);
+    }
+    private String completeInternal(String provider,String model,String credential,
+            JSONArray transcript,String project,String repository,String imageMime,byte[] image,java.util.function.Consumer<String> onText)throws Exception {
         LAST_USAGE.remove();
         if(OAuthSubscriptions.supports(provider)){
             if(subscriptions==null)throw new IllegalStateException("OAuth-транспорт не инициализирован");
@@ -164,13 +174,13 @@ public final class OmniChatChatClient {
                     .put("instructions", context)
                     .put("input", messages)
                     .put("store", false)
-                    .put("stream", false);
+                    .put("stream", onText!=null);
         } else {
             JSONArray chat = new JSONArray().put(new JSONObject()
                     .put("role", "system").put("content", context));
             for (int i = 0; i < messages.length(); i++) chat.put(messages.optJSONObject(i));
             body = new JSONObject().put("model", model.trim())
-                    .put("messages", chat).put("stream", false);
+                    .put("messages", chat).put("stream", onText!=null);
         }
 
         byte[] requestBytes = body.toString().getBytes(StandardCharsets.UTF_8);
@@ -184,7 +194,7 @@ public final class OmniChatChatClient {
             connection.setInstanceFollowRedirects(false);
             connection.setUseCaches(false);
             connection.setDoOutput(true);
-            connection.setRequestProperty("Accept", "application/json");
+            connection.setRequestProperty("Accept", onText==null?"application/json":"text/event-stream, application/json");
             connection.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
             connection.setRequestProperty("Authorization", "Bearer " + credential.trim());
             connection.setRequestProperty("User-Agent", "GitHubble-AI-Workspace/1");
@@ -194,6 +204,12 @@ public final class OmniChatChatClient {
             }
             int status = connection.getResponseCode();
             boolean ok = status >= 200 && status < 300;
+            if(ok&&onText!=null&&connection.getContentType()!=null&&connection.getContentType().contains("text/event-stream")){
+                try(InputStream input=connection.getInputStream()){
+                    String reply=AgentTextStream.read(input,onText,OmniChatChatClient::captureUsage);
+                    if(reply.isEmpty())throw new IllegalStateException("Провайдер не вернул текст");return reply;
+                }
+            }
             String raw;
             try (InputStream input = ok ? connection.getInputStream() : connection.getErrorStream()) {
                 raw = readLimited(input);
@@ -205,6 +221,7 @@ public final class OmniChatChatClient {
             String reply = "openai".equals(provider) ? responseOutput(result) : chatOutput(result);
             if (reply.isEmpty()) throw new IllegalStateException(
                     "AI API не вернул текст. Проверьте модель, тариф и поддержку текстового чата.");
+            if(onText!=null)onText.accept(reply);
             return reply;
         } finally {
             connection.disconnect();

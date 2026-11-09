@@ -33,16 +33,16 @@ public final class GitHubAgentBridge {
     }
 
     /** Immutable network credentials are captured under the account switch lock. */
-    private GitHubApiClient scopedApi(String expected) {
-        synchronized (accounts) {
+    private GitHubApiClient scopedApi(String expected) throws GitHubApiClient.SessionChangedException {
+        synchronized (SecureStore.SESSION_LOCK) {
             requireAccount(expected);
             String token = secrets.get("github_token");
             if (token.isEmpty()) throw new IllegalStateException("Токен GitHub отсутствует");
-            return new GitHubApiClient(secrets, null, token);
+            return new GitHubApiClient(secrets).bindCurrentSession();
         }
     }
 
-    GitHubApiClient toolApi(String expected){return scopedApi(expected);}
+    GitHubApiClient toolApi(String expected)throws GitHubApiClient.SessionChangedException{return scopedApi(expected);}
 
     public JSONObject createRepository(String expected, String name, String description, boolean privateRepo)
             throws Exception {

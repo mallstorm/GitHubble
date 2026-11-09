@@ -47,7 +47,7 @@ public final class AgentChatScreen {
         void showBuildArtifacts();
         void diagnoseBuild();
         void generateProjectCode();
-        void selectMode(boolean agentMode);
+        default void selectMode(boolean ignored){}
         void send(String prompt, boolean agentMode);
         void showConversations();
         void openTools();
@@ -58,6 +58,9 @@ public final class AgentChatScreen {
         void cancelRequest();
         void draftChanged(String draft);
         default void exportMedia(String path,String mime){}
+        default void exportMarkdown(String source){}
+        default void openDiff(String id){}
+        default JSONObject activeRun(){return null;}
     }
 
     private final Activity activity;
@@ -65,6 +68,14 @@ public final class AgentChatScreen {
     private final int background, surface, subtle, text, muted, accent, border;
     private final Actions actions;
     private final boolean dark;
+    private boolean requestBusy;
+    private TextView sendControl;
+    private EditText inputField;
+    private ScrollView transcriptScroll;
+    private LinearLayout transcript,streamed;
+    private TextView newActions;
+    private final java.util.Map<String,View> rendered=new java.util.LinkedHashMap<>();
+    private String renderedModel="",lastPreview="";
 
     public AgentChatScreen(Activity activity, LinearLayout root, int background, int surface,
                            int subtle, int text, int muted, int accent, int border, Actions actions) {
@@ -80,6 +91,7 @@ public final class AgentChatScreen {
                        int providerCount, boolean agentMode,
                        String providerLabel, String modelLabel, boolean connected,
                        String conversationTitle, boolean busy, String draft) {
+        requestBusy=busy;
         root.removeAllViews();
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(0,0,0,0);
@@ -88,7 +100,7 @@ public final class AgentChatScreen {
         FrameLayout top = new FrameLayout(activity);
         top.setPadding(dp(14),dp(6),dp(14),dp(6));
         TextView brand=label(conversationTitle.isEmpty() || "Новый диалог".equals(conversationTitle)
-                ? "" : conversationTitle,16,true,this.text);
+                ? "Git Agent" : conversationTitle,16,true,this.text);
         brand.setGravity(Gravity.CENTER);brand.setSingleLine();brand.setEllipsize(TextUtils.TruncateAt.END);
         FrameLayout.LayoutParams brandLp=new FrameLayout.LayoutParams(-1,-1);
         brandLp.leftMargin=dp(60);brandLp.rightMargin=dp(60);top.addView(brand,brandLp);
@@ -113,51 +125,35 @@ public final class AgentChatScreen {
         View divider=separator();divider.setAlpha(.30f);
         root.addView(divider,new LinearLayout.LayoutParams(-1,dp(1)));
 
-        if(project.workspaceId!=null&&!project.workspaceId.isEmpty()||agentMode&&!project.repository.isEmpty()){
-            TextView scope=label((project.name.isEmpty()?"Workspace":project.name)+(agentMode&&!project.repository.isEmpty()?" · "+project.repository:""),12,true,muted);
-            scope.setPadding(dp(14),dp(5),dp(14),dp(5));scope.setOnClickListener(v->actions.newProject());root.addView(scope);
+        if((project.workspaceId!=null&&!project.workspaceId.isEmpty())||!project.repository.isEmpty()){
+            String scope=project.repository.isEmpty()?project.name:project.repository+" · "+project.branch;
+            scope+=(project.workspaceId!=null&&!project.workspaceId.isEmpty())?" · Workspace готов":" · GitHub, без локального Workspace";
+            TextView context=label(scope,11,true,muted);context.setPadding(dp(14),dp(6),dp(14),dp(6));
+            context.setOnClickListener(v->actions.newProject());root.addView(context);
         }
-        ScrollView scroll = new ScrollView(activity);
-        scroll.setFillViewport(true);
-        scroll.setVerticalScrollBarEnabled(false);
-        scroll.setClipToPadding(false);
-        LinearLayout transcript = new LinearLayout(activity);
-        transcript.setOrientation(LinearLayout.VERTICAL);
-        transcript.setPadding(dp(12),dp(13),dp(12),dp(14));
-        scroll.addView(transcript);
+        rendered.clear();streamed=null;lastPreview="";renderedModel=modelLabel;
+        transcriptScroll=new ScrollView(activity);transcriptScroll.setFillViewport(true);transcriptScroll.setVerticalScrollBarEnabled(false);
+        transcript=new LinearLayout(activity);transcript.setOrientation(LinearLayout.VERTICAL);transcript.setPadding(dp(12),dp(13),dp(12),dp(14));
+        transcriptScroll.addView(transcript);root.addView(transcriptScroll,new LinearLayout.LayoutParams(-1,0,1));
+        newActions=label("Новые действия ↓",11,true,accent);newActions.setGravity(Gravity.CENTER);newActions.setMinHeight(dp(40));newActions.setVisibility(View.GONE);
+        newActions.setOnClickListener(v->{transcriptScroll.fullScroll(View.FOCUS_DOWN);newActions.setVisibility(View.GONE);});root.addView(newActions);
         if(messages==null||messages.length()==0)empty(transcript,project,connected);
-        else for(int i=0;i<messages.length();i++){
-            JSONObject entry=messages.optJSONObject(i);
-            if(entry!=null)message(transcript,entry,modelLabel);
-        }
-        root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
-        if(messages!=null&&messages.length()>0)scroll.post(()->scroll.fullScroll(View.FOCUS_DOWN));
-
-        if(busy){
-            LinearLayout progress=horizontal();
-            progress.setGravity(Gravity.CENTER_VERTICAL);
-            progress.setPadding(dp(12),dp(3),dp(12),dp(3));
-            progress.addView(label("●  AI обрабатывает сообщение…",12,true,accent),
-                    new LinearLayout.LayoutParams(0,-2,1));
-            progress.addView(actionLabel("Остановить",actions::cancelRequest));
-            root.addView(progress,new LinearLayout.LayoutParams(-1,dp(39)));
-        }
 
         LinearLayout dock=new LinearLayout(activity);
         dock.setOrientation(LinearLayout.VERTICAL);
-        dock.setPadding(dp(12),dp(10),dp(12),dp(8));
+        dock.setPadding(dp(12),dp(6),dp(12),dp(8));
         LinearLayout composer=new LinearLayout(activity);
         composer.setOrientation(LinearLayout.VERTICAL);
-        composer.setPadding(dp(8),dp(7),dp(8),dp(7));
-        composer.setBackground(shape(this.surface,30,this.border,1));
+        composer.setPadding(dp(8),dp(6),dp(8),dp(6));
+        composer.setBackground(shape(dark?0xFF253238:0xFFF2F4F3,28,this.border,1));
         LinearLayout.LayoutParams panelParams=new LinearLayout.LayoutParams(-1,-2);
-        panelParams.topMargin=dp(7);
+        panelParams.topMargin=dp(2);
         dock.addView(composer,panelParams);
 
-        EditText input=new EditText(activity);
+        EditText input=new EditText(activity);inputField=input;
         input.setTextColor(this.text);
         input.setHintTextColor(this.muted);
-        input.setTextSize(16);
+        input.setTextSize(15);
         input.setGravity(Gravity.TOP|Gravity.START);
         input.setSingleLine(false);
         input.setMinLines(1);
@@ -191,24 +187,11 @@ public final class AgentChatScreen {
         ImageView robot=icon(R.drawable.ic_omni_robot,"Агент · разрешения",0xFF2E9D68);
         robot.setOnClickListener(v->actions.openAgentSettings());
         tools.addView(robot,new LinearLayout.LayoutParams(dp(43),dp(43)));
-        // The boolean is now planning state; agent execution is always available.
-        final boolean[] currentMode={agentMode};
-        TextView plan=label("План",12,true,agentMode?accent:muted);
-        plan.setGravity(Gravity.CENTER);plan.setContentDescription("Режим планирования: только чтение");
-        plan.setBackground(shape(agentMode?subtle:Color.TRANSPARENT,14,border,1));
-        plan.setOnClickListener(v->{
-            currentMode[0]=!currentMode[0];
-            plan.setTextColor(currentMode[0]?accent:muted);
-            plan.setBackground(shape(currentMode[0]?subtle:Color.TRANSPARENT,14,border,1));
-            actions.selectMode(currentMode[0]);
-        });
-        tools.addView(plan,new LinearLayout.LayoutParams(dp(48),dp(38)));
-
         LinearLayout model=new LinearLayout(activity);
         model.setOrientation(LinearLayout.VERTICAL);
         model.setGravity(Gravity.CENTER);
-        String modelTitle=connected?modelLabel:"Выбрать AI-модель ▾";
-        TextView modelName=label(modelTitle,13,true,accent);
+        String modelTitle=connected?modelLabel:"Добавить подключение ▾";
+        TextView modelName=label(modelTitle,12,true,connected?accent:text);
         modelName.setSingleLine();
         modelName.setEllipsize(TextUtils.TruncateAt.MIDDLE);
         modelName.setGravity(Gravity.CENTER);
@@ -228,23 +211,24 @@ public final class AgentChatScreen {
         tools.addView(mic,new LinearLayout.LayoutParams(dp(43),dp(43)));
 
         TextView send=glyph(busy?"■":"↑",busy?"Остановить запрос":"Отправить",null,busy?19:27);
+        sendControl=send;
         send.setTextColor(busy || input.length()>0 ? Color.WHITE : this.muted);
         send.setBackground(shape(busy?0xFFC07055:input.length()>0?this.accent:this.subtle,50,0,0));
         input.addTextChangedListener(new TextWatcher(){
             public void beforeTextChanged(CharSequence s,int st,int count,int after){}
             public void onTextChanged(CharSequence s,int st,int before,int count){
-                if(!busy){send.setTextColor(s.toString().trim().isEmpty()?AgentChatScreen.this.muted:Color.WHITE);
+                if(!requestBusy){send.setTextColor(s.toString().trim().isEmpty()?AgentChatScreen.this.muted:Color.WHITE);
                     send.setBackground(shape(s.toString().trim().isEmpty()?AgentChatScreen.this.subtle:AgentChatScreen.this.accent,50,0,0));}
             }
             public void afterTextChanged(Editable e){}
         });
         send.setGravity(Gravity.CENTER);
         send.setOnClickListener(v->{
-            if(busy){actions.cancelRequest();return;}
+            if(requestBusy){actions.cancelRequest();return;}
             String value=input.getText().toString().trim();
             if(value.isEmpty()){input.setError("Введите сообщение");return;}
             if(value.length()>4900){input.setError("Сообщение превышает 4900 символов. Разбейте его на части.");return;}
-            actions.draftChanged("");
+            actions.draftChanged("");input.setText("");
             actions.send(value,true);
         });
         LinearLayout.LayoutParams sendParams=new LinearLayout.LayoutParams(dp(42),dp(42));
@@ -252,6 +236,7 @@ public final class AgentChatScreen {
         tools.addView(send,sendParams);
         composer.addView(tools,new LinearLayout.LayoutParams(-1,dp(47)));
         root.addView(dock,new LinearLayout.LayoutParams(-1,-2));
+        if(messages!=null&&messages.length()>0)refresh(messages,busy);
     }
 
     private void empty(LinearLayout transcript,AgentProjectStore.Project p,boolean connected){
@@ -276,7 +261,7 @@ public final class AgentChatScreen {
         transcript.addView(panel,new LinearLayout.LayoutParams(-1,-1));
     }
 
-    private void message(LinearLayout transcript,JSONObject entry,String model){
+    private View message(JSONObject entry,String model){
         String role=entry.optString("role","system");
         String body=entry.optString("body","");
         boolean user="user".equals(role),system="system".equals(role);
@@ -292,13 +277,8 @@ public final class AgentChatScreen {
             TextView tag=label(system?"Система":"Git Agent"+(model.isEmpty()?"":" · "+model),11,true,system?muted:accent);
             bubble.addView(tag);
         }
-        TextView content=label(body,14,false,text);
-        content.setTextIsSelectable(true);
-        content.setLineSpacing(dp(2),1.05f);
-        content.setPadding(0,dp(3),0,dp(4));
-        content.setText(markdown(body));
-        content.setLinkTextColor(accent);content.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
-        bubble.addView(content,new LinearLayout.LayoutParams(-1,-2));
+        if(user){TextView content=label(body,14,false,text);content.setTextIsSelectable(true);bubble.addView(content);}
+        else new AgentMarkdownView(activity,text,muted,accent,subtle,border).render(bubble,body);
         // Only host-authored structured events can display completed file operations.
         if(system){
             JSONArray operations=entry.optJSONArray("operations");
@@ -336,9 +316,13 @@ public final class AgentChatScreen {
                 android.widget.Toast.makeText(activity,"Скопировано",android.widget.Toast.LENGTH_SHORT).show();
             });
             bubble.addView(copy);
+            if(!user){
+                TextView document=label("▤  Открыть документ · .md",11,false,accent);document.setPadding(dp(3),dp(8),dp(3),dp(8));document.setMinHeight(dp(48));
+                document.setOnClickListener(v->AgentDocumentSheet.document(activity,body,text,muted,accent,subtle,border,()->actions.exportMarkdown(body)));bubble.addView(document);
+            }
         }
-        wrapper.addView(bubble,new LinearLayout.LayoutParams(-2,-2));
-        transcript.addView(wrapper,new LinearLayout.LayoutParams(-1,-2));
+        wrapper.addView(bubble,new LinearLayout.LayoutParams(user?-2:-1,-2));
+        return wrapper;
     }
 
     private void fileOperation(LinearLayout parent,JSONObject op){
@@ -361,59 +345,67 @@ public final class AgentChatScreen {
         parent.addView(row,new LinearLayout.LayoutParams(-1,-2));
     }
 
-    /** Render common ChatGPT markdown without leaking ** or code fences into UI. */
-    private static CharSequence markdown(String source){
-        SpannableStringBuilder output=new SpannableStringBuilder();
-        String[] lines=(source==null?"":source).split("\n",-1);
-        boolean code=false,visible=false;
-        for(String line:lines){
-            if(line.trim().startsWith("```")){
-                code=!code;
-                continue;
+    private boolean legacyTool(JSONObject entry){return entry!=null&&entry.optJSONObject("run")==null&&"system".equals(entry.optString("role"))
+        &&entry.optString("body").matches("(?s)^✓\\s+(?:read_file|list_files|search_files|symbol_index)\\b.*");}
+    private View legacyGroup(JSONArray entries){
+        LinearLayout group=new LinearLayout(activity);group.setOrientation(LinearLayout.VERTICAL);
+        TextView header=label("▸ Предыдущие действия · "+entries.length(),12,true,muted);header.setMinHeight(dp(48));header.setGravity(Gravity.CENTER_VERTICAL);group.addView(header);
+        LinearLayout body=new LinearLayout(activity);body.setOrientation(LinearLayout.VERTICAL);body.setVisibility(View.GONE);group.addView(body);
+        for(int i=0;i<entries.length();i++){JSONObject e=entries.optJSONObject(i);TextView row=label(e==null?"":e.optString("body"),11,false,muted);row.setPadding(dp(14),dp(4),0,dp(4));body.addView(row);}
+        header.setOnClickListener(v->{boolean show=body.getVisibility()!=View.VISIBLE;body.setVisibility(show?View.VISIBLE:View.GONE);header.setText((show?"▾ ":"▸ ")+"Предыдущие действия · "+entries.length());});return group;
+    }
+
+    public void syncDraft(String value){if(inputField!=null&&!inputField.getText().toString().equals(value)){inputField.setText(value);inputField.setSelection(inputField.length());}}
+    public boolean attached(){return root.isAttachedToWindow()&&transcriptScroll!=null;}
+    public void refresh(JSONArray messages,boolean busy){
+        requestBusy=busy;
+        if(sendControl!=null){sendControl.setText(busy?"■":"↑");sendControl.setContentDescription(busy?"Остановить запрос":"Отправить");
+            boolean filled=inputField!=null&&!inputField.getText().toString().trim().isEmpty();
+            sendControl.setTextColor(busy||filled?Color.WHITE:muted);sendControl.setBackground(shape(busy?0xFFC07055:filled?accent:subtle,50,0,0));}
+        if(transcriptScroll==null||messages==null)return;
+        boolean bottom=transcript.getHeight()-transcriptScroll.getScrollY()-transcriptScroll.getHeight()<dp(90);
+        int oldY=transcriptScroll.getScrollY();
+        if(rendered.isEmpty()&&messages.length()>0)transcript.removeAllViews();
+        java.util.Set<String> keep=new java.util.HashSet<>();int position=0;
+        JSONObject running=actions.activeRun();String entryModel="";
+        for(int i=0;i<messages.length();i++){
+            JSONObject entry=messages.optJSONObject(i);if(entry==null)continue;JSONObject run=entry.optJSONObject("run");
+            if(run!=null&&run.optString("id").isEmpty())run=null;
+            if(run!=null&&running!=null&&run.optString("id").equals(running.optString("id")))run=running;
+            JSONArray legacy=null;
+            if(run==null&&legacyTool(entry)){
+                legacy=new JSONArray().put(entry);
+                while(i+1<messages.length()&&legacyTool(messages.optJSONObject(i+1)))legacy.put(messages.optJSONObject(++i));
             }
-            if(visible)output.append('\n');
-            visible=true;
-            int beginning=output.length();
-            if(code){
-                output.append(line);
-                if(!line.isEmpty())output.setSpan(new android.text.style.TypefaceSpan("monospace"),
-                    beginning,output.length(),android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-                continue;
-            }
-            SpannableStringBuilder formatted=new SpannableStringBuilder(line);
-            int pos=0;
-            while(pos<formatted.length()){
-                int open=formatted.toString().indexOf("**",pos);
-                if(open<0)break;
-                int close=formatted.toString().indexOf("**",open+2);
-                if(close<0)break;
-                formatted.delete(close,close+2);
-                formatted.delete(open,open+2);
-                if(close>open+2)formatted.setSpan(new StyleSpan(Typeface.BOLD),
-                    open,close-2,android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-                pos=Math.max(open+1,close-2);
-            }
-            pos=0;
-            while(pos<formatted.length()){
-                int open=formatted.toString().indexOf('`',pos);
-                if(open<0)break;
-                int close=formatted.toString().indexOf('`',open+1);
-                if(close<0)break;
-                formatted.delete(close,close+1);
-                formatted.delete(open,open+1);
-                if(close>open+1)formatted.setSpan(new android.text.style.TypefaceSpan("monospace"),
-                    open,close-1,android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-                pos=Math.max(open+1,close-1);
-            }
-            java.util.regex.Matcher link=java.util.regex.Pattern.compile("\\[([^\\]]+)\\]\\((https?://[^\\s)]+)\\)").matcher(formatted.toString());
-            while(link.find()){
-                int start=link.start(),end=link.end();String title=link.group(1),url=link.group(2);
-                formatted.replace(start,end,title);formatted.setSpan(new android.text.style.URLSpan(url),start,start+title.length(),android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-                link=java.util.regex.Pattern.compile("\\[([^\\]]+)\\]\\((https?://[^\\s)]+)\\)").matcher(formatted.toString());
-            }
-            output.append(formatted);
+            if(run!=null)entryModel=run.optString("model");
+            String key=run!=null?"run:"+run.optString("id"):legacy!=null?"legacy:"+entry.optLong("at"):"message:"+i+":"+entry.optLong("at");keep.add(key);
+            View view=rendered.get(key);
+            if(legacy!=null&&view==null)view=legacyGroup(legacy);
+            if(run!=null){if(!(view instanceof AgentRunView))view=new AgentRunView(activity,text,muted,accent,subtle,border,run,actions::openDiff);else ((AgentRunView)view).update(run);}
+            else if(view==null)view=message(entry,entryModel);
+            rendered.put(key,view);
+            if(view.getParent()==null)transcript.addView(view,position,new LinearLayout.LayoutParams(-1,-2));
+            else if(transcript.indexOfChild(view)!=position){transcript.removeView(view);transcript.addView(view,position);}
+            position++;
         }
-        return output;
+        if(running!=null&&app.githubble.mobile.agent.AgentRunRegistry.live(running.optString("id"),running.optString("account"),running.optString("conversation"))){
+            String key="run:"+running.optString("id");
+            if(!keep.contains(key)){
+                keep.add(key);View view=rendered.get(key);
+                if(view instanceof AgentRunView)((AgentRunView)view).update(running);
+                else view=new AgentRunView(activity,text,muted,accent,subtle,border,running,actions::openDiff);
+                rendered.put(key,view);if(view.getParent()==null)transcript.addView(view,position,new LinearLayout.LayoutParams(-1,-2));
+            }
+        }
+        java.util.Iterator<java.util.Map.Entry<String,View>> iterator=rendered.entrySet().iterator();while(iterator.hasNext()){
+            java.util.Map.Entry<String,View> entry=iterator.next();if(!keep.contains(entry.getKey())){transcript.removeView(entry.getValue());iterator.remove();}
+        }
+        String preview=busy&&running!=null?running.optString("preview"):"";
+        if(!preview.isEmpty()){
+            if(streamed==null){streamed=new LinearLayout(activity);streamed.setOrientation(LinearLayout.VERTICAL);streamed.setPadding(dp(5),dp(12),dp(5),dp(8));transcript.addView(streamed);}
+            if(!preview.equals(lastPreview)){streamed.removeAllViews();new AgentMarkdownView(activity,text,muted,accent,subtle,border).render(streamed,preview);lastPreview=preview;}
+        }else if(streamed!=null){transcript.removeView(streamed);streamed=null;lastPreview="";}
+        transcriptScroll.post(()->{if(bottom){transcriptScroll.fullScroll(View.FOCUS_DOWN);newActions.setVisibility(View.GONE);}else{transcriptScroll.scrollTo(0,oldY);newActions.setVisibility(View.VISIBLE);}});
     }
 
     private LinearLayout horizontal(){
