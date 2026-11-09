@@ -1,4 +1,4 @@
-name: GitHubble Android checks and release
+name: GitHubble Android build (portable private mirror)
 
 # STABLE RELEASE POLICY:
 # Fast path (RC3.9-style): unit tests plus Debug/Release compile, without an emulator.
@@ -7,6 +7,7 @@ name: GitHubble Android checks and release
 # Use workflow_dispatch with full_validation=true for lint + emulator regressions.
 # PR builds never use release-signing secrets; release signing is main-only.
 # Working/backup branches do not publish builds.
+# Mirror-friendly: manual dispatch on main publishes a GitHub Release too.
 on:
   workflow_dispatch:
     inputs:
@@ -202,7 +203,7 @@ jobs:
           retention-days: 1
 
       - name: Sign release APK
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && env.HAS_RELEASE_SIGNING == 'true'
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && env.HAS_RELEASE_SIGNING == 'true'
         env:
           KEYSTORE_B64: ${{ secrets.GITHUBBLE_RELEASE_KEYSTORE_BASE64 }}
           STORE_PASSWORD: ${{ secrets.GITHUBBLE_RELEASE_STORE_PASSWORD }}
@@ -231,14 +232,14 @@ jobs:
           rm -f "${RUNNER_TEMP}/githubble-release.p12" "${RUNNER_TEMP}/githubble-aligned.apk"
 
       - name: Record unavailable release signing
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && env.HAS_RELEASE_SIGNING != 'true'
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && env.HAS_RELEASE_SIGNING != 'true'
         shell: bash
         run: |
           mkdir -p dist
           echo "Signed release not produced: configure the persistent GitHub release-signing secrets." > dist/SIGNING_INFO.txt
 
       - name: Export APKs and exact main source tree
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
         shell: bash
         run: |
           set -euo pipefail
@@ -259,7 +260,7 @@ jobs:
           fi
 
       - name: Verify and publish main bundle directly to GitHub Releases
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
