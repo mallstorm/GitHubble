@@ -23,6 +23,10 @@ def accountUiSmoke = (project.findProperty('GITHUBBLE_ACCOUNT_UI') ?: 'false').t
 if (accountUiSmoke && (ciEmulatorAbi != 'x86_64' || r8Smoke)) {
     throw new GradleException('Account UI fixtures require the x86_64 Debug emulator')
 }
+def agentUiSmoke = (project.findProperty('GITHUBBLE_AGENT_UI') ?: 'false').toString() == 'true'
+if (agentUiSmoke && (ciEmulatorAbi != 'x86_64' || r8Smoke || accountUiSmoke)) {
+    throw new GradleException('Agent UI fixtures require the isolated x86_64 Debug emulator')
+}
 def releaseVersion = new Properties()
 file('../version.properties').withInputStream { releaseVersion.load(it) }
 def appVersionName = releaseVersion.getProperty('VERSION_NAME')
@@ -45,7 +49,7 @@ android {
         buildConfigField 'String', 'GITHUB_APP_SLUG', '"' + escapedGithubAppSlug + '"'
         buildConfigField 'boolean', 'FEATURE_FREEZE', 'false'
         buildConfigField 'String', 'RC_CHANNEL', '"' + releaseChannel + '"'
-        testInstrumentationRunner (r8Smoke ? 'app.githubble.mobile.R8SmokeInstrumentation' : (accountUiSmoke ? 'app.githubble.mobile.AccountAccessUiInstrumentation' : 'app.githubble.mobile.RcInstrumentationTest'))
+        testInstrumentationRunner (r8Smoke ? 'app.githubble.mobile.R8SmokeInstrumentation' : (accountUiSmoke ? 'app.githubble.mobile.AccountAccessUiInstrumentation' : (agentUiSmoke ? 'app.githubble.mobile.AgentChatUiInstrumentation' : 'app.githubble.mobile.RcInstrumentationTest')))
         ndk {
             abiFilters(ciEmulatorAbi.isEmpty() ? 'arm64-v8a' : ciEmulatorAbi)
         }
@@ -87,6 +91,11 @@ android {
 
 
 dependencies {
+    implementation 'org.commonmark:commonmark:0.24.0'
+    implementation 'org.commonmark:commonmark-ext-gfm-tables:0.24.0'
+    implementation 'org.commonmark:commonmark-ext-task-list-items:0.24.0'
+    implementation 'org.commonmark:commonmark-ext-gfm-strikethrough:0.24.0'
+    implementation 'org.commonmark:commonmark-ext-autolink:0.24.0'
     implementation 'com.squareup.okhttp3:okhttp:4.12.0'
     implementation 'androidx.core:core:1.16.0'
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0'

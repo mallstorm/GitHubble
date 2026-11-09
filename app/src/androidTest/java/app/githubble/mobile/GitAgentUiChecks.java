@@ -194,14 +194,8 @@ final class GitAgentUiChecks {
             try{app.githubble.mobile.network.AiNetwork.enable(testProfile);
                 if(!new org.json.JSONObject(app.githubble.mobile.network.AiNetwork.profiles()).getBoolean("enabled"))throw new AssertionError("Native Xray did not start");
             }finally{app.githubble.mobile.network.AiNetwork.disable();app.githubble.mobile.network.AiNetwork.removeProfile(testProfile);}
-            java.lang.reflect.Method markdown=AgentChatScreen.class.getDeclaredMethod("markdown",String.class);
-            markdown.setAccessible(true);
-            CharSequence formatted=(CharSequence)markdown.invoke(null,
-                "GitHub **приватный**\n`ветка`\n```bash\nprintf ok\n```");
-            if(formatted.toString().contains("**") || formatted.toString().contains("```")
-                    || !formatted.toString().contains("printf ok")
-                    || !formatted.toString().contains("приватный"))
-                throw new AssertionError("Markdown punctuation leaked into Git Agent UI");
+            org.commonmark.node.Node document=app.githubble.mobile.ui.AgentMarkdown.parse("# Заголовок\n\n**приватный**\n\n```bash\nprintf ok\n```");
+            if(!(document.getFirstChild() instanceof org.commonmark.node.Heading))throw new AssertionError("Markdown heading missing");
             for(boolean dark:new boolean[]{false,true}){
                 onMain(host,()->{
                     LinearLayout root=new LinearLayout(activity);root.setOrientation(1);activity.setContentView(root);
@@ -217,7 +211,7 @@ final class GitAgentUiChecks {
                     if(find(root,"Git Agent")==null||find(root,"Спросить Git Agent")==null)
                         throw new AssertionError("Missing Git Agent branding/composer");
                     if(find(root,"OmniChat")!=null)throw new AssertionError("Old branding visible");
-                    if(find(root,"План")==null)throw new AssertionError("Planning control missing");
+                    if(find(root,"План")!=null)throw new AssertionError("Removed Plan control is visible");
                     EditText input=(EditText)find(root,"Спросить Git Agent");
                     if(!"Сохранённый черновик".equals(input.getText().toString()))throw new AssertionError("Draft missing");
 

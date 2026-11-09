@@ -182,7 +182,7 @@ public class MainActivity extends Activity {
     }
 
     private final Map<String,AtomicBoolean> subscriptionAttempts=new ConcurrentHashMap<>();
-    private final java.util.Set<String> aiRequestsInFlight = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private static final java.util.Set<String> aiRequestsInFlight = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private TrackingDatabase trackingDb;
     private TrackingEngine trackingEngine;
     private TranslationCache translationCache;
@@ -254,10 +254,10 @@ public class MainActivity extends Activity {
     private String pendingRepositoryImportFull = "";
     private String pendingRepositoryImportBranch = "main";
     private final Set<String> smartSearchRendered = new HashSet<>();
-    private final Map<String,java.util.concurrent.Future<?>> aiActiveFutures = new java.util.concurrent.ConcurrentHashMap<>();
-    private final Set<String> aiCanceledRequests = java.util.concurrent.ConcurrentHashMap.newKeySet();
-    private final Map<String,Long> aiRequestTickets = new java.util.concurrent.ConcurrentHashMap<>();
-    private final java.util.concurrent.atomic.AtomicLong aiTicketCounter = new java.util.concurrent.atomic.AtomicLong();
+    private static final Map<String,java.util.concurrent.Future<?>> aiActiveFutures = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final Set<String> aiCanceledRequests = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private static final Map<String,Long> aiRequestTickets = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final java.util.concurrent.atomic.AtomicLong aiTicketCounter = new java.util.concurrent.atomic.AtomicLong();
     private String pendingAgentTextAccount = "";
     private String pendingAgentTextConversation = "";
     private static final int REQUEST_AGENT_TEXT_FILE = 2722;
@@ -328,6 +328,7 @@ public class MainActivity extends Activity {
         migrateSecureSettings();
         applyTheme();
         restoreLegacyThemeIconAfterUpgrade();
+        app.githubble.mobile.agent.AgentUiSession.attach(this);
         showHome();
         getWindow().getDecorView().post(performanceMonitor::markFirstFrame);
         handleIntent(getIntent());
@@ -623,6 +624,18 @@ public class MainActivity extends Activity {
                 android.util.Base64.URL_SAFE | android.util.Base64.NO_WRAP);
     }
 
+    private AgentChatScreen activeAgentChatScreen;
+    private String activeAgentChatScope="",activeAgentChatConfiguration="";
+    private String agentChatConfiguration(String owner,String thread){
+        String provider=aiConnections.selectedProvider(owner);
+        AgentProjectStore.Project project=agentProjects.project(owner);String title="";
+        JSONArray list=agentProjects.listConversations(owner);for(int i=0;i<list.length();i++){JSONObject e=list.optJSONObject(i);if(e!=null&&thread.equals(e.optString("id"))){title=e.optString("title");break;}}
+        return provider+"\n"+(provider.isEmpty()?"":aiConnections.model(owner,provider))+"\n"+(!provider.isEmpty()&&aiConnections.isConfigured(owner,provider))+"\n"+project.name+"\n"+project.repository+"\n"+project.branch+"\n"+project.workspaceId+"\n"+title;
+    }
+    private boolean agentChatBusy(String owner,String thread){
+        app.githubble.mobile.agent.AgentRun active=app.githubble.mobile.agent.AgentRunRegistry.current(owner);
+        return aiRequestsInFlight.contains(owner)&&(active==null||active.conversation.equals(thread));
+    }
     private void showAgentChat() {
         rememberScreen("ai_chat", null);
         setCurrentScreen(this::showAgentChat);
@@ -656,6 +669,9 @@ public class MainActivity extends Activity {
             @Override public void openTools() { agentShowChatTools(owner); }
             @Override public void openAttachments() { agentShowAttachments(owner); }
             @Override public void exportMedia(String path,String mime){agentExportMedia(path,mime);}
+            @Override public void exportMarkdown(String source){if(owner.equals(accountStore.activeCacheKey())&&renderedThread.equals(agentProjects.activeConversation(owner)))agentExportMarkdown(source);}
+            @Override public void openDiff(String id){agentOpenDiff(owner,renderedThread,id);}
+            @Override public JSONObject activeRun(){app.githubble.mobile.agent.AgentRun run=app.githubble.mobile.agent.AgentRunRegistry.get(owner,renderedThread);return run==null?null:run.snapshot();}
             @Override public void openAgentSettings() { navigate(MainActivity.this::showSettingsGitAgentWorkspace); }
             @Override public void voiceInput(EditText input, ImageView microphone) {
                 toggleVoiceInput(input, microphone);
@@ -663,10 +679,6 @@ public class MainActivity extends Activity {
             @Override public void voiceSettings() { showVoiceLanguageChooser(); }
             @Override public void cancelRequest() { agentCancelRequest(owner); }
             @Override public void draftChanged(String value) { prefs.edit().putString(agentDraftKey(owner, renderedThread), value).apply(); }
-            @Override public void selectMode(boolean agentMode) {
-                if(!owner.equals(accountStore.activeCacheKey()))return;
-                prefs.edit().putBoolean(agentPlanningKey(owner,renderedThread),agentMode).apply();
-            }
             @Override public void send(String prompt, boolean agentMode) {
                 agentSend(owner, prompt, agentMode);
             }
@@ -684,15 +696,27 @@ public class MainActivity extends Activity {
             }
         }
         screen.render(label, project, agentProjects.messages(owner), OmniChatProviderCatalog.load(this).length(),
-                prefs.getBoolean(agentPlanningKey(owner,selectedThread),false),
+                true,
                 connected ? aiConnections.displayName(provider) : "нет",
                 connected ? aiConnections.model(owner, provider) : "", connected,
-                title, aiRequestsInFlight.contains(owner), prefs.getString(agentDraftKey(owner, agentProjects.activeConversation(owner)), ""));
+                title, agentChatBusy(owner,renderedThread), prefs.getString(agentDraftKey(owner, renderedThread), ""));
+        activeAgentChatScreen=screen;activeAgentChatScope=owner+"\n"+renderedThread;activeAgentChatConfiguration=agentChatConfiguration(owner,renderedThread);
     }
 
     private void agentRefreshIfCurrent(String expectedAccount) {
-        if ("Чат".equals(currentTitle) && expectedAccount.equals(accountStore.activeCacheKey()))
-            showAgentChat();
+        if(isDestroyed()||isFinishing()){
+            Activity current=app.githubble.mobile.agent.AgentUiSession.activity();
+            if(current instanceof MainActivity&&current!=this)current.runOnUiThread(()->((MainActivity)current).agentRefreshIfCurrent(expectedAccount));
+            return;
+        }
+        if ("Чат".equals(currentTitle) && expectedAccount.equals(accountStore.activeCacheKey())){
+            String thread=agentProjects.activeConversation(expectedAccount);
+            if(activeAgentChatScreen!=null&&activeAgentChatScreen.attached()&&activeAgentChatScope.equals(expectedAccount+"\n"+thread)&&activeAgentChatConfiguration.equals(agentChatConfiguration(expectedAccount,thread))){
+                activeAgentChatScreen.syncDraft(prefs.getString(agentDraftKey(expectedAccount,thread),""));
+                activeAgentChatScreen.refresh(agentProjects.messages(expectedAccount,thread),agentChatBusy(expectedAccount,thread));
+            }
+            else showAgentChat();
+        }
     }
 
     private void agentNewProject(String expected) {
@@ -1428,10 +1452,8 @@ public class MainActivity extends Activity {
         }
     }
 
-    private String agentPlanningKey(String owner,String thread){return "ai_planning_"+owner+"_"+thread;}
-    private boolean agentPlanning(String owner){
-        return prefs.getBoolean(agentPlanningKey(owner,agentProjects.activeConversation(owner)),false);
-    }
+    // The agent plans naturally. Write authority remains controlled by AgentPermissionPolicy.
+    private boolean agentPlanning(String owner){return false;}
     private int agentPermission(String owner){
         return app.githubble.mobile.agent.AgentPermissionPolicy.normalize(
             prefs.getInt("ai_execution_permission_"+owner,1));
@@ -1677,7 +1699,7 @@ public class MainActivity extends Activity {
         }
         if(!owner.equals(accountStore.activeCacheKey()))return;
         if(!app.githubble.mobile.agent.AgentPermissionPolicy.mayWrite(agentPermission(owner),agentPlanning(owner))){
-            toast("Планирование или только чтение: запись файлов отключена");return;
+            toast("Доступ только для чтения: запись файлов отключена");return;
         }
         String provider=aiConnections.selectedProvider(owner);
         if(provider.isEmpty()||!aiConnections.isConfigured(owner,provider)){
@@ -1933,6 +1955,23 @@ public class MainActivity extends Activity {
         }catch(Exception e){toast("Не удалось сохранить: "+e.getMessage());}
     }
 
+    private void agentExportMarkdown(String source){
+        try{
+            File dir=new File(getFilesDir(),"attachments");if(!dir.isDirectory()&&!dir.mkdirs())throw new IOException("Каталог недоступен");
+            File target=File.createTempFile("Git-Agent-report-",".md",dir);
+            try(FileOutputStream out=new FileOutputStream(target)){out.write(source.getBytes(StandardCharsets.UTF_8));}
+            agentExportMedia(target.getPath(),"text/markdown");
+        }catch(Exception e){toast("Не удалось сохранить документ: "+e.getMessage());}
+    }
+    private void agentOpenDiff(String owner,String thread,String id){
+        if(!owner.equals(accountStore.activeCacheKey())||!thread.equals(agentProjects.activeConversation(owner)))return;
+        io.execute(()->{try{
+            JSONObject value=new app.githubble.mobile.agent.AgentDiffStore(this).read(owner,thread,id);
+            runOnUiThread(()->{if(owner.equals(accountStore.activeCacheKey())&&thread.equals(agentProjects.activeConversation(owner)))
+                app.githubble.mobile.ui.AgentDocumentSheet.diff(this,value.optString("path"),value.optString("before"),value.optString("after"),TEXT,MUTED,GREEN,BORDER,CARD);});
+        }catch(Exception e){runOnUiThread(()->toast("Сравнение недоступно: "+e.getMessage()));}});
+    }
+
     private void agentShowWebSearch(String owner){
         EditText query=new EditText(this);query.setHint("Что найти в интернете?");query.setMinLines(2);
         new AlertDialog.Builder(this).setTitle("Веб-поиск").setMessage("Поиск отправит запрос публичным поисковым системам. Результаты будут доступны выбранной модели.")
@@ -1949,7 +1988,7 @@ public class MainActivity extends Activity {
         if(!owner.equals(accountStore.activeCacheKey()))return;
         app.githubble.mobile.agent.NativePluginRegistry registry=new app.githubble.mobile.agent.NativePluginRegistry(this,owner);
         GitAgentUi ui=new GitAgentUi(this,BG,CARD,TEXT,MUTED,GREEN,BORDER);LinearLayout body=ui.body("Плагины и MCP",true);final Dialog[] sheet={null};
-        ui.note(body,"HTTPS-расширения GET/POST и Streamable HTTP MCP. Ключи плагинов хранятся отдельно от ключей моделей. Каждый вызов подтверждается; в режиме планирования записи через плагины запрещены.");
+        ui.note(body,"HTTPS-расширения GET/POST и Streamable HTTP MCP. Ключи плагинов хранятся отдельно от ключей моделей. Каждый вызов подтверждается; запись зависит от разрешений Git Agent.");
         ui.action(body,"Добавить плагин или MCP","Название, HTTPS endpoint и отдельный bearer",GREEN,()->{sheet[0].dismiss();agentEditPlugin(owner,null);});
         JSONArray plugins=registry.list();for(int i=0;i<plugins.length();i++){
             JSONObject plugin=plugins.optJSONObject(i);if(plugin==null)continue;
@@ -1984,7 +2023,7 @@ public class MainActivity extends Activity {
 
     private void agentGenerateImage(String owner){
         if(!owner.equals(accountStore.activeCacheKey()))return;
-        if(!app.githubble.mobile.agent.AgentPermissionPolicy.mayWrite(agentPermission(owner),agentPlanning(owner))){toast("Выключите планирование и разрешите изменения");return;}
+        if(!app.githubble.mobile.agent.AgentPermissionPolicy.mayWrite(agentPermission(owner),agentPlanning(owner))){toast("Разрешите изменения в настройках Git Agent");return;}
         String provider=aiConnections.selectedProvider(owner);
         if(provider.isEmpty()||!aiConnections.isConfigured(owner,provider)){agentChooseComposerModel(owner);return;}
         String thread=agentProjects.activeConversation(owner);
@@ -1996,7 +2035,7 @@ public class MainActivity extends Activity {
         dialog.setOnShowListener(v->dialog.getButton(-1).setOnClickListener(w->{
             if(!owner.equals(accountStore.activeCacheKey())||!thread.equals(agentProjects.activeConversation(owner))){dialog.dismiss();return;}
             String request=prompt.getText().toString().trim(),selectedModel=model.getText().toString().trim(),selectedSize=size.getText().toString().trim();
-            if(!app.githubble.mobile.agent.AgentPermissionPolicy.mayWrite(agentPermission(owner),agentPlanning(owner))){toast("Планирование или доступ только для чтения");return;}
+            if(!app.githubble.mobile.agent.AgentPermissionPolicy.mayWrite(agentPermission(owner),agentPlanning(owner))){toast("Доступ только для чтения");return;}
             if(request.length()<2||selectedModel.isEmpty()){prompt.setError("Нужны описание и модель");return;}
             if(!aiRequestsInFlight.add(owner)){toast("Другой запрос ещё выполняется");return;}
             dialog.dismiss();aiCanceledRequests.remove(owner);long ticket=aiTicketCounter.incrementAndGet();aiRequestTickets.put(owner,ticket);
@@ -2208,11 +2247,13 @@ public class MainActivity extends Activity {
         if (!owner.equals(accountStore.activeCacheKey())) return;
         if (aiRequestsInFlight.contains(owner)) {
             aiCanceledRequests.add(owner);
+            app.githubble.mobile.agent.AgentRun run=app.githubble.mobile.agent.AgentRunRegistry.current(owner);
+            if(run!=null)run.finish("cancelled","Остановлено пользователем");
             aiRequestTickets.remove(owner);
             java.util.concurrent.Future<?> task = aiActiveFutures.remove(owner);
             if (task != null) task.cancel(true);
             aiRequestsInFlight.remove(owner);
-            agentProjects.append(owner, "system", "Запрос остановлен пользователем.");
+            if(run==null)agentProjects.append(owner, "system", "Запрос остановлен пользователем.");
         } else toast("Сейчас нет выполняемого запроса");
         agentRefreshIfCurrent(owner);
     }
@@ -2271,23 +2312,22 @@ public class MainActivity extends Activity {
                 agentRefreshIfCurrent(expected);return;
             }
             if(!aiRequestsInFlight.add(expected)){toast("GitHub-запрос уже выполняется");return;}
-            agentRefreshIfCurrent(expected);
-            io.execute(()->{
+            final long directTicket=aiTicketCounter.incrementAndGet();aiRequestTickets.put(expected,directTicket);aiCanceledRequests.remove(expected);
+            final app.githubble.mobile.agent.AgentRun directRun=new app.githubble.mobile.agent.AgentRun(expected,activeChat,android.os.SystemClock::elapsedRealtime);
+            app.githubble.mobile.agent.AgentRunRegistry.put(directRun);
+            new app.githubble.mobile.agent.AgentRunBinding(directRun,agentProjects,()->agentRefreshIfCurrent(expected));
+            directRun.round(1);String operation=directRun.begin("list_repositories",new JSONObject());agentRefreshIfCurrent(expected);
+            java.util.concurrent.FutureTask<Void> future=new java.util.concurrent.FutureTask<>(()->{
                 try{
-                    String answer=app.githubble.mobile.agent.GitHubReadLoop.directAnswer(
-                        aiGithub,expected,message);
-                    if(expected.equals(accountStore.activeCacheKey())
-                        &&activeChat.equals(agentProjects.activeConversation(expected)))
-                        agentProjects.appendToConversation(expected,activeChat,"agent",answer);
-                }catch(Exception error){
-                    agentProjects.appendToConversation(expected,activeChat,"system",
-                        "GitHub API: "+error.getMessage()+
-                        ". Проверьте активный аккаунт и разрешения GitHub App.");
-                }finally{
-                    aiRequestsInFlight.remove(expected);
-                    runOnUiThread(()->agentRefreshIfCurrent(expected));
-                }
-            });return;
+                    String answer=app.githubble.mobile.agent.GitHubReadLoop.directAnswer(aiGithub,expected,message);
+                    if(java.util.Objects.equals(aiRequestTickets.get(expected),directTicket)&&expected.equals(accountStore.activeCacheKey())
+                        &&activeChat.equals(agentProjects.activeConversation(expected))){
+                        directRun.result(operation,"succeeded","");agentProjects.appendToConversation(expected,activeChat,"agent",answer);directRun.finish("succeeded","Список получен из GitHub API");
+                    }else directRun.finish("interrupted","Контекст запроса изменился");
+                }catch(Exception error){directRun.finish(aiCanceledRequests.contains(expected)?"cancelled":"failed","GitHub: "+app.githubble.mobile.agent.AgentLogRedactor.redact(error.getMessage()));}
+                finally{if(aiRequestTickets.remove(expected,directTicket)){aiRequestsInFlight.remove(expected);aiActiveFutures.remove(expected);}runOnUiThread(()->agentRefreshIfCurrent(expected));}
+            },null);
+            aiActiveFutures.put(expected,future);app.githubble.mobile.agent.AgentUiSession.WORKERS.execute(future);return;
         }
         if(mayWrite){
         boolean workspaceImport=app.githubble.mobile.agent.RepositoryWorkspaceImporter.isImportIntent(message);
@@ -2358,8 +2398,12 @@ public class MainActivity extends Activity {
             aiCanceledRequests.remove(expected);
             final long ticket = aiTicketCounter.incrementAndGet();
             aiRequestTickets.put(expected, ticket);
+            final app.githubble.mobile.agent.AgentRun run=new app.githubble.mobile.agent.AgentRun(expected,activeChat,android.os.SystemClock::elapsedRealtime);
+            run.model(model);
+            app.githubble.mobile.agent.AgentRunRegistry.put(run);
+            new app.githubble.mobile.agent.AgentRunBinding(run,agentProjects,()->agentRefreshIfCurrent(expected));
             agentRefreshIfCurrent(expected);
-            java.util.concurrent.Future<?> call = io.submit(() -> {
+            java.util.concurrent.FutureTask<Void> call = new java.util.concurrent.FutureTask<>(() -> {
                 try {
                     String context=agentContext(expected,activeProject,activeChat,message)+
                         (planning?"\nPLANNING: inspect, reason and plan only. Do not write, create, publish or run builds.":
@@ -2386,19 +2430,23 @@ public class MainActivity extends Activity {
                     app.githubble.mobile.agent.NativeAgentToolHost tools=new app.githubble.mobile.agent.NativeAgentToolHost(
                         this,aiGithub,new AgentGitWorkspace(accountStore,secureStore),agentWorkspaces,
                         agentProjects,expected,activeChat,activeProject,allowGithub,allowFiles,planning,
-                        ()->agentPermission(expected),scopeGuard,()->agentRefreshIfCurrent(expected));
+                        ()->agentPermission(expected),scopeGuard,()->agentRefreshIfCurrent(expected)).withRun(run);
                     if(toolMode){
                         response=app.githubble.mobile.agent.ProjectRuntime.analyze(instructions->{
                             JSONArray prompt=new JSONArray().put(
                                 new JSONObject().put("role","user").put("body",instructions));
-                            String result=aiChatClient.completeForAccount(expected,provider,model,credential,
-                                prompt,"Native Git Agent tool execution",allowGithub?activeProject.repository:"");
+                            String result=aiChatClient.completeStreamingForAccount(expected,provider,model,credential,
+                                prompt,"Native Git Agent tool execution",allowGithub?activeProject.repository:"",run::preview);
                             aiUsage.record(expected,provider,model,OmniChatChatClient.takeUsage());
                             return result;
                         },aiGithub,agentWorkspaces,expected,activeProject.repository,
                             activeProject.branch,activeProject.workspaceId,message,context,
                             allowGithub,allowFiles,
-                            scopeGuard,tools);
+                            scopeGuard,tools,new app.githubble.mobile.agent.ProjectRuntime.Listener(){
+                                public void round(int number){run.round(number);}
+                                public String started(String name,JSONObject args){return run.begin(name,args);}
+                                public void completed(String id,String state,String error){run.result(id,state,app.githubble.mobile.agent.AgentLogRedactor.redact(error));}
+                            });
                     }else if(imageUri!=null){
                         String mime=getContentResolver().getType(imageUri);
                         response=aiChatClient.completeWithImageForAccount(expected,provider,model,credential,snapshot,
@@ -2412,6 +2460,7 @@ public class MainActivity extends Activity {
                     if (java.util.Objects.equals(aiRequestTickets.get(expected), ticket)
                             && !aiCanceledRequests.contains(expected)){
                         agentProjects.appendToConversation(expected, activeChat, "agent", response);
+                        run.finish("succeeded","Задача завершена");
                         try{agentMemory.recordEpisode(expected,activeProject.workspaceId,activeChat,message,response);}catch(Exception ignored){}
                         if(agentMemory.shouldLearn(expected,activeProject.workspaceId,message))try{
                             JSONArray extract=new JSONArray().put(new JSONObject().put("role","user").put("body",agentMemory.extractionPrompt(message,response,activeProject.name)));
@@ -2421,19 +2470,22 @@ public class MainActivity extends Activity {
                         }catch(Exception memoryError){/* The answer succeeds independently of memory extraction. */}
                     }
                 } catch (Exception error) {
-                    if (java.util.Objects.equals(aiRequestTickets.get(expected), ticket)
-                            && !aiCanceledRequests.contains(expected))
-                        agentProjects.appendToConversation(expected, activeChat, "system",
-                                "Ошибка " + aiConnections.displayName(provider) + ": " + error.getMessage());
+                    boolean cancelled=aiCanceledRequests.contains(expected);
+                    boolean interrupted=error instanceof InterruptedException||error instanceof java.util.concurrent.CancellationException||Thread.currentThread().isInterrupted();
+                    String detail=app.githubble.mobile.agent.AgentLogRedactor.redact(error.getMessage());
+                    if(credential!=null&&!credential.isEmpty())detail=detail.replace(credential,"[REDACTED]");
+                    run.finish(cancelled?"cancelled":interrupted?"interrupted":"failed",cancelled?"Остановлено пользователем":interrupted?"Задача прервана · контекст изменился":"Задача: "+detail);
                 } finally {
+                    if(run.active())run.finish("interrupted","Задача прервана");
                     if (aiRequestTickets.remove(expected, ticket)) {
                         aiRequestsInFlight.remove(expected);
                         aiActiveFutures.remove(expected);
                     }
                     runOnUiThread(() -> agentRefreshIfCurrent(expected));
                 }
-            });
+            },null);
             aiActiveFutures.put(expected, call);
+            app.githubble.mobile.agent.AgentUiSession.WORKERS.execute(call);
             return;
         }
     }
@@ -9971,6 +10023,15 @@ public class MainActivity extends Activity {
     }
 
     @Override protected void onDestroy(){
+        if(!isChangingConfigurations()){
+            for(String owner:new java.util.ArrayList<>(aiRequestsInFlight)){
+                app.githubble.mobile.agent.AgentRun run=app.githubble.mobile.agent.AgentRunRegistry.current(owner);
+                if(run!=null)run.finish("interrupted","Задача прервана при закрытии приложения");
+                java.util.concurrent.Future<?> future=aiActiveFutures.remove(owner);if(future!=null)future.cancel(true);
+                aiRequestTickets.remove(owner);aiRequestsInFlight.remove(owner);
+            }
+        }
+        app.githubble.mobile.agent.AgentUiSession.detach(this);
         for(AtomicBoolean attempt:subscriptionAttempts.values())attempt.set(true);
         cancelVoiceInput();
         accountInventoryCancelled.set(true);

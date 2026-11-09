@@ -39,6 +39,7 @@ public final class R8SmokeInstrumentation extends Instrumentation {
     int code = 0;
     try {
       stage("Launch minified MainActivity");
+      seedMarkdown();
       Intent launch =
           new Intent()
               .setClassName(
@@ -52,6 +53,9 @@ public final class R8SmokeInstrumentation extends Instrumentation {
       assertVisible(app, "Git Agent и Workspace");
       click(app, "Чат");
       assertVisible(app, "Git Agent");
+      assertVisible(app, "Проверка Markdown");
+      assertVisible(app, "Результат");
+      runOnMainSync(()->{if(find(app.getWindow().getDecorView(),"План")!=null)throw new AssertionError("Plan control remains in Release");});
       stage("Minified UI passed; starting native VLESS roundtrip");
       verifyVlessRoundTrip();
       result.putString(
@@ -77,6 +81,18 @@ public final class R8SmokeInstrumentation extends Instrumentation {
     Bundle status = new Bundle();
     status.putString("stage", message);
     sendStatus(1, status);
+  }
+
+  /** Seed the persisted user-data contract without referencing renamed application classes. */
+  private void seedMarkdown() throws Exception {
+    String thread="r8-markdown-fixture";
+    String prefix="account_"+android.util.Base64.encodeToString("guest".getBytes(StandardCharsets.UTF_8),android.util.Base64.URL_SAFE|android.util.Base64.NO_WRAP|android.util.Base64.NO_PADDING)+"_";
+    String source="# Проверка Markdown\n\n| Раздел | Результат |\n| --- | --- |\n| R8 | Сохранён |\n\n- [x] Таблица\n\n```java\nreturn true;\n```\n";
+    JSONArray messages=new JSONArray().put(new JSONObject().put("role","agent").put("body",source).put("at",1));
+    getTargetContext().getSharedPreferences("githubble_ai_workspace_v1",0).edit()
+        .putString(prefix+"active_thread",thread)
+        .putString(prefix+"thread_index",new JSONArray().put(new JSONObject().put("id",thread).put("title","Новый диалог").put("updated",1)).toString())
+        .putString(prefix+"thread_"+thread,messages.toString()).commit();
   }
 
   private void assertVisible(Activity app, String text) throws Exception {
