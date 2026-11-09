@@ -240,6 +240,33 @@ public final class AgentChatUiInstrumentation extends Instrumentation {
       if (r != null && run.id.equals(r.optString("id"))) found = true;
     }
     check(found, "Archived task metadata lost");
+    AgentDiffStore diffs = new AgentDiffStore(getTargetContext());
+    String removed = diffs.save(owner, thread, "removed.txt", "old", "new");
+    String otherThread = store.newConversation(owner);
+    String retained = diffs.save(owner, otherThread, "retained.txt", null, "keep");
+    store.deleteConversation(owner, thread);
+    boolean unreadable = false, lateWriteRejected = false;
+    try {
+      new AgentDiffStore(getTargetContext()).read(owner, thread, removed);
+    } catch (IllegalStateException expected) {
+      unreadable = true;
+    }
+    try {
+      new AgentDiffStore(getTargetContext()).save(owner, thread, "late.txt", null, "late");
+    } catch (IllegalStateException expected) {
+      lateWriteRejected = true;
+    }
+    check(unreadable && lateWriteRejected, "Deleted conversation diff was retained or resurrected");
+    check(
+        diffs.read(owner, otherThread, retained).getString("after").equals("keep"),
+        "Deleting a conversation affected another conversation");
+    File[] snapshotFiles = new File(getTargetContext().getFilesDir(), "agent-diffs").listFiles();
+    boolean removedFileExists = false;
+    if (snapshotFiles != null)
+      for (File directory : snapshotFiles)
+        if (new File(directory, removed + ".json").exists()) removedFileExists = true;
+    check(!removedFileExists, "Deleted snapshot bytes remain on disk");
+    store.deleteConversation(owner, otherThread);
   }
 
   public void verifyNativeTools(AgentChatPreviewActivity activity) throws Exception {

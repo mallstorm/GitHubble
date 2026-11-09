@@ -19,6 +19,7 @@ public final class AgentConversationStore {
   private static final int MAX_BODY = 80000;
   private final SharedPreferences prefs;
   private final AgentConversationArchive archive;
+  private final AgentDiffStore diffs;
 
   public AgentConversationStore(Context context) {
     prefs =
@@ -26,6 +27,7 @@ public final class AgentConversationStore {
             .getApplicationContext()
             .getSharedPreferences("githubble_ai_workspace_v1", Context.MODE_PRIVATE);
     archive = new AgentConversationArchive(context);
+    diffs = new AgentDiffStore(context);
   }
 
   private static String account(String value) {
@@ -202,6 +204,7 @@ public final class AgentConversationStore {
   public synchronized void delete(String owner, String id) {
     ensure(owner);
     safeId(id);
+    diffs.deleteThread(owner, id);
     JSONArray existing = readIndex(owner), next = new JSONArray();
     for (int i = 0; i < existing.length(); i++) {
       JSONObject entry = existing.optJSONObject(i);
