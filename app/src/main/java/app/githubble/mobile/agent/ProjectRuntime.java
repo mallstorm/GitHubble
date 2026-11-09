@@ -108,8 +108,8 @@ public final class ProjectRuntime {
             try{output=new JSONObject(raw.trim());}catch(Exception plain){return raw;}
             JSONArray calls=output.optJSONArray("tools");
             if(calls==null||calls.length()==0){
-                String answer=output.optString("answer","").trim();
-                return answer.isEmpty()?raw:answer;
+                String answer=output.optString("answer","");
+                return answer.trim().isEmpty()?raw:answer;
             }
 
             // Models may return dozens of requests at once or repeat the same plan
@@ -217,8 +217,8 @@ public final class ProjectRuntime {
             try{
                 JSONObject finalJson=new JSONObject(finalRaw.trim());
                 if(finalJson.optJSONArray("tools")==null){
-                    String answer=finalJson.optString("answer","").trim();
-                    if(!answer.isEmpty())return answer;
+                    String answer=finalJson.optString("answer","");
+                    if(!answer.trim().isEmpty())return answer;
                 }
             }catch(Exception prose){
                 if(!finalRaw.trim().isEmpty())return finalRaw;

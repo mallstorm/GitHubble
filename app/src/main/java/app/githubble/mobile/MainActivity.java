@@ -1968,7 +1968,7 @@ public class MainActivity extends Activity {
         io.execute(()->{try{
             JSONObject value=new app.githubble.mobile.agent.AgentDiffStore(this).read(owner,thread,id);
             runOnUiThread(()->{if(owner.equals(accountStore.activeCacheKey())&&thread.equals(agentProjects.activeConversation(owner)))
-                app.githubble.mobile.ui.AgentDocumentSheet.diff(this,value.optString("path"),value.optString("before"),value.optString("after"),TEXT,MUTED,GREEN,BORDER);});
+                app.githubble.mobile.ui.AgentDocumentSheet.diff(this,value.optString("path"),value.optString("before"),value.optString("after"),TEXT,MUTED,GREEN,BORDER,CARD);});
         }catch(Exception e){runOnUiThread(()->toast("Сравнение недоступно: "+e.getMessage()));}});
     }
 

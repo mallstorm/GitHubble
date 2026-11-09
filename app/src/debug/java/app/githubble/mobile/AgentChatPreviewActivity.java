@@ -158,6 +158,7 @@ public final class AgentChatPreviewActivity extends MainActivity {
         palette.green,
         palette.subtle,
         palette.border,
+        palette.card,
         () -> {});
   }
 
@@ -179,7 +180,8 @@ public final class AgentChatPreviewActivity extends MainActivity {
           palette.text,
           palette.muted,
           palette.green,
-          palette.border);
+          palette.border,
+          palette.card);
     } catch (Exception e) {
       throw new IllegalStateException(e);
     }

@@ -5,6 +5,16 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.json.JSONObject;
 import org.junit.Test;
 public class ProjectRuntimeEventsTest {
+    @Test public void finalMarkdownKeepsIndentationAndTrailingLineBreaks()throws Exception{
+        String markdown="    indented code\n\nParagraph  \nnext line\n\n";
+        String answer=ProjectRuntime.analyze(prompt->new JSONObject().put("answer",markdown).toString(),
+            null,null,"owner","","main","","Inspect","",false,false,()->{},new ProjectRuntime.ToolHost(){
+                public String catalog(){return "read_file";}
+                public boolean handles(String name){return false;}
+                public String execute(String name,JSONObject args){throw new AssertionError("Unexpected tool call");}
+            });
+        assertEquals(markdown,answer);
+    }
     @Test public void eventsBracketActualToolExecutionAndKeepTarget()throws Exception{
         ArrayList<String> events=new ArrayList<>();AtomicInteger rounds=new AtomicInteger();
         ProjectRuntime.ToolHost host=new ProjectRuntime.ToolHost(){

@@ -12,8 +12,6 @@ import org.json.JSONObject;
  * Follow-up: migrate larger chat transcripts to Room with versioned schema and retention.
  */
 public final class AgentProjectStore {
-  private static final int MAX_MESSAGES = 80;
-  private static final int MAX_CONTENT_CHARS = 6000;
   private final SharedPreferences prefs;
   private final AgentConversationStore conversations;
 

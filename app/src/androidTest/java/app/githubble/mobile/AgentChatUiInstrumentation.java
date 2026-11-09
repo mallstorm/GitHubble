@@ -172,6 +172,8 @@ public final class AgentChatUiInstrumentation extends Instrumentation {
                     visible.bottom <= window.bottom + 4 && visible.height() >= send.getHeight() - 4,
                     "Send control overlaps keyboard");
               });
+          // Insets can become visible before the IME publishes its first rendered buffer.
+          SystemClock.sleep(1500);
           capture(directory, theme, scale, "keyboard");
           shell("input keyevent 4");
           main(active::finish);
@@ -221,12 +223,12 @@ public final class AgentChatUiInstrumentation extends Instrumentation {
         "Archive migration lost history");
     archive.close();
     AgentProjectStore store = new AgentProjectStore(getTargetContext());
-    String owner = "storage-preview", thread = store.activeConversation(owner);
-    String longReply = "Длинный отчёт " + "данные ".repeat(1800);
+    String owner = "storage-preview", thread = store.newConversation(owner);
+    String longReply = "  Длинный отчёт  \n\n" + "данные ".repeat(1800) + "\n\n";
     store.appendToConversation(owner, thread, "agent", longReply);
     check(
         store.messages(owner, thread).getJSONObject(0).getString("body").equals(longReply),
-        "Report truncated at old 6000-character limit");
+        "Long Markdown report changed during storage");
     AgentRun run = new AgentRun(owner, thread, SystemClock::elapsedRealtime);
     run.model("fixture");
     run.finish("succeeded", "Готово");
@@ -245,6 +247,12 @@ public final class AgentChatUiInstrumentation extends Instrumentation {
     String otherThread = store.newConversation(owner);
     String retained = diffs.save(owner, otherThread, "retained.txt", null, "keep");
     store.deleteConversation(owner, thread);
+    AgentProjectStore lateWorker = new AgentProjectStore(getTargetContext());
+    lateWorker.upsertRun(owner, thread, run.snapshot());
+    lateWorker.appendToConversation(owner, thread, "agent", "late response");
+    check(
+        store.messages(owner, thread).length() == 0,
+        "Late worker resurrected deleted conversation history");
     boolean unreadable = false, lateWriteRejected = false;
     try {
       new AgentDiffStore(getTargetContext()).read(owner, thread, removed);
@@ -272,7 +280,8 @@ public final class AgentChatUiInstrumentation extends Instrumentation {
   public void verifyNativeTools(AgentChatPreviewActivity activity) throws Exception {
     AgentProjectStore store = new AgentProjectStore(getTargetContext());
     WorkspaceHub workspace = new WorkspaceHub(getTargetContext());
-    String owner = "tools-preview", thread = store.activeConversation(owner);
+    String owner = "tools-preview-" + java.util.UUID.randomUUID(),
+        thread = store.activeConversation(owner);
     AgentRun run = new AgentRun(owner, thread, SystemClock::elapsedRealtime);
     NativeAgentToolHost host =
         new NativeAgentToolHost(

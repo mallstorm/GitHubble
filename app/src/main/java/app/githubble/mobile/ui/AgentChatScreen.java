@@ -47,7 +47,6 @@ public final class AgentChatScreen {
         void showBuildArtifacts();
         void diagnoseBuild();
         void generateProjectCode();
-        default void selectMode(boolean ignored){}
         void send(String prompt, boolean agentMode);
         void showConversations();
         void openTools();
@@ -318,7 +317,7 @@ public final class AgentChatScreen {
             bubble.addView(copy);
             if(!user){
                 TextView document=label("▤  Открыть документ · .md",11,false,accent);document.setPadding(dp(3),dp(8),dp(3),dp(8));document.setMinHeight(dp(48));
-                document.setOnClickListener(v->AgentDocumentSheet.document(activity,body,text,muted,accent,subtle,border,()->actions.exportMarkdown(body)));bubble.addView(document);
+                document.setOnClickListener(v->AgentDocumentSheet.document(activity,body,text,muted,accent,subtle,border,surface,()->actions.exportMarkdown(body)));bubble.addView(document);
             }
         }
         wrapper.addView(bubble,new LinearLayout.LayoutParams(user?-2:-1,-2));
