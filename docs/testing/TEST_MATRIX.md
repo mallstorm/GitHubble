@@ -9,6 +9,7 @@
 | `SupervisorTest` | проверка утверждений по Evidence | локально + CI |
 | `DispatchTrackingTest` | форма триггера workflow_dispatch, подбор запуска по run id | локально + CI |
 | `ReleaseAndDispatchToolsTest` | каталог и классификация release-инструментов | CI |
+| `AgentActivityPanelTest` | метки состояний, task_state в snapshot, события approval/finished, ResumePrompt | CI (Android-зависимости) |
 | `AgentRunJournalTest` | связка запуска с журналом: состояния, повторы, подтверждения, восстановление, недоступный каталог | локально + CI |
 | `AgentRunJournalWiringTest`, `ExecutionModePolicyTest` | `AgentRun` ↔ журнал; инвариант политик | CI (Android-зависимости) |
 | `AgentBuildClassificationTest` | `classified()` и отказ repair-тикета | CI (Android-зависимости) |

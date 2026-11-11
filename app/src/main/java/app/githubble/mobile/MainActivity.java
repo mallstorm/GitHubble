@@ -354,6 +354,7 @@ public class MainActivity extends Activity {
     }
 
     @Override protected void onPause() {
+        app.githubble.mobile.agent.AgentUiSession.foreground(false);
         super.onPause();
         if (registrationCustomTabActive) registrationCustomTabWasPaused = true;
         if (repositoryAccessBrowserActive) repositoryAccessBrowserWasPaused = true;
@@ -361,6 +362,7 @@ public class MainActivity extends Activity {
     }
 
     @Override protected void onResume() {
+        app.githubble.mobile.agent.AgentUiSession.foreground(true);
         super.onResume();
         if (prefs == null) return;
         getWindow().getDecorView().post(this::applySystemBarAppearance);
@@ -639,6 +641,19 @@ public class MainActivity extends Activity {
         app.githubble.mobile.agent.AgentRun active=app.githubble.mobile.agent.AgentRunRegistry.current(owner);
         return aiRequestsInFlight.contains(owner)&&(active==null||active.conversation.equals(thread));
     }
+    /** Restarts an interrupted task with its recorded context; refused while another run is active. */
+    private void agentResumeTask(String owner,String thread,String runId){
+        if(!owner.equals(accountStore.activeCacheKey())||!thread.equals(agentProjects.activeConversation(owner)))return;
+        if(agentChatBusy(owner,thread)){toast("Дождитесь завершения текущей задачи");return;}
+        JSONArray messages=agentProjects.messages(owner,thread);
+        for(int i=messages.length()-1;i>=0;i--){
+            JSONObject entry=messages.optJSONObject(i);JSONObject run=entry==null?null:entry.optJSONObject("run");
+            if(run!=null&&runId.equals(run.optString("id"))){
+                agentSend(owner,app.githubble.mobile.agent.ResumePrompt.build(run),true);return;
+            }
+        }
+        toast("Запись задачи не найдена");
+    }
     private void showAgentChat() {
         rememberScreen("ai_chat", null);
         setCurrentScreen(this::showAgentChat);
@@ -674,6 +689,7 @@ public class MainActivity extends Activity {
             @Override public void exportMedia(String path,String mime){agentExportMedia(path,mime);}
             @Override public void exportMarkdown(String source){if(owner.equals(accountStore.activeCacheKey())&&renderedThread.equals(agentProjects.activeConversation(owner)))agentExportMarkdown(source);}
             @Override public void openDiff(String id){agentOpenDiff(owner,renderedThread,id);}
+            @Override public void resumeTask(String runId){agentResumeTask(owner,renderedThread,runId);}
             @Override public JSONObject activeRun(){app.githubble.mobile.agent.AgentRun run=app.githubble.mobile.agent.AgentRunRegistry.get(owner,renderedThread);return run==null?null:run.snapshot();}
             @Override public void openAgentSettings() { navigate(MainActivity.this::showSettingsGitAgentWorkspace); }
             @Override public void voiceInput(EditText input, ImageView microphone) {
@@ -2403,6 +2419,7 @@ public class MainActivity extends Activity {
             aiRequestTickets.put(expected, ticket);
             final app.githubble.mobile.agent.AgentRun run=new app.githubble.mobile.agent.AgentRun(expected,activeChat,android.os.SystemClock::elapsedRealtime);
             run.model(model);
+            run.events(new app.githubble.mobile.agent.AgentNotifier(getApplicationContext()));
             run.attachJournal(new app.githubble.mobile.agent.core.AgentRunJournal(run.id,activeProject.name,
                 app.githubble.mobile.agent.core.ExecutionMode.forLevel(agentPermission(expected)),
                 new java.io.File(getFilesDir(),"agent-journal"),System::currentTimeMillis));

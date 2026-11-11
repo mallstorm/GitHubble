@@ -33,6 +33,8 @@ import app.githubble.mobile.agent.AgentProjectStore;
  */
 public final class AgentChatScreen {
     public interface Actions {
+        /** Restart the task of the given run with its recorded context (not a loop continuation). */
+        default void resumeTask(String runId){}
         void newProject();
         void createRepository();
         void attachRepository();
@@ -367,6 +369,7 @@ public final class AgentChatScreen {
         if(rendered.isEmpty()&&messages.length()>0)transcript.removeAllViews();
         java.util.Set<String> keep=new java.util.HashSet<>();int position=0;
         JSONObject running=actions.activeRun();String entryModel="";
+        int lastRun=-1;for(int k=0;k<messages.length();k++){JSONObject m=messages.optJSONObject(k);if(m!=null&&m.optJSONObject("run")!=null&&!m.optJSONObject("run").optString("id").isEmpty())lastRun=k;}
         for(int i=0;i<messages.length();i++){
             JSONObject entry=messages.optJSONObject(i);if(entry==null)continue;JSONObject run=entry.optJSONObject("run");
             if(run!=null&&run.optString("id").isEmpty())run=null;
@@ -380,7 +383,8 @@ public final class AgentChatScreen {
             String key=run!=null?"run:"+run.optString("id"):legacy!=null?"legacy:"+entry.optLong("at"):"message:"+i+":"+entry.optLong("at");keep.add(key);
             View view=rendered.get(key);
             if(legacy!=null&&view==null)view=legacyGroup(legacy);
-            if(run!=null){if(!(view instanceof AgentRunView))view=new AgentRunView(activity,text,muted,accent,subtle,border,run,actions::openDiff);else ((AgentRunView)view).update(run);}
+            if(run!=null){if(!(view instanceof AgentRunView))view=new AgentRunView(activity,text,muted,accent,subtle,border,run,actions::openDiff);else ((AgentRunView)view).update(run);
+                final String runId=run.optString("id");((AgentRunView)view).setResumeHandler(i==lastRun?()->actions.resumeTask(runId):null);}
             else if(view==null)view=message(entry,entryModel);
             rendered.put(key,view);
             if(view.getParent()==null)transcript.addView(view,position,new LinearLayout.LayoutParams(-1,-2));

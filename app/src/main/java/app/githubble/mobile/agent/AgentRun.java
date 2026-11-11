@@ -22,6 +22,18 @@ public final class AgentRun {
   private int iteration;
   private Runnable changed = () -> {};
   private app.githubble.mobile.agent.core.AgentRunJournal journal;
+  private Events events;
+
+  /** Out-of-app signals (notifications). Callbacks must not call back into this run. */
+  public interface Events {
+    void approvalWaiting(String what);
+
+    void finished(String state, String stage);
+  }
+
+  public synchronized void events(Events value) {
+    events = value;
+  }
 
   /** Durable record of this run (task states and tool ledger); best-effort, never breaks the run. */
   public synchronized void attachJournal(app.githubble.mobile.agent.core.AgentRunJournal value) {
@@ -174,6 +186,13 @@ public final class AgentRun {
   public synchronized void approval(boolean waiting) {
     if (active()) {
       state = waiting ? "approval" : "running";
+      if (waiting && events != null)
+        try {
+          JSONObject pending = operation(current);
+          events.approvalWaiting(pending == null ? "" : label(pending.optString("name")));
+        } catch (RuntimeException ignored) {
+          /* notifications never affect the run */
+        }
       if (journal != null)
         try {
           journal.approval(waiting);
@@ -209,6 +228,12 @@ public final class AgentRun {
     state = status;
     stage = clip(message, 300);
     if ("succeeded".equals(status)) preview = "";
+    if (events != null)
+      try {
+        events.finished(status, stage);
+      } catch (RuntimeException ignored) {
+        /* notifications never affect the run */
+      }
     for (int i = 0; i < operations.length(); i++) {
       JSONObject op = operations.optJSONObject(i);
       if (op != null && "running".equals(op.optString("state")))
@@ -236,7 +261,16 @@ public final class AgentRun {
 
   public synchronized JSONObject snapshot() {
     try {
-      return new JSONObject()
+      JSONObject out = new JSONObject();
+      if (journal != null)
+        try {
+          out.put("task_id", id)
+              .put("task_state", journal.journal().state().name())
+              .put("mode", journal.journal().mode().name());
+        } catch (RuntimeException ignored) {
+          /* snapshot stays valid without journal fields */
+        }
+      return out
           .put("schema", 1)
           .put("id", id)
           .put("account", account)
@@ -250,6 +284,7 @@ public final class AgentRun {
           .put("elapsed_ms", active() ? Math.max(0, clock.getAsLong() - started) : elapsed)
           .put("preview", preview)
           .put("operations", new JSONArray(operations.toString()));
+      // Journal-derived fields are read after the base snapshot; absent when no journal is attached.
     } catch (Exception e) {
       throw new IllegalStateException(e);
     }
