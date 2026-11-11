@@ -95,14 +95,36 @@ public final class AgentBuildDiagnostics {
             failures.put(new JSONObject().put("id", job.optLong("id")).put("job", job.optString("name"))
                     .put("conclusion", conclusion).put("steps", broken));
         }
-        return new JSONObject().put("run_id", runId)
+        return classified(new JSONObject().put("run_id", runId)
                 .put("repository",repo)
                 .put("branch",run.optString("head_branch"))
                 .put("sha", run.optString("head_sha"))
                 .put("status", run.optString("status"))
                 .put("conclusion", run.optString("conclusion"))
                 .put("url", run.optString("html_url"))
-                .put("failures", failures);
+                .put("failures", failures), "");
+    }
+
+    /**
+     * Adds failure_class / source_fixable / transient / signature. Environment faults are not
+     * source-fixable, so they never trigger edits to project code.
+     */
+    static JSONObject classified(JSONObject report, String excerpt) throws Exception {
+        StringBuilder names = new StringBuilder();
+        JSONArray failed = report.optJSONArray("failures");
+        for (int i = 0; failed != null && i < failed.length(); i++) {
+            JSONObject job = failed.optJSONObject(i);
+            if (job == null) continue;
+            names.append(job.optString("job")).append(' ');
+            JSONArray steps = job.optJSONArray("steps");
+            for (int j = 0; steps != null && j < steps.length(); j++) names.append(steps.optString(j)).append(' ');
+        }
+        app.githubble.mobile.agent.core.BuildFailureClassifier.Result result =
+            app.githubble.mobile.agent.core.BuildFailureClassifier.classify(names.toString(), excerpt);
+        return report.put("failure_class", result.failureClass.name())
+                .put("source_fixable", result.failureClass.sourceFixable)
+                .put("transient", result.failureClass.transientFailure)
+                .put("failure_signature", result.signature);
     }
 
 
@@ -191,7 +213,7 @@ public final class AgentBuildDiagnostics {
             }
         }
         report.put("error_excerpt", excerpts.toString());
-        return report;
+        return classified(report, excerpts.toString());
     }
 
     /** Run and job metadata, optional redacted excerpt; requires consent before external AI transfer. */

@@ -50,11 +50,30 @@ public final class AgentBuildRepairTicket {
         JSONArray failed=report.optJSONArray("failures");
         if(failed==null||failed.length()==0)
             throw new IllegalStateException("Нет сведений о неудачных заданиях Actions");
+        // Environment faults (rate limit, runner, billing, signing...) are not fixed by editing code.
+        app.githubble.mobile.agent.core.BuildFailureClassifier.Result kind=
+            app.githubble.mobile.agent.core.BuildFailureClassifier.classify(failureNames(failed),report.optString("error_excerpt",""));
+        if(kind.failureClass!=app.githubble.mobile.agent.core.FailureClass.UNKNOWN&&!kind.failureClass.sourceFixable)
+            throw new IllegalStateException("Сбой сборки не связан с исходным кодом ("+kind.failureClass+
+                "). Правка исходников не поможет: "+(kind.failureClass.transientFailure
+                    ?"повторите запуск позже.":"требуются действия владельца репозитория или аккаунта."));
         String redacted=AgentLogRedactor.redact(report.optString("error_excerpt",""));
         if(redacted.isEmpty())redacted="(фрагмент журнала недоступен; указаны только имена упавших шагов)";
         if(redacted.length()>MAX_DIAGNOSTICS)
             redacted=redacted.substring(0,MAX_DIAGNOSTICS)+"\n[TRUNCATED]";
         return new AgentBuildRepairTicket(id,repository,branch,sha,redacted);
+    }
+
+    private static String failureNames(JSONArray failed){
+        StringBuilder names=new StringBuilder();
+        for(int i=0;failed!=null&&i<failed.length();i++){
+            JSONObject job=failed.optJSONObject(i);
+            if(job==null)continue;
+            names.append(job.optString("job")).append(' ');
+            JSONArray steps=job.optJSONArray("steps");
+            for(int j=0;steps!=null&&j<steps.length();j++)names.append(steps.optString(j)).append(' ');
+        }
+        return names.toString();
     }
 
     public void verifyHead(String current){
