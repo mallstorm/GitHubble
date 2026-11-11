@@ -38,7 +38,7 @@ PLACEHOLDER, UNKNOWN (не проверено), MISSING. «Подтвержде�
 | UI | Уведомления агента (ждёт подтверждения, задача завершена/прервана) | WORKING (новое) | `AgentNotifier`, только когда приложение не на переднем плане, без аргументов инструментов; на устройстве не проверялось |
 | Runtime | Remote Agent Runtime | MISSING | Только `AgentRun` в процессе приложения |
 | Код | `AiConnectionStore`, `OmniChatChatGateway` | удалено (проход C) | Не имели ссылок; активное хранилище — `OmniChatConnectionStore` |
-| Код | `AgentExecutionEngine.analyze` | удалено (проход C) | Вытеснен `ProjectRuntime`; `propose`/`applyApproved`/`executeReadOnly` остаются в работе |
+| Код | `AgentExecutionEngine.analyze` | UNUSED в боевом пути | Вытеснен `ProjectRuntime`; оставлен: его вызывает инструментальный smoke `GitAgentUiChecks`. `propose`/`applyApproved`/`executeReadOnly` в работе |
 | Код | `app/src-compose` | UNUSED | Не входит в сборку |
 | Код | Дублирование `host.catalog()` в запросе | WORKING (исправлено) | Каталог хоста теперь в промпте один раз (в «CURRENT HOST CAPABILITIES» на каждом раунде) |
 | CI | Android checks, Account UI, Agent chat UI, Xray smoke | WORKING | Зелёные на коммите 2c124ea |

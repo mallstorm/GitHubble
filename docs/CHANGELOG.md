@@ -9,6 +9,6 @@
 - Add: `AgentRunJournal` — durable-журнал каждого запуска агента, защита от повторов создания/merge, пометка оборванных запусков при старте.
 - Add: проверка workflow и триггера `workflow_dispatch` до подтверждения, возврат `run_id` у `dispatch_workflow`; `list_releases`, `create_release`; `download_artifact`.
 - Add: строка состояния задачи в панели запуска, кнопка «Продолжить с контекстом» (`ResumePrompt`), уведомления агента (`AgentNotifier`).
-- Remove: неиспользуемые `AiConnectionStore`, `OmniChatChatGateway`, `AgentExecutionEngine.analyze`.
+- Remove: неиспользуемые `AiConnectionStore`, `OmniChatChatGateway`.
 - Fix: каталог хоста не дублируется в промпте.
 - Docs: аудит, архитектура, контракты. Remote Runtime, GitHub App-идентичность — не реализованы.
