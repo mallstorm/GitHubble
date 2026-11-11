@@ -15,6 +15,7 @@ public final class BuildFailureClassifier {
         /** Normalised first error line: equal signatures mean "the same error again". */
         public final String signature;
         Result(FailureClass c, String s) { failureClass = c; signature = s; }
+        public static Result of(FailureClass c, String signature) { return new Result(c, signature == null ? "" : signature); }
     }
 
     private static final Pattern KOTLIN_ERROR_LINE = Pattern.compile("(?m)^e: ");
@@ -59,6 +60,9 @@ public final class BuildFailureClassifier {
                 "temporary failure in name resolution", "could not get 5", "unexpected end of stream",
                 "premature eof", "network is unreachable"))
             return FailureClass.INFRASTRUCTURE_FAILURE;
+        // A failed job without any failed step never ran its steps (no runner, blocked, cancelled).
+        if (has(all, "job-without-failed-step") && log.trim().isEmpty())
+            return FailureClass.RUNNER_FAILURE;
         // 2. Workflow definition.
         if (has(all, "invalid workflow file", "unable to resolve action", "unrecognized named-value",
                 "yaml syntax error", "unexpected value '", "workflow is not valid"))

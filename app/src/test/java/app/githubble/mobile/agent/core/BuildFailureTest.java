@@ -19,6 +19,12 @@ public class BuildFailureTest {
         assertEquals(FailureClass.ANDROID_SDK_ERROR, cls("Build", "SDK location not found. Define ANDROID_HOME"));
     }
 
+    @Test public void failedJobWithoutFailedStepIsAPlatformProblem() {
+        assertEquals(FailureClass.RUNNER_FAILURE, cls("Android checks job-without-failed-step ", ""));
+        // But a real error in the log still wins.
+        assertEquals(FailureClass.KOTLIN_JAVA_ERROR, cls("b job-without-failed-step ", "e: x.kt:(1, 1): Unresolved reference: q"));
+    }
+
     @Test public void kotlinErrorNeedsRealErrorLine() {
         assertEquals(FailureClass.KOTLIN_JAVA_ERROR, cls("Build", "e: file:///a/B.kt:(3, 4): boom"));
         assertEquals(FailureClass.UNKNOWN, cls("Build", "file name: /tmp/x\nok"));

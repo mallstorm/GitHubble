@@ -117,6 +117,7 @@ public final class AgentBuildDiagnostics {
             if (job == null) continue;
             names.append(job.optString("job")).append(' ');
             JSONArray steps = job.optJSONArray("steps");
+            if (steps == null || steps.length() == 0) names.append("job-without-failed-step ");
             for (int j = 0; steps != null && j < steps.length(); j++) names.append(steps.optString(j)).append(' ');
         }
         app.githubble.mobile.agent.core.BuildFailureClassifier.Result result =

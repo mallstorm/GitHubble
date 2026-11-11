@@ -13,7 +13,7 @@ import org.json.JSONObject;
 public final class GitHubAgentOperations {
     public static final Set<String> READS=set("github_profile","github_usage","github_rate_limit","github_capabilities",
         "repository_branches","repository_read_file","repository_issues","repository_pulls",
-        "issue_details","pull_request_details","build_artifacts","verify_build");
+        "issue_details","pull_request_details","build_artifacts","verify_build","build_run_status");
     public static final Set<String> WRITES=set("create_repository","create_branch",
         "update_repository","update_account_profile","create_issue","update_issue",
         "create_pull_request","update_pull_request","comment_issue","merge_pull_request","dispatch_workflow");
@@ -22,6 +22,7 @@ public final class GitHubAgentOperations {
         "repository_read_file {repository,path,branch}, repository_issues {repository}, "+
         "repository_pulls {repository}, issue_details {repository,number}, "+
         "pull_request_details {repository,number}, "+
+        "build_run_status {repository,run_id} (status/conclusion/head sha of one Actions run), "+
         "build_artifacts {repository,run_id} (artifact names/sizes/expiry of a run), "+
         "verify_build {repository,run_id,sha} (independent check: run finished, succeeded, matches sha, artifact exists; "+
         "it does NOT inspect an APK — never call a build delivered from a green run alone).";
@@ -114,6 +115,8 @@ public final class GitHubAgentOperations {
             case "repository_pulls":return new JSONObject().put("pull_requests",api.getArray(base+"/pulls?state=all&per_page=30")).put("limit",30);
             case "issue_details":return api.getJson(base+"/issues/"+number(a));
             case "pull_request_details":return api.getJson(base+"/pulls/"+number(a));
+            case "build_run_status":return pick(api.getJson(base+"/actions/runs/"+runId(a)),
+                "id","name","status","conclusion","head_sha","head_branch","html_url","run_attempt","event","created_at","updated_at");
             case "build_artifacts":{
                 long runId=runId(a);
                 JSONObject response=api.getJson(base+"/actions/runs/"+runId+"/artifacts?per_page=100");
