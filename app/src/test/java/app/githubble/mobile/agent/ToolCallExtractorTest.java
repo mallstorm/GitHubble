@@ -6,7 +6,7 @@ import org.json.JSONObject;
 import org.junit.Test;
 
 public class ToolCallExtractorTest {
-    @Test public void findsToolsAfterProse() {
+    @Test public void findsToolsAfterProse() throws Exception {
         String raw = "В репозитории только README. Прочитаю его.\n{\"tools\":[{\"name\":\"repository_read_file\",\"args\":{\"repository\":\"o/r\",\"path\":\"README.md\"}},{\"name\":\"import_repository\",\"args\":{\"repository\":\"o/r\"}}]}";
         JSONObject found = ToolCallExtractor.find(raw);
         assertNotNull(found);
@@ -18,7 +18,7 @@ public class ToolCallExtractorTest {
         assertNotNull(ToolCallExtractor.find(raw));
     }
 
-    @Test public void bracesInsideStringsDoNotBreakMatching() {
+    @Test public void bracesInsideStringsDoNotBreakMatching() throws Exception {
         String raw = "text {\"tools\":[{\"name\":\"search_files\",\"args\":{\"query\":\"}{ \\\" {\"}}]} tail";
         JSONObject found = ToolCallExtractor.find(raw);
         assertNotNull(found);
