@@ -4,11 +4,30 @@ package app.githubble.mobile.agent;
 public final class AgentAnswerPreview {
   private AgentAnswerPreview() {}
 
+  private static final java.util.regex.Pattern TOOL_CALL =
+      java.util.regex.Pattern.compile("(```(?:json)?\\s*)?\\{\\s*\"tools\"\\s*:");
+
+  /** Prose the model wrote before a tool-call JSON stays visible; the JSON itself (even half-streamed) does not. */
+  static String withoutToolCalls(String text) {
+    java.util.regex.Matcher m = TOOL_CALL.matcher(text);
+    if (m.find()) return text.substring(0, m.start()).replaceFirst("\\s+$", "");
+    int brace = text.lastIndexOf('{');
+    if (brace >= 0) {
+      String tail = text.substring(brace).replaceAll("\\s+", "");
+      if (tail.length() < 9 && "{\"tools\":".startsWith(tail)) {
+        return text.substring(0, brace).replaceFirst("(```(?:json)?\\s*)?$", "").replaceFirst("\\s+$", "");
+      }
+    }
+    String trimmed = text.replaceFirst("\\s+$", "");
+    if (trimmed.endsWith("```json")) return trimmed.substring(0, trimmed.length() - 7).replaceFirst("\\s+$", "");
+    return text;
+  }
+
   public static String visible(String source) {
     if (source == null) return "";
     String s = source.replaceFirst("^\\s+", "");
     if (s.startsWith("```json")) return "";
-    if (!s.startsWith("{")) return s.startsWith("[") ? "" : source;
+    if (!s.startsWith("{")) return s.startsWith("[") ? "" : withoutToolCalls(source);
     // Only a first top-level answer field is permitted in the preview.
     java.util.regex.Matcher m =
         java.util.regex.Pattern.compile("^\\{\\s*\"answer\"\\s*:\\s*\"").matcher(s);

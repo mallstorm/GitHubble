@@ -53,7 +53,9 @@ public final class NativeAgentToolHost implements ProjectRuntime.ToolHost {
         }
         if(githubEnabled&&!repository.isEmpty())result+="\nBUILD WAIT: await_build {run_id,timeout_s<=60} polls ONE Actions run of the linked repository; "+
             "on failure it classifies the error and returns the host's retry decision (FIX_SOURCE | RETRY_AFTER | WAIT_EXTERNAL | FAIL). "+
-            "Obey the decision: environment/permission/billing failures are never fixed by editing code, and dispatch_workflow is refused once the build budget is spent.";
+            "Obey the decision: environment/permission/billing failures are never fixed by editing code, and dispatch_workflow is refused once the build budget is spent. "+
+            "When the task asks to build: after publishing, look for the new run with recent_build_runs (once more after a short wait) or start it with dispatch_workflow, then await_build until it concludes. "+
+            "Do not finish the task while a requested build was neither started nor concluded; if it cannot be started, say exactly why.";
         if(githubEnabled&&!repository.isEmpty()&&AgentPermissionPolicy.mayWrite(permission.getAsInt(),planning))
             result+="\nARTIFACT DOWNLOAD: download_artifact {artifact_id, expect?:{package,version_code,version_name}} saves one Actions artifact of the linked repository to Downloads/GitHubble; "+
                 "the device verifies every APK inside (ZIP integrity, manifest, signature and, if given, the expected identity) before install is offered. "+

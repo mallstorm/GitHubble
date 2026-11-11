@@ -430,14 +430,17 @@ public final class AgentChatScreen {
         TextView label=new TextView(activity){
             final android.graphics.Paint paint=new android.graphics.Paint(3);
             @Override protected void onDraw(android.graphics.Canvas c){
-                if(!"+".equals(value)&&!"↑".equals(value)&&!"✎".equals(value)&&!"■".equals(value)){super.onDraw(c);return;}
+                // The send control changes between "↑" and "■" through setText; the shape must follow it,
+                // not the value the view was created with (otherwise it stays a stop square after the run ends).
+                final String shape=getText().length()>0?getText().toString():value;
+                if(!"+".equals(shape)&&!"↑".equals(shape)&&!"✎".equals(shape)&&!"■".equals(shape)){super.onDraw(c);return;}
                 paint.setColor(getCurrentTextColor());paint.setStrokeWidth(dp(2));
                 paint.setStrokeCap(android.graphics.Paint.Cap.SQUARE);paint.setStyle(android.graphics.Paint.Style.STROKE);
                 float x=getWidth()/2f,y=getHeight()/2f;
-                if("+".equals(value)){c.drawLine(x-dp(7),y,x+dp(7),y,paint);c.drawLine(x,y-dp(7),x,y+dp(7),paint);}
-                else if("↑".equals(value)){c.drawLine(x,y+dp(7),x,y-dp(7),paint);
+                if("+".equals(shape)){c.drawLine(x-dp(7),y,x+dp(7),y,paint);c.drawLine(x,y-dp(7),x,y+dp(7),paint);}
+                else if("↑".equals(shape)){c.drawLine(x,y+dp(7),x,y-dp(7),paint);
                     c.drawLine(x,y-dp(7),x-dp(6),y-dp(1),paint);c.drawLine(x,y-dp(7),x+dp(6),y-dp(1),paint);}
-                else if("■".equals(value)){paint.setStyle(android.graphics.Paint.Style.FILL);c.drawRect(x-dp(5),y-dp(5),x+dp(5),y+dp(5),paint);}
+                else if("■".equals(shape)){paint.setStyle(android.graphics.Paint.Style.FILL);c.drawRect(x-dp(5),y-dp(5),x+dp(5),y+dp(5),paint);}
                 else {c.save();c.translate(x,y);c.rotate(45);paint.setStyle(android.graphics.Paint.Style.FILL);
                     c.drawRect(-dp(3),-dp(9),dp(3),dp(6),paint);
                     android.graphics.Path tip=new android.graphics.Path();tip.moveTo(-dp(3),dp(7));tip.lineTo(dp(3),dp(7));tip.lineTo(0,dp(11));tip.close();c.drawPath(tip,paint);c.restore();}
