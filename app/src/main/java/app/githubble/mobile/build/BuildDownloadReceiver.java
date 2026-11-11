@@ -1,6 +1,7 @@
 package app.githubble.mobile.build;
 
 import android.app.DownloadManager;
+import app.githubble.mobile.agent.core.ArtifactVerifier;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -78,14 +79,17 @@ public final class BuildDownloadReceiver extends BroadcastReceiver {
                     if(!base.toLowerCase(java.util.Locale.ROOT).endsWith(".apk"))continue;
                     if(base.isEmpty()||base.length()>140)continue;
                     if(entry.getSize()>200L*1024L*1024L)continue;
-                    Uri file=extractApk(context,zip,base,id);
-                    if(file!=null){
+                    Extracted file=extractApk(context,zip,base,id);
+                    if(file!=null&&file.rejected!=null){
+                        notify(context,"APK не прошёл проверку: "+base,file.rejected,null,
+                                (int)((id+extracted+100)&0x7fffffff));
+                    }else if(file!=null){
                         extracted++;
                         Intent install=new Intent(Intent.ACTION_VIEW);
-                        install.setDataAndType(file,"application/vnd.android.package-archive");
+                        install.setDataAndType(file.uri,"application/vnd.android.package-archive");
                         install.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|
                                 Intent.FLAG_ACTIVITY_NEW_TASK);
-                        notify(context,"APK готов: "+base,"Сохранён в Загрузках/GitHubble. Нажмите для установки.",install,
+                        notify(context,"APK готов: "+base,file.summary+" Нажмите для установки.",install,
                                 (int)((id+extracted)&0x7fffffff));
                     }
                     zip.closeEntry();
@@ -98,37 +102,73 @@ public final class BuildDownloadReceiver extends BroadcastReceiver {
                     "автоматическое извлечение APK не удалось",null,id);
         }
     }
-    private static Uri extractApk(Context context,ZipInputStream zip,String name,long id)
+    /** Result of unpacking one APK: either a published Uri with a verification summary, or a rejection. */
+    private static final class Extracted {
+        final Uri uri; final String summary; final String rejected;
+        Extracted(Uri uri,String summary,String rejected){this.uri=uri;this.summary=summary;this.rejected=rejected;}
+    }
+    /** The APK is unpacked to private cache, verified, and published to Downloads only if no check failed. */
+    private static Extracted extractApk(Context context,ZipInputStream zip,String name,long id)
             throws IOException {
         if(Build.VERSION.SDK_INT<29)return null;
-        ContentResolver resolver=context.getContentResolver();
-        ContentValues values=new ContentValues();
-        String display=id+"-"+name;
-        values.put(MediaStore.Downloads.DISPLAY_NAME,display);
-        values.put(MediaStore.Downloads.MIME_TYPE,"application/vnd.android.package-archive");
-        values.put(MediaStore.Downloads.RELATIVE_PATH,Environment.DIRECTORY_DOWNLOADS+"/GitHubble");
-        values.put(MediaStore.Downloads.IS_PENDING,1);
-        Uri uri=resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI,values);
-        if(uri==null)return null;
-        long size=0;
-        try(OutputStream out=resolver.openOutputStream(uri)){
-            if(out==null)throw new IOException("Не удалось сохранить APK");
-            byte[] buffer=new byte[64*1024];
-            int count;
-            while((count=zip.read(buffer))!=-1){
-                size+=count;
-                if(size>200L*1024L*1024L)throw new IOException("APK слишком большой");
-                out.write(buffer,0,count);
+        java.io.File temp=java.io.File.createTempFile("apk-"+id+"-",".apk",context.getCacheDir());
+        try{
+            long size=0;
+            try(java.io.FileOutputStream out=new java.io.FileOutputStream(temp)){
+                byte[] buffer=new byte[64*1024];
+                int count;
+                while((count=zip.read(buffer))!=-1){
+                    size+=count;
+                    if(size>200L*1024L*1024L)throw new IOException("APK слишком большой");
+                    out.write(buffer,0,count);
+                }
             }
-            if(size<256)throw new IOException("APK пуст");
-        }catch(Exception ex){
-            resolver.delete(uri,null,null);
-            throw ex instanceof IOException?(IOException)ex:new IOException(ex);
+            ArtifactVerifier.Expectation expectation=new ArtifactVerifier.Expectation();
+            expectation.requireSignature=true;
+            ArtifactVerifier.Report report=ArtifactVerifier.verify(temp,expectation);
+            boolean failed=false,unverified=false;
+            for(ArtifactVerifier.Check check:report.checks){
+                if(check.status==ArtifactVerifier.Status.FAIL)failed=true;
+                else if(check.status==ArtifactVerifier.Status.UNVERIFIED)unverified=true;
+            }
+            if(failed){
+                StringBuilder why=new StringBuilder();
+                for(ArtifactVerifier.Check check:report.checks)
+                    if(check.status==ArtifactVerifier.Status.FAIL)
+                        why.append(check.name).append(": ").append(check.detail).append("; ");
+                return new Extracted(null,"",why.toString());
+            }
+            String digest=report.sha256.length()>=12?report.sha256.substring(0,12):report.sha256;
+            String summary=report.identity==null||unverified
+                    ?"Не удалось подтвердить пакет и версию (SHA-256 "+digest+"…)."
+                    :report.identity.packageName+" "+report.identity.versionName
+                        +" ("+report.identity.versionCode+"), SHA-256 "+digest+"…";
+            ContentResolver resolver=context.getContentResolver();
+            ContentValues values=new ContentValues();
+            values.put(MediaStore.Downloads.DISPLAY_NAME,id+"-"+name);
+            values.put(MediaStore.Downloads.MIME_TYPE,"application/vnd.android.package-archive");
+            values.put(MediaStore.Downloads.RELATIVE_PATH,Environment.DIRECTORY_DOWNLOADS+"/GitHubble");
+            values.put(MediaStore.Downloads.IS_PENDING,1);
+            Uri uri=resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI,values);
+            if(uri==null)return null;
+            try(OutputStream out=resolver.openOutputStream(uri);
+                java.io.FileInputStream in=new java.io.FileInputStream(temp)){
+                if(out==null)throw new IOException("Не удалось сохранить APK");
+                byte[] buffer=new byte[64*1024];
+                int count;
+                while((count=in.read(buffer))!=-1)out.write(buffer,0,count);
+            }catch(Exception ex){
+                resolver.delete(uri,null,null);
+                throw ex instanceof IOException?(IOException)ex:new IOException(ex);
+            }
+            ContentValues done=new ContentValues();
+            done.put(MediaStore.Downloads.IS_PENDING,0);
+            resolver.update(uri,done,null,null);
+            return new Extracted(uri,summary,null);
+        }finally{
+            //noinspection ResultOfMethodCallIgnored
+            temp.delete();
         }
-        ContentValues done=new ContentValues();
-        done.put(MediaStore.Downloads.IS_PENDING,0);
-        resolver.update(uri,done,null,null);
-        return uri;
     }
     private static void notify(Context context,String title,String message,Intent target,long id){
         if(!appNotificationsAllowed(context))return;
