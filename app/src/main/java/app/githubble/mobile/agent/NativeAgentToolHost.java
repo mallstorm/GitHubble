@@ -220,6 +220,7 @@ public final class NativeAgentToolHost implements ProjectRuntime.ToolHost {
             return result.toString();
         }
         // Exact immutable arguments are presented before dispatch, not a paraphrase of the task.
+        if(run!=null)run.requireNotDuplicate();
         // Defense in depth: the execution-mode policy may only add a review requirement, never remove one.
         boolean modeReview=app.githubble.mobile.agent.core.ExecutionMode.forLevel(permission.getAsInt())
             .decide(GitHubAgentOperations.action(name,a),false,false)

@@ -31,6 +31,12 @@ public enum TaskState {
         allow(BUILDING, VERIFYING, EXECUTING);         // EXECUTING: fix a failed build
         allow(VERIFYING, DELIVERING, EXECUTING, BUILDING);
         allow(DELIVERING, COMPLETED, VERIFYING);
+        // A task that never reached CI may end where it stopped: a pure answer (ANALYZING) or
+        // local changes without a build request (EXECUTING, TESTING). BUILDING/VERIFYING cannot
+        // complete directly: an unverified build is paused, never "done".
+        allow(ANALYZING, COMPLETED);
+        allow(EXECUTING, COMPLETED);
+        allow(TESTING, COMPLETED);
         // Suspension states are entered from any active state (below) and resume to the
         // state that was interrupted, enforced by TaskJournal.
         for (TaskState s : active()) {

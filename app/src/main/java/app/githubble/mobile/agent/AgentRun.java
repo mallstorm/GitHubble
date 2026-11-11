@@ -21,6 +21,34 @@ public final class AgentRun {
   private long elapsed, revision = 1;
   private int iteration;
   private Runnable changed = () -> {};
+  private app.githubble.mobile.agent.core.AgentRunJournal journal;
+
+  /** Durable record of this run (task states and tool ledger); best-effort, never breaks the run. */
+  public synchronized void attachJournal(app.githubble.mobile.agent.core.AgentRunJournal value) {
+    journal = value;
+    try {
+      if (journal != null) journal.start();
+    } catch (RuntimeException ignored) {
+      journal = null;
+    }
+  }
+
+  /** Refuses a repeat of a creation/merge call that already succeeded or has an unknown outcome. */
+  public synchronized void requireNotDuplicate() {
+    JSONObject op = operation(current);
+    if (op != null && !op.optString("duplicate").isEmpty())
+      throw new IllegalStateException(op.optString("duplicate"));
+  }
+
+  private static String canonical(JSONObject args) {
+    java.util.TreeMap<String, String> sorted = new java.util.TreeMap<>();
+    java.util.Iterator<String> keys = args.keys();
+    while (keys.hasNext()) {
+      String k = keys.next();
+      sorted.put(k, String.valueOf(args.opt(k)));
+    }
+    return sorted.toString();
+  }
 
   public AgentRun(String account, String conversation, LongSupplier clock) {
     this.account = account;
@@ -77,6 +105,13 @@ public final class AgentRun {
               .put("started", clock.getAsLong())
               .put("elapsed_ms", 0);
       operations.put(op);
+      if (journal != null)
+        try {
+          String repeat = journal.toolBegin(current, name, canonical(args));
+          if (repeat != null) op.put("duplicate", repeat);
+        } catch (RuntimeException ignored) {
+          journal = null;
+        }
       stage = label(name);
       preview = "";
       notifyChanged();
@@ -102,6 +137,12 @@ public final class AgentRun {
       current = "";
       state = "running";
       stage = "Продолжаю задачу";
+      if (journal != null)
+        try {
+          journal.toolResult(opId, status, error);
+        } catch (RuntimeException ignored) {
+          journal = null;
+        }
       notifyChanged();
     } catch (Exception e) {
       throw new IllegalStateException(e);
@@ -133,6 +174,12 @@ public final class AgentRun {
   public synchronized void approval(boolean waiting) {
     if (active()) {
       state = waiting ? "approval" : "running";
+      if (journal != null)
+        try {
+          journal.approval(waiting);
+        } catch (RuntimeException ignored) {
+          journal = null;
+        }
       stage = waiting ? "Ожидает подтверждения" : "Продолжаю задачу";
       notifyChanged();
     }
@@ -143,6 +190,7 @@ public final class AgentRun {
     if (op != null && active())
       try {
         op.put("remote_dispatched", true);
+        if (journal != null) journal.toolDispatched(current);
         notifyChanged();
       } catch (Exception e) {
         throw new IllegalStateException(e);
@@ -152,6 +200,12 @@ public final class AgentRun {
   public synchronized void finish(String status, String message) {
     if (!active()) return;
     elapsed = Math.max(0, clock.getAsLong() - started);
+    if (journal != null)
+      try {
+        journal.finish(status, message);
+      } catch (RuntimeException ignored) {
+        /* journal problems never change the run outcome */
+      }
     state = status;
     stage = clip(message, 300);
     if ("succeeded".equals(status)) preview = "";

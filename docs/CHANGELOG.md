@@ -5,4 +5,6 @@
 - Add: пакет `agent.core` (машина состояний, журнал, ToolLedger, ExecutionMode, классификатор сбоев, RetryPolicy, Supervisor, проверка APK).
 - Add: инструменты `build_run_status`, `build_artifacts`, `verify_build`, `update_pull_request`, `comment_issue`, `await_build`.
 - Change: repair-диалог отказывает для сбоев не из-за исходников; `dispatch_workflow` ограничен бюджетом.
+- Add: проверка APK при загрузке (`BuildDownloadReceiver` + `ArtifactVerifier`); классификация действий и надстройка `ExecutionMode` в хосте.
+- Add: `AgentRunJournal` — durable-журнал каждого запуска агента, защита от повторов создания/merge, пометка оборванных запусков при старте.
 - Docs: аудит, архитектура, контракты. Remote Runtime, GitHub App-идентичность — не реализованы.

@@ -290,6 +290,9 @@ public class MainActivity extends Activity {
         api = new GitHubApiClient(secureStore, entityCache);
         graphql = new GitHubGraphQlClient(api);
         agentProjects = new AgentProjectStore(this);
+        final java.io.File journalDir = new java.io.File(getFilesDir(), "agent-journal");
+        new Thread(() -> app.githubble.mobile.agent.core.AgentRunJournal.recoverInterrupted(
+            journalDir, System::currentTimeMillis), "agent-journal-recovery").start();
         agentMemory=new app.githubble.mobile.memory.MemoryHub(this);
         agentWorkspaces=new app.githubble.mobile.agent.WorkspaceHub(this);
         app.githubble.mobile.network.AiNetwork.initialize(this);
@@ -2400,6 +2403,9 @@ public class MainActivity extends Activity {
             aiRequestTickets.put(expected, ticket);
             final app.githubble.mobile.agent.AgentRun run=new app.githubble.mobile.agent.AgentRun(expected,activeChat,android.os.SystemClock::elapsedRealtime);
             run.model(model);
+            run.attachJournal(new app.githubble.mobile.agent.core.AgentRunJournal(run.id,activeProject.name,
+                app.githubble.mobile.agent.core.ExecutionMode.forLevel(agentPermission(expected)),
+                new java.io.File(getFilesDir(),"agent-journal"),System::currentTimeMillis));
             app.githubble.mobile.agent.AgentRunRegistry.put(run);
             new app.githubble.mobile.agent.AgentRunBinding(run,agentProjects,()->agentRefreshIfCurrent(expected));
             agentRefreshIfCurrent(expected);
