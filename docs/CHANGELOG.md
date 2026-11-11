@@ -18,3 +18,4 @@
 - Docs: аудит, архитектура, контракты. Remote Runtime, GitHub App-идентичность — не реализованы.
 - Test: `SecurityPropertiesTest` (журнал без аргументов, защита от выхода из каталога, линейный разбор триггеров). Docs: итоговый отчёт `docs/audit/FINAL_REPORT.md`.
 - Docs: решение владельца — бот-идентичность GitHub App не нужна (работа через пользовательский токен App «GiHubble»); Remote Runtime не планируется без отдельного запроса.
+- Remove: `app/src-compose` (не входил в сборку; архив в ветке `claude/archive-src-compose-2026-11`). Fix: `tracking_max_pages` и `tracking_release_check_limit` редактируются в настройках отслеживания (диапазоны 1–10 и 1–30).

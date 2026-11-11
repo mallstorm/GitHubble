@@ -40,6 +40,6 @@ PLACEHOLDER, UNKNOWN (не проверено), MISSING. «Подтвержде�
 | Runtime | Классификация отказов GitHub API (`ApiFailure`) с инструкцией хоста «не обходить» | WORKING (новое) | `error_class`/`instruction` в результате инструмента; юнит-тесты классификации |
 | Код | `AiConnectionStore`, `OmniChatChatGateway` | удалено (проход C) | Не имели ссылок; активное хранилище — `OmniChatConnectionStore` |
 | Код | `AgentExecutionEngine.analyze` | UNUSED в боевом пути | Вытеснен `ProjectRuntime`; оставлен: его вызывает инструментальный smoke `GitAgentUiChecks`. `propose`/`applyApproved`/`executeReadOnly` в работе |
-| Код | `app/src-compose` | UNUSED | Не входит в сборку |
+| Код | `app/src-compose` | REMOVED | Удалён по решению владельца; архив — ветка `claude/archive-src-compose-2026-11` (коммит 2f564f1) |
 | Код | Дублирование `host.catalog()` в запросе | WORKING (исправлено) | Каталог хоста теперь в промпте один раз (в «CURRENT HOST CAPABILITIES» на каждом раунде) |
 | CI | Android checks, Account UI, Agent chat UI, Xray smoke | WORKING | Зелёные на коммите 2c124ea |

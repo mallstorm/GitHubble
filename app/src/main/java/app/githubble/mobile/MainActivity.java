@@ -7189,8 +7189,8 @@ public class MainActivity extends Activity {
         settingsActionRow("Рост звёзд","от "+prefs.getInt("tracking_star_threshold",10),() -> showTrackingThresholdDialog("tracking_star_threshold","Порог роста звёзд",10));
         settingsActionRow("Рост forks","от "+prefs.getInt("tracking_fork_threshold",3),() -> showTrackingThresholdDialog("tracking_fork_threshold","Порог роста forks",3));
         sectionTitle("Ограничение API",null);
-        settingsRow("Репозиториев за цикл","до "+(prefs.getInt("tracking_max_pages",5)*100));
-        settingsRow("Проверка релизов","последние "+prefs.getInt("tracking_release_check_limit",8)+" репо");
+        settingsActionRow("Репозиториев за цикл","до "+(Math.max(1,Math.min(10,prefs.getInt("tracking_max_pages",5)))*100),() -> showTrackingLimitDialog("tracking_max_pages","Страниц по 100 репозиториев за цикл (1–10)",5,10));
+        settingsActionRow("Проверка релизов","последние "+prefs.getInt("tracking_release_check_limit",8)+" репо",() -> showTrackingLimitDialog("tracking_release_check_limit","Сколько репозиториев проверять на релизы (1–30)",8,30));
         settingsRow("Остаток GitHub API",api.getRemaining()<0?"Не определён":String.valueOf(api.getRemaining()));
     }
 
@@ -7206,6 +7206,11 @@ public class MainActivity extends Activity {
     private void showTrackingThresholdDialog(String key,String title,int defaultValue){
         EditText input=new EditText(this);input.setInputType(InputType.TYPE_CLASS_NUMBER);input.setSingleLine(true);input.setText(String.valueOf(prefs.getInt(key,defaultValue)));input.setTextColor(TEXT);
         new AlertDialog.Builder(this).setTitle(title).setView(input).setPositiveButton("Сохранить",(d,w)->{try{int value=Math.max(1,Math.min(100000,Integer.parseInt(input.getText().toString().trim())));prefs.edit().putInt(key,value).apply();}catch(Exception ignored){}showTrackingSettings();}).setNegativeButton("Отмена",null).show();
+    }
+
+    private void showTrackingLimitDialog(String key,String title,int defaultValue,int max){
+        EditText input=new EditText(this);input.setInputType(InputType.TYPE_CLASS_NUMBER);input.setSingleLine(true);input.setText(String.valueOf(Math.max(1,Math.min(max,prefs.getInt(key,defaultValue)))));input.setTextColor(TEXT);
+        new AlertDialog.Builder(this).setTitle(title).setView(input).setPositiveButton("Сохранить",(d,w)->{try{int value=Math.max(1,Math.min(max,Integer.parseInt(input.getText().toString().trim())));prefs.edit().putInt(key,value).apply();}catch(Exception ignored){}showTrackingSettings();}).setNegativeButton("Отмена",null).show();
     }
 
     private void confirmClearTrackingHistory(String filter){

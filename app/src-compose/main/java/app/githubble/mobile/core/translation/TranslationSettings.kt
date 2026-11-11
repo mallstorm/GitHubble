@@ -1,3 +1,0 @@
-package app.githubble.mobile.core.translation
-import android.content.Context
-class TranslationSettings(context:Context){private val p=context.getSharedPreferences("translation",Context.MODE_PRIVATE);var endpoint:String get()=p.getString("endpoint","").orEmpty() set(v){p.edit().putString("endpoint",v).apply()};var apiKey:String get()=p.getString("apiKey","").orEmpty() set(v){p.edit().putString("apiKey",v).apply()};var model:String get()=p.getString("model","gpt-4.1-mini").orEmpty() set(v){p.edit().putString("model",v).apply()};var autoTranslate:Boolean get()=p.getBoolean("auto",false) set(v){p.edit().putBoolean("auto",v).apply()}}
