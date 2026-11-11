@@ -24,13 +24,29 @@ public final class AgentBuildDiagnostics {
         this.secrets = secrets;
     }
 
+    /** Atomic account check + session-bound client (see AgentGitWorkspace.client). */
     private GitHubApiClient api(String account) {
-        synchronized (accounts) {
+        synchronized (SecureStore.SESSION_LOCK) {
             if (account == null || "guest".equals(account) || !account.equals(accounts.activeCacheKey()))
                 throw new IllegalStateException("Активный GitHub-аккаунт изменился");
+            if (secrets.get("github_token").isEmpty())
+                throw new IllegalStateException("Не выполнена авторизация GitHub");
+            try {
+                return new GitHubApiClient(secrets).bindCurrentSession();
+            } catch (GitHubApiClient.SessionChangedException changed) {
+                throw new IllegalStateException("Активный GitHub-аккаунт изменился", changed);
+            }
+        }
+    }
+
+    /** Token for the raw log download, read atomically with the account check. */
+    private String tokenFor(String account) {
+        synchronized (SecureStore.SESSION_LOCK) {
+            if (account == null || "guest".equals(account) || !account.equals(accounts.activeCacheKey()))
+                throw new IllegalStateException("Аккаунт изменился");
             String token = secrets.get("github_token");
             if (token.isEmpty()) throw new IllegalStateException("Не выполнена авторизация GitHub");
-            return new GitHubApiClient(secrets, null, token);
+            return token;
         }
     }
 
@@ -161,12 +177,7 @@ public final class AgentBuildDiagnostics {
         JSONArray failed = report.optJSONArray("failures");
         if (failed == null || failed.length() == 0) return report;
         StringBuilder excerpts = new StringBuilder();
-        String token;
-        synchronized (accounts) {
-            if (!account.equals(accounts.activeCacheKey()))
-                throw new IllegalStateException("Аккаунт изменился");
-            token = secrets.get("github_token");
-        }
+        String token = tokenFor(account);
         for (int i = 0; i < Math.min(2, failed.length()); i++) {
             JSONObject job = failed.optJSONObject(i);
             if (job == null) continue;
