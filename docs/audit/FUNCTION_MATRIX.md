@@ -30,15 +30,15 @@ PLACEHOLDER, UNKNOWN (не проверено), MISSING. «Подтвержде�
 | Сборка | Проверка APK (`ApkManifestReader`, `ArtifactVerifier`) | PARTIAL | Встроена в `BuildDownloadReceiver`: APK распаковывается в кэш, проверяются ZIP/CRC, classes.dex, манифест, наличие подписи; при FAIL в Загрузки не публикуется. Сверка с ожидаемым пакетом/версией при ручной загрузке не выполняется (ожидание неизвестно); `verify_build` APK не читает (`apk_inspected=false`) |
 | Сборка | Авто-скачивание/установка после проверки | UNKNOWN | `BuildAutoDownloadPolicy` существует; связка с верификацией не сделана |
 | Память | Память проекта, редактирование секретов | WORKING | `MemoryPolicy`, тесты |
-| Память | Индекс кода в продакшн-пути | UNUSED | `ProjectIndex.kt` вызывается только тестами |
+| Память | Индекс символов/поиск по Workspace (`ProjectIndexRegistry`) | WORKING | Используется `symbol_index`/`search_files` через `WorkspaceTools`; тесты `ProjectIndexTest`. Поправка: ранее ошибочно помечен UNUSED. Индекса для удалённого репозитория без Workspace нет — MISSING |
 | UI | Панель активности запуска (`AgentRunView`): шаги, итерации, статусы, ошибки | WORKING | Таймлайн RC4.31, тесты Agent chat UI |
 | UI | Строка «Состояние задачи · режим» (из журнала) в панели запуска | WORKING (новое) | `AgentTaskLabels`, `AgentActivityPanelTest`; визуально на устройстве не проверялась |
 | UI | Кнопка «Продолжить с контекстом» для прерванных/ошибочных/приостановленных запусков | PARTIAL (новое) | Перезапуск задачи с записанным контекстом (`ResumePrompt`), НЕ продолжение прежнего цикла модели; только для последнего запуска диалога |
 | UI | Отдельный экран панели активности по всем задачам | MISSING | Есть только панель внутри диалога |
 | UI | Уведомления агента (ждёт подтверждения, задача завершена/прервана) | WORKING (новое) | `AgentNotifier`, только когда приложение не на переднем плане, без аргументов инструментов; на устройстве не проверялось |
 | Runtime | Remote Agent Runtime | MISSING | Только `AgentRun` в процессе приложения |
-| Код | `AiConnectionStore`, `OmniChatChatGateway` | UNUSED/DUPLICATE | Нет вызовов, текст устарел |
-| Код | `AgentExecutionEngine.analyze` | UNUSED | Вытеснен `ProjectRuntime` |
+| Код | `AiConnectionStore`, `OmniChatChatGateway` | удалено (проход C) | Не имели ссылок; активное хранилище — `OmniChatConnectionStore` |
+| Код | `AgentExecutionEngine.analyze` | удалено (проход C) | Вытеснен `ProjectRuntime`; `propose`/`applyApproved`/`executeReadOnly` остаются в работе |
 | Код | `app/src-compose` | UNUSED | Не входит в сборку |
 | Код | Дублирование `host.catalog()` в запросе | WORKING (исправлено) | Каталог хоста теперь в промпте один раз (в «CURRENT HOST CAPABILITIES» на каждом раунде) |
 | CI | Android checks, Account UI, Agent chat UI, Xray smoke | WORKING | Зелёные на коммите 2c124ea |
