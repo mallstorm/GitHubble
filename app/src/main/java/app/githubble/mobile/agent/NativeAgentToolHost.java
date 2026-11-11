@@ -245,6 +245,15 @@ public final class NativeAgentToolHost implements ProjectRuntime.ToolHost {
             throw new IllegalStateException("Лимит запусков сборки исчерпан ("+buildPolicy.buildRuns()+"). Остановитесь и сообщите пользователю причину.");
         if(run!=null)run.remoteDispatched();
         JSONObject result=GitHubAgentOperations.write(github,account,name,a,repository,branch);
+        if("dispatch_workflow".equals(name)){
+            android.content.Context app=activity.getApplicationContext();
+            String full=GitHubAgentOperations.repository(a,repository);
+            boolean watched=app.githubble.mobile.build.BuildMonitor.prefs(app)
+                .getBoolean(app.githubble.mobile.build.BuildMonitor.PREF_ENABLED,false)
+                &&app.githubble.mobile.build.BuildMonitor.isWatched(app,full);
+            result.put("background_monitor",watched);
+            if(!watched)result.put("background_note","Если приложение закроют, уведомления о результате этой сборки не будет: репозиторий не отслеживается в Мониторе сборок.");
+        }
         event("✓ "+name+" · "+result.optString("html_url",result.optString("full_name","выполнено")),null);
         // Creating a repository should make it the project's target without losing local files.
         if("create_repository".equals(name)){

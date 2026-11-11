@@ -12,5 +12,7 @@
 - Remove: неиспользуемые `AiConnectionStore`, `OmniChatChatGateway`.
 - Add: вердикт проверки APK на устройстве (`ApkVerdictStore`), `artifact_verdict`, `expect` у `download_artifact`; несовпадение пакета/версии = APK не публикуется.
 - Change: уровни разрешений названы по режимам; в уровне «Авто» запуск сборки без диалога (бюджет 8, проверка workflow).
+- Add: классификация отказов GitHub API (`ApiFailure`); `dispatch_workflow` сообщает, наблюдается ли репозиторий в Мониторе сборок.
+- Docs: анализ Remote Runtime, проект контракта API, разбор GitHub App; симуляции сценариев D, E, F, G.
 - Fix: каталог хоста не дублируется в промпте.
 - Docs: аудит, архитектура, контракты. Remote Runtime, GitHub App-идентичность — не реализованы.

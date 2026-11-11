@@ -182,6 +182,15 @@ public final class ProjectRuntime {
                     listener.completed(operationId,"failed",invalid.getMessage());throw invalid;
                 }catch(Exception unavailable){
                     item.put("error",clip(unavailable.getMessage(),500));
+                    if(unavailable instanceof app.githubble.mobile.network.GitHubApiClient.ApiException){
+                        app.githubble.mobile.network.GitHubApiClient.ApiException api=
+                            (app.githubble.mobile.network.GitHubApiClient.ApiException)unavailable;
+                        app.githubble.mobile.agent.core.ApiFailure kind=app.githubble.mobile.agent.core.ApiFailure.classify(
+                            api.statusCode,api.rateLimited,
+                            unavailable instanceof app.githubble.mobile.network.GitHubApiClient.MutationOutcomeUnknownException);
+                        item.put("error_class",kind.name());
+                        if(!kind.instruction.isEmpty())item.put("instruction",kind.instruction);
+                    }
                     listener.completed(operationId,"failed",unavailable.getMessage());
                 }
                 returned.put(item);

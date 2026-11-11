@@ -7,7 +7,7 @@ PLACEHOLDER, UNKNOWN (не проверено), MISSING. «Подтвержде�
 | Область | Функция | Статус | Основание / примечание |
 |---|---|---|---|
 | Аккаунты | Вход, переключение, SESSION_LOCK, привязка клиента | WORKING | Тесты `Account*`, `GitHubSession`; D1 исправлен для agent-классов |
-| Аккаунты | GitHub App-идентичность для действий агента | MISSING | Действия идут от пользовательского токена; `github_capabilities` только читает установки |
+| Аккаунты | GitHub App-идентичность для действий агента | MISSING | Действия идут от пользовательского токена (автор — пользователь, без подмены); `github_capabilities` только читает установки; разбор по пунктам — `docs/github/GITHUB_APP.md` |
 | Агент | JSON-цикл инструментов `ProjectRuntime` (≤10 раундов, ≤6/раунд, ≤60 всего) | WORKING | Тесты `ProjectRuntime*` |
 | Агент | Разрешения READ_ONLY/REVIEW/LOCAL_AUTO/GITHUB_AUTO | WORKING | `AgentPermissionPolicy` + тесты |
 | Агент | Режимы AUTO/SEMI/MANUAL (`ExecutionMode`) | PARTIAL | Политика, классификация и тест-инвариант; уровни в диалоге названы по режимам; сборки в AUTO без диалога в пределах бюджета (отличие от ТЗ: merge/релизы/настройки всё равно с подтверждением); отдельного переключателя помимо диалога разрешений нет |
@@ -36,7 +36,8 @@ PLACEHOLDER, UNKNOWN (не проверено), MISSING. «Подтвержде�
 | UI | Кнопка «Продолжить с контекстом» для прерванных/ошибочных/приостановленных запусков | PARTIAL (новое) | Перезапуск задачи с записанным контекстом (`ResumePrompt`), НЕ продолжение прежнего цикла модели; только для последнего запуска диалога |
 | UI | Отдельный экран панели активности по всем задачам | MISSING | Есть только панель внутри диалога |
 | UI | Уведомления агента (ждёт подтверждения, задача завершена/прервана) | WORKING (новое) | `AgentNotifier`, только когда приложение не на переднем плане, без аргументов инструментов; на устройстве не проверялось |
-| Runtime | Remote Agent Runtime | MISSING | Только `AgentRun` в процессе приложения |
+| Runtime | Remote Agent Runtime | MISSING | Только `AgentRun` в процессе приложения; анализ вариантов и проект API — `docs/architecture/REMOTE_RUNTIME*.md`; нужно решение владельца |
+| Runtime | Классификация отказов GitHub API (`ApiFailure`) с инструкцией хоста «не обходить» | WORKING (новое) | `error_class`/`instruction` в результате инструмента; юнит-тесты классификации |
 | Код | `AiConnectionStore`, `OmniChatChatGateway` | удалено (проход C) | Не имели ссылок; активное хранилище — `OmniChatConnectionStore` |
 | Код | `AgentExecutionEngine.analyze` | UNUSED в боевом пути | Вытеснен `ProjectRuntime`; оставлен: его вызывает инструментальный smoke `GitAgentUiChecks`. `propose`/`applyApproved`/`executeReadOnly` в работе |
 | Код | `app/src-compose` | UNUSED | Не входит в сборку |
