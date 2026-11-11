@@ -29,6 +29,11 @@ public final class BuildArtifactDownloads {
     }
     public static long enqueue(Context context,String repo,JSONObject artifact,
                                boolean automatic,long runId)throws Exception {
+        return enqueue(context,repo,artifact,automatic,runId,null);
+    }
+    /** @param expect optional identity the delivered APK must match (package, version_code, version_name) */
+    public static long enqueue(Context context,String repo,JSONObject artifact,
+                               boolean automatic,long runId,JSONObject expect)throws Exception {
         long id=artifact.optLong("id",0);
         if(id<=0||repo==null||!repo.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+"))
             throw new IllegalArgumentException("Некорректный артефакт GitHub");
@@ -84,11 +89,11 @@ public final class BuildArtifactDownloads {
         if(dm==null)throw new IllegalStateException("Загрузки Android недоступны");
         long downloadId=dm.enqueue(request);
         SharedPreferences.Editor edit=BuildMonitor.prefs(context).edit();
-        edit.putString("build_download_"+downloadId,
-                new JSONObject().put("repo",repo).put("name",local)
-                        .put("artifact_id",id).put("automatic",automatic)
-                        .put("run_id",runId).put("account",BuildMonitor.account(context))
-                        .toString()).commit();
+        JSONObject info=new JSONObject().put("repo",repo).put("name",local)
+                .put("artifact_id",id).put("automatic",automatic)
+                .put("run_id",runId).put("account",BuildMonitor.account(context));
+        if(expect!=null&&expect.length()>0)info.put("expect",expect);
+        edit.putString("build_download_"+downloadId,info.toString()).commit();
         return downloadId;
     }
 }

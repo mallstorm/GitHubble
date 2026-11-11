@@ -19,15 +19,19 @@ public final class AgentBuildArtifactController {
     }
 
     private GitHubApiClient snapshot(String expectedAccount) {
-        synchronized (accounts) {
+        synchronized (SecureStore.SESSION_LOCK) {
             String active = accounts.activeCacheKey();
             if (expectedAccount == null || expectedAccount.equals("guest")
                     || !expectedAccount.equals(active)) {
                 throw new IllegalStateException("Выбран другой GitHub-аккаунт");
             }
-            String token = secrets.get("github_token");
-            if (token.isEmpty()) throw new IllegalStateException("GitHub не авторизован");
-            return new GitHubApiClient(secrets, null, token);
+            if (secrets.get("github_token").isEmpty())
+                throw new IllegalStateException("GitHub не авторизован");
+            try {
+                return new GitHubApiClient(secrets).bindCurrentSession();
+            } catch (GitHubApiClient.SessionChangedException changed) {
+                throw new IllegalStateException("Выбран другой GitHub-аккаунт", changed);
+            }
         }
     }
 

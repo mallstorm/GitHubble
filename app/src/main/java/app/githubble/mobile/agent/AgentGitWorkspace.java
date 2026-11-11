@@ -32,14 +32,24 @@ public final class AgentGitWorkspace {
         this.accounts = accounts; this.vault = vault;
     }
 
+    /**
+     * Account check and credential capture happen atomically under the same lock that
+     * account switching uses. The returned client is bound to that session: if the account
+     * or token changes mid-operation, every later request fails instead of running as
+     * another user.
+     */
     private GitHubApiClient client(String expected) {
-        synchronized (accounts) {
+        synchronized (SecureStore.SESSION_LOCK) {
             String current = accounts.activeCacheKey();
             if (expected == null || "guest".equals(expected) || !expected.equals(current))
                 throw new IllegalStateException("GitHub-аккаунт был переключён");
-            String token = vault.get("github_token");
-            if (token.isEmpty()) throw new IllegalStateException("GitHub-аккаунт не авторизован");
-            return new GitHubApiClient(vault, null, token);
+            if (vault.get("github_token").isEmpty())
+                throw new IllegalStateException("GitHub-аккаунт не авторизован");
+            try {
+                return new GitHubApiClient(vault).bindCurrentSession();
+            } catch (GitHubApiClient.SessionChangedException changed) {
+                throw new IllegalStateException("GitHub-аккаунт был переключён", changed);
+            }
         }
     }
 

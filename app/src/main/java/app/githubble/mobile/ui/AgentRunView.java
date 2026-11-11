@@ -23,7 +23,8 @@ public final class AgentRunView extends LinearLayout {
   private final Consumer<String> openDiff;
   private final TextView heading, timer, stage;
   private final LinearLayout body, reads, other, partial;
-  private final TextView readHeading;
+  private final TextView readHeading, taskLine, resume;
+  private Runnable resumeHandler;
   private final Map<String, TextView> operationTimers = new LinkedHashMap<>();
   private boolean expanded, readsExpanded;
   private boolean manuallyExpanded;
@@ -73,6 +74,9 @@ public final class AgentRunView extends LinearLayout {
     stage = label("", 11, muted);
     stage.setPadding(dp(2), dp(2), dp(2), dp(7));
     body.addView(stage);
+    taskLine = label("", 11, muted);
+    taskLine.setPadding(dp(2), 0, dp(2), dp(7));
+    body.addView(taskLine);
     readHeading = label("", 12, muted);
     readHeading.setGravity(Gravity.CENTER_VERTICAL);
     readHeading.setMinHeight(dp(48));
@@ -86,6 +90,17 @@ public final class AgentRunView extends LinearLayout {
     partial = new LinearLayout(activity);
     partial.setOrientation(VERTICAL);
     body.addView(partial);
+    resume = label("↻ Продолжить с контекстом", 12, accent);
+    resume.setTypeface(null, Typeface.BOLD);
+    resume.setGravity(Gravity.CENTER_VERTICAL);
+    resume.setMinHeight(dp(48));
+    resume.setVisibility(GONE);
+    resume.setOnClickListener(
+        v -> {
+          Runnable handler = resumeHandler;
+          if (handler != null) handler.run();
+        });
+    body.addView(resume);
     readHeading.setOnClickListener(
         v -> {
           readsExpanded = !readsExpanded;
@@ -123,6 +138,25 @@ public final class AgentRunView extends LinearLayout {
             v.optString("id"), v.optString("account"), v.optString("conversation"));
   }
 
+  /** Offered only on the newest run; the handler restarts the task with its recorded context. */
+  public void setResumeHandler(Runnable handler) {
+    resumeHandler = handler;
+    if (value != null) updateResume();
+  }
+
+  private void updateResume() {
+    boolean interrupted =
+        !live(value)
+            && (active(value)
+                || "failed".equals(value.optString("state"))
+                || "interrupted".equals(value.optString("state")));
+    boolean offered =
+        resumeHandler != null
+            && (interrupted
+                || app.githubble.mobile.agent.AgentTaskLabels.resumable(value.optString("task_state")));
+    resume.setVisibility(offered ? VISIBLE : GONE);
+  }
+
   public void update(JSONObject snapshot) {
     boolean wasActive = value != null && active(value);
     value = snapshot;
@@ -151,6 +185,12 @@ public final class AgentRunView extends LinearLayout {
       new AgentMarkdownView(activity, text, muted, accent, 0, border)
           .render(partial, value.optString("preview"));
     }
+    String line =
+        app.githubble.mobile.agent.AgentTaskLabels.line(
+            value.optString("task_state"), value.optString("mode"));
+    taskLine.setText(line);
+    taskLine.setVisibility(line.isEmpty() ? GONE : VISIBLE);
+    updateResume();
     updateHeading();
     tick();
   }

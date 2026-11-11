@@ -24,13 +24,29 @@ public final class AgentBuildDiagnostics {
         this.secrets = secrets;
     }
 
+    /** Atomic account check + session-bound client (see AgentGitWorkspace.client). */
     private GitHubApiClient api(String account) {
-        synchronized (accounts) {
+        synchronized (SecureStore.SESSION_LOCK) {
             if (account == null || "guest".equals(account) || !account.equals(accounts.activeCacheKey()))
                 throw new IllegalStateException("Активный GitHub-аккаунт изменился");
+            if (secrets.get("github_token").isEmpty())
+                throw new IllegalStateException("Не выполнена авторизация GitHub");
+            try {
+                return new GitHubApiClient(secrets).bindCurrentSession();
+            } catch (GitHubApiClient.SessionChangedException changed) {
+                throw new IllegalStateException("Активный GitHub-аккаунт изменился", changed);
+            }
+        }
+    }
+
+    /** Token for the raw log download, read atomically with the account check. */
+    private String tokenFor(String account) {
+        synchronized (SecureStore.SESSION_LOCK) {
+            if (account == null || "guest".equals(account) || !account.equals(accounts.activeCacheKey()))
+                throw new IllegalStateException("Аккаунт изменился");
             String token = secrets.get("github_token");
             if (token.isEmpty()) throw new IllegalStateException("Не выполнена авторизация GitHub");
-            return new GitHubApiClient(secrets, null, token);
+            return token;
         }
     }
 
@@ -79,14 +95,37 @@ public final class AgentBuildDiagnostics {
             failures.put(new JSONObject().put("id", job.optLong("id")).put("job", job.optString("name"))
                     .put("conclusion", conclusion).put("steps", broken));
         }
-        return new JSONObject().put("run_id", runId)
+        return classified(new JSONObject().put("run_id", runId)
                 .put("repository",repo)
                 .put("branch",run.optString("head_branch"))
                 .put("sha", run.optString("head_sha"))
                 .put("status", run.optString("status"))
                 .put("conclusion", run.optString("conclusion"))
                 .put("url", run.optString("html_url"))
-                .put("failures", failures);
+                .put("failures", failures), "");
+    }
+
+    /**
+     * Adds failure_class / source_fixable / transient / signature. Environment faults are not
+     * source-fixable, so they never trigger edits to project code.
+     */
+    static JSONObject classified(JSONObject report, String excerpt) throws Exception {
+        StringBuilder names = new StringBuilder();
+        JSONArray failed = report.optJSONArray("failures");
+        for (int i = 0; failed != null && i < failed.length(); i++) {
+            JSONObject job = failed.optJSONObject(i);
+            if (job == null) continue;
+            names.append(job.optString("job")).append(' ');
+            JSONArray steps = job.optJSONArray("steps");
+            if (steps == null || steps.length() == 0) names.append("job-without-failed-step ");
+            for (int j = 0; steps != null && j < steps.length(); j++) names.append(steps.optString(j)).append(' ');
+        }
+        app.githubble.mobile.agent.core.BuildFailureClassifier.Result result =
+            app.githubble.mobile.agent.core.BuildFailureClassifier.classify(names.toString(), excerpt);
+        return report.put("failure_class", result.failureClass.name())
+                .put("source_fixable", result.failureClass.sourceFixable)
+                .put("transient", result.failureClass.transientFailure)
+                .put("failure_signature", result.signature);
     }
 
 
@@ -161,12 +200,7 @@ public final class AgentBuildDiagnostics {
         JSONArray failed = report.optJSONArray("failures");
         if (failed == null || failed.length() == 0) return report;
         StringBuilder excerpts = new StringBuilder();
-        String token;
-        synchronized (accounts) {
-            if (!account.equals(accounts.activeCacheKey()))
-                throw new IllegalStateException("Аккаунт изменился");
-            token = secrets.get("github_token");
-        }
+        String token = tokenFor(account);
         for (int i = 0; i < Math.min(2, failed.length()); i++) {
             JSONObject job = failed.optJSONObject(i);
             if (job == null) continue;
@@ -180,7 +214,7 @@ public final class AgentBuildDiagnostics {
             }
         }
         report.put("error_excerpt", excerpts.toString());
-        return report;
+        return classified(report, excerpts.toString());
     }
 
     /** Run and job metadata, optional redacted excerpt; requires consent before external AI transfer. */
