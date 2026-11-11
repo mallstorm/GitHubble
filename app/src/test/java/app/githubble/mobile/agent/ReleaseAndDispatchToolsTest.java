@@ -24,6 +24,21 @@ public class ReleaseAndDispatchToolsTest {
         GitHubAgentOperations.action("create_release", new JSONObject().put("draft", false)));
   }
 
+  @Test public void dispatchNeedsNoDialogOnlyAtAutoLevel() {
+    assertFalse(GitHubAgentOperations.sensitive("dispatch_workflow"));
+    assertFalse(AgentPermissionPolicy.needsReview(AgentPermissionPolicy.GITHUB_AUTO, true, GitHubAgentOperations.sensitive("dispatch_workflow")));
+    assertTrue(AgentPermissionPolicy.needsReview(AgentPermissionPolicy.LOCAL_AUTO, true, GitHubAgentOperations.sensitive("dispatch_workflow")));
+    assertTrue(AgentPermissionPolicy.needsReview(AgentPermissionPolicy.REVIEW, true, GitHubAgentOperations.sensitive("dispatch_workflow")));
+    assertTrue(AgentPermissionPolicy.needsReview(AgentPermissionPolicy.GITHUB_AUTO, true, GitHubAgentOperations.sensitive("merge_pull_request")));
+  }
+
+  @Test public void permissionLabelsNameTheModes() {
+    assertEquals(4, AgentPermissionPolicy.LABELS.length);
+    assertTrue(AgentPermissionPolicy.LABELS[1].startsWith("Ручной"));
+    assertTrue(AgentPermissionPolicy.LABELS[2].startsWith("Полуавто"));
+    assertTrue(AgentPermissionPolicy.LABELS[3].startsWith("Авто"));
+  }
+
   @Test public void dispatchCatalogDescribesTracking() {
     assertTrue(GitHubAgentOperations.WRITE_CATALOG.contains("run_id"));
   }

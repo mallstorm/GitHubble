@@ -10,5 +10,7 @@
 - Add: проверка workflow и триггера `workflow_dispatch` до подтверждения, возврат `run_id` у `dispatch_workflow`; `list_releases`, `create_release`; `download_artifact`.
 - Add: строка состояния задачи в панели запуска, кнопка «Продолжить с контекстом» (`ResumePrompt`), уведомления агента (`AgentNotifier`).
 - Remove: неиспользуемые `AiConnectionStore`, `OmniChatChatGateway`.
+- Add: вердикт проверки APK на устройстве (`ApkVerdictStore`), `artifact_verdict`, `expect` у `download_artifact`; несовпадение пакета/версии = APK не публикуется.
+- Change: уровни разрешений названы по режимам; в уровне «Авто» запуск сборки без диалога (бюджет 8, проверка workflow).
 - Fix: каталог хоста не дублируется в промпте.
 - Docs: аудит, архитектура, контракты. Remote Runtime, GitHub App-идентичность — не реализованы.

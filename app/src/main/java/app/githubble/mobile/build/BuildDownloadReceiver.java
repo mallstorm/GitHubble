@@ -24,7 +24,10 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
+import org.json.JSONArray;
 import org.json.JSONObject;
+import android.content.SharedPreferences;
+import app.githubble.mobile.agent.ApkVerdictStore;
 import app.githubble.mobile.MainActivity;
 import app.githubble.mobile.R;
 
@@ -67,6 +70,7 @@ public final class BuildDownloadReceiver extends BroadcastReceiver {
                 return;
             }
             int extracted=0;
+            JSONArray apks=new JSONArray();
             try(ParcelFileDescriptor parcel=dm.openDownloadedFile(id);
                 InputStream rawStream=new ParcelFileDescriptor.AutoCloseInputStream(parcel);
                 ZipInputStream zip=new ZipInputStream(rawStream)){
@@ -79,7 +83,8 @@ public final class BuildDownloadReceiver extends BroadcastReceiver {
                     if(!base.toLowerCase(java.util.Locale.ROOT).endsWith(".apk"))continue;
                     if(base.isEmpty()||base.length()>140)continue;
                     if(entry.getSize()>200L*1024L*1024L)continue;
-                    Extracted file=extractApk(context,zip,base,id);
+                    Extracted file=extractApk(context,zip,base,id,info.optJSONObject("expect"));
+                    if(file!=null)apks.put(file.verdict);
                     if(file!=null&&file.rejected!=null){
                         notify(context,"APK не прошёл проверку: "+base,file.rejected,null,
                                 (int)((id+extracted+100)&0x7fffffff));
@@ -95,6 +100,7 @@ public final class BuildDownloadReceiver extends BroadcastReceiver {
                     zip.closeEntry();
                 }
             }
+            recordVerdict(context,info,apks);
             if(extracted==0)notify(context,"Артефакт скачан",info.optString("name","")+
                     " — ZIP сохранён в Загрузках/GitHubble",null,id);
         }catch(Exception e){
@@ -104,11 +110,21 @@ public final class BuildDownloadReceiver extends BroadcastReceiver {
     }
     /** Result of unpacking one APK: either a published Uri with a verification summary, or a rejection. */
     private static final class Extracted {
-        final Uri uri; final String summary; final String rejected;
-        Extracted(Uri uri,String summary,String rejected){this.uri=uri;this.summary=summary;this.rejected=rejected;}
+        final Uri uri; final String summary; final String rejected; final JSONObject verdict;
+        Extracted(Uri uri,String summary,String rejected,JSONObject verdict){
+            this.uri=uri;this.summary=summary;this.rejected=rejected;this.verdict=verdict;}
     }
     /** The APK is unpacked to private cache, verified, and published to Downloads only if no check failed. */
-    private static Extracted extractApk(Context context,ZipInputStream zip,String name,long id)
+    private static void recordVerdict(Context context,JSONObject info,JSONArray apks){
+        try{
+            JSONObject entry=ApkVerdictStore.entry(info.optLong("artifact_id"),info.optString("account"),
+                info.optString("repo"),info.optString("name"),info.optLong("run_id"),apks,System.currentTimeMillis());
+            SharedPreferences prefs=BuildMonitor.prefs(context);
+            prefs.edit().putString(ApkVerdictStore.KEY,
+                ApkVerdictStore.add(prefs.getString(ApkVerdictStore.KEY,""),entry)).apply();
+        }catch(Exception ignored){/* the verdict record never blocks delivery */}
+    }
+    private static Extracted extractApk(Context context,ZipInputStream zip,String name,long id,JSONObject expect)
             throws IOException {
         if(Build.VERSION.SDK_INT<29)return null;
         java.io.File temp=java.io.File.createTempFile("apk-"+id+"-",".apk",context.getCacheDir());
@@ -125,18 +141,34 @@ public final class BuildDownloadReceiver extends BroadcastReceiver {
             }
             ArtifactVerifier.Expectation expectation=new ArtifactVerifier.Expectation();
             expectation.requireSignature=true;
+            if(expect!=null){
+                expectation.packageId=expect.optString("package","");
+                expectation.versionCode=expect.optLong("version_code",-1);
+                expectation.versionName=expect.optString("version_name","");
+            }
             ArtifactVerifier.Report report=ArtifactVerifier.verify(temp,expectation);
             boolean failed=false,unverified=false;
             for(ArtifactVerifier.Check check:report.checks){
                 if(check.status==ArtifactVerifier.Status.FAIL)failed=true;
                 else if(check.status==ArtifactVerifier.Status.UNVERIFIED)unverified=true;
             }
+            JSONObject verdict=new JSONObject();
+            try{
+                verdict.put("file",name).put("status",failed?"FAIL":unverified?"UNVERIFIED":"PASS")
+                    .put("sha256",report.sha256);
+                if(report.identity!=null)verdict.put("package",report.identity.packageName)
+                    .put("version_code",report.identity.versionCode).put("version_name",report.identity.versionName);
+                JSONArray bad=new JSONArray();
+                for(ArtifactVerifier.Check check:report.checks)
+                    if(check.status!=ArtifactVerifier.Status.PASS)bad.put(check.name+": "+check.detail);
+                verdict.put("problems",bad);
+            }catch(Exception impossible){/* valid keys */}
             if(failed){
                 StringBuilder why=new StringBuilder();
                 for(ArtifactVerifier.Check check:report.checks)
                     if(check.status==ArtifactVerifier.Status.FAIL)
                         why.append(check.name).append(": ").append(check.detail).append("; ");
-                return new Extracted(null,"",why.toString());
+                return new Extracted(null,"",why.toString(),verdict);
             }
             String digest=report.sha256.length()>=12?report.sha256.substring(0,12):report.sha256;
             String summary=report.identity==null||unverified
@@ -164,7 +196,7 @@ public final class BuildDownloadReceiver extends BroadcastReceiver {
             ContentValues done=new ContentValues();
             done.put(MediaStore.Downloads.IS_PENDING,0);
             resolver.update(uri,done,null,null);
-            return new Extracted(uri,summary,null);
+            return new Extracted(uri,summary,null,verdict);
         }finally{
             //noinspection ResultOfMethodCallIgnored
             temp.delete();

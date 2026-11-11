@@ -40,7 +40,9 @@ public final class GitHubAgentOperations {
     private static Set<String> set(String... names){return java.util.Collections.unmodifiableSet(new java.util.HashSet<>(java.util.Arrays.asList(names)));}
     private GitHubAgentOperations(){}
     public static boolean sensitive(String name){
-        return set("update_account_profile","update_repository","merge_pull_request","dispatch_workflow","create_release").contains(name);
+        // dispatch_workflow is deliberately not listed: builds are bounded by the host's RetryPolicy budget and a
+        // preflight check, so GITHUB_AUTO may start them without a dialog (lower levels still ask: needsReview).
+        return set("update_account_profile","update_repository","merge_pull_request","create_release").contains(name);
     }
     /** Host-side classification of a GitHub tool call (never taken from model text). */
     public static app.githubble.mobile.agent.core.ExecutionMode.Action action(String name,JSONObject a){

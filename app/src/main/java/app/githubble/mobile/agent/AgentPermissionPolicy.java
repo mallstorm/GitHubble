@@ -12,6 +12,8 @@ public final class AgentPermissionPolicy {
         int value=normalize(level);
         return sensitive||(remote?value<GITHUB_AUTO:value<LOCAL_AUTO);
     }
-    public static final String[] LABELS={"Только чтение","Подтверждать изменения",
-        "Автоматически локально","Автоматически локально и GitHub"};
+    public static final String[] LABELS={"Только чтение",
+        "Ручной: подтверждать каждое изменение",
+        "Полуавто: локально без вопросов, GitHub с подтверждением",
+        "Авто: локально и GitHub без вопросов, сборки в пределах бюджета; merge, релизы и настройки — с подтверждением"};
 }
