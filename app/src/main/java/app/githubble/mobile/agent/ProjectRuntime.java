@@ -104,7 +104,7 @@ public final class ProjectRuntime {
             String raw=model.complete(prompt+(host==null?"":"\nCURRENT HOST CAPABILITIES:\n"+host.catalog()));
             if(raw==null)throw new IllegalStateException("Нет ответа модели");
             JSONObject output;
-            try{output=new JSONObject(raw.trim());}catch(Exception plain){return raw;}
+            try{output=new JSONObject(raw.trim());}catch(Exception plain){output=ToolCallExtractor.find(raw);if(output==null)return raw;}
             JSONArray calls=output.optJSONArray("tools");
             if(calls==null||calls.length()==0){
                 String answer=output.optString("answer","");
