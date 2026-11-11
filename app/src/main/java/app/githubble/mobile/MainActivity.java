@@ -2427,6 +2427,7 @@ public class MainActivity extends Activity {
             new app.githubble.mobile.agent.AgentRunBinding(run,agentProjects,()->agentRefreshIfCurrent(expected));
             agentRefreshIfCurrent(expected);
             java.util.concurrent.FutureTask<Void> call = new java.util.concurrent.FutureTask<>(() -> {
+                Runnable deferredLearn=null;
                 try {
                     String context=agentContext(expected,activeProject,activeChat,message)+
                         (planning?"\nPLANNING: inspect, reason and plan only. Do not write, create, publish or run builds.":
@@ -2485,12 +2486,20 @@ public class MainActivity extends Activity {
                         agentProjects.appendToConversation(expected, activeChat, "agent", response);
                         run.finish("succeeded","Задача завершена");
                         try{agentMemory.recordEpisode(expected,activeProject.workspaceId,activeChat,message,response);}catch(Exception ignored){}
-                        if(agentMemory.shouldLearn(expected,activeProject.workspaceId,message))try{
-                            JSONArray extract=new JSONArray().put(new JSONObject().put("role","user").put("body",agentMemory.extractionPrompt(message,response,activeProject.name)));
-                            String learned=aiChatClient.completeForAccount(expected,provider,model,credential,extract,"Memory extraction","");
-                            aiUsage.record(expected,provider,model,OmniChatChatClient.takeUsage());
-                            if(java.util.Objects.equals(aiRequestTickets.get(expected),ticket)&&!aiCanceledRequests.contains(expected))agentMemory.learn(expected,activeProject.workspaceId,activeChat,learned);
-                        }catch(Exception memoryError){/* The answer succeeds independently of memory extraction. */}
+                        if(agentMemory.shouldLearn(expected,activeProject.workspaceId,message)){
+                            // Memory extraction is a second model call. It runs after the request lock is released,
+                            // otherwise the composer stays in "stop" mode and cannot send while the answer is already done.
+                            final String learnPrompt=agentMemory.extractionPrompt(message,response,activeProject.name);
+                            final String learnWorkspace=activeProject.workspaceId;
+                            deferredLearn=()->{
+                                try{
+                                    JSONArray extract=new JSONArray().put(new JSONObject().put("role","user").put("body",learnPrompt));
+                                    String learned=aiChatClient.completeForAccount(expected,provider,model,credential,extract,"Memory extraction","");
+                                    aiUsage.record(expected,provider,model,OmniChatChatClient.takeUsage());
+                                    if(!aiCanceledRequests.contains(expected))agentMemory.learn(expected,learnWorkspace,activeChat,learned);
+                                }catch(Exception memoryError){/* The answer succeeds independently of memory extraction. */}
+                            };
+                        }
                     }
                 } catch (Exception error) {
                     boolean cancelled=aiCanceledRequests.contains(expected);
@@ -2505,6 +2514,7 @@ public class MainActivity extends Activity {
                         aiActiveFutures.remove(expected);
                     }
                     runOnUiThread(() -> agentRefreshIfCurrent(expected));
+                    if(deferredLearn!=null)app.githubble.mobile.agent.AgentUiSession.WORKERS.execute(deferredLearn);
                 }
             },null);
             aiActiveFutures.put(expected, call);
