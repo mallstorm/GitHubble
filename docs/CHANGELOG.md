@@ -16,3 +16,4 @@
 - Docs: анализ Remote Runtime, проект контракта API, разбор GitHub App; симуляции сценариев D, E, F, G.
 - Fix: каталог хоста не дублируется в промпте.
 - Docs: аудит, архитектура, контракты. Remote Runtime, GitHub App-идентичность — не реализованы.
+- Test: `SecurityPropertiesTest` (журнал без аргументов, защита от выхода из каталога, линейный разбор триггеров). Docs: итоговый отчёт `docs/audit/FINAL_REPORT.md`.

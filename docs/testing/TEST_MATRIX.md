@@ -12,12 +12,13 @@
 | `AgentActivityPanelTest` | метки состояний, task_state в snapshot, события approval/finished, ResumePrompt | CI (Android-зависимости) |
 | `ApkVerdictStoreTest` | итоговый статус, учёт по аккаунту/репозиторию, лимит истории, очистка ожидаемых значений | CI |
 | `ScenarioSimulationTest` | симуляции логики хоста для сценариев ТЗ D, E, F, G (не живые E2E) | локально + CI |
+| `SecurityPropertiesTest` | журнал не хранит аргументы инструментов; хранилище отвергает id с выходом из каталога; разбор триггеров линеен на враждебном входе | локально + CI |
 | `AgentRunJournalTest` | связка запуска с журналом: состояния, повторы, подтверждения, восстановление, недоступный каталог | локально + CI |
 | `AgentRunJournalWiringTest`, `ExecutionModePolicyTest` | `AgentRun` ↔ журнал; инвариант политик | CI (Android-зависимости) |
 | `AgentBuildClassificationTest` | `classified()` и отказ repair-тикета | CI (Android-зависимости) |
 | Существующие тесты агента/аккаунтов | см. `app/src/test` | CI |
 
-Локально выполнены 68 тестов чистого ядра. Полный CI (unit, assembleDebug/Release, lintRelease, Xray smoke,
+Локально выполнены 72 теста чистого ядра. Полный CI (unit, assembleDebug/Release, lintRelease, Xray smoke,
 Account UI, Agent chat UI) — на PR #29. Не выполнялись: E2E-сценарии ТЗ A–H на устройстве, нагрузочные тесты.
 
 ## Сценарии ТЗ §17.3 — честный статус
