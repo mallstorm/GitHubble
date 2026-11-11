@@ -10,7 +10,7 @@ PLACEHOLDER, UNKNOWN (не проверено), MISSING. «Подтвержде�
 | Аккаунты | GitHub App-идентичность для действий агента | MISSING | Действия идут от пользовательского токена; `github_capabilities` только читает установки |
 | Агент | JSON-цикл инструментов `ProjectRuntime` (≤10 раундов, ≤6/раунд, ≤60 всего) | WORKING | Тесты `ProjectRuntime*` |
 | Агент | Разрешения READ_ONLY/REVIEW/LOCAL_AUTO/GITHUB_AUTO | WORKING | `AgentPermissionPolicy` + тесты |
-| Агент | Режимы AUTO/SEMI/MANUAL (`ExecutionMode`) | PARTIAL | Политика и тесты есть; к UI разрешений не подключена (используются 4 старых уровня) |
+| Агент | Режимы AUTO/SEMI/MANUAL (`ExecutionMode`) | PARTIAL | Политика, классификация действий и тест-инвариант есть; в хосте работает как надстройка над 4 уровнями; отдельного переключателя в UI нет |
 | Агент | Явная машина состояний задачи (`TaskState`, `TaskJournal`) | PARTIAL | Валидируется и сериализуется (тесты); чат её **не использует**, `AgentRun` остаётся в памяти |
 | Агент | Долговечное восстановление после перезапуска (`JournalStore`) | PARTIAL | Атомарная запись и чтение есть; в runtime не вызывается |
 | Агент | Журнал инструментов и защита от двойного выполнения (`ToolLedger`) | PARTIAL | Тесты есть; в хост не встроен. Фактическая защита сейчас — `AgentRun` (unknown после неоднозначной ошибки) |
@@ -26,7 +26,7 @@ PLACEHOLDER, UNKNOWN (не проверено), MISSING. «Подтвержде�
 | Сборка | Repair-диалог только для исправимых в исходниках причин | WORKING (новое) | `AgentBuildRepairTicket`; `AgentBuildClassificationTest` |
 | Сборка | Лимиты сборок/исправлений, backoff, повторы, WAIT_EXTERNAL (`RetryPolicy`) | WORKING (новое) | Применяется хостом в `await_build`/`dispatch_workflow` |
 | Сборка | `await_build` (ожидание ≤60 с за вызов, решение о следующем шаге) | WORKING (новое) | Только компиляция CI; живой прогон не выполнялся |
-| Сборка | Проверка APK (`ApkManifestReader`, `ArtifactVerifier`) | PARTIAL | Проверено на реальном APK rc4.2.30 локально; в загрузчик скачанных APK не встроена, `verify_build` пока не читает содержимое APK (`apk_inspected=false`) |
+| Сборка | Проверка APK (`ApkManifestReader`, `ArtifactVerifier`) | PARTIAL | Встроена в `BuildDownloadReceiver`: APK распаковывается в кэш, проверяются ZIP/CRC, classes.dex, манифест, наличие подписи; при FAIL в Загрузки не публикуется. Сверка с ожидаемым пакетом/версией при ручной загрузке не выполняется (ожидание неизвестно); `verify_build` APK не читает (`apk_inspected=false`) |
 | Сборка | Авто-скачивание/установка после проверки | UNKNOWN | `BuildAutoDownloadPolicy` существует; связка с верификацией не сделана |
 | Память | Память проекта, редактирование секретов | WORKING | `MemoryPolicy`, тесты |
 | Память | Индекс кода в продакшн-пути | UNUSED | `ProjectIndex.kt` вызывается только тестами |

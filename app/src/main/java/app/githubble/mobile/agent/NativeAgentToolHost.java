@@ -220,7 +220,11 @@ public final class NativeAgentToolHost implements ProjectRuntime.ToolHost {
             return result.toString();
         }
         // Exact immutable arguments are presented before dispatch, not a paraphrase of the task.
-        if(!approve(name,a.toString(2),true,GitHubAgentOperations.sensitive(name)))return denied(name);
+        // Defense in depth: the execution-mode policy may only add a review requirement, never remove one.
+        boolean modeReview=app.githubble.mobile.agent.core.ExecutionMode.forLevel(permission.getAsInt())
+            .decide(GitHubAgentOperations.action(name,a),false,false)
+            ==app.githubble.mobile.agent.core.ExecutionMode.Decision.NEED_APPROVAL;
+        if(!approve(name,a.toString(2),true,GitHubAgentOperations.sensitive(name)||modeReview&&AgentPermissionPolicy.normalize(permission.getAsInt())>=AgentPermissionPolicy.LOCAL_AUTO))return denied(name);
         check();requireWrite();github.requireAccount(account);
         if("dispatch_workflow".equals(name)&&!buildPolicy.tryStartBuild())
             throw new IllegalStateException("Лимит запусков сборки исчерпан ("+buildPolicy.buildRuns()+"). Остановитесь и сообщите пользователю причину.");

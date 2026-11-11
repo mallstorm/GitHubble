@@ -53,6 +53,15 @@ public enum ExecutionMode {
         }
     }
 
+    /** Inverse of {@link #permissionLevel()}; READ_ONLY has no mode (writes are impossible) and maps to MANUAL. */
+    public static ExecutionMode forLevel(int level) {
+        switch (AgentPermissionPolicy.normalize(level)) {
+            case AgentPermissionPolicy.GITHUB_AUTO: return AUTO;
+            case AgentPermissionPolicy.LOCAL_AUTO: return SEMI;
+            default: return MANUAL;
+        }
+    }
+
     /** Maps onto the existing permission levels so the policy is extended, not duplicated. */
     public int permissionLevel() {
         switch (this) {

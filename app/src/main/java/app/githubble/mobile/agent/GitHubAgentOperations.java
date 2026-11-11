@@ -41,6 +41,21 @@ public final class GitHubAgentOperations {
     public static boolean sensitive(String name){
         return set("update_account_profile","update_repository","merge_pull_request","dispatch_workflow").contains(name);
     }
+    /** Host-side classification of a GitHub tool call (never taken from model text). */
+    public static app.githubble.mobile.agent.core.ExecutionMode.Action action(String name,JSONObject a){
+        if(READS.contains(name))return app.githubble.mobile.agent.core.ExecutionMode.Action.READ;
+        switch(name){
+            case "merge_pull_request":return app.githubble.mobile.agent.core.ExecutionMode.Action.MERGE_PROTECTED;
+            case "dispatch_workflow":return app.githubble.mobile.agent.core.ExecutionMode.Action.BUILD;
+            case "update_account_profile":return app.githubble.mobile.agent.core.ExecutionMode.Action.PUBLISH;
+            case "create_repository":
+            case "update_repository":
+                return a!=null&&a.has("private")&&!a.optBoolean("private",true)
+                    ?app.githubble.mobile.agent.core.ExecutionMode.Action.PUBLISH
+                    :app.githubble.mobile.agent.core.ExecutionMode.Action.WORKING_BRANCH_WRITE;
+            default:return app.githubble.mobile.agent.core.ExecutionMode.Action.WORKING_BRANCH_WRITE;
+        }
+    }
     private static String enc(String s)throws Exception{return URLEncoder.encode(s,StandardCharsets.UTF_8.name()).replace("+","%20");}
     public static String repository(JSONObject a,String fallback){
         String repo=a.optString("repository",fallback);
