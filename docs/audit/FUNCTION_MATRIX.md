@@ -19,8 +19,9 @@ PLACEHOLDER, UNKNOWN (не проверено), MISSING. «Подтвержде�
 | GitHub | Запись: репозиторий, ветка, issue, PR, merge, dispatch | WORKING | Требуют подтверждения по уровню |
 | GitHub | `update_pull_request`, `comment_issue` | WORKING (новое) | Компиляция проверена CI; поведение на реальном GitHub в этом проходе не проверялось |
 | GitHub | `build_run_status`, `build_artifacts`, `verify_build` | WORKING (новое) | Логика Supervisor — юнит-тесты; сетевая часть `GitHubEvidence` — только CI-компиляция |
-| GitHub | Создание релиза, листинг релизов, скачивание артефакта инструментом агента | MISSING | Скачивание есть в UI-пути (`AgentBuildArtifactController`), не как инструмент |
-| GitHub | Привязка запуска к `dispatch_workflow` (run id), проверка `workflow_dispatch` | MISSING | Запуск определяется по `build_run_status` по ветке/sha |
+| GitHub | `list_releases`, `create_release` (draft по умолчанию) | WORKING (новое) | Компиляция и юнит-тесты классификации в CI; живой вызов не проверялся. Загрузка файлов в релиз — MISSING |
+| GitHub | Скачивание артефакта инструментом агента (`download_artifact`) | PARTIAL (новое) | Ставит загрузку в очередь; проверка APK идёт на устройстве, агент её результата не видит |
+| GitHub | Привязка запуска к `dispatch_workflow` (run id), проверка `workflow_dispatch` | WORKING (новое) | `WorkflowTrigger` и `DispatchRunMatcher` покрыты юнит-тестами; сетевая часть — только CI-компиляция |
 | Сборка | Диагностика упавшей сборки (джобы, шаги, лог) | WORKING | `AgentBuildDiagnostics` |
 | Сборка | Классификация причины (`BuildFailureClassifier`, 17 классов) | WORKING (новое) | 46 юнит-тестов локально, включая биллинг, runner, Kotlin/Java |
 | Сборка | Repair-диалог только для исправимых в исходниках причин | WORKING (новое) | `AgentBuildRepairTicket`; `AgentBuildClassificationTest` |
@@ -36,5 +37,5 @@ PLACEHOLDER, UNKNOWN (не проверено), MISSING. «Подтвержде�
 | Код | `AiConnectionStore`, `OmniChatChatGateway` | UNUSED/DUPLICATE | Нет вызовов, текст устарел |
 | Код | `AgentExecutionEngine.analyze` | UNUSED | Вытеснен `ProjectRuntime` |
 | Код | `app/src-compose` | UNUSED | Не входит в сборку |
-| Код | Дублирование `host.catalog()` в запросе | CONFLICT | D5, лишние токены |
+| Код | Дублирование `host.catalog()` в запросе | WORKING (исправлено) | Каталог хоста теперь в промпте один раз (в «CURRENT HOST CAPABILITIES» на каждом раунде) |
 | CI | Android checks, Account UI, Agent chat UI, Xray smoke | WORKING | Зелёные на коммите 2c124ea |

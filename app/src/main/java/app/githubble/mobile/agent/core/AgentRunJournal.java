@@ -15,7 +15,7 @@ import java.util.Set;
 public final class AgentRunJournal {
     /** Tools whose repetition with identical arguments is never intended (creation and merge). */
     private static final Set<String> ONCE = new HashSet<>(java.util.Arrays.asList(
-        "create_repository", "create_branch", "create_issue", "create_pull_request", "merge_pull_request"));
+        "create_repository", "create_branch", "create_issue", "create_pull_request", "merge_pull_request", "create_release"));
     private static final TaskState[] FORWARD = {TaskState.ANALYZING, TaskState.PLANNING, TaskState.APPROVAL,
         TaskState.EXECUTING, TaskState.TESTING, TaskState.BUILDING, TaskState.VERIFYING};
 
@@ -137,7 +137,7 @@ public final class AgentRunJournal {
             case "verify_build": return TaskState.VERIFYING;
             case "create_repository": case "create_branch": case "update_repository": case "update_account_profile":
             case "create_issue": case "update_issue": case "create_pull_request": case "update_pull_request":
-            case "comment_issue": case "merge_pull_request": case "write_files": case "publish_workspace":
+            case "comment_issue": case "merge_pull_request": case "create_release": case "write_files": case "publish_workspace":
             case "create_workspace": case "import_repository": case "attach_repository":
                 return TaskState.EXECUTING;
             default: return null; // reads stay where they are
