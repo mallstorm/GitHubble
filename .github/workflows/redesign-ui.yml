@@ -6,6 +6,8 @@ on:
     paths:
       - 'app/**'
       - '.github/workflows/redesign-ui.yml'
+permissions:
+  contents: write
 concurrency:
   group: redesign-ui-${{ github.ref }}
   cancel-in-progress: true
@@ -59,3 +61,17 @@ jobs:
         with:
           name: redesign-ui
           path: redesign-ui/
+      - name: Publish renders to the preview branch
+        if: always() && github.event.pull_request.head.repo.full_name == github.repository
+        run: |
+          test -d redesign-ui || exit 0
+          cp -r redesign-ui /tmp/redesign-ui
+          git config user.name github-actions
+          git config user.email github-actions@users.noreply.github.com
+          git checkout --orphan preview-redesign-ui
+          git rm -rfq . || true
+          mkdir -p docs/previews/redesign-ui
+          cp /tmp/redesign-ui/* docs/previews/redesign-ui/
+          git add docs/previews/redesign-ui
+          git commit -qm "docs: redesign UI renders"
+          git push -f origin HEAD:refs/heads/preview/redesign-ui
