@@ -90,6 +90,10 @@ public final class BuildMonitor {
         editor.apply();
         BuildMonitorJobService.reschedule(context);
     }
+    /** Last scan error for a watched repository, or empty. */
+    public static String lastError(Context context,String repo){
+        return prefs(context).getString(scope(context)+"error_"+repo,"");
+    }
     public static JSONArray recent(Context context){
         JSONArray merged=new JSONArray();
         List<JSONObject> all=new ArrayList<>();
