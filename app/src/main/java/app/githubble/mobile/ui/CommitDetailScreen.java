@@ -70,7 +70,7 @@ public final class CommitDetailScreen {
         JSONObject author=gitCommit.optJSONObject("author");
         JSONObject committer=gitCommit.optJSONObject("committer");
         String display=apiUser==null?"":apiUser.optString("login","");
-        if(display.isEmpty()&&author!=null)display=author.optString("name","");
+        if(display.isEmpty()&&author!=null)display=app.githubble.mobile.ui.JsonText.of(author,"name","");
         if(display.isEmpty())display="Автор не указан";
         String when=author==null?"":author.optString("date","");
         if(when.isEmpty()&&committer!=null)when=committer.optString("date","");
@@ -276,7 +276,7 @@ public final class CommitDetailScreen {
     private GradientDrawable shape(int fill,int radius){
         GradientDrawable b=new GradientDrawable();
         b.setColor(fill);
-        b.setCornerRadius(dp(radius));
+        b.setCornerRadius(dp(DesignSystem.radius(radius)));
         b.setStroke(dp(1),border);
         return b;
     }

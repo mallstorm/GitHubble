@@ -260,8 +260,8 @@ public final class RepositoriesScreen {
             if(repo==null)continue;
             String full=repo.optString("full_name","");
             if(full.isEmpty())continue;
-            String language=repo.optString("language","");
-            String haystack=(full+" "+repo.optString("description","")+" "+language)
+            String language=app.githubble.mobile.ui.JsonText.of(repo,"language","");
+            String haystack=(full+" "+app.githubble.mobile.ui.JsonText.of(repo,"description","")+" "+language)
                     .toLowerCase(Locale.ROOT);
             if(!haystack.contains(query))continue;
             if("private".equals(filter)&&!repo.optBoolean("private",false))continue;
@@ -324,9 +324,9 @@ public final class RepositoriesScreen {
         String name=repo.optString("name",full.contains("/")
                 ?full.substring(full.indexOf('/')+1):full);
         boolean privateRepo=repo.optBoolean("private",false);
-        String description=repo.optString("description","");
+        String description=app.githubble.mobile.ui.JsonText.of(repo,"description","");
         if(description.isEmpty()||"null".equals(description))description="Описание не указано";
-        String language=repo.optString("language","");
+        String language=app.githubble.mobile.ui.JsonText.of(repo,"language","");
         if(language.isEmpty()||"null".equals(language))language="—";
         int accent=languageColor(language);
 
@@ -457,7 +457,7 @@ public final class RepositoriesScreen {
     private GradientDrawable shape(int fill,int radius,int stroke,int width){
         GradientDrawable d=new GradientDrawable();
         d.setColor(fill);
-        d.setCornerRadius(dp(radius));
+        d.setCornerRadius(dp(DesignSystem.radius(radius)));
         if(width>0)d.setStroke(dp(width),stroke);
         return d;
     }

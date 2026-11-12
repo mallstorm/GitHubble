@@ -19,6 +19,7 @@ def r8Smoke = (project.findProperty('GITHUBBLE_R8_SMOKE') ?: 'false').toString()
 if (r8Smoke && ciEmulatorAbi != 'x86_64') {
     throw new GradleException('R8 smoke signing is restricted to the x86_64 emulator')
 }
+def redesignUi = (project.findProperty('GITHUBBLE_REDESIGN_UI') ?: 'false').toString() == 'true'
 def accountUiSmoke = (project.findProperty('GITHUBBLE_ACCOUNT_UI') ?: 'false').toString() == 'true'
 if (accountUiSmoke && (ciEmulatorAbi != 'x86_64' || r8Smoke)) {
     throw new GradleException('Account UI fixtures require the x86_64 Debug emulator')
@@ -49,7 +50,7 @@ android {
         buildConfigField 'String', 'GITHUB_APP_SLUG', '"' + escapedGithubAppSlug + '"'
         buildConfigField 'boolean', 'FEATURE_FREEZE', 'false'
         buildConfigField 'String', 'RC_CHANNEL', '"' + releaseChannel + '"'
-        testInstrumentationRunner (r8Smoke ? 'app.githubble.mobile.R8SmokeInstrumentation' : (accountUiSmoke ? 'app.githubble.mobile.AccountAccessUiInstrumentation' : (agentUiSmoke ? 'app.githubble.mobile.AgentChatUiInstrumentation' : 'app.githubble.mobile.RcInstrumentationTest')))
+        testInstrumentationRunner (r8Smoke ? 'app.githubble.mobile.R8SmokeInstrumentation' : (redesignUi ? 'app.githubble.mobile.RedesignUiInstrumentation' : accountUiSmoke ? 'app.githubble.mobile.AccountAccessUiInstrumentation' : (agentUiSmoke ? 'app.githubble.mobile.AgentChatUiInstrumentation' : 'app.githubble.mobile.RcInstrumentationTest')))
         ndk {
             abiFilters(ciEmulatorAbi.isEmpty() ? 'arm64-v8a' : ciEmulatorAbi)
         }

@@ -431,7 +431,7 @@ public final class ActivityScreen {
     private GradientDrawable round(int fill,int radius,int stroke,int width){
         GradientDrawable d=new GradientDrawable();
         d.setColor(fill);
-        d.setCornerRadius(dp(radius));
+        d.setCornerRadius(dp(DesignSystem.radius(radius)));
         if(width>0)d.setStroke(dp(width),stroke);
         return d;
     }

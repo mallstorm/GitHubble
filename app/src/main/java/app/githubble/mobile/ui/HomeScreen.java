@@ -498,7 +498,7 @@ public final class HomeScreen {
         GridLayout.LayoutParams p = new GridLayout.LayoutParams();
         p.width=0;p.height=dp(spaciousCards ? 94 : 77);
         p.columnSpec=GridLayout.spec(GridLayout.UNDEFINED,1f);
-        p.setMargins(dp(2),dp(2),dp(2),dp(2));
+        p.setMargins(dp(3),dp(3),dp(3),dp(3));
         grid.addView(box,p);
     }
 
@@ -689,7 +689,7 @@ public final class HomeScreen {
     private GradientDrawable round(int fill,int radius,int stroke,int strokeWidth) {
         GradientDrawable shape=new GradientDrawable();
         shape.setColor(fill);
-        shape.setCornerRadius(dp(radius));
+        shape.setCornerRadius(dp(DesignSystem.radius(radius)));
         if(strokeWidth>0)shape.setStroke(dp(strokeWidth),stroke);
         return shape;
     }
