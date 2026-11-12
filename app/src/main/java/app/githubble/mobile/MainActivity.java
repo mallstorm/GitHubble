@@ -3995,7 +3995,7 @@ public class MainActivity extends Activity {
                 }
                 loaded.addAll(shown);
                 int unread=0;for(InboxItem item:shown)if(item.unread)unread++;
-                status.setText((wasOfficial?"Официальный Inbox GitHub":"Режим поиска (без токена Inbox)")+" · непрочитанных: "+unread);
+                status.setText((wasOfficial?"Официальный Inbox GitHub":"Режим поиска (без токена Inbox)")+" · непрочитанных: "+unread+(wasOfficial&&result.size()>=50?"+":""));
                 if(!wasOfficial){
                     TextView note=text("GitHub не отдаёт уведомления токену входа через GitHubble. Показаны ревью, назначения, упоминания и ваши темы в репозиториях с установленным приложением. Добавьте токен (кнопка «Токен»), чтобы видеть полный Inbox.",12,false);
                     note.setTextColor(MUTED);list.addView(note);
@@ -4025,7 +4025,7 @@ public class MainActivity extends Activity {
                 if(official)io.execute(()->{try{InboxService.markThreadRead(new GitHubApiClient(secureStore,null,token),item.threadId);}catch(Exception ignored){}});
                 else inboxRememberRead(Collections.singletonList(item.readKey()));
             }
-            if("CheckSuite".equals(item.type)&&item.subjectId>0)openInboxCheckSuite(item);
+            if("CheckSuite".equals(item.type))openInboxCheckSuite(item);
             else if("PullRequest".equals(item.type)&&item.number>0)navigate(()->showPullDetail(item.repo,item.number));
             else if("Issue".equals(item.type)&&item.number>0)navigate(()->showIssueDetail(item.repo,item.number));
             else if("Discussion".equals(item.type)&&item.number>0)navigate(()->showDiscussionDetail(item.repo,item.number));
@@ -4040,9 +4040,20 @@ public class MainActivity extends Activity {
         io.execute(()->{
             long runId=0;
             try{
-                JSONObject runs=api.getJson("https://api.github.com/repos/"+item.repo+"/actions/runs?check_suite_id="+item.subjectId+"&per_page=1");
-                JSONArray list=runs.optJSONArray("workflow_runs");
-                if(list!=null&&list.length()>0)runId=list.optJSONObject(0).optLong("id",0);
+                String url;String[] parsed=InboxItem.parseWorkflowTitle(item.title);
+                if(item.subjectId>0)url="https://api.github.com/repos/"+item.repo+"/actions/runs?check_suite_id="+item.subjectId+"&per_page=1";
+                else url="https://api.github.com/repos/"+item.repo+"/actions/runs?per_page=50"
+                        +(parsed==null?"":"&branch="+URLEncoder.encode(parsed[1],"UTF-8"));
+                JSONArray list=api.getJson(url).optJSONArray("workflow_runs");
+                long target=0;try{target=java.time.Instant.parse(item.updatedAt).toEpochMilli();}catch(Exception ignored){}
+                long best=Long.MAX_VALUE;
+                for(int i=0;list!=null&&i<list.length();i++){
+                    JSONObject run=list.optJSONObject(i);if(run==null)continue;
+                    if(item.subjectId<=0&&parsed!=null&&!parsed[0].equals(run.optString("name","")))continue;
+                    long when=target;try{when=java.time.Instant.parse(run.optString("updated_at","")).toEpochMilli();}catch(Exception ignored){}
+                    long gap=Math.abs(when-target);
+                    if(gap<best){best=gap;runId=run.optLong("id",0);}
+                }
             }catch(Exception ignored){}
             final long found=runId;
             runOnUiThread(()->{
