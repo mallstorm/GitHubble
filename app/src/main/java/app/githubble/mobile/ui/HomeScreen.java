@@ -689,7 +689,7 @@ public final class HomeScreen {
     private GradientDrawable round(int fill,int radius,int stroke,int strokeWidth) {
         GradientDrawable shape=new GradientDrawable();
         shape.setColor(fill);
-        shape.setCornerRadius(dp(radius));
+        shape.setCornerRadius(dp(DesignSystem.radius(radius)));
         if(strokeWidth>0)shape.setStroke(dp(strokeWidth),stroke);
         return shape;
     }

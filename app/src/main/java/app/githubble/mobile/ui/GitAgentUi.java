@@ -28,7 +28,7 @@ public final class GitAgentUi {
     }
     public int dp(float v){return Math.round(v*activity.getResources().getDisplayMetrics().density);}
     public GradientDrawable shape(int color,int radius,int border){
-        GradientDrawable d=new GradientDrawable();d.setColor(color);d.setCornerRadius(dp(radius));
+        GradientDrawable d=new GradientDrawable();d.setColor(color);d.setCornerRadius(dp(DesignSystem.radius(radius)));
         if(border!=0)d.setStroke(dp(1),border);return d;
     }
     public TextView label(String value,int size,boolean bold){

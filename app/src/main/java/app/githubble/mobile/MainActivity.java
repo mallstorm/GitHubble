@@ -434,6 +434,7 @@ public class MainActivity extends Activity {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(BG);
+        app.githubble.mobile.ui.UiPolish.install(root, dp(6), dp(8));
 
         // The OmniChat surface owns its header, transcript scroll and anchored composer.
         // Skip the generic dashboard header and outer ScrollView only for the Chat tab.
@@ -569,7 +570,7 @@ public class MainActivity extends Activity {
         t.setTextSize(sp);
         t.setTextColor(TEXT);
         if (bold) t.setTypeface(null, android.graphics.Typeface.BOLD);
-        t.setPadding(dp(4), dp(4), dp(4), dp(4));
+        t.setPadding(dp(4), dp(2), dp(4), dp(2));
         t.setLineSpacing(0f, isLargeText()?1.18f:1.08f);
         t.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
         if(Build.VERSION.SDK_INT>=29){t.setBreakStrategy(android.graphics.text.LineBreaker.BREAK_STRATEGY_HIGH_QUALITY);t.setHyphenationFrequency(android.text.Layout.HYPHENATION_FREQUENCY_NORMAL);}
@@ -582,12 +583,13 @@ public class MainActivity extends Activity {
         b.setBackground(round(GREEN, 14, GREEN, 0));
         b.setPadding(dp(14), dp(8), dp(14), dp(8));
         b.setMinHeight(dp(48));b.setMinimumHeight(dp(48));b.setContentDescription(s);
+        b.setStateListAnimator(null);
         return b;
     }
 
     private GradientDrawable round(int fill, int radius, int stroke, int width) {
         GradientDrawable g = new GradientDrawable();
-        g.setColor(fill); g.setCornerRadius(dp(radius));
+        g.setColor(fill); g.setCornerRadius(dp(app.githubble.mobile.ui.DesignSystem.radius(radius)));
         if (width > 0) g.setStroke(dp(width), stroke);
         return g;
     }
@@ -606,7 +608,7 @@ public class MainActivity extends Activity {
 
     private void sectionTitle(String title, String action) {
         LinearLayout row = new LinearLayout(this); row.setGravity(Gravity.CENTER_VERTICAL);
-        TextView t = text(title, 20, true); row.addView(t, new LinearLayout.LayoutParams(0, dp(48), 1));
+        TextView t = text(title, 18, true); row.addView(t, new LinearLayout.LayoutParams(0, dp(44), 1));
         if (action != null) { TextView a = text(action, 14, true); a.setTextColor(BLUE); a.setGravity(Gravity.CENTER); row.addView(a); }
         content.addView(row);
     }
@@ -616,7 +618,7 @@ public class MainActivity extends Activity {
         box.setOrientation(LinearLayout.VERTICAL);
         box.setPadding(dp(16), dp(14), dp(16), dp(14));
         box.setBackground(round(CARD, 18, BORDER, 1));
-        box.setElevation(dp(1));
+        
         box.addView(v);
         LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, -2);
         p.setMargins(0, 0, 0, dp(12)); content.addView(box, p);
@@ -2297,7 +2299,7 @@ public class MainActivity extends Activity {
                 .setItems(labels, (d, i) -> {
                     JSONObject item = entries.optJSONObject(i);
                     if (item != null) new AlertDialog.Builder(this)
-                            .setTitle(item.optString("name", "Git Agent"))
+                            .setTitle(app.githubble.mobile.ui.JsonText.of(item,"name","Git Agent"))
                             .setMessage("Тип: " + item.optString("category", "—")
                                     + "\nАвторизация: " + item.optString("auth_type", "—")
                                     + "\nСетевой движок перенесём на следующем этапе. Это пока не активное подключение.")
@@ -2726,7 +2728,7 @@ public class MainActivity extends Activity {
                         conclusion = run.optString("status", "unknown");
                     }
                     String sha = run.optString("head_sha", "");
-                    labels[i] = run.optString("name", "GitHub Actions") + " · " + conclusion
+                    labels[i] = app.githubble.mobile.ui.JsonText.of(run,"name","GitHub Actions") + " · " + conclusion
                             + "\n" + run.optString("head_branch", "") + " · "
                             + sha.substring(0, Math.min(8, sha.length()));
                 }
@@ -2896,7 +2898,7 @@ public class MainActivity extends Activity {
                 for (int index = 0; index < names.length; index++) {
                     JSONObject run = runs.optJSONObject(index);
                     if (run == null) { names[index] = "Неизвестная сборка"; continue; }
-                    String name = run.optString("name", "GitHub Actions");
+                    String name = app.githubble.mobile.ui.JsonText.of(run,"name","GitHub Actions");
                     String conclusion = run.optString("conclusion", "");
                     if (conclusion.isEmpty() || "null".equals(conclusion))
                         conclusion = run.optString("status", "pending");
@@ -2934,7 +2936,7 @@ public class MainActivity extends Activity {
                 String[] entries = new String[list.length()];
                 for (int i = 0; i < entries.length; i++) {
                     JSONObject a = list.optJSONObject(i);
-                    entries[i] = a == null ? "Артефакт" : a.optString("name", "Артефакт")
+                    entries[i] = a == null ? "Артефакт" : app.githubble.mobile.ui.JsonText.of(a,"name","Артефакт")
                             + " · " + (a.optBoolean("expired", false) ? "истёк" : "ZIP / APK");
                 }
                 runOnUiThread(() -> {
@@ -2948,7 +2950,7 @@ public class MainActivity extends Activity {
                                     long download = BuildArtifactDownloads.enqueue(this, repo, a, false, runId);
                                     agentProjects.append(expected, "agent",
                                             "Начата реальная загрузка GitHub Actions: "
-                                            + a.optString("name", "артефакт") + " · ID " + download
+                                            + app.githubble.mobile.ui.JsonText.of(a,"name","артефакт") + " · ID " + download
                                             + ". GitHubble сохранит ZIP и извлечёт APK, если он содержится внутри.");
                                     agentRefreshIfCurrent(expected);
                                 } catch (Exception error) {
@@ -2982,7 +2984,7 @@ public class MainActivity extends Activity {
                 String[] choices = new String[list.length()];
                 for (int i = 0; i < choices.length; i++) {
                     JSONObject wf = list.optJSONObject(i);
-                    choices[i] = wf == null ? "Unknown" : wf.optString("name", "Workflow");
+                    choices[i] = wf == null ? "Unknown" : app.githubble.mobile.ui.JsonText.of(wf,"name","Workflow");
                 }
                 runOnUiThread(() -> {
                     if (!expected.equals(accountStore.activeCacheKey())) return;
@@ -3105,7 +3107,7 @@ public class MainActivity extends Activity {
                     if (repo == null) continue;
                     recent.add(new HomeScreen.RepoPreview(
                             repo.optString("full_name", ""),
-                            repo.optString("description", ""),
+                            app.githubble.mobile.ui.JsonText.of(repo,"description",""),
                             repo.optInt("stargazers_count", 0),
                             formatGitHubDate(repo.optString("pushed_at", repo.optString("updated_at", "")))
                     ));
@@ -3285,7 +3287,7 @@ public class MainActivity extends Activity {
         tile.setPadding(dp(8),dp(7),dp(7),dp(7));
         int tintedCard = blend(CARD, color, "dark".equals(activeTheme) ? 0.14f : 0.075f);
         tile.setBackground(round(tintedCard, 17, blend(BORDER,color,0.12f), 1));
-        tile.setElevation(dp(1));
+        
         ImageView art = new ImageView(this);
         art.setImageResource(iconRes);
         art.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
@@ -3551,7 +3553,7 @@ public class MainActivity extends Activity {
                     item.put("kind","Event");
                     item.put("event_type",type);
                     item.put("title",eventTypeLabel(type));
-                    item.put("repo",repository==null?"":repository.optString("name",""));
+                    item.put("repo",repository==null?"":app.githubble.mobile.ui.JsonText.of(repository,"name",""));
                     item.put("updated_at",source.optString("created_at",""));
                     item.put("event_id",source.optString("id",""));
                     if(payload!=null){
@@ -3928,7 +3930,7 @@ public class MainActivity extends Activity {
                             ||!account.equals(currentAccountId()))return;
                     destination.removeView(loading);
                     JSONObject run=details.run;
-                    card(text(run.optString("name","GitHub Actions"),17,true));
+                    card(text(app.githubble.mobile.ui.JsonText.of(run,"name","GitHub Actions"),17,true));
                     card(text("Статус: "+run.optString("status","")+" · "+
                             run.optString("conclusion","")+"\nВетка: "+
                             run.optString("head_branch","")+" · "+
@@ -3938,12 +3940,12 @@ public class MainActivity extends Activity {
                     for(int i=0;i<details.jobs.length();i++){
                         JSONObject job=details.jobs.optJSONObject(i);if(job==null)continue;
                         LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.VERTICAL);
-                        row.addView(text(job.optString("name","Job")+" · "+
+                        row.addView(text(app.githubble.mobile.ui.JsonText.of(job,"name","Job")+" · "+
                                 job.optString("conclusion",job.optString("status","")),14,true));
                         JSONArray steps=job.optJSONArray("steps");
                         if(steps!=null)for(int k=0;k<steps.length();k++){
                             JSONObject step=steps.optJSONObject(k);if(step==null)continue;
-                            TextView line=text("  "+(k+1)+". "+step.optString("name","")+" · "+
+                            TextView line=text("  "+(k+1)+". "+app.githubble.mobile.ui.JsonText.of(step,"name","")+" · "+
                                     step.optString("conclusion",step.optString("status","")),11,false);
                             line.setTextColor(MUTED);row.addView(line);
                         }
@@ -3952,7 +3954,7 @@ public class MainActivity extends Activity {
                     sectionTitle("Артефакты · "+details.artifacts.length(),null);
                     for(int i=0;i<details.artifacts.length();i++){
                         JSONObject artifact=details.artifacts.optJSONObject(i);if(artifact==null)continue;
-                        Button download=compactButton("↓ "+artifact.optString("name","Артефакт"));
+                        Button download=compactButton("↓ "+app.githubble.mobile.ui.JsonText.of(artifact,"name","Артефакт"));
                         download.setEnabled(!artifact.optBoolean("expired",false));
                         download.setOnClickListener(v->startArtifactDownload(full,artifact));
                         destination.addView(download,new LinearLayout.LayoutParams(-1,dp(48)));
@@ -4158,7 +4160,7 @@ public class MainActivity extends Activity {
             badge.setTextColor(ready?GREEN:"completed".equals(run.optString("status",""))?
                     Color.rgb(200,78,76):BLUE);
             card.addView(badge);
-            TextView name=text(repo+" · "+run.optString("name","GitHub Actions"),14,true);
+            TextView name=text(repo+" · "+app.githubble.mobile.ui.JsonText.of(run,"name","GitHub Actions"),14,true);
             name.setMaxLines(2);
             name.setEllipsize(TextUtils.TruncateAt.END);
             card.addView(name);
@@ -4205,14 +4207,14 @@ public class MainActivity extends Activity {
                 row.setPadding(0,dp(5),0,0);
                 ImageView icon=imageIcon(R.drawable.ic_repository,GREEN,5);
                 row.addView(icon,new LinearLayout.LayoutParams(dp(27),dp(27)));
-                TextView label=text(artifact.optString("name","Артефакт")+
+                TextView label=text(app.githubble.mobile.ui.JsonText.of(artifact,"name","Артефакт")+
                         " · "+formatAccountBytes(size),11,true);
                 label.setSingleLine(true);label.setEllipsize(TextUtils.TruncateAt.END);
                 row.addView(label,new LinearLayout.LayoutParams(0,-2,1));
                 TextView download=text("↓ ZIP",12,true);
                 download.setTextColor(GREEN);
                 download.setGravity(Gravity.CENTER);
-                download.setContentDescription("Скачать "+artifact.optString("name","артефакт"));
+                download.setContentDescription("Скачать "+app.githubble.mobile.ui.JsonText.of(artifact,"name","артефакт"));
                 download.setOnClickListener(v->startArtifactDownload(repo,artifact));
                 row.addView(download,new LinearLayout.LayoutParams(dp(61),dp(42)));
                 card.addView(row);
@@ -4562,7 +4564,7 @@ public class MainActivity extends Activity {
     private void showOrganizations(){showOrganizationsPage(1,true);}
     private void showOrganizationsPage(int page,boolean first){
         if(first){setCurrentScreen(this::showOrganizations);shell("Организации",true);heroBanner("Организации GitHub","Публичные и доступные вашему аккаунту организации",R.drawable.ic_organization);if(!isSignedIn()){accountRequiredCard("Подключите GitHub для загрузки организаций.");return;}}
-        ProgressBar pb=new ProgressBar(this);content.addView(pb);io.execute(()->{try{JSONArray orgs=getArray("https://api.github.com/user/orgs?per_page=50&page="+page);runOnUiThread(()->{content.removeView(pb);if(first)sectionTitle("Организации",null);if(orgs.length()==0&&first){card(text("Организации не найдены. Для закрытых организаций доступ зависит от установки GiHubble и политики организации.",13,false));return;}for(int i=0;i<orgs.length();i++){JSONObject org=orgs.optJSONObject(i);if(org==null)continue;String login=org.optString("login","");LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);ImageView icon=imageIcon(R.drawable.ic_organization,GREEN,12);row.addView(icon,new LinearLayout.LayoutParams(dp(48),dp(48)));LinearLayout labels=new LinearLayout(this);labels.setOrientation(LinearLayout.VERTICAL);TextView name=text(login,16,true);name.setTextColor(BLUE);labels.addView(name);TextView desc=text(org.optString("description","Организация GitHub"),12,false);desc.setTextColor(MUTED);labels.addView(desc);row.addView(labels,new LinearLayout.LayoutParams(0,-2,1));row.setOnClickListener(v->openWeb("https://github.com/"+login));card(row);}if(orgs.length()==50)addLoadMoreButton("Показать ещё организации",()->showOrganizationsPage(page+1,false));});}catch(Exception e){runOnUiThread(()->{content.removeView(pb);errorCard("Не удалось загрузить организации",e.getMessage());});}});
+        ProgressBar pb=new ProgressBar(this);content.addView(pb);io.execute(()->{try{JSONArray orgs=getArray("https://api.github.com/user/orgs?per_page=50&page="+page);runOnUiThread(()->{content.removeView(pb);if(first)sectionTitle("Организации",null);if(orgs.length()==0&&first){card(text("Организации не найдены. Для закрытых организаций доступ зависит от установки GiHubble и политики организации.",13,false));return;}for(int i=0;i<orgs.length();i++){JSONObject org=orgs.optJSONObject(i);if(org==null)continue;String login=org.optString("login","");LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);ImageView icon=imageIcon(R.drawable.ic_organization,GREEN,12);row.addView(icon,new LinearLayout.LayoutParams(dp(48),dp(48)));LinearLayout labels=new LinearLayout(this);labels.setOrientation(LinearLayout.VERTICAL);TextView name=text(login,16,true);name.setTextColor(BLUE);labels.addView(name);TextView desc=text(app.githubble.mobile.ui.JsonText.of(org,"description","Организация GitHub"),12,false);desc.setTextColor(MUTED);labels.addView(desc);row.addView(labels,new LinearLayout.LayoutParams(0,-2,1));row.setOnClickListener(v->openWeb("https://github.com/"+login));card(row);}if(orgs.length()==50)addLoadMoreButton("Показать ещё организации",()->showOrganizationsPage(page+1,false));});}catch(Exception e){runOnUiThread(()->{content.removeView(pb);errorCard("Не удалось загрузить организации",e.getMessage());});}});
     }
 
     private void showProjects(){showProjectsPage("",true);}
@@ -4592,7 +4594,7 @@ public class MainActivity extends Activity {
         io.execute(() -> {try{JSONArray events=getArray("https://api.github.com/users/"+URLEncoder.encode(login,"UTF-8")+"/events?per_page=50");runOnUiThread(() -> {if(!"История".equals(currentTitle))return;content.removeView(pb);sectionTitle("Последние события",null);if(events.length()==0){card(text("Публичная история пока пуста.",14,false));return;}for(int i=0;i<events.length();i++)renderAccountEvent(events.optJSONObject(i));});}catch(Exception e){runOnUiThread(() -> {if("История".equals(currentTitle)){content.removeView(pb);errorCard("Не удалось загрузить историю",e.getMessage());}});}});
     }
 
-    private void renderAccountEvent(JSONObject event){if(event==null)return;String type=event.optString("type","");JSONObject repo=event.optJSONObject("repo");String full=repo==null?"GitHub":repo.optString("name","GitHub");String date=formatGitHubDate(event.optString("created_at",""));LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.VERTICAL);row.addView(text(eventTypeLabel(type),14,true));TextView meta=text(full+(date.isEmpty()?"":" · "+date),11,false);meta.setTextColor(MUTED);row.addView(meta);if(full.contains("/"))row.setOnClickListener(v->navigate(() -> showRepository(full)));card(row);}
+    private void renderAccountEvent(JSONObject event){if(event==null)return;String type=event.optString("type","");JSONObject repo=event.optJSONObject("repo");String full=repo==null?"GitHub":app.githubble.mobile.ui.JsonText.of(repo,"name","GitHub");String date=formatGitHubDate(event.optString("created_at",""));LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.VERTICAL);row.addView(text(eventTypeLabel(type),14,true));TextView meta=text(full+(date.isEmpty()?"":" · "+date),11,false);meta.setTextColor(MUTED);row.addView(meta);if(full.contains("/"))row.setOnClickListener(v->navigate(() -> showRepository(full)));card(row);}
     private String eventTypeLabel(String type){switch(type){case "PushEvent":return "Отправлены изменения";case "PullRequestEvent":return "Изменён Pull Request";case "IssuesEvent":return "Изменена задача";case "IssueCommentEvent":return "Добавлен комментарий";case "CreateEvent":return "Создана ветка или тег";case "ReleaseEvent":return "Опубликован релиз";case "WatchEvent":return "Добавлена звезда";case "ForkEvent":return "Создан форк";default:return type.isEmpty()?"Событие GitHub":type.replace("Event","");}}
 
     private void showPeopleList(String title,String endpoint){showPeopleListPage(title,endpoint,1,true);}
@@ -4609,7 +4611,7 @@ public class MainActivity extends Activity {
 
     private void renderDiscussionGraphQlCard(JSONObject d){
         if(d==null)return;String full=d.optString("repository","");int number=d.optInt("number");String title=d.optString("title","Без названия");
-        JSONObject category=d.optJSONObject("category");String categoryName=category==null?"Тема":category.optString("name","Тема");String emoji=category==null?"":category.optString("emoji","");
+        JSONObject category=d.optJSONObject("category");String categoryName=category==null?"Тема":app.githubble.mobile.ui.JsonText.of(category,"name","Тема");String emoji=category==null?"":category.optString("emoji","");
         JSONObject author=d.optJSONObject("author");String login=author==null?"":author.optString("login","");int comments=d.optJSONObject("comments")==null?0:d.optJSONObject("comments").optInt("totalCount",0);
         LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.VERTICAL);row.addView(text((emoji.isEmpty()?"":emoji+"  ")+title,15,true));
         TextView meta=text(full+" · "+categoryName+(login.isEmpty()?"":" · "+login)+" · "+comments+" ответов",11,false);meta.setTextColor(MUTED);row.addView(meta);
@@ -4810,7 +4812,7 @@ public class MainActivity extends Activity {
         if(item==null)return "";
         switch(mode){
             case ISSUES_PRS:return item.optString("html_url",String.valueOf(item.optLong("id",0))).toLowerCase(Locale.ROOT);
-            case CODE:{JSONObject repo=item.optJSONObject("repository");String full=repo==null?"":repo.optString("full_name","");return (full+"/"+item.optString("path",item.optString("name",""))).toLowerCase(Locale.ROOT);}
+            case CODE:{JSONObject repo=item.optJSONObject("repository");String full=repo==null?"":repo.optString("full_name","");return (full+"/"+item.optString("path",app.githubble.mobile.ui.JsonText.of(item,"name",""))).toLowerCase(Locale.ROOT);}
             case PEOPLE:return item.optString("login","").toLowerCase(Locale.ROOT);
             case REPOSITORIES:
             default:return item.optString("full_name","").toLowerCase(Locale.ROOT);
@@ -4840,7 +4842,7 @@ public class MainActivity extends Activity {
     }
 
     private void renderCodeSearchCard(JSONObject item,int matches){
-        JSONObject repo=item.optJSONObject("repository");String full=repo==null?"":repo.optString("full_name","");String name=item.optString("name","Файл");String path=item.optString("path",name);String html=item.optString("html_url","");
+        JSONObject repo=item.optJSONObject("repository");String full=repo==null?"":repo.optString("full_name","");String name=app.githubble.mobile.ui.JsonText.of(item,"name","Файл");String path=item.optString("path",name);String html=item.optString("html_url","");
         LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);
         LinearLayout head=new LinearLayout(this);head.setGravity(Gravity.CENTER_VERTICAL);
         TextView icon=text("</>",13,true);icon.setTextColor(BLUE);icon.setGravity(Gravity.CENTER);icon.setBackground(round(SUBTLE,10,BORDER,1));head.addView(icon,new LinearLayout.LayoutParams(dp(42),dp(32)));
@@ -4984,7 +4986,7 @@ public class MainActivity extends Activity {
 
     private void addRepoCard(JSONObject r)throws Exception {addRepoCard(r,0);}
     private void addRepoCard(JSONObject r,int smartMatches)throws Exception {
-        String full=r.getString("full_name"), desc=r.optString("description","Без описания"), lang=r.optString("language","—"); int stars=r.optInt("stargazers_count");
+        String full=r.getString("full_name"), desc=app.githubble.mobile.ui.JsonText.of(r,"description","Без описания"), lang=app.githubble.mobile.ui.JsonText.of(r,"language","—"); int stars=r.optInt("stargazers_count");
         LinearLayout box=new LinearLayout(this); box.setOrientation(LinearLayout.VERTICAL);
         LinearLayout head=new LinearLayout(this);head.setGravity(Gravity.CENTER_VERTICAL);
         TextView mark=text("◆",20,true);mark.setTextColor(BLUE);head.addView(mark,new LinearLayout.LayoutParams(dp(38),dp(38)));
@@ -4998,12 +5000,12 @@ public class MainActivity extends Activity {
         String full=repository.getString("full_name");
         String shortName=full.contains("/")?full.substring(full.indexOf('/')+1):full;
         LinearLayout tile=new LinearLayout(this);tile.setOrientation(LinearLayout.VERTICAL);tile.setPadding(dp(12),dp(12),dp(12),dp(10));
-        tile.setBackground(round(CARD,17,BORDER,1));tile.setElevation(dp(1));
+        tile.setBackground(round(CARD,17,BORDER,1));
         TextView access=text(repository.optBoolean("private",false)?"PRIVATE":"PUBLIC",10,true);access.setTextColor(repository.optBoolean("private",false)?GREEN:MUTED);access.setPadding(0,0,0,0);tile.addView(access);
         TextView name=text(shortName,16,true);name.setTextColor(BLUE);name.setMaxLines(2);name.setPadding(0,dp(4),0,0);tile.addView(name);
         TextView owner=text(full.contains("/")?full.substring(0,full.indexOf('/')):"",11,false);owner.setTextColor(MUTED);owner.setPadding(0,0,0,0);tile.addView(owner);
-        TextView description=text(repository.optString("description","Без описания"),11,false);description.setTextColor(MUTED);description.setMaxLines(2);description.setPadding(0,dp(7),0,0);tile.addView(description,new LinearLayout.LayoutParams(-1,0,1));
-        TextView meta=text("★ "+repository.optInt("stargazers_count",0)+" · "+repository.optString("language","—"),11,true);meta.setTextColor(MUTED);meta.setPadding(0,dp(6),0,0);tile.addView(meta);
+        TextView description=text(app.githubble.mobile.ui.JsonText.of(repository,"description","Без описания"),11,false);description.setTextColor(MUTED);description.setMaxLines(2);description.setPadding(0,dp(7),0,0);tile.addView(description,new LinearLayout.LayoutParams(-1,0,1));
+        TextView meta=text("★ "+repository.optInt("stargazers_count",0)+" · "+app.githubble.mobile.ui.JsonText.of(repository,"language","—"),11,true);meta.setTextColor(MUTED);meta.setPadding(0,dp(6),0,0);tile.addView(meta);
         tile.setOnClickListener(v->navigate(()->showRepository(full)));
         GridLayout.LayoutParams p=new GridLayout.LayoutParams();p.width=0;p.height=dp(162);p.columnSpec=GridLayout.spec(GridLayout.UNDEFINED,1f);p.setMargins(dp(4),dp(4),dp(4),dp(4));grid.addView(tile,p);
     }
@@ -5016,86 +5018,89 @@ public class MainActivity extends Activity {
         String name=full.contains("/")?full.substring(full.indexOf('/')+1):full;
         String owner=full.contains("/")?full.substring(0,full.indexOf('/')):full;
         LinearLayout hero=new LinearLayout(this);hero.setOrientation(LinearLayout.VERTICAL);
-        hero.setPadding(dp(15),dp(16),dp(15),dp(16));
-        GradientDrawable bg=new GradientDrawable(GradientDrawable.Orientation.TL_BR,
-                new int[]{blend(CARD,GREEN,0.07f),CARD});
-        bg.setCornerRadius(dp(22));bg.setStroke(dp(1),BORDER);
-        hero.setBackground(bg);hero.setElevation(dp(2));
+        hero.setPadding(dp(14),dp(12),dp(14),dp(12));
+        hero.setBackground(round(CARD,12,BORDER,1));
         LinearLayout head=new LinearLayout(this);head.setGravity(Gravity.CENTER_VERTICAL);
         ImageView mark=imageIcon(R.drawable.ic_repository,GREEN,12);
-        mark.setBackground(round(blend(CARD,GREEN,0.10f),18,Color.TRANSPARENT,0));
-        head.addView(mark,new LinearLayout.LayoutParams(dp(56),dp(56)));
+        mark.setBackground(round(blend(CARD,GREEN,0.10f),10,Color.TRANSPARENT,0));
+        head.addView(mark,new LinearLayout.LayoutParams(dp(44),dp(44)));
         LinearLayout names=new LinearLayout(this);names.setOrientation(LinearLayout.VERTICAL);
-        names.setPadding(dp(9),0,dp(3),0);
-        TextView ownerText=text(owner+"/",13,false);ownerText.setTextColor(MUTED);
-        TextView title=text(name,22,true);title.setMaxLines(2);
+        names.setPadding(dp(8),0,dp(4),0);
+        TextView ownerText=text(owner+"/",12,false);ownerText.setTextColor(MUTED);
+        TextView title=text(name,20,true);title.setMaxLines(2);
         names.addView(ownerText);names.addView(title);
         head.addView(names,new LinearLayout.LayoutParams(0,-2,1));
         TextView access=text(repo.optBoolean("private",false)?"Private":"Public",10,true);
         access.setTextColor(GREEN);access.setGravity(Gravity.CENTER);
-        access.setPadding(dp(5),dp(5),dp(5),dp(5));
-        access.setBackground(round(blend(CARD,GREEN,0.09f),12,Color.TRANSPARENT,0));
+        access.setPadding(dp(8),dp(3),dp(8),dp(3));
+        access.setBackground(round(blend(CARD,GREEN,0.09f),8,Color.TRANSPARENT,0));
         head.addView(access);hero.addView(head);
         if(description!=null&&!description.trim().isEmpty()){
             TextView body=text(description,13,false);body.setTextColor(MUTED);
             LinearLayout.LayoutParams descP=new LinearLayout.LayoutParams(-1,-2);
-            descP.setMargins(0,dp(8),0,dp(7));hero.addView(body,descP);
+            descP.setMargins(0,dp(6),0,dp(4));hero.addView(body,descP);
         }
-        LinearLayout stats=new LinearLayout(this);stats.setPadding(0,dp(7),0,0);
+        LinearLayout stats=new LinearLayout(this);stats.setPadding(0,dp(6),0,0);
         repoMetric(stats,"★  "+stars,"Stars");repoMetric(stats,"⑂  "+forks,"Forks");
         repoMetric(stats,"!  "+issues,"Issues");hero.addView(stats);
-        LinearLayout details=new LinearLayout(this);details.setPadding(0,dp(10),0,0);
+        LinearLayout details=new LinearLayout(this);details.setPadding(0,dp(8),0,0);
         repoInfoPill(details,language==null||language.isEmpty()?"—":language);
         repoInfoPill(details,"Лицензия "+license);
         repoInfoPill(details,"Ветка: "+branch);hero.addView(details);
         LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);
-        p.setMargins(0,0,0,dp(10));content.addView(hero,p);
+        p.setMargins(0,0,0,dp(8));content.addView(hero,p);
     }
 
     private void repoMetric(LinearLayout row,String value,String label){
         LinearLayout chip=new LinearLayout(this);chip.setOrientation(LinearLayout.VERTICAL);
-        chip.setGravity(Gravity.CENTER);chip.setBackground(round(CARD,13,BORDER,1));
+        chip.setGravity(Gravity.CENTER);chip.setBackground(round(CARD,10,BORDER,1));
         TextView v=text(value,13,true);v.setTextColor(GREEN);v.setGravity(Gravity.CENTER);
         TextView l=text(label,10,false);l.setTextColor(MUTED);l.setGravity(Gravity.CENTER);
         chip.addView(v);chip.addView(l);
-        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(57),1);
-        p.setMargins(dp(2),0,dp(2),0);row.addView(chip,p);
+        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(52),1);
+        p.setMargins(dp(3),0,dp(3),0);row.addView(chip,p);
     }
 
     private void repoInfoPill(LinearLayout row,String value){
         TextView p=text(value,10,true);p.setTextColor(MUTED);p.setGravity(Gravity.CENTER);
-        p.setMaxLines(2);p.setBackground(round(SUBTLE,13,Color.TRANSPARENT,0));
-        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(39),1);
-        lp.setMargins(dp(2),0,dp(2),0);row.addView(p,lp);
+        p.setMaxLines(2);p.setBackground(round(SUBTLE,10,Color.TRANSPARENT,0));
+        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(36),1);
+        lp.setMargins(dp(3),0,dp(3),0);row.addView(p,lp);
     }
 
     private void repoActionCard(GridLayout grid,int icon,String title,String subtitle,Runnable action){
-        LinearLayout tile=new LinearLayout(this);tile.setOrientation(LinearLayout.VERTICAL);
-        tile.setGravity(Gravity.CENTER_VERTICAL);tile.setPadding(dp(9),dp(7),dp(7),dp(7));
-        tile.setBackground(round(CARD,17,BORDER,1));tile.setElevation(dp(1));
+        boolean row=grid.getColumnCount()<3;
+        LinearLayout tile=new LinearLayout(this);tile.setBackground(round(CARD,12,BORDER,1));
         ImageView image=imageIcon(icon,GREEN,10);
-        image.setBackground(round(blend(CARD,GREEN,0.09f),11,Color.TRANSPARENT,0));
-        tile.addView(image,new LinearLayout.LayoutParams(dp(29),dp(29)));
-        TextView name=text(title,12,true);name.setMaxLines(2);
-        name.setPadding(0,dp(3),0,0);tile.addView(name);
-        TextView detail=text(subtitle,10,false);detail.setTextColor(MUTED);
-        detail.setMaxLines(2);detail.setPadding(0,0,0,0);tile.addView(detail);
-        tile.setContentDescription(title+", "+subtitle);tile.setOnClickListener(v->action.run());
+        image.setBackground(round(blend(CARD,GREEN,0.09f),8,Color.TRANSPARENT,0));
+        TextView name=text(title,row?13:12,true);name.setMaxLines(row?1:2);name.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        TextView detail=text(subtitle,10,false);detail.setTextColor(MUTED);detail.setMaxLines(1);detail.setEllipsize(android.text.TextUtils.TruncateAt.END);
         GridLayout.LayoutParams p=new GridLayout.LayoutParams();
-        p.width=0;p.height=dp(isLargeText()?118:91);
-        p.columnSpec=GridLayout.spec(GridLayout.UNDEFINED,1f);
-        p.setMargins(dp(3),dp(3),dp(3),dp(5));grid.addView(tile,p);
+        p.width=0;p.columnSpec=GridLayout.spec(GridLayout.UNDEFINED,1f);
+        p.setMargins(dp(3),dp(3),dp(3),dp(3));
+        if(row){
+            tile.setOrientation(LinearLayout.HORIZONTAL);tile.setGravity(Gravity.CENTER_VERTICAL);tile.setPadding(dp(10),dp(8),dp(10),dp(8));
+            tile.addView(image,new LinearLayout.LayoutParams(dp(34),dp(34)));
+            LinearLayout labels=new LinearLayout(this);labels.setOrientation(LinearLayout.VERTICAL);labels.setPadding(dp(8),0,0,0);
+            labels.addView(name);labels.addView(detail);tile.addView(labels,new LinearLayout.LayoutParams(0,-2,1));
+            p.height=dp(isLargeText()?76:58);
+        }else{
+            tile.setOrientation(LinearLayout.VERTICAL);tile.setGravity(Gravity.CENTER_VERTICAL);tile.setPadding(dp(10),dp(8),dp(8),dp(8));
+            tile.addView(image,new LinearLayout.LayoutParams(dp(28),dp(28)));
+            name.setPadding(dp(4),dp(4),dp(4),0);tile.addView(name);tile.addView(detail);
+            p.height=dp(isLargeText()?112:86);
+        }
+        tile.setContentDescription(title+", "+subtitle);tile.setOnClickListener(v->action.run());
+        grid.addView(tile,p);
     }
 
     private void repoSectionHeader(String full,String heading,String details,int icon){
         LinearLayout panel=new LinearLayout(this);panel.setGravity(Gravity.CENTER_VERTICAL);
         panel.setPadding(dp(11),dp(10),dp(11),dp(10));
-        GradientDrawable bg=new GradientDrawable(GradientDrawable.Orientation.TL_BR,
-                new int[]{blend(CARD,GREEN,0.06f),CARD});
-        bg.setCornerRadius(dp(18));bg.setStroke(dp(1),BORDER);panel.setBackground(bg);
+        panel.setBackground(round(CARD,12,BORDER,1));
         ImageView mark=imageIcon(icon,GREEN,10);
-        mark.setBackground(round(blend(CARD,GREEN,0.10f),12,Color.TRANSPARENT,0));
-        panel.addView(mark,new LinearLayout.LayoutParams(dp(43),dp(43)));
+        mark.setBackground(round(blend(CARD,GREEN,0.10f),10,Color.TRANSPARENT,0));
+        panel.addView(mark,new LinearLayout.LayoutParams(dp(40),dp(40)));
         LinearLayout label=new LinearLayout(this);label.setOrientation(LinearLayout.VERTICAL);
         label.setPadding(dp(8),0,0,0);
         TextView t=text(heading,17,true);t.setPadding(0,0,0,0);
@@ -5140,9 +5145,9 @@ public class MainActivity extends Activity {
             try{
                 RepositoryController.Overview overview=repositoryController.loadOverview(full);
                 JSONObject r=overview.repository;
-                String desc=r.optString("description","Без описания");
+                String desc=app.githubble.mobile.ui.JsonText.of(r,"description","Без описания");
                 int stars=r.optInt("stargazers_count"),forks=r.optInt("forks_count"),issues=r.optInt("open_issues_count");
-                String branch=r.optString("default_branch","main"), language=r.optString("language","—");
+                String branch=r.optString("default_branch","main"), language=app.githubble.mobile.ui.JsonText.of(r,"language","—");
                 String license=r.optJSONObject("license")!=null?r.optJSONObject("license").optString("spdx_id","—"):"—";
                 String readme=overview.readme;
                 Boolean starred=isSignedIn()?repositoryController.isStarred(full):null;
@@ -5210,7 +5215,7 @@ public class MainActivity extends Activity {
     }
 
     private void showCachedRepository(String full,String json,String readme){
-        try{JSONObject r=new JSONObject(json);TextView note=text("Офлайн-режим · сохранённая версия",13,true);note.setTextColor(GREEN);card(note);LinearLayout h=new LinearLayout(this);h.setOrientation(LinearLayout.VERTICAL);h.addView(text(full,22,true));TextView d=text(r.optString("description","Без описания"),14,false);d.setTextColor(MUTED);h.addView(d);card(h);if(!readme.isEmpty())showReadmeInline(full,readme);}catch(Exception e){errorCard("Ошибка офлайн-кэша",e.getMessage());}
+        try{JSONObject r=new JSONObject(json);TextView note=text("Офлайн-режим · сохранённая версия",13,true);note.setTextColor(GREEN);card(note);LinearLayout h=new LinearLayout(this);h.setOrientation(LinearLayout.VERTICAL);h.addView(text(full,22,true));TextView d=text(app.githubble.mobile.ui.JsonText.of(r,"description","Без описания"),14,false);d.setTextColor(MUTED);h.addView(d);card(h);if(!readme.isEmpty())showReadmeInline(full,readme);}catch(Exception e){errorCard("Ошибка офлайн-кэша",e.getMessage());}
     }
 
     private void toggleRepositoryStar(String full,boolean currentlyStarred){
@@ -5311,7 +5316,7 @@ public class MainActivity extends Activity {
     }
 
     private void showEditRepositoryDialog(String full,JSONObject repo){
-        LinearLayout form=new LinearLayout(this);form.setOrientation(LinearLayout.VERTICAL);form.setPadding(dp(18),0,dp(18),0);EditText name=new EditText(this);name.setHint("Название");name.setText(repo==null?(full.contains("/")?full.substring(full.indexOf('/')+1):full):repo.optString("name",""));name.setSingleLine(true);form.addView(name);EditText description=new EditText(this);description.setHint("Описание");description.setText(repo==null?"":repo.optString("description",""));description.setMinLines(2);form.addView(description);
+        LinearLayout form=new LinearLayout(this);form.setOrientation(LinearLayout.VERTICAL);form.setPadding(dp(18),0,dp(18),0);EditText name=new EditText(this);name.setHint("Название");name.setText(repo==null?(full.contains("/")?full.substring(full.indexOf('/')+1):full):app.githubble.mobile.ui.JsonText.of(repo,"name",""));name.setSingleLine(true);form.addView(name);EditText description=new EditText(this);description.setHint("Описание");description.setText(repo==null?"":app.githubble.mobile.ui.JsonText.of(repo,"description",""));description.setMinLines(2);form.addView(description);
         AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Имя и описание").setView(form).setPositiveButton("Сохранить",null).setNegativeButton("Отмена",null).create();dialog.setOnShowListener(x->dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{String n=name.getText().toString().trim();if(n.isEmpty()){name.setError("Введите название");return;}dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(false);io.execute(()->{try{JSONObject updated=features.repositoryAdmin.updateRepository(full,n,description.getText().toString());String newFull=updated.optString("full_name",full);runOnUiThread(()->{dialog.dismiss();toast("Репозиторий обновлён");showRepositoryAdmin(newFull,updated);});}catch(Exception e){runOnUiThread(()->{dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(true);errorDialog("Не удалось обновить репозиторий",e.getMessage());});}});}));dialog.show();
     }
 
@@ -5358,8 +5363,8 @@ public class MainActivity extends Activity {
         JSONObject combined=result.optJSONObject("combined_status"),required=result.optJSONObject("required"),checks=result.optJSONObject("checks");String state=combined==null?"unknown":combined.optString("state","unknown");TextView summary=text("Общий статус: "+state,16,true);summary.setTextColor("success".equals(state)?GREEN:"failure".equals(state)||"error".equals(state)?Color.rgb(190,55,60):BLUE);card(summary);
         Set<String> requiredNames=new LinkedHashSet<>();if(required!=null){JSONArray contexts=required.optJSONArray("contexts");if(contexts!=null)for(int i=0;i<contexts.length();i++)requiredNames.add(contexts.optString(i));JSONArray rc=required.optJSONArray("checks");if(rc!=null)for(int i=0;i<rc.length();i++){JSONObject o=rc.optJSONObject(i);if(o!=null)requiredNames.add(o.optString("context"));}}
         if(required!=null&&required.optBoolean("unavailable",false)){TextView n=text("GitHub не предоставил список обязательных проверок. Ниже показаны доступные check runs и статусы коммитов.",12,false);n.setTextColor(MUTED);card(n);}else if(!requiredNames.isEmpty()){TextView n=text("Обязательные: "+String.join(", ",requiredNames),12,false);n.setTextColor(MUTED);card(n);}
-        sectionTitle("Check runs",null);JSONArray runs=checks==null?null:checks.optJSONArray("check_runs");if(runs==null||runs.length()==0)card(text("Check runs не найдены.",13,false));else for(int i=0;i<runs.length();i++){JSONObject o=runs.optJSONObject(i);if(o==null)continue;String name=o.optString("name","Проверка"),status=o.optString("status",""),conclusion=o.optString("conclusion","");LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.VERTICAL);row.addView(text((requiredNames.contains(name)?"★ ":"")+name,14,true));TextView meta=text(status+(conclusion.isEmpty()?"":" · "+conclusion),11,false);meta.setTextColor(MUTED);row.addView(meta);String url=o.optString("details_url",o.optString("html_url",""));if(!url.isEmpty())row.setOnClickListener(v->openWeb(url));card(row);}
-        sectionTitle("Статусы коммита",null);JSONArray statuses=combined==null?null:combined.optJSONArray("statuses");if(statuses==null||statuses.length()==0)card(text("Статусы коммита не найдены.",13,false));else for(int i=0;i<statuses.length();i++){JSONObject o=statuses.optJSONObject(i);if(o==null)continue;String name=o.optString("context","status");LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.VERTICAL);row.addView(text((requiredNames.contains(name)?"★ ":"")+name,14,true));TextView meta=text(o.optString("state","")+" · "+o.optString("description",""),11,false);meta.setTextColor(MUTED);row.addView(meta);String url=o.optString("target_url","");if(!url.isEmpty())row.setOnClickListener(v->openWeb(url));card(row);}
+        sectionTitle("Check runs",null);JSONArray runs=checks==null?null:checks.optJSONArray("check_runs");if(runs==null||runs.length()==0)card(text("Check runs не найдены.",13,false));else for(int i=0;i<runs.length();i++){JSONObject o=runs.optJSONObject(i);if(o==null)continue;String name=app.githubble.mobile.ui.JsonText.of(o,"name","Проверка"),status=o.optString("status",""),conclusion=o.optString("conclusion","");LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.VERTICAL);row.addView(text((requiredNames.contains(name)?"★ ":"")+name,14,true));TextView meta=text(status+(conclusion.isEmpty()?"":" · "+conclusion),11,false);meta.setTextColor(MUTED);row.addView(meta);String url=o.optString("details_url",o.optString("html_url",""));if(!url.isEmpty())row.setOnClickListener(v->openWeb(url));card(row);}
+        sectionTitle("Статусы коммита",null);JSONArray statuses=combined==null?null:combined.optJSONArray("statuses");if(statuses==null||statuses.length()==0)card(text("Статусы коммита не найдены.",13,false));else for(int i=0;i<statuses.length();i++){JSONObject o=statuses.optJSONObject(i);if(o==null)continue;String name=o.optString("context","status");LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.VERTICAL);row.addView(text((requiredNames.contains(name)?"★ ":"")+name,14,true));TextView meta=text(o.optString("state","")+" · "+app.githubble.mobile.ui.JsonText.of(o,"description",""),11,false);meta.setTextColor(MUTED);row.addView(meta);String url=o.optString("target_url","");if(!url.isEmpty())row.setOnClickListener(v->openWeb(url));card(row);}
     }
 
     private void showRepoIssues(String full){rememberScreen("repo_issues",routeArgs("full",full));showRepoIssuesPage(full,1,true);}
@@ -5383,7 +5388,7 @@ public class MainActivity extends Activity {
                 JSONObject author=issue.optJSONObject("user");
                 String state=issue.optString("state","open");
                 TextView meta=text((author==null?"":author.optString("login",""))+" · "+("open".equals(state)?"Открыта":"Закрыта")+" · "+formatGitHubDate(issue.optString("updated_at","")),11,false);meta.setTextColor(MUTED);card(meta);
-                JSONArray labels=issue.optJSONArray("labels");if(labels!=null&&labels.length()>0){LinearLayout chips=new LinearLayout(this);chips.setOrientation(LinearLayout.HORIZONTAL);for(int i=0;i<Math.min(labels.length(),5);i++){JSONObject l=labels.optJSONObject(i);if(l!=null)chips.addView(pill(l.optString("name","label")));}card(chips);}
+                JSONArray labels=issue.optJSONArray("labels");if(labels!=null&&labels.length()>0){LinearLayout chips=new LinearLayout(this);chips.setOrientation(LinearLayout.HORIZONTAL);for(int i=0;i<Math.min(labels.length(),5);i++){JSONObject l=labels.optJSONObject(i);if(l!=null)chips.addView(pill(app.githubble.mobile.ui.JsonText.of(l,"name","label")));}card(chips);}
                 addTranslatableMarkdownCard("issue:"+full+"#"+number,issue.optString("body","Без описания"),issue.optString("updated_at",""));
                 GridLayout actions=new GridLayout(this);actions.setColumnCount(adaptiveColumns(2));
                 addAction(actions,"Комментарий",()->showIssueCommentDialog(full,number));
@@ -5545,7 +5550,7 @@ public class MainActivity extends Activity {
     private void showPullCommits(String full,int number){showPullCommitsPage(full,number,1,true);}
     private void showPullCommitsPage(String full,int number,int page,boolean first){
         if(first){setCurrentScreen(()->showPullCommits(full,number));shell("Коммиты PR",true);repoSectionHeader(full,"Коммиты PR","#"+number,R.drawable.ic_pull_request);}ProgressBar pb=new ProgressBar(this);content.addView(pb);
-        io.execute(()->{try{JSONArray commits=getArray("https://api.github.com/repos/"+full+"/pulls/"+number+"/commits?per_page=50&page="+page);runOnUiThread(()->{content.removeView(pb);if(first)sectionTitle("Коммиты",null);for(int i=0;i<commits.length();i++){JSONObject item=commits.optJSONObject(i);if(item==null)continue;JSONObject commit=item.optJSONObject("commit");JSONObject author=commit==null?null:commit.optJSONObject("author");LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.VERTICAL);String message=commit==null?"Коммит":commit.optString("message","Коммит");row.addView(text(firstLine(message),14,true));String sha=item.optString("sha","");TextView meta=text(sha.substring(0,Math.min(7,sha.length()))+(author==null?"":" · "+author.optString("name",""))+" · "+formatGitHubDate(author==null?"":author.optString("date","")),11,false);meta.setTextColor(MUTED);row.addView(meta);if(CommitDetailController.validSha(sha))
+        io.execute(()->{try{JSONArray commits=getArray("https://api.github.com/repos/"+full+"/pulls/"+number+"/commits?per_page=50&page="+page);runOnUiThread(()->{content.removeView(pb);if(first)sectionTitle("Коммиты",null);for(int i=0;i<commits.length();i++){JSONObject item=commits.optJSONObject(i);if(item==null)continue;JSONObject commit=item.optJSONObject("commit");JSONObject author=commit==null?null:commit.optJSONObject("author");LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.VERTICAL);String message=commit==null?"Коммит":commit.optString("message","Коммит");row.addView(text(firstLine(message),14,true));String sha=item.optString("sha","");TextView meta=text(sha.substring(0,Math.min(7,sha.length()))+(author==null?"":" · "+app.githubble.mobile.ui.JsonText.of(author,"name",""))+" · "+formatGitHubDate(author==null?"":author.optString("date","")),11,false);meta.setTextColor(MUTED);row.addView(meta);if(CommitDetailController.validSha(sha))
                             row.setOnClickListener(v->navigate(()->showCommitDetail(full,sha)));
                         card(row);}if(commits.length()==50)addLoadMoreButton("Показать ещё коммиты",()->showPullCommitsPage(full,number,page+1,false));});}catch(Exception e){runOnUiThread(()->{content.removeView(pb);errorCard("Не удалось загрузить коммиты",e.getMessage());});}});
     }
@@ -5598,7 +5603,7 @@ public class MainActivity extends Activity {
         LinearLayout box=new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
 
-        String releaseName=cleanNullable(release.optString("name",""));
+        String releaseName=cleanNullable(app.githubble.mobile.ui.JsonText.of(release,"name",""));
         String tagName=cleanNullable(release.optString("tag_name",""));
         if(releaseName.isEmpty())releaseName=tagName.isEmpty()?"Релиз":tagName;
         TextView title=text(releaseName,17,true);
@@ -5642,7 +5647,7 @@ public class MainActivity extends Activity {
     }
 
     private void addReleaseAssetRow(LinearLayout parent,JSONObject asset){
-        String assetName=asset.optString("name","release.bin");
+        String assetName=app.githubble.mobile.ui.JsonText.of(asset,"name","release.bin");
         String url=asset.optString("browser_download_url","");
         long size=asset.optLong("size",0L);
         int downloads=asset.optInt("download_count",0);
@@ -5724,7 +5729,7 @@ public class MainActivity extends Activity {
     /** Per-asset download state shared by the row views: progress fills the card, completion turns the button into "Открыть". */
     private static final class AssetDownloadState{volatile boolean running;volatile float fraction;volatile Uri done;volatile Runnable ui;}
     private final Map<String,AssetDownloadState> assetStates=new HashMap<>();
-    private String assetStateKey(JSONObject asset){long id=asset.optLong("id",0L);return id>0?String.valueOf(id):asset.optString("url","")+"|"+asset.optString("name","");}
+    private String assetStateKey(JSONObject asset){long id=asset.optLong("id",0L);return id>0?String.valueOf(id):asset.optString("url","")+"|"+app.githubble.mobile.ui.JsonText.of(asset,"name","");}
     private void refreshAssetState(AssetDownloadState state){Runnable ui=state.ui;if(ui!=null)ui.run();}
 
     private void downloadReleaseAsset(JSONObject asset,AssetDownloadState state){
@@ -5737,7 +5742,7 @@ public class MainActivity extends Activity {
         final String account=currentAccountId();
         final int[] lastPercent={-1};
         io.execute(()->{try{
-            Uri saved=app.githubble.mobile.network.GitHubReleaseDownloads.download(this,asset.optString("name","release.bin"),
+            Uri saved=app.githubble.mobile.network.GitHubReleaseDownloads.download(this,app.githubble.mobile.ui.JsonText.of(asset,"name","release.bin"),
                 asset.optString("url",""),asset.optLong("size",-1),secureStore,account,(received,total)->{
                     if(total<=0)return;
                     float fraction=Math.min(1f,(float)received/total);
@@ -6149,7 +6154,7 @@ public class MainActivity extends Activity {
         LinearLayout panel=translatableMarkdownPanel(scopeKey,source,updateMarker);LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,-2);params.setMargins(0,0,0,dp(12));content.addView(panel,params);
     }
     private LinearLayout translatableMarkdownPanel(String scopeKey,String source,String updateMarker){
-        String safeSource=source==null?"":source;LinearLayout panel=new LinearLayout(this);panel.setOrientation(LinearLayout.VERTICAL);panel.setPadding(dp(12),dp(10),dp(12),dp(10));panel.setBackground(round(CARD,16,BORDER,1));panel.setElevation(dp(1));
+        String safeSource=source==null?"":source;LinearLayout panel=new LinearLayout(this);panel.setOrientation(LinearLayout.VERTICAL);panel.setPadding(dp(12),dp(10),dp(12),dp(10));panel.setBackground(round(CARD,16,BORDER,1));
         renderTranslatablePanel(panel,scopeKey,safeSource,updateMarker,false);
         if(prefs.getBoolean("translator_auto",false)&&LanguageDetector.needsRussianTranslation(safeSource)&&!translationConfig().endpoint.isEmpty()&&translationCache.get(safeSource,updateMarker,"ru",translationConfig().identity())==null)new Handler(Looper.getMainLooper()).postDelayed(()->startTranslation(panel,scopeKey,safeSource,updateMarker),180L);
         return panel;
@@ -6377,21 +6382,21 @@ public class MainActivity extends Activity {
             destination.addView(restoreGitHubAvatar,new LinearLayout.LayoutParams(-1,dp(46)));
         }
 
-        EditText name=profileEditInput("Имя",original.optString("name",""),
+        EditText name=profileEditInput("Имя",app.githubble.mobile.ui.JsonText.of(original,"name",""),
                 "Как вас зовут",255,false,InputType.TYPE_CLASS_TEXT
                         |InputType.TYPE_TEXT_FLAG_CAP_WORDS);
-        EditText bio=profileEditInput("О себе",original.optString("bio",""),
+        EditText bio=profileEditInput("О себе",app.githubble.mobile.ui.JsonText.of(original,"bio",""),
                 "Краткое описание профиля (до 160 символов)",160,true,
                 InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_FLAG_MULTI_LINE
                         |InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
         EditText company=profileEditInput("Компания / организация",
-                original.optString("company",""),"Где вы работаете",255,false,
+                app.githubble.mobile.ui.JsonText.of(original,"company",""),"Где вы работаете",255,false,
                 InputType.TYPE_CLASS_TEXT);
         EditText location=profileEditInput("Местоположение",
-                original.optString("location",""),"Город, страна",255,false,
+                app.githubble.mobile.ui.JsonText.of(original,"location",""),"Город, страна",255,false,
                 InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_FLAG_CAP_WORDS);
         EditText website=profileEditInput("Сайт",
-                original.optString("blog",""),"https://example.com",255,false,
+                app.githubble.mobile.ui.JsonText.of(original,"blog",""),"https://example.com",255,false,
                 InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_URI);
         EditText twitter=profileEditInput("Имя пользователя X / Twitter",
                 original.optString("twitter_username",""),"Без символа @",50,false,
@@ -6470,7 +6475,7 @@ public class MainActivity extends Activity {
 
     private void renderProfileContent(JSONObject profile){
         final String login=profile.optString("login",getProfileLogin());
-        String displayName=cleanNullable(profile.optString("name",""));
+        String displayName=cleanNullable(app.githubble.mobile.ui.JsonText.of(profile,"name",""));
         if(displayName.isEmpty())displayName=login;
         final String profileUrl=profile.optString("html_url","https://github.com/"+login);
 
@@ -6507,8 +6512,8 @@ public class MainActivity extends Activity {
         identity.addView(edit,new LinearLayout.LayoutParams(dp(42),dp(42)));
         hero.addView(identity);
 
-        String location=cleanNullable(profile.optString("location",""));
-        String website=cleanNullable(profile.optString("blog",""));
+        String location=cleanNullable(app.githubble.mobile.ui.JsonText.of(profile,"location",""));
+        String website=cleanNullable(app.githubble.mobile.ui.JsonText.of(profile,"blog",""));
         if(!location.isEmpty()||!website.isEmpty()){
             TextView info=text((location.isEmpty()?"":"⌖ "+location)
                     +(website.isEmpty()?"":(location.isEmpty()?"":"   ·   ")+"↗ "+website),11,false);
@@ -6519,7 +6524,7 @@ public class MainActivity extends Activity {
             info.setOnClickListener(v->openWeb(profileUrl));
             hero.addView(info);
         }
-        String bio=cleanNullable(profile.optString("bio",""));
+        String bio=cleanNullable(app.githubble.mobile.ui.JsonText.of(profile,"bio",""));
         if(!bio.isEmpty()){
             TextView description=text(bio,12,false);
             description.setTextColor(MUTED);
@@ -6757,7 +6762,7 @@ public class MainActivity extends Activity {
         title.setEllipsize(TextUtils.TruncateAt.END);
         title.setPadding(0,0,0,0);
         words.addView(title);
-        TextView description=text(cleanNullable(repo.optString("description","")),11,false);
+        TextView description=text(cleanNullable(app.githubble.mobile.ui.JsonText.of(repo,"description","")),11,false);
         description.setMaxLines(2);
         description.setTextColor(MUTED);
         description.setEllipsize(TextUtils.TruncateAt.END);
@@ -6786,7 +6791,7 @@ public class MainActivity extends Activity {
                 }).show());
         first.addView(menu,new LinearLayout.LayoutParams(dp(25),dp(40)));
         box.addView(first);
-        TextView meta=text(cleanNullable(repo.optString("language","—"))+
+        TextView meta=text(cleanNullable(app.githubble.mobile.ui.JsonText.of(repo,"language","—"))+
                 "    ★ "+repo.optInt("stargazers_count",0)+
                 "    ⑂ "+repo.optInt("forks_count",0)+
                 "    · "+formatGitHubDate(repo.optString("updated_at","")),10,false);
@@ -6874,7 +6879,7 @@ public class MainActivity extends Activity {
             if(!secureStore.isCurrent(expected))return false;
 
         String login=user.optString("login","");
-        String name=cleanNullable(user.optString("name",""));
+        String name=cleanNullable(app.githubble.mobile.ui.JsonText.of(user,"name",""));
         secureStore.put("github_login",login);
         secureStore.put("github_name",name);
         accountStore.captureCurrentSession(user.optLong("id",0L),login,name);
@@ -7190,14 +7195,14 @@ public class MainActivity extends Activity {
 
     private void renderDeveloperProfile(JSONObject user,JSONArray repos,Bitmap avatarBitmap,ProgressBar pb,Boolean githubFollowing){
         content.removeView(pb);
-        String login=user.optString("login","");String name=cleanNullable(user.optString("name",""));if(name.isEmpty())name=login;
+        String login=user.optString("login","");String name=cleanNullable(app.githubble.mobile.ui.JsonText.of(user,"name",""));if(name.isEmpty())name=login;
         LinearLayout hero=new LinearLayout(this);hero.setOrientation(LinearLayout.VERTICAL);hero.setGravity(Gravity.CENTER);
         ImageView avatar=new ImageView(this);avatar.setScaleType(ImageView.ScaleType.CENTER_CROP);avatar.setBackground(round(SUBTLE,48,BORDER,1));avatar.setClipToOutline(true);
         if(avatarBitmap!=null)avatar.setImageBitmap(avatarBitmap);else{avatar.setImageResource(R.drawable.ic_profile);avatar.setColorFilter(GREEN);avatar.setPadding(dp(18),dp(18),dp(18),dp(18));}
         hero.addView(avatar,new LinearLayout.LayoutParams(dp(96),dp(96)));
         TextView title=text(name,23,true);title.setGravity(Gravity.CENTER);hero.addView(title);
         TextView handle=text("@"+login,14,true);handle.setTextColor(GREEN);handle.setGravity(Gravity.CENTER);hero.addView(handle);
-        String bio=cleanNullable(user.optString("bio",""));if(!bio.isEmpty()){TextView b=text(bio,13,false);b.setTextColor(MUTED);b.setGravity(Gravity.CENTER);hero.addView(b);}card(hero);
+        String bio=cleanNullable(app.githubble.mobile.ui.JsonText.of(user,"bio",""));if(!bio.isEmpty()){TextView b=text(bio,13,false);b.setTextColor(MUTED);b.setGravity(Gravity.CENTER);hero.addView(b);}card(hero);
 
         GridLayout stats=new GridLayout(this);stats.setColumnCount(adaptiveColumns(4));
         addMiniStat(stats,String.valueOf(user.optInt("public_repos",0)),"Репо",GREEN);
@@ -7344,7 +7349,7 @@ public class MainActivity extends Activity {
         box.setOrientation(LinearLayout.VERTICAL);
         box.setPadding(dp(14),dp(13),dp(14),dp(13));
         box.setBackground(round(CARD,18,BORDER,1));
-        box.setElevation(dp(1));
+        
         return box;
     }
 
@@ -7712,7 +7717,7 @@ public class MainActivity extends Activity {
                 JSONObject profile=api.getJsonFresh("https://api.github.com/user");
                 String login=profile.optString("login","");
                 JSONObject planJson=profile.optJSONObject("plan");
-                String planName=planJson==null?"":planJson.optString("name","");
+                String planName=planJson==null?"":app.githubble.mobile.ui.JsonText.of(planJson,"name","");
                 if(!login.matches("[A-Za-z0-9-]+"))throw new IllegalStateException("Не удалось определить аккаунт GitHub");
                 java.time.LocalDate month=java.time.LocalDate.now(java.time.ZoneOffset.UTC);
                 String url="https://api.github.com/users/"+login+"/settings/billing/usage/summary?year="+month.getYear()
@@ -8325,7 +8330,7 @@ public class MainActivity extends Activity {
                         JSONObject commit=item.optJSONObject("commit");JSONObject author=commit==null?null:commit.optJSONObject("author");
                         LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.VERTICAL);
                         String message=commit==null?"Коммит":commit.optString("message","Коммит");row.addView(text(firstLine(message),14,true));
-                        String sha=item.optString("sha","");TextView meta=text(shortSha(sha)+(author==null?"":" · "+author.optString("name",""))+" · "+formatGitHubDate(author==null?"":author.optString("date","")),11,false);meta.setTextColor(MUTED);row.addView(meta);
+                        String sha=item.optString("sha","");TextView meta=text(shortSha(sha)+(author==null?"":" · "+app.githubble.mobile.ui.JsonText.of(author,"name",""))+" · "+formatGitHubDate(author==null?"":author.optString("date","")),11,false);meta.setTextColor(MUTED);row.addView(meta);
                         if(CommitDetailController.validSha(sha))
                             row.setOnClickListener(v->navigate(()->showCommitDetail(full,sha)));
                         card(row);
@@ -8391,7 +8396,7 @@ public class MainActivity extends Activity {
                 accent[7],()->navigate(this::showSettingsAbout),settingsAboutSections()));
 
         JSONObject profile=getCachedProfile();
-        String displayName=cleanNullable(profile.optString("name",""));
+        String displayName=cleanNullable(app.githubble.mobile.ui.JsonText.of(profile,"name",""));
         SettingsScreen.Header header=new SettingsScreen.Header(createProfileAvatar(dp(48)),
                 signedIn?(displayName.isEmpty()?(login.isEmpty()?"GitHub подключён":"@"+login):displayName):"Гостевой режим",
                 signedIn?(login.isEmpty()?"Открыть профиль":"@"+login+" · открыть профиль"):"Войдите, чтобы видеть свои репозитории",
@@ -8551,7 +8556,7 @@ public class MainActivity extends Activity {
         final String login=getProfileLogin();
         final int accent=tileColors[0];
         JSONObject profile=getCachedProfile();
-        String name=cleanNullable(profile.optString("name",""));
+        String name=cleanNullable(app.githubble.mobile.ui.JsonText.of(profile,"name",""));
         final SettingsScreen.Header header=new SettingsScreen.Header(createProfileAvatar(dp(48)),
                 signedIn?(name.isEmpty()?(login.isEmpty()?"GitHub подключён":"@"+login):name):"Гостевой режим",
                 signedIn?(login.isEmpty()?"":"@"+login+" · ")+"тариф: загрузка…"

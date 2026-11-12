@@ -445,6 +445,6 @@ public final class SearchScreen {
     private String clean(String v){return v==null?"":v.trim().replaceAll("\\s+"," ");}
 
     private TextView text(String value,int sp,boolean bold){TextView view=new TextView(activity);view.setText(value);view.setTextSize(sp);view.setTextColor(palette.text);if(bold)view.setTypeface(null,android.graphics.Typeface.BOLD);view.setPadding(dp(4),dp(4),dp(4),dp(4));view.setLineSpacing(0f,activity.getResources().getConfiguration().fontScale>=1.25f?1.18f:1.08f);view.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);return view;}
-    private GradientDrawable round(int fill,int radius,int stroke,int width){GradientDrawable d=new GradientDrawable();d.setColor(fill);d.setCornerRadius(dp(radius));if(width>0)d.setStroke(dp(width),stroke);return d;}
+    private GradientDrawable round(int fill,int radius,int stroke,int width){GradientDrawable d=new GradientDrawable();d.setColor(fill);d.setCornerRadius(dp(DesignSystem.radius(radius)));if(width>0)d.setStroke(dp(width),stroke);return d;}
     private int dp(int value){return(int)(value*activity.getResources().getDisplayMetrics().density+0.5f);}
 }

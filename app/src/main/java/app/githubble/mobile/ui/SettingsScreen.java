@@ -559,7 +559,7 @@ public final class SettingsScreen {
     private GradientDrawable round(int fill, int radius, int stroke, int width) {
         GradientDrawable shape = new GradientDrawable();
         shape.setColor(fill);
-        shape.setCornerRadius(dp(radius));
+        shape.setCornerRadius(dp(DesignSystem.radius(radius)));
         if (width > 0) shape.setStroke(Math.max(1, dp(width)), stroke);
         return shape;
     }
