@@ -202,7 +202,7 @@ public final class RedesignUiInstrumentation extends Instrumentation {
         call(app, "shell", "Проекты", true);
         call(app, "renderProjectCard", new JSONObject().put("title", "GitHubble roadmap").put("shortDescription", "Планирование проходов и приёмка").put("closed", false).put("items", new JSONObject().put("totalCount", 14)).put("updatedAt", "2026-11-12T06:44:33Z"));
         call(app, "renderProjectCard", new JSONObject().put("title", "Архивный проект").put("closed", true).put("items", new JSONObject().put("totalCount", 0)).put("updatedAt", "2026-10-01T06:44:33Z"));
-        call(app, "renderDiscussionGraphQlCard", new JSONObject().put("repository", "mallstorm/GitHubble").put("number", 3).put("title", "Как настроить Git Agent").put("category", new JSONObject().put("name", "Q&A").put("emoji", "🙏")).put("author", new JSONObject().put("login", "mallstorm")).put("comments", new JSONObject().put("totalCount", 4)));
+        call(app, "renderDiscussionGraphQlCard", new JSONObject().put("repository", "mallstorm/GitHubble").put("number", 3).put("title", "Как настроить Hubble Agent").put("category", new JSONObject().put("name", "Q&A").put("emoji", "🙏")).put("author", new JSONObject().put("login", "mallstorm")).put("comments", new JSONObject().put("totalCount", 4)));
         break;
       case "repolist":
         call(app, "shell", "Репозитории", true);

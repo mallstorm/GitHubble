@@ -782,7 +782,7 @@ public class MainActivity extends Activity {
             final String report=message;
             runOnUiThread(()->{
                 if(expected.equals(accountStore.activeCacheKey()))
-                    new AlertDialog.Builder(this).setTitle("Связь Git Agent ↔ GitHub")
+                    new AlertDialog.Builder(this).setTitle("Связь Hubble Agent ↔ GitHub")
                         .setMessage(report).setPositiveButton("Закрыть",null).show();
             });
         });
@@ -1117,7 +1117,7 @@ public class MainActivity extends Activity {
     private void agentAttachSelectedRepository(String full){
         final String owner=accountStore.activeCacheKey();
         if("guest".equals(owner)||!isSignedIn()){toast("Подключите GitHub");return;}
-        new AlertDialog.Builder(this).setTitle("Открыть в Git Agent?")
+        new AlertDialog.Builder(this).setTitle("Открыть в Hubble Agent?")
             .setMessage(full+"\n\nПривязать репозиторий к этому диалогу? GitHub не будет изменён.")
             .setPositiveButton("Привязать",(d,w)->io.execute(()->{
                 try{
@@ -1173,7 +1173,7 @@ public class MainActivity extends Activity {
             names[i] = OmniChatConnectionStore.supported().get(id)
                     + (aiConnections.isConfigured(expected, id) ? " · подключено" : "");
         }
-        new AlertDialog.Builder(this).setTitle("Подключить Git Agent API")
+        new AlertDialog.Builder(this).setTitle("Подключить Hubble Agent API")
                 .setItems(names, (d, item) -> agentEditAiProvider(expected, ids.get(item)))
                 .setNegativeButton("Отмена", null).show();
     }
@@ -1270,7 +1270,7 @@ public class MainActivity extends Activity {
         if (provider.isEmpty() || !aiConnections.hasKey(expected,provider)) {
             agentChooseComposerModel(expected); return;
         }
-        ProgressDialog loading = ProgressDialog.show(this, "Git Agent",
+        ProgressDialog loading = ProgressDialog.show(this, "Hubble Agent",
                 "Загружаем модели с сервера " + aiConnections.displayName(provider), true, false);
         String key = aiConnections.credential(expected, provider);
         io.execute(() -> {
@@ -1323,13 +1323,12 @@ public class MainActivity extends Activity {
         final Dialog drawer = new Dialog(this);
         LinearLayout panel = new LinearLayout(this);
         panel.setOrientation(LinearLayout.VERTICAL);
-        panel.setPadding(dp(14), dp(22), dp(14), dp(17));
+        panel.setPadding(dp(14), dp(8), dp(14), dp(17));
         panel.setBackgroundColor(ui.dark?0xFF343941:Color.WHITE);
 
         LinearLayout heading = new LinearLayout(this);
         heading.setGravity(Gravity.CENTER_VERTICAL);
-        TextView title = ui.label("Git Agent", 21, true);
-        heading.addView(title, new LinearLayout.LayoutParams(0, dp(48), 1));
+        heading.addView(new View(this), new LinearLayout.LayoutParams(0, dp(40), 1));
         TextView newChat = text("+", 29, false);
         newChat.setGravity(Gravity.CENTER);
         newChat.setContentDescription("Новая беседа");
@@ -1337,7 +1336,7 @@ public class MainActivity extends Activity {
             drawer.dismiss();
             agentClearConversation(owner);
         });
-        heading.addView(newChat, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        heading.addView(newChat, new LinearLayout.LayoutParams(dp(48), dp(40)));
         panel.addView(heading);
 
         EditText search = new EditText(this);
@@ -1458,7 +1457,7 @@ public class MainActivity extends Activity {
         workspace.setPadding(dp(10),dp(10),dp(10),dp(10));
         workspace.setOnClickListener(v->{drawer.dismiss();agentFeatures(owner).workspace();});
         panel.addView(workspace);
-        TextView settings = text("⚙  Git Agent и Workspace · настройки", 14, false);
+        TextView settings = text("⚙  Hubble Agent и Workspace · настройки", 14, false);
         settings.setPadding(dp(10), dp(14), dp(10), dp(14));
         settings.setOnClickListener(v -> {
             drawer.dismiss();
@@ -1491,7 +1490,7 @@ public class MainActivity extends Activity {
     private void agentShowAgentSettings(String owner) {
         if(!owner.equals(accountStore.activeCacheKey()))return;
         String[] labels=app.githubble.mobile.agent.AgentPermissionPolicy.LABELS;
-        new AlertDialog.Builder(this).setTitle("Разрешения Git Agent")
+        new AlertDialog.Builder(this).setTitle("Разрешения Hubble Agent")
             .setSingleChoiceItems(labels,agentPermission(owner),(d,which)->{
                 if(!owner.equals(accountStore.activeCacheKey())){d.dismiss();return;}
                 Runnable save=()->{prefs.edit().putInt("ai_execution_permission_"+owner,which).apply();d.dismiss();agentRefreshIfCurrent(owner);};
@@ -2018,7 +2017,7 @@ public class MainActivity extends Activity {
         if(!owner.equals(accountStore.activeCacheKey()))return;
         app.githubble.mobile.agent.NativePluginRegistry registry=new app.githubble.mobile.agent.NativePluginRegistry(this,owner);
         GitAgentUi ui=new GitAgentUi(this,BG,CARD,TEXT,MUTED,GREEN,BORDER);LinearLayout body=ui.body("Плагины и MCP",true);final Dialog[] sheet={null};
-        ui.note(body,"HTTPS-расширения GET/POST и Streamable HTTP MCP. Ключи плагинов хранятся отдельно от ключей моделей. Каждый вызов подтверждается; запись зависит от разрешений Git Agent.");
+        ui.note(body,"HTTPS-расширения GET/POST и Streamable HTTP MCP. Ключи плагинов хранятся отдельно от ключей моделей. Каждый вызов подтверждается; запись зависит от разрешений Hubble Agent.");
         ui.action(body,"Добавить плагин или MCP","Название, HTTPS endpoint и отдельный bearer",GREEN,()->{sheet[0].dismiss();agentEditPlugin(owner,null);});
         JSONArray plugins=registry.list();for(int i=0;i<plugins.length();i++){
             JSONObject plugin=plugins.optJSONObject(i);if(plugin==null)continue;
@@ -2053,7 +2052,7 @@ public class MainActivity extends Activity {
 
     private void agentGenerateImage(String owner){
         if(!owner.equals(accountStore.activeCacheKey()))return;
-        if(!app.githubble.mobile.agent.AgentPermissionPolicy.mayWrite(agentPermission(owner),agentPlanning(owner))){toast("Разрешите изменения в настройках Git Agent");return;}
+        if(!app.githubble.mobile.agent.AgentPermissionPolicy.mayWrite(agentPermission(owner),agentPlanning(owner))){toast("Разрешите изменения в настройках Hubble Agent");return;}
         String provider=aiConnections.selectedProvider(owner);
         if(provider.isEmpty()||!aiConnections.isConfigured(owner,provider)){agentChooseComposerModel(owner);return;}
         String thread=agentProjects.activeConversation(owner);
@@ -2118,13 +2117,13 @@ public class MainActivity extends Activity {
     private void agentShowChatTools(String owner) {
         if (!owner.equals(accountStore.activeCacheKey())) return;
         AgentProjectStore.Project project = agentProjects.project(owner);
-        new AlertDialog.Builder(this).setTitle("Git Agent · инструменты")
+        new AlertDialog.Builder(this).setTitle("Hubble Agent · инструменты")
                 .setItems(new String[]{
                         "📎  Прикрепить текстовый файл",
                         "🖼  Фото и мультимедиа",
                         "◈  Создать или изменить код",
                         "▣  Проекты и репозитории",
-                        "⚙  Git Agent и Workspace · настройки",
+                        "⚙  Hubble Agent и Workspace · настройки",
                         "☷  Выбрать модель",
                         "▶  GitHub Actions",
                         "↓  APK / артефакты",
@@ -2304,11 +2303,11 @@ public class MainActivity extends Activity {
             JSONObject entry = entries.optJSONObject(i);
             labels[i] = entry == null ? "Unknown" : entry.optString("name", entry.optString("id", "Provider"));
         }
-        new AlertDialog.Builder(this).setTitle("Каталог Git Agent · " + labels.length)
+        new AlertDialog.Builder(this).setTitle("Каталог Hubble Agent · " + labels.length)
                 .setItems(labels, (d, i) -> {
                     JSONObject item = entries.optJSONObject(i);
                     if (item != null) new AlertDialog.Builder(this)
-                            .setTitle(app.githubble.mobile.ui.JsonText.of(item,"name","Git Agent"))
+                            .setTitle(app.githubble.mobile.ui.JsonText.of(item,"name","Hubble Agent"))
                             .setMessage("Тип: " + item.optString("category", "—")
                                     + "\nАвторизация: " + item.optString("auth_type", "—")
                                     + "\nСетевой движок перенесём на следующем этапе. Это пока не активное подключение.")
@@ -2471,7 +2470,7 @@ public class MainActivity extends Activity {
                             JSONArray prompt=new JSONArray().put(
                                 new JSONObject().put("role","user").put("body",instructions));
                             String result=aiChatClient.completeStreamingForAccount(expected,provider,model,credential,
-                                prompt,"Native Git Agent tool execution",allowGithub?activeProject.repository:"",run::preview);
+                                prompt,"Native Hubble Agent tool execution",allowGithub?activeProject.repository:"",run::preview);
                             aiUsage.record(expected,provider,model,OmniChatChatClient.takeUsage());
                             return result;
                         },aiGithub,agentWorkspaces,expected,activeProject.repository,
@@ -2844,7 +2843,7 @@ public class MainActivity extends Activity {
                 .setNegativeButton("Отмена",null).show();
             return;
         }
-        final ProgressDialog loading=ProgressDialog.show(this,"Git Agent",
+        final ProgressDialog loading=ProgressDialog.show(this,"Hubble Agent",
             "Проверяем SHA сборки и актуальную ветку…",true,false);
         io.execute(()->{
             try{
@@ -3995,7 +3994,7 @@ public class MainActivity extends Activity {
                 }
                 loaded.addAll(shown);
                 int unread=0;for(InboxItem item:shown)if(item.unread)unread++;
-                status.setText((wasOfficial?"Официальный Inbox GitHub":"Режим поиска (без токена Inbox)")+" · непрочитанных: "+unread);
+                status.setText((wasOfficial?"Официальный Inbox GitHub":"Режим поиска (без токена Inbox)")+" · непрочитанных: "+unread+(wasOfficial&&result.size()>=50?"+":""));
                 if(!wasOfficial){
                     TextView note=text("GitHub не отдаёт уведомления токену входа через GitHubble. Показаны ревью, назначения, упоминания и ваши темы в репозиториях с установленным приложением. Добавьте токен (кнопка «Токен»), чтобы видеть полный Inbox.",12,false);
                     note.setTextColor(MUTED);list.addView(note);
@@ -4025,7 +4024,7 @@ public class MainActivity extends Activity {
                 if(official)io.execute(()->{try{InboxService.markThreadRead(new GitHubApiClient(secureStore,null,token),item.threadId);}catch(Exception ignored){}});
                 else inboxRememberRead(Collections.singletonList(item.readKey()));
             }
-            if("CheckSuite".equals(item.type)&&item.subjectId>0)openInboxCheckSuite(item);
+            if("CheckSuite".equals(item.type))openInboxCheckSuite(item);
             else if("PullRequest".equals(item.type)&&item.number>0)navigate(()->showPullDetail(item.repo,item.number));
             else if("Issue".equals(item.type)&&item.number>0)navigate(()->showIssueDetail(item.repo,item.number));
             else if("Discussion".equals(item.type)&&item.number>0)navigate(()->showDiscussionDetail(item.repo,item.number));
@@ -4040,9 +4039,20 @@ public class MainActivity extends Activity {
         io.execute(()->{
             long runId=0;
             try{
-                JSONObject runs=api.getJson("https://api.github.com/repos/"+item.repo+"/actions/runs?check_suite_id="+item.subjectId+"&per_page=1");
-                JSONArray list=runs.optJSONArray("workflow_runs");
-                if(list!=null&&list.length()>0)runId=list.optJSONObject(0).optLong("id",0);
+                String url;String[] parsed=InboxItem.parseWorkflowTitle(item.title);
+                if(item.subjectId>0)url="https://api.github.com/repos/"+item.repo+"/actions/runs?check_suite_id="+item.subjectId+"&per_page=1";
+                else url="https://api.github.com/repos/"+item.repo+"/actions/runs?per_page=50"
+                        +(parsed==null?"":"&branch="+URLEncoder.encode(parsed[1],"UTF-8"));
+                JSONArray list=api.getJson(url).optJSONArray("workflow_runs");
+                long target=0;try{target=java.time.Instant.parse(item.updatedAt).toEpochMilli();}catch(Exception ignored){}
+                long best=Long.MAX_VALUE;
+                for(int i=0;list!=null&&i<list.length();i++){
+                    JSONObject run=list.optJSONObject(i);if(run==null)continue;
+                    if(item.subjectId<=0&&parsed!=null&&!parsed[0].equals(run.optString("name","")))continue;
+                    long when=target;try{when=java.time.Instant.parse(run.optString("updated_at","")).toEpochMilli();}catch(Exception ignored){}
+                    long gap=Math.abs(when-target);
+                    if(gap<best){best=gap;runId=run.optLong("id",0);}
+                }
             }catch(Exception ignored){}
             final long found=runId;
             runOnUiThread(()->{
@@ -5365,7 +5375,7 @@ public class MainActivity extends Activity {
             repoActionCard(tabs,R.drawable.ic_pull_request,"Pull Requests","Изменения",()->navigate(()->showRepoPulls(full)));
             repoActionCard(tabs,R.drawable.ic_discussion,"Обсуждения","Сообщество",()->navigate(()->showRepoDiscussions(full)));
             repoActionCard(tabs,R.drawable.ic_release,"Релизы","Публикации",()->navigate(()->showRepoReleases(full)));
-            repoActionCard(tabs,R.drawable.ic_agent_link,"Git Agent","Разработка",()->agentAttachSelectedRepository(full));
+            repoActionCard(tabs,R.drawable.ic_agent_link,"Hubble Agent","Разработка",()->agentAttachSelectedRepository(full));
             content.addView(tabs);
             sectionTitle("Дополнительные действия",null);
             String owner=full.contains("/")?full.substring(0,full.indexOf('/')):full;
@@ -5617,7 +5627,7 @@ public class MainActivity extends Activity {
                 addAction(actions,"Редактировать",()->showIssueEditor(full,number,issue.optString("title",""),issue.optString("body",""),issue.optString("updated_at","")));
                 if(isSignedIn()){
                     addAction(actions,"Метки и участники",()->showIssueMetadataDialog(full,number,issue));
-                    addAction(actions,"Открыть в Git Agent",()->agentAttachSelectedRepository(full));
+                    addAction(actions,"Открыть в Hubble Agent",()->agentAttachSelectedRepository(full));
                 }
                 addAction(actions,"👍 Реакция",()->postIssueReaction(full,number,"+1"));
                 addAction(actions,"Открыть GitHub",()->openWeb(issue.optString("html_url","https://github.com/"+full+"/issues/"+number)));
@@ -8681,7 +8691,7 @@ public class MainActivity extends Activity {
                 "Кэш "+cacheSizeText()+" · офлайн-очередь, копия, мои данные",
                 accent[6],()->navigate(this::showSettingsData),settingsDataSections()));
         String provider=aiConnections.selectedProvider(owner);
-        categories.add(new SettingsScreen.Category(R.drawable.ic_agent_link,"Git Agent и Workspace",
+        categories.add(new SettingsScreen.Category(R.drawable.ic_agent_link,"Hubble Agent и Workspace",
                 (provider.isEmpty()?"Модель не выбрана":"Модель: "+aiConnections.displayName(provider))
                         +" · подписки, Workspace, сеть",
                 accent[1],()->navigate(this::showSettingsGitAgentWorkspace),settingsAgentSections(owner)));
@@ -9245,7 +9255,7 @@ public class MainActivity extends Activity {
         workspace.add(SettingsScreen.Item.action(R.drawable.ic_repository,"Файлы и инструменты Workspace",
                 "Редактор, индекс, поиск, snapshots, ZIP и папки","файлы редактор индекс zip snapshot",
                 ()->agentFeatures(owner).files()));
-        workspace.add(SettingsScreen.Item.action(R.drawable.ic_ai,"Память Git Agent",
+        workspace.add(SettingsScreen.Item.action(R.drawable.ic_ai,"Память Hubble Agent",
                 "Контекст проектов, импорт и экспорт","память контекст",()->agentFeatures(owner).memory()));
         workspace.add(SettingsScreen.Item.action(R.drawable.ic_history,"История и архив диалогов",
                 "Поиск по перепискам и экспорт JSON","история архив диалоги чат",()->agentFeatures(owner).history()));
@@ -9298,7 +9308,7 @@ public class MainActivity extends Activity {
 
     private void showSettingsGitAgentWorkspace(){
         setCurrentScreen(this::showSettingsGitAgentWorkspace);
-        shell("Git Agent и Workspace",false);
+        shell("Hubble Agent и Workspace",false);
         new SettingsScreen(this,content,settingsPalette())
                 .renderPage(null,tileColors[1],settingsAgentSections(accountStore.activeCacheKey()));
     }
@@ -9669,7 +9679,7 @@ public class MainActivity extends Activity {
                 " · вход: "+usage.optLong("input_tokens",0)+
                 " · выход: "+usage.optLong("output_tokens",0));
         }
-        if(!found)settingsRow("Нет подключений","Подключите модель в Git Agent и Workspace");
+        if(!found)settingsRow("Нет подключений","Подключите модель в Hubble Agent и Workspace");
         TextView note=text("Это локальная статистика, а не остаток баланса, лимит подписки или сумма к оплате. "+
             "Токены отображаются лишь тогда, когда провайдер вернул usage. "+
             "Остатки тарифных квот будут добавляться только через подтверждённые официальные методы провайдеров.",12,false);

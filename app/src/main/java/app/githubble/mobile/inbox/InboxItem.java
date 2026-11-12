@@ -61,6 +61,14 @@ public final class InboxItem {
         try{return Integer.parseInt(url.substring(slash+1));}catch(NumberFormatException e){return 0;}
     }
 
+    /** CheckSuite threads carry no URL, so the workflow and branch are read from the title. */
+    public static String[] parseWorkflowTitle(String title){
+        if(title==null)return null;
+        java.util.regex.Matcher m=java.util.regex.Pattern
+                .compile("^(.+?) workflow run.*? for (.+) branch$").matcher(title.trim());
+        return m.matches()?new String[]{m.group(1).trim(),m.group(2).trim()}:null;
+    }
+
     public static long longFromUrl(String url){
         if(url==null)return 0;
         int slash=url.lastIndexOf('/');

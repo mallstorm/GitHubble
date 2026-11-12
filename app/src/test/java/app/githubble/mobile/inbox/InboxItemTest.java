@@ -45,4 +45,12 @@ public class InboxItemTest {
         assertTrue(InboxService.searchQueries("octo")[0][0].contains("review-requested:octo"));
         assertEquals(0,InboxItem.numberFromUrl("https://x/y/"));
     }
+
+    @Test public void workflowTitleIsParsed(){
+        String[] a=InboxItem.parseWorkflowTitle("Redesign UI review workflow run failed for claude/redesign-pass-2 branch");
+        assertEquals("Redesign UI review",a[0]);assertEquals("claude/redesign-pass-2",a[1]);
+        String[] b=InboxItem.parseWorkflowTitle("Build APK workflow run, Attempt #2 failed for redesign branch");
+        assertEquals("Build APK",b[0]);assertEquals("redesign",b[1]);
+        assertNull(InboxItem.parseWorkflowTitle("Something else"));
+    }
 }

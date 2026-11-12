@@ -11,7 +11,7 @@ import android.view.View;
  */
 public final class WelcomeBrainView extends View {
     private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
-    public WelcomeBrainView(Context context) { super(context); setContentDescription("Git Agent — мозг"); }
+    public WelcomeBrainView(Context context) { super(context); setContentDescription("Hubble Agent — мозг"); }
     private float dp(float v) { return v * getResources().getDisplayMetrics().density; }
     @Override protected void onDraw(Canvas c) {
         super.onDraw(c);
