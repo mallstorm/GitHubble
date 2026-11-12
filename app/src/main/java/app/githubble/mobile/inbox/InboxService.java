@@ -47,7 +47,9 @@ public final class InboxService {
                 {"review-requested:"+login+" is:pr is:open","Просят ревью"},
                 {"assignee:"+login+" is:open","Назначено вам"},
                 {"mentions:"+login+" is:open -author:"+login,"Упоминание"},
-                {"author:"+login+" is:open comments:>0","Ваша тема"}};
+                {"author:"+login+" is:pr is:open","Ваш PR"},
+                {"involves:"+login+" is:pr is:open -author:"+login,"Участие в PR"},
+                {"author:"+login+" is:issue is:open comments:>0","Ваша тема"}};
     }
 
     public static List<InboxItem> fetchSearch(GitHubApiClient client,String login) throws Exception{

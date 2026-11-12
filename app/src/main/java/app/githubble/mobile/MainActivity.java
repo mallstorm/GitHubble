@@ -4025,7 +4025,8 @@ public class MainActivity extends Activity {
                 if(official)io.execute(()->{try{InboxService.markThreadRead(new GitHubApiClient(secureStore,null,token),item.threadId);}catch(Exception ignored){}});
                 else inboxRememberRead(Collections.singletonList(item.readKey()));
             }
-            if("PullRequest".equals(item.type)&&item.number>0)navigate(()->showPullDetail(item.repo,item.number));
+            if("CheckSuite".equals(item.type)&&item.subjectId>0)openInboxCheckSuite(item);
+            else if("PullRequest".equals(item.type)&&item.number>0)navigate(()->showPullDetail(item.repo,item.number));
             else if("Issue".equals(item.type)&&item.number>0)navigate(()->showIssueDetail(item.repo,item.number));
             else if("Discussion".equals(item.type)&&item.number>0)navigate(()->showDiscussionDetail(item.repo,item.number));
             else navigate(()->showRepository(item.repo));
@@ -4033,16 +4034,34 @@ public class MainActivity extends Activity {
         return row;
     }
 
+    /** A failed-workflow notification opens the run itself; the repository is only the fallback. */
+    private void openInboxCheckSuite(InboxItem item){
+        toast("Открываем запуск…");
+        io.execute(()->{
+            long runId=0;
+            try{
+                JSONObject runs=api.getJson("https://api.github.com/repos/"+item.repo+"/actions/runs?check_suite_id="+item.subjectId+"&per_page=1");
+                JSONArray list=runs.optJSONArray("workflow_runs");
+                if(list!=null&&list.length()>0)runId=list.optJSONObject(0).optLong("id",0);
+            }catch(Exception ignored){}
+            final long found=runId;
+            runOnUiThread(()->{
+                if(found>0)navigate(()->showBuildRunDetail(item.repo,found));
+                else navigate(()->showRepository(item.repo));
+            });
+        });
+    }
+
     private void showInboxTokenDialog(){
         final String account=currentAccountId();
         LinearLayout form=new LinearLayout(this);form.setOrientation(LinearLayout.VERTICAL);form.setPadding(dp(20),dp(8),dp(20),0);
-        TextView help=text("Нужен классический токен (Personal access token classic) со scope notifications; для приватных репозиториев ещё repo. Токен хранится в защищённом хранилище и используется только для Inbox.",13,false);
+        TextView help=text("Нужен классический токен (Personal access token classic) только со scope notifications (других прав не нужно). Токен хранится в защищённом хранилище и используется только для Inbox.",13,false);
         form.addView(help);
         EditText input=new EditText(this);input.setSingleLine(true);input.setHint("ghp_…");
         input.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD);
         form.addView(input);
         new AlertDialog.Builder(this).setTitle("Токен для Inbox").setView(form)
-                .setNeutralButton("Создать на GitHub",(d,w)->openSecureGitHubPage("https://github.com/settings/tokens/new?scopes=notifications,repo&description=GitHubble%20Inbox"))
+                .setNeutralButton("Создать на GitHub",(d,w)->openSecureGitHubPage("https://github.com/settings/tokens/new?scopes=notifications&description=GitHubble%20Inbox"))
                 .setNegativeButton(inboxToken().isEmpty()?"Отмена":"Удалить токен",(d,w)->{
                     if(!inboxToken().isEmpty()){secureStore.put("inbox_token_"+account,"");showGitHubInbox();}
                 })
