@@ -69,7 +69,7 @@ public final class RedesignUiInstrumentation extends Instrumentation {
       } catch (Throwable error) {
         findings.add("synthetic: render failed " + error);
       }
-      String[] synthetic = {"builds", "issues", "search", "projects", "repolist", "people"};
+      String[] synthetic = {"builds", "issues", "search", "projects", "repolist", "people", "profile", "billing"};
       for (String name : synthetic) {
         try {
           scenario(app, name);
@@ -212,9 +212,66 @@ public final class RedesignUiInstrumentation extends Instrumentation {
         call(app, "addDirectionRow", drawable(app, "ic_release"), "Релизы", "Версии и сборки", 0xFFE87D1E, (Runnable) () -> {});
         call(app, "heroBanner", "Организации", "Команды и доступ", drawable(app, "ic_organization"));
         break;
+      case "profile":
+        call(app, "shell", "Профиль", false);
+        onUi(
+            () -> {
+              try {
+                android.widget.LinearLayout content = contentOf(app);
+                invoke(app, "profileSection", "Статистика", "Все", (Runnable) () -> {});
+                android.widget.GridLayout stats = new android.widget.GridLayout(app);
+                stats.setColumnCount(3);
+                content.addView(stats);
+                for (int i = 0; i < 3; i++)
+                  invoke(app, "profileStat", stats, drawable(app, "ic_repository"), "" + (10 + i), "Репозитории", 0xFF2E9B46, (Runnable) () -> {});
+                invoke(app, "profileSection", "Действия", null, (Runnable) () -> {});
+                android.widget.GridLayout actions = new android.widget.GridLayout(app);
+                actions.setColumnCount(2);
+                content.addView(actions);
+                for (int i = 0; i < 4; i++)
+                  invoke(app, "profileAction", actions, drawable(app, "ic_profile"), "Действие " + i, "Подпись действия", 0xFF2E9B46, (Runnable) () -> {});
+                android.widget.LinearLayout details = new android.widget.LinearLayout(app);
+                details.setOrientation(android.widget.LinearLayout.VERTICAL);
+                content.addView(details);
+                invoke(app, "addProfileDetail", details, "Компания", "Anthropic");
+                invoke(app, "addProfileDetail", details, "Локация", "Москва");
+              } catch (Exception error) {
+                throw new RuntimeException(error);
+              }
+            });
+        break;
+      case "billing":
+        call(app, "shell", "Хранилище Actions", false);
+        onUi(
+            () -> {
+              try {
+                android.widget.LinearLayout content = contentOf(app);
+                android.widget.GridLayout actions = new android.widget.GridLayout(app);
+                actions.setColumnCount(2);
+                content.addView(actions);
+                for (int i = 0; i < 4; i++)
+                  invoke(app, "addBillingQuickAction", actions, drawable(app, "ic_release"), "Очистка " + i, "Освободить место", (Runnable) () -> {});
+                for (int i = 0; i < 3; i++) {
+                  TextView value = new TextView(app);
+                  value.setText("1" + i + ",4 ГБ");
+                  invoke(app, "addBillingStatusRow", content, drawable(app, "ic_android"), "Артефакты " + i, value, 0xFF2E9B46);
+                }
+                invoke(app, "nestedSettingsRow", "Правила хранения", "Хранить артефакты 7 дней", drawable(app, "ic_settings"), 0xFF2E9B46, (Runnable) () -> {});
+                invoke(app, "settingsToggleRow", "Автоскачивание", "Скачивать APK после сборки", "redesign_demo", true);
+              } catch (Exception error) {
+                throw new RuntimeException(error);
+              }
+            });
+        break;
       default:
         break;
     }
+  }
+
+  private static android.widget.LinearLayout contentOf(Activity app) throws Exception {
+    java.lang.reflect.Field field = MainActivity.class.getDeclaredField("content");
+    field.setAccessible(true);
+    return (android.widget.LinearLayout) field.get(app);
   }
 
   private static void invoke(Activity app, String method, Object... args) throws Exception {

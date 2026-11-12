@@ -571,6 +571,7 @@ public class MainActivity extends Activity {
         t.setTextColor(TEXT);
         if (bold) t.setTypeface(null, android.graphics.Typeface.BOLD);
         t.setPadding(dp(4), dp(2), dp(4), dp(2));
+        t.setEllipsize(android.text.TextUtils.TruncateAt.END);
         t.setLineSpacing(0f, isLargeText()?1.18f:1.08f);
         t.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
         if(Build.VERSION.SDK_INT>=29){t.setBreakStrategy(android.graphics.text.LineBreaker.BREAK_STRATEGY_HIGH_QUALITY);t.setHyphenationFrequency(android.text.Layout.HYPHENATION_FREQUENCY_NORMAL);}
@@ -5007,7 +5008,7 @@ public class MainActivity extends Activity {
         TextView description=text(app.githubble.mobile.ui.JsonText.of(repository,"description","Без описания"),11,false);description.setTextColor(MUTED);description.setMaxLines(2);description.setPadding(0,dp(7),0,0);tile.addView(description,new LinearLayout.LayoutParams(-1,0,1));
         TextView meta=text("★ "+repository.optInt("stargazers_count",0)+" · "+app.githubble.mobile.ui.JsonText.of(repository,"language","—"),11,true);meta.setTextColor(MUTED);meta.setPadding(0,dp(6),0,0);tile.addView(meta);
         tile.setOnClickListener(v->navigate(()->showRepository(full)));
-        GridLayout.LayoutParams p=new GridLayout.LayoutParams();p.width=0;p.height=dp(162);p.columnSpec=GridLayout.spec(GridLayout.UNDEFINED,1f);p.setMargins(dp(4),dp(4),dp(4),dp(4));grid.addView(tile,p);
+        GridLayout.LayoutParams p=new GridLayout.LayoutParams();p.width=0;p.height=dp(isLargeText()?150:124);p.columnSpec=GridLayout.spec(GridLayout.UNDEFINED,1f);p.setMargins(dp(4),dp(4),dp(4),dp(4));grid.addView(tile,p);
     }
 
     private TextView pill(String s){TextView t=text(s,12,true);t.setTextColor(MUTED);t.setGravity(Gravity.CENTER);t.setBackground(round(SUBTLE,12,Color.TRANSPARENT,0));LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-2,dp(30));p.setMargins(0,0,dp(8),0);t.setLayoutParams(p);return t;}
