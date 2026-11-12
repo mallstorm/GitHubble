@@ -50,7 +50,7 @@ public final class R8SmokeInstrumentation extends Instrumentation {
       final Activity app = activity;
       assertVisible(app, "Главная");
       click(app, "Настройки");
-      assertVisible(app, "Git Agent и Workspace");
+      assertVisible(app, "Hubble Agent и Workspace");
       click(app, "Чат");
       assertVisible(app, "Git Agent");
       assertVisible(app, "Проверка Markdown");
