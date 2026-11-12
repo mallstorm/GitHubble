@@ -1,0 +1,258 @@
+package app.githubble.mobile;
+
+import android.app.Activity;
+import android.app.Instrumentation;
+import android.content.Intent;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.Rect;
+import android.graphics.drawable.ColorDrawable;
+import android.os.Bundle;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.Button;
+import android.widget.ScrollView;
+import android.widget.TextView;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.PrintWriter;
+import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.List;
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+/** Opens real app screens with synthetic data, saves full-page images and audits layout. */
+public final class RedesignUiInstrumentation extends Instrumentation {
+  private final List<String> findings = new ArrayList<>();
+  private int shots;
+
+  @Override
+  public void onCreate(Bundle args) {
+    super.onCreate(args);
+    start();
+  }
+
+  @Override
+  public void onStart() {
+    Bundle result = new Bundle();
+    int code = 0;
+    try {
+      File dir = getTargetContext().getExternalFilesDir("redesign-ui");
+      if (dir == null || (!dir.exists() && !dir.mkdirs())) throw new AssertionError("No output dir");
+      Activity app =
+          startActivitySync(
+              new Intent(getTargetContext(), MainActivity.class)
+                  .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK));
+      waitForIdleSync();
+      for (String name :
+          new String[] {
+            "showHome", "showMyRepositories", "showSearch", "showNotifications", "showFavorites",
+            "showTracking", "showSettings", "showSettingsAccount", "showSettingsInterface",
+            "showSettingsNotifications", "showSettingsData", "showSettingsGitAgentWorkspace",
+            "showSettingsAbout", "showIssues", "showReleases", "showBuildCenter",
+            "showProfile", "showOrganizations"
+          }) {
+        try {
+          call(app, name);
+          capture(app, dir, name);
+        } catch (Throwable error) {
+          findings.add(name + ": render failed " + error);
+        }
+      }
+      try {
+        repository(app);
+        capture(app, dir, "repository");
+        release(app);
+        capture(app, dir, "release-card");
+      } catch (Throwable error) {
+        findings.add("synthetic: render failed " + error);
+      }
+      try (PrintWriter out = new PrintWriter(new File(dir, "audit.txt"))) {
+        out.println("screens captured: " + shots);
+        out.println("findings: " + findings.size());
+        for (String line : findings) out.println(line);
+      }
+      result.putString(Instrumentation.REPORT_KEY_STREAMRESULT, "PASS: redesign UI shots=" + shots + " findings=" + findings.size() + "\n");
+    } catch (Throwable error) {
+      code = 1;
+      result.putString(Instrumentation.REPORT_KEY_STREAMRESULT, "FAIL: " + error + "\n");
+    }
+    finish(code, result);
+  }
+
+  private void call(Activity app, String method, Object... args) throws Throwable {
+    Class<?>[] types = new Class<?>[args.length];
+    for (int i = 0; i < args.length; i++) types[i] = classOf(args[i]);
+    Method m = MainActivity.class.getDeclaredMethod(method, types);
+    m.setAccessible(true);
+    Throwable[] failure = new Throwable[1];
+    runOnMainSync(
+        () -> {
+          try {
+            m.invoke(app, args);
+          } catch (Throwable error) {
+            failure[0] = error.getCause() == null ? error : error.getCause();
+          }
+        });
+    if (failure[0] != null) throw failure[0];
+  }
+
+  private static Class<?> classOf(Object value) {
+    if (value instanceof Integer) return int.class;
+    if (value instanceof Boolean) return boolean.class;
+    return value.getClass();
+  }
+
+  private void repository(Activity app) throws Throwable {
+    JSONObject repo =
+        new JSONObject()
+            .put("full_name", "mallstorm/OmniCodeIDE")
+            .put("private", true)
+            .put("description", JSONObject.NULL)
+            .put("default_branch", "main");
+    call(app, "shell", "mallstorm/OmniCodeIDE", true);
+    call(
+        app,
+        "renderRepositoryOverview",
+        "mallstorm/OmniCodeIDE", repo, "Без описания", 3, 1, 4, "main", "Go", "MIT",
+        "# OmniCode-IDE\n\nНезависимая десктопная IDE для Windows x64.", Boolean.FALSE);
+  }
+
+  private void release(Activity app) throws Throwable {
+    call(app, "shell", "Релизы", true);
+    JSONArray assets =
+        new JSONArray()
+            .put(asset(1, "release.apk", 21_800_000L, "application/vnd.android.package-archive"))
+            .put(asset(2, "githubble-sources-with-a-very-long-file-name-1.0.0-rc4.2.31.zip", 4_200_000L, "application/zip"))
+            .put(asset(3, "checksums.txt", 812L, "text/plain"));
+    JSONObject release =
+        new JSONObject()
+            .put("id", 11)
+            .put("name", "GitHubble RC 4.2.31")
+            .put("tag_name", "build-1.0.0-rc4.2.31")
+            .put("prerelease", true)
+            .put("published_at", "2026-11-12T06:44:33Z")
+            .put("body", "Исправления кнопки отправки и скрытие служебного JSON.")
+            .put("assets", assets);
+    call(app, "renderReleaseCard", release);
+    call(app, "renderReleaseCard", new JSONObject(release.toString()).put("id", 12).put("name", "Второй релиз").put("prerelease", false));
+  }
+
+  private static JSONObject asset(long id, String name, long size, String type) throws Exception {
+    return new JSONObject()
+        .put("id", id)
+        .put("name", name)
+        .put("size", size)
+        .put("content_type", type)
+        .put("url", "https://api.github.com/repos/o/r/releases/assets/" + id);
+  }
+
+  private void capture(Activity app, File dir, String name) throws Exception {
+    waitForIdleSync();
+    android.os.SystemClock.sleep(500);
+    Bitmap[] holder = new Bitmap[1];
+    runOnMainSync(
+        () -> {
+          View decor = app.getWindow().getDecorView();
+          audit(name, decor, decor);
+          ScrollView scroll = findScroll(decor);
+          View target = scroll != null && scroll.getChildCount() > 0 ? scroll.getChildAt(0) : decor;
+          int width = Math.max(1, target.getWidth());
+          int height = Math.max(1, Math.min(target.getHeight(), 7000));
+          Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+          Canvas canvas = new Canvas(bitmap);
+          int bg = Color.rgb(246, 248, 250);
+          if (scroll != null && scroll.getParent() instanceof View) {
+            android.graphics.drawable.Drawable d = ((View) scroll.getParent()).getBackground();
+            if (d instanceof ColorDrawable) bg = ((ColorDrawable) d).getColor();
+          }
+          canvas.drawColor(bg);
+          target.draw(canvas);
+          holder[0] = bitmap;
+        });
+    try (FileOutputStream out = new FileOutputStream(new File(dir, name + ".png"))) {
+      holder[0].compress(Bitmap.CompressFormat.PNG, 100, out);
+    } finally {
+      holder[0].recycle();
+    }
+    shots++;
+  }
+
+  private static ScrollView findScroll(View view) {
+    if (view instanceof ScrollView) return (ScrollView) view;
+    if (view instanceof ViewGroup) {
+      ViewGroup group = (ViewGroup) view;
+      for (int i = 0; i < group.getChildCount(); i++) {
+        ScrollView found = findScroll(group.getChildAt(i));
+        if (found != null) return found;
+      }
+    }
+    return null;
+  }
+
+  private void audit(String screen, View view, View root) {
+    float density = view.getResources().getDisplayMetrics().density;
+    if (view instanceof TextView) {
+      TextView text = (TextView) view;
+      if (text.getVisibility() == View.VISIBLE && text.getLayout() != null && text.getMaxLines() == Integer.MAX_VALUE
+          && text.getLayout().getHeight() > text.getHeight() - text.getCompoundPaddingTop() - text.getCompoundPaddingBottom() + 2)
+        findings.add(screen + ": TEXT CLIPPED \"" + shorten(text.getText()) + "\"");
+    }
+    if (view instanceof ViewGroup) {
+      ViewGroup group = (ViewGroup) view;
+      for (int i = 0; i < group.getChildCount(); i++) {
+        View a = group.getChildAt(i);
+        if (a.getVisibility() != View.VISIBLE) continue;
+        if (a.getRight() > group.getWidth() - group.getPaddingRight() + 2 && !(group instanceof android.widget.HorizontalScrollView) && group.getWidth() > 0)
+          findings.add(screen + ": OVERFLOW " + describe(a));
+        for (int j = i + 1; j < group.getChildCount(); j++) {
+          View b = group.getChildAt(j);
+          if (b.getVisibility() != View.VISIBLE || !surface(a) || !surface(b)) continue;
+          Rect ra = new Rect(a.getLeft(), a.getTop(), a.getRight(), a.getBottom());
+          Rect rb = new Rect(b.getLeft(), b.getTop(), b.getRight(), b.getBottom());
+          int vOverlap = Math.min(ra.bottom, rb.bottom) - Math.max(ra.top, rb.top);
+          int hOverlap = Math.min(ra.right, rb.right) - Math.max(ra.left, rb.left);
+          int minH = Math.min(ra.height(), rb.height());
+          int minW = Math.min(ra.width(), rb.width());
+          int hGap = Math.max(rb.left - ra.right, ra.left - rb.right);
+          int vGap = Math.max(rb.top - ra.bottom, ra.top - rb.bottom);
+          float limit = 4 * density;
+          if (vOverlap > minH / 2 && hGap < limit)
+            findings.add(screen + ": TOUCHING " + describe(a) + " | " + describe(b) + " gap=" + hGap + "px");
+          else if (hOverlap > minW / 2 && vGap < limit && vGap >= -1)
+            findings.add(screen + ": STACKED-TIGHT " + describe(a) + " | " + describe(b) + " gap=" + vGap + "px");
+        }
+        audit(screen, a, root);
+      }
+    }
+  }
+
+  private static boolean surface(View view) {
+    return view.getBackground() != null && (view instanceof Button || view.isClickable());
+  }
+
+  private static String describe(View view) {
+    String text = view instanceof TextView ? shorten(((TextView) view).getText()) : "";
+    if (text.isEmpty() && view instanceof ViewGroup) text = firstText((ViewGroup) view);
+    return view.getClass().getSimpleName() + "[" + text + "]";
+  }
+
+  private static String firstText(ViewGroup group) {
+    for (int i = 0; i < group.getChildCount(); i++) {
+      View child = group.getChildAt(i);
+      if (child instanceof TextView && ((TextView) child).getText().length() > 0) return shorten(((TextView) child).getText());
+      if (child instanceof ViewGroup) {
+        String nested = firstText((ViewGroup) child);
+        if (!nested.isEmpty()) return nested;
+      }
+    }
+    return "";
+  }
+
+  private static String shorten(CharSequence value) {
+    String s = String.valueOf(value).replace('\n', ' ');
+    return s.length() > 40 ? s.substring(0, 40) + "…" : s;
+  }
+}

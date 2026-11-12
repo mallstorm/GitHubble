@@ -5131,6 +5131,43 @@ public class MainActivity extends Activity {
         card(box);
     }
 
+    private void renderRepositoryOverview(String full,JSONObject r,String desc,int stars,int forks,int issues,
+            String branch,String language,String license,String finalReadme,Boolean starred){
+            showRepositoryOverviewHero(r,full,desc,stars,forks,issues,branch,language,license);
+            sectionTitle("GitHub Actions",null);
+            addRepositoryActionsTabs(full,-1);
+            TextView actionsHint=text("Сборки — история запусков · Артефакты — скачивание, удаление и правила хранения.",11,false);
+            actionsHint.setTextColor(MUTED);
+            content.addView(actionsHint,new LinearLayout.LayoutParams(-1,-2));
+            sectionTitle("Основные разделы",null);
+            GridLayout tabs=new GridLayout(this);tabs.setColumnCount(adaptiveColumns(3));
+            repoActionCard(tabs,R.drawable.ic_home,"Обзор","О проекте",()->navigate(()->showRepository(full)));
+            repoActionCard(tabs,R.drawable.ic_repository,"Файлы","Код и структура",()->navigate(()->showRepositoryFiles(full,branch,"")));
+            repoActionCard(tabs,R.drawable.ic_repository,"README","Документация",()->navigate(()->showReadme(full,finalReadme)));
+            repoActionCard(tabs,R.drawable.ic_issue,"Issues",issues+" открыто",()->navigate(()->showRepoIssues(full)));
+            repoActionCard(tabs,R.drawable.ic_pull_request,"Pull Requests","Изменения",()->navigate(()->showRepoPulls(full)));
+            repoActionCard(tabs,R.drawable.ic_discussion,"Обсуждения","Сообщество",()->navigate(()->showRepoDiscussions(full)));
+            repoActionCard(tabs,R.drawable.ic_release,"Релизы","Публикации",()->navigate(()->showRepoReleases(full)));
+            repoActionCard(tabs,R.drawable.ic_agent_link,"Git Agent","Разрабатывать проект",()->agentAttachSelectedRepository(full));
+            content.addView(tabs);
+            sectionTitle("Дополнительные действия",null);
+            String owner=full.contains("/")?full.substring(0,full.indexOf('/')):full;
+            GridLayout actions=new GridLayout(this);actions.setColumnCount(adaptiveColumns(2));
+            repoActionCard(actions,R.drawable.ic_repository,"Ветка: "+branch,"Выбрать ветку",()->showBranchChooser(full,branch));
+            repoActionCard(actions,R.drawable.ic_profile,"Профиль @"+owner,"Автор проекта",()->navigate(()->showDeveloperProfile(owner)));
+            repoActionCard(actions,R.drawable.ic_history,trackingDb.isTracked(owner)?"Не отслеживать":"Отслеживать","Активность автора",()->toggleDeveloperTracking(owner));
+            if(isSignedIn()){
+                if(starred!=null)repoActionCard(actions,R.drawable.ic_star,starred?"★ Убрать звезду":"☆ Поставить звезду","GitHub Stars",()->toggleRepositoryStar(full,starred));
+                else repoActionCard(actions,R.drawable.ic_star,"Звезда недоступна","Проверьте права",()->toast("Проверьте сеть и разрешения GitHub"));
+                repoActionCard(actions,R.drawable.ic_settings,"Управление","Настройки проекта",()->navigate(()->showRepositoryAdmin(full,r)));
+            }
+            repoActionCard(actions,R.drawable.ic_star,"Избранное","Сохранить проект",()->{saveFavorite(full);toast("Добавлено в избранное");});
+            repoActionCard(actions,R.drawable.ic_globe,"Открыть GitHub","В браузере",()->openRepoUrl(full,""));
+            repoActionCard(actions,R.drawable.ic_history,"Центр наблюдения","Ваша активность",()->navigate(this::showTracking));
+            content.addView(actions);
+            repoReadmePreview(full,finalReadme);
+    }
+
     private void showRepository(String full){
         if(isSignedIn()&&full.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+"))
             RepositoryActivityFeed.noteVisit(prefs,currentAccountId(),full,
@@ -5158,39 +5195,7 @@ public class MainActivity extends Activity {
                             ||!repoAccount.equals(currentAccountId())
                             ||!full.equals(currentTitle))return;
                     content.removeView(pb);
-                    showRepositoryOverviewHero(r,full,desc,stars,forks,issues,branch,language,license);
-                    sectionTitle("GitHub Actions",null);
-                    addRepositoryActionsTabs(full,-1);
-                    TextView actionsHint=text("Сборки — история запусков · Артефакты — скачивание, удаление и правила хранения.",11,false);
-                    actionsHint.setTextColor(MUTED);
-                    content.addView(actionsHint,new LinearLayout.LayoutParams(-1,-2));
-                    sectionTitle("Основные разделы",null);
-                    GridLayout tabs=new GridLayout(this);tabs.setColumnCount(adaptiveColumns(3));
-                    repoActionCard(tabs,R.drawable.ic_home,"Обзор","О проекте",()->navigate(()->showRepository(full)));
-                    repoActionCard(tabs,R.drawable.ic_repository,"Файлы","Код и структура",()->navigate(()->showRepositoryFiles(full,branch,"")));
-                    repoActionCard(tabs,R.drawable.ic_repository,"README","Документация",()->navigate(()->showReadme(full,finalReadme)));
-                    repoActionCard(tabs,R.drawable.ic_issue,"Issues",issues+" открыто",()->navigate(()->showRepoIssues(full)));
-                    repoActionCard(tabs,R.drawable.ic_pull_request,"Pull Requests","Изменения",()->navigate(()->showRepoPulls(full)));
-                    repoActionCard(tabs,R.drawable.ic_discussion,"Обсуждения","Сообщество",()->navigate(()->showRepoDiscussions(full)));
-                    repoActionCard(tabs,R.drawable.ic_release,"Релизы","Публикации",()->navigate(()->showRepoReleases(full)));
-                    repoActionCard(tabs,R.drawable.ic_agent_link,"Git Agent","Разрабатывать проект",()->agentAttachSelectedRepository(full));
-                    content.addView(tabs);
-                    sectionTitle("Дополнительные действия",null);
-                    String owner=full.contains("/")?full.substring(0,full.indexOf('/')):full;
-                    GridLayout actions=new GridLayout(this);actions.setColumnCount(adaptiveColumns(2));
-                    repoActionCard(actions,R.drawable.ic_repository,"Ветка: "+branch,"Выбрать ветку",()->showBranchChooser(full,branch));
-                    repoActionCard(actions,R.drawable.ic_profile,"Профиль @"+owner,"Автор проекта",()->navigate(()->showDeveloperProfile(owner)));
-                    repoActionCard(actions,R.drawable.ic_history,trackingDb.isTracked(owner)?"Не отслеживать":"Отслеживать","Активность автора",()->toggleDeveloperTracking(owner));
-                    if(isSignedIn()){
-                        if(starred!=null)repoActionCard(actions,R.drawable.ic_star,starred?"★ Убрать звезду":"☆ Поставить звезду","GitHub Stars",()->toggleRepositoryStar(full,starred));
-                        else repoActionCard(actions,R.drawable.ic_star,"Звезда недоступна","Проверьте права",()->toast("Проверьте сеть и разрешения GitHub"));
-                        repoActionCard(actions,R.drawable.ic_settings,"Управление","Настройки проекта",()->navigate(()->showRepositoryAdmin(full,r)));
-                    }
-                    repoActionCard(actions,R.drawable.ic_star,"Избранное","Сохранить проект",()->{saveFavorite(full);toast("Добавлено в избранное");});
-                    repoActionCard(actions,R.drawable.ic_globe,"Открыть GitHub","В браузере",()->openRepoUrl(full,""));
-                    repoActionCard(actions,R.drawable.ic_history,"Центр наблюдения","Ваша активность",()->navigate(this::showTracking));
-                    content.addView(actions);
-                    repoReadmePreview(full,finalReadme);
+                    renderRepositoryOverview(full,r,desc,stars,forks,issues,branch,language,license,finalReadme,starred);
                 });
             }catch(Exception e){
                 String cached=prefs.getString("cache_repo_"+full,"");
