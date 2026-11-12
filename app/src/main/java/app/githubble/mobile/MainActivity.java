@@ -607,7 +607,7 @@ public class MainActivity extends Activity {
     private int adaptiveColumns(int preferred){int sw=getResources().getConfiguration().smallestScreenWidthDp;if(sw>=840)return Math.max(preferred,4);if(sw>=600)return Math.max(preferred,3);if(isLargeText())return Math.min(preferred,2);return preferred;}
 
     private void sectionTitle(String title, String action) {
-        LinearLayout row = new LinearLayout(this); row.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout row = new LinearLayout(this); row.setGravity(Gravity.CENTER_VERTICAL); row.setPadding(0, dp(content.getChildCount() > 0 ? 6 : 0), 0, 0);
         TextView t = text(title, 18, true); row.addView(t, new LinearLayout.LayoutParams(0, dp(44), 1));
         if (action != null) { TextView a = text(action, 14, true); a.setTextColor(BLUE); a.setGravity(Gravity.CENTER); row.addView(a); }
         content.addView(row);
@@ -5148,13 +5148,13 @@ public class MainActivity extends Activity {
             repoActionCard(tabs,R.drawable.ic_pull_request,"Pull Requests","Изменения",()->navigate(()->showRepoPulls(full)));
             repoActionCard(tabs,R.drawable.ic_discussion,"Обсуждения","Сообщество",()->navigate(()->showRepoDiscussions(full)));
             repoActionCard(tabs,R.drawable.ic_release,"Релизы","Публикации",()->navigate(()->showRepoReleases(full)));
-            repoActionCard(tabs,R.drawable.ic_agent_link,"Git Agent","Разрабатывать проект",()->agentAttachSelectedRepository(full));
+            repoActionCard(tabs,R.drawable.ic_agent_link,"Git Agent","Разработка",()->agentAttachSelectedRepository(full));
             content.addView(tabs);
             sectionTitle("Дополнительные действия",null);
             String owner=full.contains("/")?full.substring(0,full.indexOf('/')):full;
             GridLayout actions=new GridLayout(this);actions.setColumnCount(adaptiveColumns(2));
             repoActionCard(actions,R.drawable.ic_repository,"Ветка: "+branch,"Выбрать ветку",()->showBranchChooser(full,branch));
-            repoActionCard(actions,R.drawable.ic_profile,"Профиль @"+owner,"Автор проекта",()->navigate(()->showDeveloperProfile(owner)));
+            repoActionCard(actions,R.drawable.ic_profile,"Профиль","@"+owner,()->navigate(()->showDeveloperProfile(owner)));
             repoActionCard(actions,R.drawable.ic_history,trackingDb.isTracked(owner)?"Не отслеживать":"Отслеживать","Активность автора",()->toggleDeveloperTracking(owner));
             if(isSignedIn()){
                 if(starred!=null)repoActionCard(actions,R.drawable.ic_star,starred?"★ Убрать звезду":"☆ Поставить звезду","GitHub Stars",()->toggleRepositoryStar(full,starred));
@@ -5668,15 +5668,17 @@ public class MainActivity extends Activity {
         if(downloadState==null){downloadState=new AssetDownloadState();assetStates.put(assetStateKey(asset),downloadState);}
         final AssetDownloadState state=downloadState;
 
-        ImageView icon=imageIcon(R.drawable.ic_release,GREEN,22);
-        row.addView(icon,new LinearLayout.LayoutParams(dp(34),dp(34)));
+        boolean apk=assetName.toLowerCase(Locale.ROOT).endsWith(".apk");
+        ImageView icon=imageIcon(apk?R.drawable.ic_android:R.drawable.ic_repository,GREEN,16);
+        icon.setBackground(round(blend(CARD,GREEN,0.10f),10,Color.TRANSPARENT,0));
+        row.addView(icon,new LinearLayout.LayoutParams(dp(38),dp(38)));
 
         LinearLayout info=new LinearLayout(this);
         info.setOrientation(LinearLayout.VERTICAL);
         info.setPadding(dp(7),0,dp(7),0);
         TextView fileName=text(assetName,13,true);
         fileName.setPadding(0,0,0,dp(2));
-        fileName.setMaxLines(3);
+        fileName.setMaxLines(2);fileName.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
         info.addView(fileName);
         StringBuilder details=new StringBuilder(formatAssetSize(size));
         if(!contentType.isEmpty())details.append(" · ").append(shortContentType(contentType));
@@ -5727,8 +5729,15 @@ public class MainActivity extends Activity {
     private String shortContentType(String value){
         if(value==null||value.isEmpty())return "файл";
         int slash=value.indexOf('/');
-        String type=slash>=0&&slash<value.length()-1?value.substring(slash+1):value;
-        return type.replace("application/","").replace("x-","");
+        String type=(slash>=0&&slash<value.length()-1?value.substring(slash+1):value).toLowerCase(Locale.ROOT);
+        if(type.contains("android.package-archive"))return "APK";
+        if(type.equals("zip")||type.endsWith("-zip-compressed"))return "ZIP";
+        if(type.contains("gzip"))return "GZ";
+        if(type.equals("plain"))return "текст";
+        if(type.equals("json"))return "JSON";
+        if(type.equals("octet-stream"))return "файл";
+        if(type.equals("pdf"))return "PDF";
+        return type.replace("x-","").toUpperCase(Locale.ROOT);
     }
 
     /** Per-asset download state shared by the row views: progress fills the card, completion turns the button into "Открыть". */
@@ -6142,7 +6151,13 @@ public class MainActivity extends Activity {
         LinearLayout pager=new LinearLayout(this);Button prev=compactButton("← Предыдущие");prev.setEnabled(page>0);prev.setOnClickListener(v->renderCodeViewer(full,name,raw,Math.max(1,line-pageSize),query));pager.addView(prev,new LinearLayout.LayoutParams(0,dp(46),1));Button next=compactButton("Следующие →");next.setEnabled(page<totalPages-1);next.setOnClickListener(v->renderCodeViewer(full,name,raw,Math.min(lines.length,line+pageSize),query));LinearLayout.LayoutParams np=new LinearLayout.LayoutParams(0,dp(46),1);np.setMargins(dp(6),0,0,0);pager.addView(next,np);content.addView(pager);
     }
 
-    private Button compactButton(String label){Button b=button(label);b.setTextSize(12);b.setPadding(dp(6),dp(4),dp(6),dp(4));return b;}
+    private Button compactButton(String label){
+        Button b=new Button(this){@Override public void setEnabled(boolean enabled){super.setEnabled(enabled);setAlpha(enabled?1f:.45f);}};
+        b.setText(label);b.setAllCaps(false);b.setTextSize(13);b.setTypeface(null,android.graphics.Typeface.BOLD);b.setTextColor(GREEN);
+        b.setBackground(round(blend(CARD,GREEN,0.10f),10,Color.TRANSPARENT,0));
+        b.setPadding(dp(8),dp(4),dp(8),dp(4));b.setMinHeight(dp(40));b.setMinimumHeight(dp(40));b.setContentDescription(label);b.setStateListAnimator(null);
+        return b;
+    }
     private void addLoadMoreButton(String label,Runnable action){Button more=button(label);more.setTextColor(GREEN);more.setBackground(round(CARD,14,GREEN,1));more.setOnClickListener(v->{content.removeView(more);action.run();});LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,dp(48));p.setMargins(0,dp(6),0,dp(12));content.addView(more,p);}
     private String numberedSlice(String[] lines,int from,int to){StringBuilder b=new StringBuilder();int width=String.valueOf(lines.length).length();for(int i=from;i<to;i++)b.append(String.format(Locale.ROOT,"%"+width+"d  %s\n",i+1,lines[i]));return b.toString();}
     private String addLineNumbers(String raw){String[] lines=raw.split("\n",-1);return numberedSlice(lines,0,lines.length);}

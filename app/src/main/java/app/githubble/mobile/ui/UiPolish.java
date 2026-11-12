@@ -3,6 +3,7 @@ package app.githubble.mobile.ui;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
+import android.widget.GridLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import app.githubble.mobile.R;
@@ -23,6 +24,7 @@ public final class UiPolish {
     if (!(view instanceof ViewGroup)) return;
     ViewGroup group = (ViewGroup) view;
     if (group instanceof LinearLayout) separate((LinearLayout) group, minGapPx, gapPx);
+    else if (group instanceof GridLayout) spaceGrid((GridLayout) group, gapPx / 2);
     for (int i = 0; i < group.getChildCount(); i++) apply(group.getChildAt(i), minGapPx, gapPx);
   }
 
@@ -45,6 +47,23 @@ public final class UiPolish {
         }
       }
       previous = child;
+    }
+  }
+
+  private static void spaceGrid(GridLayout grid, int halfGapPx) {
+    for (int i = 0; i < grid.getChildCount(); i++) {
+      View child = grid.getChildAt(i);
+      if (child.getTag(R.id.ui_polished) != null || !surface(child, true)
+          && !(child.getBackground() != null && child.isClickable())) continue;
+      if (!(child.getLayoutParams() instanceof GridLayout.LayoutParams)) continue;
+      GridLayout.LayoutParams params = (GridLayout.LayoutParams) child.getLayoutParams();
+      child.setTag(R.id.ui_polished, Boolean.TRUE);
+      int l = Math.max(params.leftMargin, halfGapPx), t = Math.max(params.topMargin, halfGapPx);
+      int r = Math.max(params.rightMargin, halfGapPx), b = Math.max(params.bottomMargin, halfGapPx);
+      if (l != params.leftMargin || t != params.topMargin || r != params.rightMargin || b != params.bottomMargin) {
+        params.setMargins(l, t, r, b);
+        child.setLayoutParams(params);
+      }
     }
   }
 
