@@ -129,7 +129,7 @@ public final class RedesignUiInstrumentation extends Instrumentation {
     switch (name) {
       case "builds":
         call(app, "shell", "Центр сборок", false);
-        call(app, "repoSectionHeader", "mallstorm/GitHubble", "GitHub Actions", "Сборки и артефакты", R.drawable.ic_android);
+        call(app, "repoSectionHeader", "mallstorm/GitHubble", "GitHub Actions", "Сборки и артефакты", app.githubble.mobile.R.drawable.ic_android);
         call(app, "addRepositoryActionsTabs", "mallstorm/GitHubble", 0);
         onUi(
             () -> {
@@ -209,8 +209,8 @@ public final class RedesignUiInstrumentation extends Instrumentation {
       case "people":
         call(app, "shell", "Организации", true);
         call(app, "eventCard", "mallstorm открыл Pull Request #36", "mallstorm/GitHubble", "12.11.2026 09:30", 0xFF2E9B46);
-        call(app, "addDirectionRow", R.drawable.ic_release, "Релизы", "Версии и сборки", 0xFFE87D1E, (Runnable) () -> {});
-        call(app, "heroBanner", "Организации", "Команды и доступ", R.drawable.ic_organization);
+        call(app, "addDirectionRow", app.githubble.mobile.R.drawable.ic_release, "Релизы", "Версии и сборки", 0xFFE87D1E, (Runnable) () -> {});
+        call(app, "heroBanner", "Организации", "Команды и доступ", app.githubble.mobile.R.drawable.ic_organization);
         break;
       default:
         break;
