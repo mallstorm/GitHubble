@@ -751,7 +751,24 @@ public class MainActivity extends Activity {
     }
 
     private void agentNewProject(String expected) {
-        if(expected.equals(accountStore.activeCacheKey()))agentFeatures(expected).workspace();
+        if(!expected.equals(accountStore.activeCacheKey()))return;
+        if("repo".equals(agentProjectMode(expected)))agentAttachRepository(expected);
+        else agentFeatures(expected).workspace();
+    }
+
+    /** "local": work in a Workspace first, publish to a new repository and build later; "repo": edit a repository directly. */
+    private String agentProjectMode(String owner){return prefs.getString("agent_project_mode_"+owner,"local");}
+
+    private void agentChooseProjectMode(String owner){
+        final String[] labels={"Локально, затем репозиторий","Сразу в репозитории GitHub"};
+        int selected="repo".equals(agentProjectMode(owner))?1:0;
+        new AlertDialog.Builder(this).setTitle("Как работать с проектом")
+                .setSingleChoiceItems(labels,selected,(d,which)->{
+                    prefs.edit().putString("agent_project_mode_"+owner,which==1?"repo":"local").apply();
+                    d.dismiss();toast(labels[which]);
+                })
+                .setMessage("Локально: файлы создаются и правятся в Workspace на телефоне, потом проект публикуется в новый репозиторий и собирается.\n\nСразу в репозитории: выбирается готовый репозиторий и ветка, агент вносит правки прямо туда через GitHub.\n\nРежим выбирает, что откроется по «Новый проект» в чате.")
+                .setNegativeButton("Закрыть",null).show();
     }
 
     /** GitHub account and repository metadata are read through a pinned OAuth token,
@@ -1477,7 +1494,7 @@ public class MainActivity extends Activity {
         drawer.show();
         if (window != null) {
             window.setGravity(Gravity.START | Gravity.TOP);
-            window.setLayout(Math.min(dp(360), (int)(getResources().getDisplayMetrics().widthPixels * .88f)),
+            window.setLayout(dp(310),
                     android.view.WindowManager.LayoutParams.MATCH_PARENT);
         }
     }
@@ -9268,6 +9285,9 @@ public class MainActivity extends Activity {
         workspace.add(SettingsScreen.Item.action(R.drawable.ic_projects,"Рабочие пространства",
                 project.workspaceId.isEmpty()?"Локальные проекты и привязка к чатам":"Активен: "+project.name,
                 "workspace проект рабочее пространство",()->agentFeatures(owner).workspace()));
+        workspace.add(SettingsScreen.Item.action(R.drawable.ic_repository,"Режим проектов",
+                "repo".equals(agentProjectMode(owner))?"Сразу в репозитории GitHub":"Локально, затем репозиторий",
+                "режим проект локально репозиторий workspace",()->agentChooseProjectMode(owner)));
         workspace.add(SettingsScreen.Item.action(R.drawable.ic_repository,"Файлы и инструменты Workspace",
                 "Редактор, индекс, поиск, snapshots, ZIP и папки","файлы редактор индекс zip snapshot",
                 ()->agentFeatures(owner).files()));

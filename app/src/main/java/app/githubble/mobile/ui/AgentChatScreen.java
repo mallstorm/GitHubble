@@ -99,45 +99,49 @@ public final class AgentChatScreen {
         root.setPadding(0,0,0,0);
         root.setBackgroundColor(this.background);
 
-        FrameLayout top = new FrameLayout(activity);
-        top.setPadding(dp(14),dp(6),dp(14),dp(6));
-        TextView brand=label(conversationTitle.isEmpty() || "Новый диалог".equals(conversationTitle)
-                ? "" : conversationTitle,16,true,this.text);
-        brand.setGravity(Gravity.CENTER);brand.setSingleLine();brand.setEllipsize(TextUtils.TruncateAt.END);
-        FrameLayout.LayoutParams brandLp=new FrameLayout.LayoutParams(-1,-1);
-        brandLp.leftMargin=dp(60);brandLp.rightMargin=dp(118);top.addView(brand,brandLp);
+        LinearLayout top = new LinearLayout(activity);
+        top.setOrientation(LinearLayout.HORIZONTAL);top.setGravity(Gravity.CENTER_VERTICAL);
+        top.setPadding(dp(4),0,dp(4),0);
         View menu=new View(activity){
             final android.graphics.Paint paint=new android.graphics.Paint(3);
             @Override protected void onDraw(android.graphics.Canvas c){
                 paint.setColor(AgentChatScreen.this.text);paint.setStrokeWidth(dp(2));
                 paint.setStrokeCap(android.graphics.Paint.Cap.ROUND);
                 float x=getWidth()/2f,y=getHeight()/2f;
-                c.drawLine(x-dp(10),y-dp(4),x+dp(10),y-dp(4),paint);
-                c.drawLine(x-dp(10),y+dp(5),x+dp(3),y+dp(5),paint);
+                c.drawLine(x-dp(10),y-dp(6),x+dp(10),y-dp(6),paint);
+                c.drawLine(x-dp(10),y,x+dp(10),y,paint);
+                c.drawLine(x-dp(10),y+dp(6),x+dp(10),y+dp(6),paint);
             }
         };
-        menu.setContentDescription("Список диалогов");menu.setBackground(shape(subtle,50,0,0));
+        menu.setContentDescription("Список диалогов");ripple(menu);
         menu.setOnClickListener(v->actions.showConversations());
-        top.addView(menu,new FrameLayout.LayoutParams(dp(52),dp(52),Gravity.START|Gravity.CENTER_VERTICAL));
-        TextView newChat=glyph("✎","Новый диалог",actions::clearConversation,28);
-        newChat.setBackground(shape(subtle,50,0,0));
-        newChat.setOnLongClickListener(v->{actions.openTools();return true;});
-        top.addView(newChat,new FrameLayout.LayoutParams(dp(52),dp(52),Gravity.END|Gravity.CENTER_VERTICAL));
-        TextView code=label("</>",14,true,this.text);code.setGravity(Gravity.CENTER);
-        code.setContentDescription("Код, файлы и журнал");code.setBackground(shape(subtle,50,0,0));
+        top.addView(menu,new LinearLayout.LayoutParams(dp(44),dp(44)));
+        LinearLayout.LayoutParams logoLp=new LinearLayout.LayoutParams(dp(30),dp(30));logoLp.leftMargin=dp(2);
+        top.addView(new WelcomeBrainView(activity).mini(),logoLp);
+        LinearLayout titleBox=new LinearLayout(activity);titleBox.setOrientation(LinearLayout.VERTICAL);
+        TextView brand=label(conversationTitle.isEmpty()?"Новый диалог":conversationTitle,16,true,this.text);
+        brand.setSingleLine();brand.setEllipsize(TextUtils.TruncateAt.END);
+        titleBox.addView(brand);
+        String scope=project.repository.isEmpty()?(project.name.isEmpty()?"Проект не выбран":project.name)
+                :project.repository+" · "+project.branch;
+        if(project.workspaceId!=null&&!project.workspaceId.isEmpty())scope+=" · Workspace";
+        TextView sub=label(scope,12,false,muted);sub.setSingleLine();sub.setEllipsize(TextUtils.TruncateAt.END);
+        titleBox.addView(sub);
+        titleBox.setOnClickListener(v->actions.newProject());
+        LinearLayout.LayoutParams titleLp=new LinearLayout.LayoutParams(0,-2,1);titleLp.leftMargin=dp(10);
+        top.addView(titleBox,titleLp);
+        TextView code=label("</>",15,true,this.text);code.setGravity(Gravity.CENTER);
+        code.setContentDescription("Код, файлы, терминал");ripple(code);
         code.setOnClickListener(v->actions.openCode());
-        FrameLayout.LayoutParams codeLp=new FrameLayout.LayoutParams(dp(52),dp(52),Gravity.END|Gravity.CENTER_VERTICAL);
-        codeLp.rightMargin=dp(58);top.addView(code,codeLp);
-        root.addView(top,new LinearLayout.LayoutParams(-1,dp(64)));
+        top.addView(code,new LinearLayout.LayoutParams(dp(44),dp(44)));
+        TextView newChat=glyph("+","Новый диалог",actions::clearConversation,26);
+        ripple(newChat);
+        newChat.setOnLongClickListener(v->{actions.openTools();return true;});
+        top.addView(newChat,new LinearLayout.LayoutParams(dp(44),dp(44)));
+        root.addView(top,new LinearLayout.LayoutParams(-1,dp(56)));
         View divider=separator();divider.setAlpha(.30f);
         root.addView(divider,new LinearLayout.LayoutParams(-1,dp(1)));
 
-        if((project.workspaceId!=null&&!project.workspaceId.isEmpty())||!project.repository.isEmpty()){
-            String scope=project.repository.isEmpty()?project.name:project.repository+" · "+project.branch;
-            scope+=(project.workspaceId!=null&&!project.workspaceId.isEmpty())?" · Workspace готов":" · GitHub, без локального Workspace";
-            TextView context=label(scope,11,true,muted);context.setPadding(dp(14),dp(6),dp(14),dp(6));
-            context.setOnClickListener(v->actions.newProject());root.addView(context);
-        }
         rendered.clear();streamed=null;lastPreview="";renderedModel=modelLabel;
         transcriptScroll=new ScrollView(activity);transcriptScroll.setFillViewport(true);transcriptScroll.setVerticalScrollBarEnabled(false);
         transcript=new LinearLayout(activity);transcript.setOrientation(LinearLayout.VERTICAL);transcript.setPadding(dp(12),dp(13),dp(12),dp(14));
@@ -248,22 +252,32 @@ public final class AgentChatScreen {
 
     private void empty(LinearLayout transcript,AgentProjectStore.Project p,boolean connected){
         transcript.setPadding(0,0,0,0);
-        FrameLayout panel=new FrameLayout(activity);
+        LinearLayout panel=new LinearLayout(activity);panel.setOrientation(LinearLayout.VERTICAL);
         WelcomeBrainView art=new WelcomeBrainView(activity);
-        panel.addView(art,new FrameLayout.LayoutParams(-1,-1));
+        panel.addView(art,new LinearLayout.LayoutParams(-1,0,1));
         LinearLayout caption=new LinearLayout(activity);
-        caption.setOrientation(LinearLayout.VERTICAL);caption.setGravity(Gravity.CENTER);
-        caption.setPadding(dp(16),0,dp(16),dp(18));
-        TextView title=label("Hubble Agent",32,true,text);title.setGravity(Gravity.CENTER);
+        caption.setOrientation(LinearLayout.VERTICAL);caption.setGravity(Gravity.CENTER_HORIZONTAL);
+        caption.setPadding(dp(16),0,dp(16),dp(10));
+        TextView title=label("Hubble Agent",28,true,text);title.setGravity(Gravity.CENTER);
         caption.addView(title);
         TextView subtitle=label("Единое пространство для ваших моделей и GitHub-проектов",14,false,muted);
-        subtitle.setGravity(Gravity.CENTER);subtitle.setPadding(0,dp(2),0,0);
+        subtitle.setGravity(Gravity.CENTER);subtitle.setPadding(0,dp(2),0,dp(12));
         caption.addView(subtitle);
-        panel.addView(caption,new FrameLayout.LayoutParams(-1,-2,Gravity.BOTTOM));
+        String[] prompts={"Проанализируй репозиторий и расскажи об архитектуре","Найди баги и потенциальные проблемы в коде",
+                "Напиши тесты для основных модулей","Предложи улучшения и сделай рефакторинг"};
+        for(String prompt:prompts){
+            TextView card=label(prompt,14,false,text);
+            card.setPadding(dp(16),dp(12),dp(16),dp(12));card.setBackground(shape(surface,14,border,1));
+            card.setOnClickListener(v->{if(inputField!=null){inputField.setText(prompt);inputField.setSelection(prompt.length());inputField.requestFocus();}});
+            LinearLayout.LayoutParams cardLp=new LinearLayout.LayoutParams(-1,-2);cardLp.topMargin=dp(8);
+            caption.addView(card,cardLp);
+        }
+        panel.addView(caption,new LinearLayout.LayoutParams(-1,-2));
         // With the IME open, keep the composer usable and avoid overlapping the illustration.
         panel.addOnLayoutChangeListener((v,l,t,r,b,ol,ot,or,ob)->{
-            boolean compact=b-t<dp(220);art.setVisibility(compact?View.GONE:View.VISIBLE);
-            caption.setVisibility(compact?View.GONE:View.VISIBLE);
+            int height=b-t;
+            art.setVisibility(height<dp(470)?View.GONE:View.VISIBLE);
+            caption.setVisibility(height<dp(240)?View.GONE:View.VISIBLE);
         });
         transcript.addView(panel,new LinearLayout.LayoutParams(-1,-1));
     }
@@ -476,6 +490,12 @@ public final class AgentChatScreen {
         button.setBackground(shape(subtle,17,border,1));
         button.setOnClickListener(v->click.run());
         return button;
+    }
+
+    private void ripple(View view){
+        android.util.TypedValue value=new android.util.TypedValue();
+        if(activity.getTheme().resolveAttribute(android.R.attr.selectableItemBackgroundBorderless,value,true))
+            view.setBackgroundResource(value.resourceId);
     }
 
     private View separator(){

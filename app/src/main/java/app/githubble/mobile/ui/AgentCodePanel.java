@@ -10,11 +10,15 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
+import android.text.InputType;
+import android.widget.EditText;
+import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
 import app.githubble.mobile.agent.AgentRun;
+import app.githubble.mobile.agent.LocalShell;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -50,6 +54,12 @@ public final class AgentCodePanel {
     private final int text, muted, accent, subtle, border, surface;
     private final Dialog dialog;
     private final LinearLayout body;
+    private final ScrollView scroll;
+    private final LinearLayout inputBar;
+    private EditText commandInput;
+    private boolean shellBusy;
+    private static final java.util.Map<String, List<String[]>> HISTORY = new java.util.HashMap<>();
+    private static final int[] CODE_COLORS = {0xFF16211F, 0xFFD7E3E0, 0xFF48C9A6, 0xFFE07A7A};
     private final List<TextView> tabs = new ArrayList<>();
     private int tab;
 
@@ -68,7 +78,7 @@ public final class AgentCodePanel {
         this.subtle = subtle;
         this.border = border;
         this.surface = surface;
-        this.tab = Math.max(0, Math.min(2, initialTab));
+        this.tab = Math.max(0, Math.min(3, initialTab));
         dialog = new Dialog(activity);
         LinearLayout panel = new LinearLayout(activity);
         panel.setOrientation(LinearLayout.VERTICAL);
@@ -87,16 +97,17 @@ public final class AgentCodePanel {
         panel.addView(head);
 
         LinearLayout bar = new LinearLayout(activity);
-        bar.setPadding(dp(12), dp(2), dp(12), dp(8));
-        String[] names = {"Изменения", "Файлы", "Журнал"};
+        bar.setPadding(dp(10), dp(2), dp(10), dp(8));
+        String[] names = {"Изменения", "Файлы", "Терминал", "Журнал"};
         for (int i = 0; i < names.length; i++) {
             final int index = i;
-            TextView chip = label(names[i], 13, true, text);
+            TextView chip = label(names[i], 12.5f, true, text);
             chip.setGravity(Gravity.CENTER);
+            chip.setSingleLine();
             chip.setOnClickListener(v -> select(index));
             tabs.add(chip);
             LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(38), 1);
-            if (i > 0) params.leftMargin = dp(6);
+            if (i > 0) params.leftMargin = dp(5);
             bar.addView(chip, params);
         }
         panel.addView(bar);
@@ -104,13 +115,45 @@ public final class AgentCodePanel {
         line.setBackgroundColor(border);
         panel.addView(line, new LinearLayout.LayoutParams(-1, 1));
 
-        ScrollView scroll = new ScrollView(activity);
+        scroll = new ScrollView(activity);
         scroll.setVerticalScrollBarEnabled(false);
         body = new LinearLayout(activity);
         body.setOrientation(LinearLayout.VERTICAL);
         body.setPadding(dp(12), dp(10), dp(12), dp(20));
         scroll.addView(body);
         panel.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
+
+        inputBar = new LinearLayout(activity);
+        inputBar.setGravity(Gravity.CENTER_VERTICAL);
+        inputBar.setPadding(dp(10), dp(6), dp(6), dp(6));
+        inputBar.setVisibility(View.GONE);
+        TextView prompt = label("$", 15, true, CODE_COLORS[2]);
+        prompt.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
+        inputBar.addView(prompt);
+        commandInput = new EditText(activity);
+        commandInput.setSingleLine(true);
+        commandInput.setHint("команда, например ls -la");
+        commandInput.setHintTextColor(muted);
+        commandInput.setTextColor(text);
+        commandInput.setTextSize(14);
+        commandInput.setTypeface(Typeface.MONOSPACE);
+        commandInput.setBackgroundColor(Color.TRANSPARENT);
+        commandInput.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_GO);
+        commandInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+                | InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD);
+        commandInput.setOnEditorActionListener((v, action, event) -> { runTyped(); return true; });
+        LinearLayout.LayoutParams inputLp = new LinearLayout.LayoutParams(0, dp(44), 1);
+        inputLp.leftMargin = dp(8);
+        inputBar.addView(commandInput, inputLp);
+        TextView run = label("▶", 18, true, accent);
+        run.setGravity(Gravity.CENTER);
+        run.setContentDescription("Выполнить");
+        run.setOnClickListener(v -> runTyped());
+        inputBar.addView(run, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        View barLine = new View(activity);
+        barLine.setBackgroundColor(border);
+        panel.addView(barLine, new LinearLayout.LayoutParams(-1, 1));
+        panel.addView(inputBar);
 
         dialog.setContentView(panel);
         Window window = dialog.getWindow();
@@ -120,12 +163,13 @@ public final class AgentCodePanel {
             WindowManager.LayoutParams lp = window.getAttributes();
             lp.dimAmount = .34f;
             window.setAttributes(lp);
+            window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         }
         select(tab);
         dialog.show();
         if (window != null) {
             window.setGravity(Gravity.END | Gravity.TOP);
-            window.setLayout(Math.min(dp(400), (int) (activity.getResources().getDisplayMetrics().widthPixels * .94f)),
+            window.setLayout(Math.min(dp(520), (int) (activity.getResources().getDisplayMetrics().widthPixels * .94f)),
                     WindowManager.LayoutParams.MATCH_PARENT);
         }
     }
@@ -139,8 +183,10 @@ public final class AgentCodePanel {
             chip.setBackground(shape(on ? accent : subtle, 19, border, on ? 0 : 1));
         }
         body.removeAllViews();
+        inputBar.setVisibility(index == 2 && source.workspaceRoot() != null ? View.VISIBLE : View.GONE);
         if (index == 0) renderChanges();
         else if (index == 1) renderFiles();
+        else if (index == 2) renderTerminal();
         else renderJournal();
     }
 
@@ -270,10 +316,117 @@ public final class AgentCodePanel {
         view.setTypeface(Typeface.MONOSPACE);
         view.setTextIsSelectable(true);
         view.setPadding(dp(16), dp(8), dp(16), dp(8));
-        ScrollView scroll = new ScrollView(activity);
-        scroll.addView(view);
-        new android.app.AlertDialog.Builder(activity).setTitle(path).setView(scroll)
+        ScrollView viewer = new ScrollView(activity);
+        viewer.addView(view);
+        new android.app.AlertDialog.Builder(activity).setTitle(path).setView(viewer)
                 .setPositiveButton("Закрыть", null).show();
+    }
+
+    private List<String[]> history() {
+        File root = source.workspaceRoot();
+        String key = root == null ? "" : root.getAbsolutePath();
+        List<String[]> list = HISTORY.get(key);
+        if (list == null) { list = new ArrayList<>(); HISTORY.put(key, list); }
+        return list;
+    }
+
+    private void renderTerminal() {
+        File root = source.workspaceRoot();
+        if (root == null || !root.isDirectory()) {
+            empty("Терминал работает внутри локального Workspace.\nСоздайте проект в чате: команды будут выполняться в его папке.");
+            return;
+        }
+        HorizontalScrollView chipsScroll = new HorizontalScrollView(activity);
+        chipsScroll.setHorizontalScrollBarEnabled(false);
+        LinearLayout chips = new LinearLayout(activity);
+        String[] quick = {"ls -la", "pwd", "find . -type f | head -40", "cat README.md", "grep -rn TODO .", "df -h ."};
+        for (String command : quick) {
+            TextView chip = label(command, 12, false, text);
+            chip.setTypeface(Typeface.MONOSPACE);
+            chip.setPadding(dp(12), dp(8), dp(12), dp(8));
+            chip.setBackground(shape(subtle, 16, border, 1));
+            chip.setOnClickListener(v -> execute(command));
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-2, -2);
+            params.rightMargin = dp(6);
+            chips.addView(chip, params);
+        }
+        chipsScroll.addView(chips);
+        LinearLayout.LayoutParams chipsLp = new LinearLayout.LayoutParams(-1, -2);
+        chipsLp.bottomMargin = dp(8);
+        body.addView(chipsScroll, chipsLp);
+        TextView where = label("Папка Workspace · системная оболочка, без git и сети проекта", 11, false, muted);
+        where.setPadding(dp(2), 0, 0, dp(8));
+        body.addView(where);
+        List<String[]> entries = history();
+        if (entries.isEmpty()) {
+            TextView hint = label("Введите команду внизу или нажмите на готовую.", 13, false, muted);
+            hint.setPadding(dp(2), dp(4), 0, 0);
+            body.addView(hint);
+        }
+        for (int i = entries.size() - 1; i >= 0; i--) addTerminalCard(entries.get(i));
+    }
+
+    private void addTerminalCard(String[] entry) {
+        android.text.SpannableStringBuilder sb = new android.text.SpannableStringBuilder("$ " + entry[0]);
+        sb.setSpan(new android.text.style.ForegroundColorSpan(CODE_COLORS[2]), 0, sb.length(), android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        String output = entry[1].trim();
+        if (!output.isEmpty()) {
+            sb.append('\n');
+            int start = sb.length();
+            sb.append(output);
+            boolean error = "1".equals(entry[2]);
+            sb.setSpan(new android.text.style.ForegroundColorSpan(error ? CODE_COLORS[3] : CODE_COLORS[1]), start, sb.length(), android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        }
+        TextView card = new TextView(activity);
+        card.setText(sb);
+        card.setTypeface(Typeface.MONOSPACE);
+        card.setTextSize(11.5f);
+        card.setTextIsSelectable(true);
+        card.setPadding(dp(12), dp(10), dp(12), dp(10));
+        card.setBackground(shape(CODE_COLORS[0], 12, border, 1));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
+        params.bottomMargin = dp(8);
+        body.addView(card, params);
+    }
+
+    private void runTyped() {
+        String command = commandInput.getText().toString().trim();
+        if (command.isEmpty()) return;
+        commandInput.setText("");
+        execute(command);
+    }
+
+    private void execute(String command) {
+        File root = source.workspaceRoot();
+        if (root == null || shellBusy) return;
+        shellBusy = true;
+        final List<String[]> entries = history();
+        new Thread(() -> {
+            String output;
+            boolean error;
+            try {
+                LocalShell.Result result = LocalShell.run(root, command, 20000, 24 * 1024);
+                output = result.output + (result.truncated ? "\n… вывод обрезан" : "")
+                        + (result.timedOut ? "\n… остановлено через 20 с" : "")
+                        + (result.exitCode > 0 ? "\n[код " + result.exitCode + "]" : "");
+                error = result.timedOut || result.exitCode != 0;
+            } catch (Exception e) {
+                output = "Не удалось запустить: " + e.getMessage();
+                error = true;
+            }
+            final String shown = output;
+            final boolean failed = error;
+            activity.runOnUiThread(() -> {
+                shellBusy = false;
+                entries.add(new String[]{command, shown, failed ? "1" : "0"});
+                while (entries.size() > 40) entries.remove(0);
+                if (dialog.isShowing() && tab == 2) {
+                    body.removeAllViews();
+                    renderTerminal();
+                    scroll.post(() -> scroll.fullScroll(View.FOCUS_UP));
+                }
+            });
+        }, "workspace-terminal").start();
     }
 
     private void renderJournal() {
@@ -310,7 +463,7 @@ public final class AgentCodePanel {
         body.addView(view);
     }
 
-    private TextView label(String value, int size, boolean bold, int color) {
+    private TextView label(String value, float size, boolean bold, int color) {
         TextView view = new TextView(activity);
         view.setText(value);
         view.setTextColor(color);
