@@ -83,9 +83,10 @@ public final class RedesignUiInstrumentation extends Instrumentation {
   }
 
   private void call(Activity app, String method, Object... args) throws Throwable {
-    Class<?>[] types = new Class<?>[args.length];
-    for (int i = 0; i < args.length; i++) types[i] = classOf(args[i]);
-    Method m = MainActivity.class.getDeclaredMethod(method, types);
+    Method m = null;
+    for (Method candidate : MainActivity.class.getDeclaredMethods())
+      if (candidate.getName().equals(method) && candidate.getParameterTypes().length == args.length) m = candidate;
+    if (m == null) throw new NoSuchMethodException(method);
     m.setAccessible(true);
     Throwable[] failure = new Throwable[1];
     runOnMainSync(
@@ -97,12 +98,6 @@ public final class RedesignUiInstrumentation extends Instrumentation {
           }
         });
     if (failure[0] != null) throw failure[0];
-  }
-
-  private static Class<?> classOf(Object value) {
-    if (value instanceof Integer) return int.class;
-    if (value instanceof Boolean) return boolean.class;
-    return value.getClass();
   }
 
   private void repository(Activity app) throws Throwable {

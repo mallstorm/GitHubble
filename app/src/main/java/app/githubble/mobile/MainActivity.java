@@ -3305,7 +3305,7 @@ public class MainActivity extends Activity {
         p.width = 0;
         p.height = dp(91);
         p.columnSpec = GridLayout.spec(GridLayout.UNDEFINED,1f);
-        p.setMargins(dp(3),dp(3),dp(3),dp(3));
+        p.setMargins(dp(4),dp(4),dp(4),dp(4));
         grid.addView(tile,p);
     }
 
