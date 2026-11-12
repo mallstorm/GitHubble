@@ -37,6 +37,8 @@ import app.githubble.mobile.auth.GitHubAccountStore;
 import app.githubble.mobile.auth.GitHubAppInstallationGate;
 import app.githubble.mobile.auth.DeviceCodeAssist;
 import app.githubble.mobile.network.GitHubApiClient;
+import app.githubble.mobile.inbox.InboxItem;
+import app.githubble.mobile.inbox.InboxService;
 import app.githubble.mobile.network.GitHubGraphQlClient;
 import app.githubble.mobile.security.SecureStore;
 import app.githubble.mobile.ui.HomeScreen;
@@ -3908,11 +3910,156 @@ public class MainActivity extends Activity {
 
 
 
-    /** Native GitHub notifications; requires Notifications: Read on the current token. */
+    private boolean inboxShowRead=false;
+
+    private String inboxToken(){return secureStore.get("inbox_token_"+currentAccountId());}
+
+    private Set<String> inboxReadKeys(){return new HashSet<>(prefs.getStringSet("inbox_read_"+currentAccountId(),new HashSet<String>()));}
+
+    private void inboxRememberRead(Collection<String> keys){
+        Set<String> all=inboxReadKeys();
+        if(all.size()+keys.size()>800)all.clear();
+        all.addAll(keys);
+        prefs.edit().putStringSet("inbox_read_"+currentAccountId(),all).apply();
+    }
+
+    /**
+     * In-app Inbox. With a classic token (notifications scope) it shows the real GitHub notifications;
+     * otherwise it is built from search: review requests, assignments, mentions and your own threads.
+     */
     private void showGitHubInbox(){
         setCurrentScreen(this::showGitHubInbox);shell("Уведомления GitHub",true);
-        card(text("Вход через GiHubble не поддерживает GitHub Notifications API. Для Inbox доступен официальный сайт GitHub.",14,false));
-        Button open=button("Открыть GitHub Inbox");open.setOnClickListener(v->openSecureGitHubPage("https://github.com/notifications"));content.addView(open);
+        if(!isSignedIn()){accountRequiredCard("Войдите в GitHub, чтобы увидеть уведомления.");return;}
+        final long generation=screenGeneration.get();
+        final LinearLayout host=content;
+        final String account=currentAccountId();
+        final String token=inboxToken();
+        final boolean includeRead=inboxShowRead;
+        final TextView status=text("Загружаем уведомления…",13,false);status.setTextColor(MUTED);
+        LinearLayout bar=new LinearLayout(this);bar.setOrientation(LinearLayout.VERTICAL);
+        bar.addView(status);
+        LinearLayout buttons=new LinearLayout(this);
+        Button refresh=compactButton("Обновить"),readAll=compactButton("Всё прочитано"),
+                tokenButton=compactButton(token.isEmpty()?"Токен":"Токен ✓");
+        LinearLayout.LayoutParams p1=new LinearLayout.LayoutParams(0,dp(40),1f),p2=new LinearLayout.LayoutParams(0,dp(40),1.4f),p3=new LinearLayout.LayoutParams(0,dp(40),1f);
+        p2.setMargins(dp(6),0,dp(6),0);
+        buttons.addView(refresh,p1);buttons.addView(readAll,p2);buttons.addView(tokenButton,p3);
+        LinearLayout.LayoutParams bp=new LinearLayout.LayoutParams(-1,dp(40));bp.setMargins(0,dp(8),0,0);
+        bar.addView(buttons,bp);
+        CheckBox showRead=new CheckBox(this);showRead.setText("Показывать прочитанные");showRead.setChecked(includeRead);
+        showRead.setButtonTintList(android.content.res.ColorStateList.valueOf(GREEN));
+        showRead.setOnCheckedChangeListener((box,on)->{inboxShowRead=on;showGitHubInbox();});
+        bar.addView(showRead);
+        card(bar);
+        final LinearLayout list=new LinearLayout(this);list.setOrientation(LinearLayout.VERTICAL);
+        content.addView(list,new LinearLayout.LayoutParams(-1,-2));
+        refresh.setOnClickListener(v->showGitHubInbox());
+        tokenButton.setOnClickListener(v->showInboxTokenDialog());
+        final List<InboxItem> loaded=new ArrayList<>();
+        final boolean[] official={false};
+        readAll.setOnClickListener(v->{
+            if(loaded.isEmpty()){toast("Нечего отмечать");return;}
+            if(official[0]){
+                io.execute(()->{
+                    try{InboxService.markAllRead(new GitHubApiClient(secureStore,null,token));}
+                    catch(Exception e){if(!String.valueOf(e.getMessage()).contains("205")){runOnUiThread(()->errorDialog("Inbox",e.getMessage()));return;}}
+                    runOnUiThread(()->showGitHubInbox());
+                });
+            }else{
+                List<String> keys=new ArrayList<>();
+                for(InboxItem item:loaded)keys.add(item.readKey());
+                inboxRememberRead(keys);showGitHubInbox();
+            }
+        });
+        io.execute(()->{
+            List<InboxItem> items=new ArrayList<>();boolean usedOfficial=false;String failure="";
+            try{
+                items=InboxService.fetchOfficial(new GitHubApiClient(secureStore,null,token.isEmpty()?null:token),includeRead);
+                usedOfficial=true;
+            }catch(Exception officialError){
+                if(InboxService.tokenNotSupported(officialError)){
+                    try{items=InboxService.fetchSearch(api,getProfileLogin());}
+                    catch(Exception searchError){failure=searchError.getMessage();}
+                }else failure=officialError.getMessage();
+            }
+            final List<InboxItem> result=items;final boolean wasOfficial=usedOfficial;final String error=failure;
+            runOnUiThread(()->{
+                if(generation!=screenGeneration.get()||host!=content||!account.equals(currentAccountId()))return;
+                official[0]=wasOfficial;
+                if(!error.isEmpty()){status.setText("Не удалось загрузить Inbox: "+(error.length()>160?error.substring(0,160):error));return;}
+                Set<String> read=inboxReadKeys();
+                List<InboxItem> shown=new ArrayList<>();
+                for(InboxItem item:result){
+                    if(!wasOfficial)item.unread=!read.contains(item.readKey());
+                    if(includeRead||item.unread)shown.add(item);
+                }
+                loaded.addAll(shown);
+                int unread=0;for(InboxItem item:shown)if(item.unread)unread++;
+                status.setText((wasOfficial?"Официальный Inbox GitHub":"Режим поиска (без токена Inbox)")+" · непрочитанных: "+unread);
+                if(!wasOfficial){
+                    TextView note=text("GitHub не отдаёт уведомления токену входа через GitHubble. Показаны ревью, назначения, упоминания и ваши темы в репозиториях с установленным приложением. Добавьте токен (кнопка «Токен»), чтобы видеть полный Inbox.",12,false);
+                    note.setTextColor(MUTED);list.addView(note);
+                }
+                if(shown.isEmpty()){list.addView(text("Нет уведомлений.",14,false));return;}
+                for(InboxItem item:shown)list.addView(inboxRow(item,wasOfficial,token),inboxRowParams());
+            });
+        });
+    }
+
+    private LinearLayout.LayoutParams inboxRowParams(){
+        LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,-2);params.setMargins(0,0,0,dp(8));return params;
+    }
+
+    private View inboxRow(InboxItem item,boolean official,String token){
+        LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.VERTICAL);
+        row.setPadding(dp(12),dp(10),dp(12),dp(10));
+        row.setBackground(round(item.unread?0xFFEAF5EA:CARD,12,BORDER,1));
+        String kind="PullRequest".equals(item.type)?"PR":"Issue".equals(item.type)?"Issue":item.type;
+        TextView title=text((item.unread?"● ":"")+item.title,15,item.unread);title.setMaxLines(3);row.addView(title);
+        TextView meta=text(item.repo+(item.number>0?" #"+item.number:"")+" · "+kind+" · "+item.reasonText()
+                +(item.updatedAt.isEmpty()?"":" · "+formatGitHubDate(item.updatedAt)),11,false);
+        meta.setTextColor(MUTED);row.addView(meta);
+        row.setOnClickListener(v->{
+            if(item.unread){
+                item.unread=false;
+                if(official)io.execute(()->{try{InboxService.markThreadRead(new GitHubApiClient(secureStore,null,token),item.threadId);}catch(Exception ignored){}});
+                else inboxRememberRead(Collections.singletonList(item.readKey()));
+            }
+            if("PullRequest".equals(item.type)&&item.number>0)navigate(()->showPullDetail(item.repo,item.number));
+            else if("Issue".equals(item.type)&&item.number>0)navigate(()->showIssueDetail(item.repo,item.number));
+            else if("Discussion".equals(item.type)&&item.number>0)navigate(()->showDiscussionDetail(item.repo,item.number));
+            else navigate(()->showRepository(item.repo));
+        });
+        return row;
+    }
+
+    private void showInboxTokenDialog(){
+        final String account=currentAccountId();
+        LinearLayout form=new LinearLayout(this);form.setOrientation(LinearLayout.VERTICAL);form.setPadding(dp(20),dp(8),dp(20),0);
+        TextView help=text("Нужен классический токен (Personal access token classic) со scope notifications; для приватных репозиториев ещё repo. Токен хранится в защищённом хранилище и используется только для Inbox.",13,false);
+        form.addView(help);
+        EditText input=new EditText(this);input.setSingleLine(true);input.setHint("ghp_…");
+        input.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        form.addView(input);
+        new AlertDialog.Builder(this).setTitle("Токен для Inbox").setView(form)
+                .setNeutralButton("Создать на GitHub",(d,w)->openSecureGitHubPage("https://github.com/settings/tokens/new?scopes=notifications,repo&description=GitHubble%20Inbox"))
+                .setNegativeButton(inboxToken().isEmpty()?"Отмена":"Удалить токен",(d,w)->{
+                    if(!inboxToken().isEmpty()){secureStore.put("inbox_token_"+account,"");showGitHubInbox();}
+                })
+                .setPositiveButton("Проверить и сохранить",(d,w)->{
+                    final String value=input.getText().toString().trim();
+                    if(value.isEmpty()){toast("Вставьте токен");return;}
+                    io.execute(()->{
+                        try{
+                            InboxService.fetchOfficial(new GitHubApiClient(secureStore,null,value),false);
+                            secureStore.put("inbox_token_"+account,value);
+                            runOnUiThread(()->{toast("Токен сохранён");showGitHubInbox();});
+                        }catch(Exception e){
+                            runOnUiThread(()->errorDialog("Токен не подошёл",
+                                    "GitHub отклонил токен. Нужен classic-токен со scope notifications (HTTP 401/403)."));
+                        }
+                    });
+                }).show();
     }
 
     /** Native Actions run and job details; browser is optional for raw log files. */
