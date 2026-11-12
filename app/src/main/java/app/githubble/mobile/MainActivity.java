@@ -1323,13 +1323,12 @@ public class MainActivity extends Activity {
         final Dialog drawer = new Dialog(this);
         LinearLayout panel = new LinearLayout(this);
         panel.setOrientation(LinearLayout.VERTICAL);
-        panel.setPadding(dp(14), dp(22), dp(14), dp(17));
+        panel.setPadding(dp(14), dp(8), dp(14), dp(17));
         panel.setBackgroundColor(ui.dark?0xFF343941:Color.WHITE);
 
         LinearLayout heading = new LinearLayout(this);
         heading.setGravity(Gravity.CENTER_VERTICAL);
-        TextView title = ui.label("Hubble Agent", 21, true);
-        heading.addView(title, new LinearLayout.LayoutParams(0, dp(48), 1));
+        heading.addView(new View(this), new LinearLayout.LayoutParams(0, dp(40), 1));
         TextView newChat = text("+", 29, false);
         newChat.setGravity(Gravity.CENTER);
         newChat.setContentDescription("Новая беседа");
@@ -1337,7 +1336,7 @@ public class MainActivity extends Activity {
             drawer.dismiss();
             agentClearConversation(owner);
         });
-        heading.addView(newChat, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        heading.addView(newChat, new LinearLayout.LayoutParams(dp(48), dp(40)));
         panel.addView(heading);
 
         EditText search = new EditText(this);
