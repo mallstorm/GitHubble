@@ -52,7 +52,7 @@ public final class R8SmokeInstrumentation extends Instrumentation {
       click(app, "Настройки");
       assertVisible(app, "Hubble Agent и Workspace");
       click(app, "Чат");
-      assertVisible(app, "Git Agent");
+      assertVisible(app, "Hubble Agent");
       assertVisible(app, "Проверка Markdown");
       assertVisible(app, "Результат");
       runOnMainSync(()->{if(find(app.getWindow().getDecorView(),"План")!=null)throw new AssertionError("Plan control remains in Release");});
