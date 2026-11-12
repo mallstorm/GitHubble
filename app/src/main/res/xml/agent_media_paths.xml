@@ -2,4 +2,5 @@
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
     <files-path name="camera" path="agent-media/" />
     <files-path name="images" path="attachments/" />
+    <external-path name="release_downloads" path="Download/GitHubble/" />
 </paths>

@@ -5652,7 +5652,11 @@ public class MainActivity extends Activity {
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(dp(12),dp(10),dp(8),dp(10));
-        row.setBackground(round(SUBTLE,14,BORDER,1));
+        app.githubble.mobile.ui.AssetProgressDrawable progressBackground=new app.githubble.mobile.ui.AssetProgressDrawable(SUBTLE,BORDER,GREEN,dp(14),dp(1));
+        row.setBackground(progressBackground);
+        AssetDownloadState downloadState=assetStates.get(assetStateKey(asset));
+        if(downloadState==null){downloadState=new AssetDownloadState();assetStates.put(assetStateKey(asset),downloadState);}
+        final AssetDownloadState state=downloadState;
 
         ImageView icon=imageIcon(R.drawable.ic_release,GREEN,22);
         row.addView(icon,new LinearLayout.LayoutParams(dp(34),dp(34)));
@@ -5682,7 +5686,17 @@ public class MainActivity extends Activity {
         download.setMinWidth(0);
         download.setMinimumWidth(0);
         download.setBackground(round(blend(CARD,GREEN,0.08f),12,GREEN,1));
-        download.setOnClickListener(v->downloadReleaseAsset(asset));
+        Runnable applyState=()->{
+            progressBackground.setProgress(state.running?state.fraction:0f);
+            if(state.done!=null){download.setText("Открыть");download.setEnabled(true);download.setAlpha(1f);}
+            else if(state.running){download.setText("Загрузка");download.setEnabled(false);download.setAlpha(.7f);}
+            else{download.setText("Скачать");download.setEnabled(true);download.setAlpha(1f);}
+        };
+        state.ui=applyState;applyState.run();
+        download.setOnClickListener(v->{
+            if(state.done!=null)openDownloadedAsset(state,assetName,contentType);
+            else downloadReleaseAsset(asset,state);
+        });
         row.addView(download,new LinearLayout.LayoutParams(dp(102),dp(42)));
 
         LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,-2);
@@ -5707,18 +5721,56 @@ public class MainActivity extends Activity {
         return type.replace("application/","").replace("x-","");
     }
 
-    private void downloadReleaseAsset(JSONObject asset){
+    /** Per-asset download state shared by the row views: progress fills the card, completion turns the button into "Открыть". */
+    private static final class AssetDownloadState{volatile boolean running;volatile float fraction;volatile Uri done;volatile Runnable ui;}
+    private final Map<String,AssetDownloadState> assetStates=new HashMap<>();
+    private String assetStateKey(JSONObject asset){long id=asset.optLong("id",0L);return id>0?String.valueOf(id):asset.optString("url","")+"|"+asset.optString("name","");}
+    private void refreshAssetState(AssetDownloadState state){Runnable ui=state.ui;if(ui!=null)ui.run();}
+
+    private void downloadReleaseAsset(JSONObject asset,AssetDownloadState state){
+        if(state.running)return;
         if(Build.VERSION.SDK_INT<=28&&checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)!=PackageManager.PERMISSION_GRANTED){
             requestPermissions(new String[]{android.Manifest.permission.WRITE_EXTERNAL_STORAGE},302);
             toast("Разрешите сохранение файлов и нажмите Скачать ещё раз");return;
         }
-        ProgressDialog progress=ProgressDialog.show(this,"Загрузка файла",asset.optString("name","Release asset"),true,false);
+        state.running=true;state.fraction=0f;state.done=null;refreshAssetState(state);
         final String account=currentAccountId();
+        final int[] lastPercent={-1};
         io.execute(()->{try{
-            app.githubble.mobile.network.GitHubReleaseDownloads.download(this,asset.optString("name","release.bin"),
-                asset.optString("url",""),asset.optLong("size",-1),secureStore,account);
-            runOnUiThread(()->{progress.dismiss();if(account.equals(currentAccountId()))toast("Файл сохранён в Downloads/GitHubble");});
-        }catch(Exception error){runOnUiThread(()->{progress.dismiss();if(account.equals(currentAccountId()))errorDialog("Загрузка не завершена",error.getMessage());});}});
+            Uri saved=app.githubble.mobile.network.GitHubReleaseDownloads.download(this,asset.optString("name","release.bin"),
+                asset.optString("url",""),asset.optLong("size",-1),secureStore,account,(received,total)->{
+                    if(total<=0)return;
+                    float fraction=Math.min(1f,(float)received/total);
+                    int percent=(int)(fraction*100f);
+                    if(percent==lastPercent[0])return;
+                    lastPercent[0]=percent;state.fraction=fraction;
+                    runOnUiThread(()->refreshAssetState(state));
+                });
+            runOnUiThread(()->{state.running=false;state.fraction=0f;state.done=saved;refreshAssetState(state);});
+        }catch(Exception error){runOnUiThread(()->{state.running=false;state.fraction=0f;refreshAssetState(state);if(account.equals(currentAccountId()))errorDialog("Загрузка не завершена",error.getMessage());});}});
+    }
+
+    /** Opens the saved file through the system: the installer for APK, the app chooser for everything else. */
+    private void openDownloadedAsset(AssetDownloadState state,String name,String contentType){
+        Uri saved=state.done;
+        if(saved==null)return;
+        try{
+            Uri target=saved;
+            if("file".equals(saved.getScheme())){
+                File file=new File(saved.getPath());
+                if(!file.isFile())throw new FileNotFoundException(name);
+                target=androidx.core.content.FileProvider.getUriForFile(this,getPackageName()+".agentmedia",file);
+            }
+            String mime=app.githubble.mobile.network.ReleaseAssetMime.forAsset(name,contentType);
+            Intent view=new Intent(Intent.ACTION_VIEW).setDataAndType(target,mime).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            view.setClipData(android.content.ClipData.newRawUri(name,target));
+            startActivity(app.githubble.mobile.network.ReleaseAssetMime.isApk(mime)?view:Intent.createChooser(view,name));
+        }catch(ActivityNotFoundException missing){
+            toast("Нет приложения для этого файла. Он лежит в Downloads/GitHubble");
+        }catch(Exception unavailable){
+            state.done=null;refreshAssetState(state);
+            toast("Файл недоступен, скачайте его снова");
+        }
     }
 
     private void enqueueReleaseDownload(String name,String url){
