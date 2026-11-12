@@ -1,0 +1,2 @@
+screens captured: 30
+findings: 0
