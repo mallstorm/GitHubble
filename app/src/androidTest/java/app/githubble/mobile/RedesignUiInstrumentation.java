@@ -69,6 +69,15 @@ public final class RedesignUiInstrumentation extends Instrumentation {
       } catch (Throwable error) {
         findings.add("synthetic: render failed " + error);
       }
+      String[] synthetic = {"builds", "issues", "search", "projects", "repolist", "people", "profile", "billing"};
+      for (String name : synthetic) {
+        try {
+          scenario(app, name);
+          capture(app, dir, "s-" + name);
+        } catch (Throwable error) {
+          findings.add("s-" + name + ": render failed " + error);
+        }
+      }
       try (PrintWriter out = new PrintWriter(new File(dir, "audit.txt"))) {
         out.println("screens captured: " + shots);
         out.println("findings: " + findings.size());
@@ -114,6 +123,182 @@ public final class RedesignUiInstrumentation extends Instrumentation {
         "renderRepositoryOverview",
         "mallstorm/OmniCodeIDE", repo, "Без описания", 3, 1, 4, "main", "Go", "MIT",
         "# OmniCode-IDE\n\nНезависимая десктопная IDE для Windows x64.", Boolean.FALSE);
+  }
+
+  private void scenario(Activity app, String name) throws Throwable {
+    switch (name) {
+      case "builds":
+        call(app, "shell", "Центр сборок", false);
+        call(app, "repoSectionHeader", "mallstorm/GitHubble", "GitHub Actions", "Сборки и артефакты", drawable(app, "ic_android"));
+        call(app, "addRepositoryActionsTabs", "mallstorm/GitHubble", 0);
+        onUi(
+            () -> {
+              try {
+                android.widget.LinearLayout host = new android.widget.LinearLayout(app);
+                host.setOrientation(android.widget.LinearLayout.VERTICAL);
+                java.lang.reflect.Field field = MainActivity.class.getDeclaredField("content");
+                field.setAccessible(true);
+                ((android.widget.LinearLayout) field.get(app)).addView(host);
+                JSONArray runs = new JSONArray();
+                for (int i = 0; i < 5; i++)
+                  runs.put(
+                      new JSONObject()
+                          .put("id", 100 + i)
+                          .put("repository", "mallstorm/GitHubble")
+                          .put("name", i == 2 ? "GitHubble Android checks and release with a really long workflow name" : "GitHubble Android checks and release")
+                          .put("status", i == 0 ? "in_progress" : "completed")
+                          .put("conclusion", i == 3 ? "failure" : "success")
+                          .put("head_branch", "claude/redesign-2026-11")
+                          .put("head_sha", "d46c0e9a1b2c3d4e5f60718293a4b5c6d7e8f901")
+                          .put("run_started_at", "2026-11-12T06:30:00Z")
+                          .put("artifacts", i == 1 ? new JSONArray().put(new JSONObject().put("created_at", "2026-11-12T06:44:00Z")) : new JSONArray()));
+                invoke(app, "renderBuildRows", host, runs, "");
+              } catch (Throwable error) {
+                throw new RuntimeException(error);
+              }
+            });
+        break;
+      case "issues":
+        call(app, "shell", "Задачи", true);
+        for (int i = 0; i < 3; i++)
+          call(
+              app,
+              "renderGlobalIssueCard",
+              new JSONObject()
+                  .put("number", 30 + i)
+                  .put("title", i == 1 ? "Очень длинный заголовок задачи, который не помещается в одну строку и должен аккуратно переноситься на несколько строк в карточке" : "Кнопка отправки остаётся неактивной")
+                  .put("repository_url", "https://api.github.com/repos/mallstorm/GitHubble")
+                  .put("updated_at", "2026-11-12T06:44:33Z")
+                  .put("user", new JSONObject().put("login", "mallstorm")),
+              i == 2);
+        break;
+      case "search":
+        call(app, "shell", "Поиск", false);
+        call(app, "renderAdvancedIssueCard", new JSONObject().put("number", 7).put("title", "Fix tracking limits").put("repository_url", "https://api.github.com/repos/mallstorm/GitHubble").put("updated_at", "2026-11-12T06:44:33Z").put("pull_request", new JSONObject()).put("user", new JSONObject().put("login", "mallstorm")), 2);
+        call(app, "renderCodeSearchCard", new JSONObject().put("name", "MainActivity.java").put("path", "app/src/main/java/app/githubble/mobile/MainActivity.java").put("repository", new JSONObject().put("full_name", "mallstorm/GitHubble")), 1);
+        call(app, "renderPeopleSearchCard", new JSONObject().put("login", "mallstorm").put("type", "User"), 1);
+        call(app, "renderPeopleSearchCard", new JSONObject().put("login", "anthropics").put("type", "Organization"), 3);
+        break;
+      case "projects":
+        call(app, "shell", "Проекты", true);
+        call(app, "renderProjectCard", new JSONObject().put("title", "GitHubble roadmap").put("shortDescription", "Планирование проходов и приёмка").put("closed", false).put("items", new JSONObject().put("totalCount", 14)).put("updatedAt", "2026-11-12T06:44:33Z"));
+        call(app, "renderProjectCard", new JSONObject().put("title", "Архивный проект").put("closed", true).put("items", new JSONObject().put("totalCount", 0)).put("updatedAt", "2026-10-01T06:44:33Z"));
+        call(app, "renderDiscussionGraphQlCard", new JSONObject().put("repository", "mallstorm/GitHubble").put("number", 3).put("title", "Как настроить Git Agent").put("category", new JSONObject().put("name", "Q&A").put("emoji", "🙏")).put("author", new JSONObject().put("login", "mallstorm")).put("comments", new JSONObject().put("totalCount", 4)));
+        break;
+      case "repolist":
+        call(app, "shell", "Репозитории", true);
+        for (int i = 0; i < 2; i++)
+          call(app, "addRepoCard", new JSONObject().put("full_name", "mallstorm/GitHubble").put("description", i == 0 ? "Android-клиент GitHub с агентом разработки" : JSONObject.NULL).put("language", "Java").put("stargazers_count", 12), 0);
+        onUi(
+            () -> {
+              try {
+                android.widget.GridLayout grid = new android.widget.GridLayout(app);
+                grid.setColumnCount(2);
+                java.lang.reflect.Field field = MainActivity.class.getDeclaredField("content");
+                field.setAccessible(true);
+                ((android.widget.LinearLayout) field.get(app)).addView(grid);
+                java.lang.reflect.Method tile = MainActivity.class.getDeclaredMethod("addRepoTile", android.widget.GridLayout.class, JSONObject.class);
+                tile.setAccessible(true);
+                for (int i = 0; i < 4; i++)
+                  tile.invoke(app, grid, new JSONObject().put("full_name", "mallstorm/Repo" + i).put("private", i % 2 == 0).put("description", "Описание репозитория номер " + i).put("language", "Kotlin").put("stargazers_count", i));
+              } catch (Throwable error) {
+                throw new RuntimeException(error);
+              }
+            });
+        break;
+      case "people":
+        call(app, "shell", "Организации", true);
+        call(app, "eventCard", "mallstorm открыл Pull Request #36", "mallstorm/GitHubble", "12.11.2026 09:30", 0xFF2E9B46);
+        call(app, "addDirectionRow", drawable(app, "ic_release"), "Релизы", "Версии и сборки", 0xFFE87D1E, (Runnable) () -> {});
+        call(app, "heroBanner", "Организации", "Команды и доступ", drawable(app, "ic_organization"));
+        break;
+      case "profile":
+        call(app, "shell", "Профиль", false);
+        onUi(
+            () -> {
+              try {
+                android.widget.LinearLayout content = contentOf(app);
+                invoke(app, "profileSection", "Статистика", "Все", (Runnable) () -> {});
+                android.widget.GridLayout stats = new android.widget.GridLayout(app);
+                stats.setColumnCount(3);
+                content.addView(stats);
+                for (int i = 0; i < 3; i++)
+                  invoke(app, "profileStat", stats, drawable(app, "ic_repository"), "" + (10 + i), "Репозитории", 0xFF2E9B46, (Runnable) () -> {});
+                invoke(app, "profileSection", "Действия", null, (Runnable) () -> {});
+                android.widget.GridLayout actions = new android.widget.GridLayout(app);
+                actions.setColumnCount(2);
+                content.addView(actions);
+                for (int i = 0; i < 4; i++)
+                  invoke(app, "profileAction", actions, drawable(app, "ic_profile"), "Действие " + i, "Подпись действия", 0xFF2E9B46, (Runnable) () -> {});
+                android.widget.LinearLayout details = new android.widget.LinearLayout(app);
+                details.setOrientation(android.widget.LinearLayout.VERTICAL);
+                content.addView(details);
+                invoke(app, "addProfileDetail", details, "Компания", "Anthropic");
+                invoke(app, "addProfileDetail", details, "Локация", "Москва");
+              } catch (Exception error) {
+                throw new RuntimeException(error);
+              }
+            });
+        break;
+      case "billing":
+        call(app, "shell", "Хранилище Actions", false);
+        onUi(
+            () -> {
+              try {
+                android.widget.LinearLayout content = contentOf(app);
+                android.widget.GridLayout actions = new android.widget.GridLayout(app);
+                actions.setColumnCount(2);
+                content.addView(actions);
+                for (int i = 0; i < 4; i++)
+                  invoke(app, "addBillingQuickAction", actions, drawable(app, "ic_release"), "Очистка " + i, "Освободить место", (Runnable) () -> {});
+                for (int i = 0; i < 3; i++) {
+                  TextView value = new TextView(app);
+                  value.setText("1" + i + ",4 ГБ");
+                  invoke(app, "addBillingStatusRow", content, drawable(app, "ic_android"), "Артефакты " + i, value, 0xFF2E9B46);
+                }
+                invoke(app, "nestedSettingsRow", "Правила хранения", "Хранить артефакты 7 дней", drawable(app, "ic_settings"), 0xFF2E9B46, (Runnable) () -> {});
+                invoke(app, "settingsToggleRow", "Автоскачивание", "Скачивать APK после сборки", "redesign_demo", true);
+              } catch (Exception error) {
+                throw new RuntimeException(error);
+              }
+            });
+        break;
+      default:
+        break;
+    }
+  }
+
+  private static android.widget.LinearLayout contentOf(Activity app) throws Exception {
+    java.lang.reflect.Field field = MainActivity.class.getDeclaredField("content");
+    field.setAccessible(true);
+    return (android.widget.LinearLayout) field.get(app);
+  }
+
+  private static void invoke(Activity app, String method, Object... args) throws Exception {
+    for (Method candidate : MainActivity.class.getDeclaredMethods())
+      if (candidate.getName().equals(method) && candidate.getParameterTypes().length == args.length) {
+        candidate.setAccessible(true);
+        candidate.invoke(app, args);
+        return;
+      }
+    throw new NoSuchMethodException(method);
+  }
+
+  private static int drawable(Activity app, String name) {
+    return app.getResources().getIdentifier(name, "drawable", app.getPackageName());
+  }
+
+  private void onUi(Runnable action) throws Throwable {
+    Throwable[] failure = new Throwable[1];
+    runOnMainSync(
+        () -> {
+          try {
+            action.run();
+          } catch (Throwable error) {
+            failure[0] = error.getCause() == null ? error : error.getCause();
+          }
+        });
+    if (failure[0] != null) throw failure[0];
   }
 
   private void release(Activity app) throws Throwable {

@@ -434,7 +434,7 @@ public class MainActivity extends Activity {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(BG);
-        app.githubble.mobile.ui.UiPolish.install(root, dp(6), dp(8));
+        app.githubble.mobile.ui.UiPolish.install(root, dp(6), dp(8), GREEN);
 
         // The OmniChat surface owns its header, transcript scroll and anchored composer.
         // Skip the generic dashboard header and outer ScrollView only for the Chat tab.
@@ -571,6 +571,7 @@ public class MainActivity extends Activity {
         t.setTextColor(TEXT);
         if (bold) t.setTypeface(null, android.graphics.Typeface.BOLD);
         t.setPadding(dp(4), dp(2), dp(4), dp(2));
+        t.setEllipsize(android.text.TextUtils.TruncateAt.END);
         t.setLineSpacing(0f, isLargeText()?1.18f:1.08f);
         t.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
         if(Build.VERSION.SDK_INT>=29){t.setBreakStrategy(android.graphics.text.LineBreaker.BREAK_STRATEGY_HIGH_QUALITY);t.setHyphenationFrequency(android.text.Layout.HYPHENATION_FREQUENCY_NORMAL);}
@@ -4157,8 +4158,8 @@ public class MainActivity extends Activity {
             card.setPadding(dp(12),dp(10),dp(12),dp(10));
             card.setBackground(round(CARD,15,BORDER,1));
             TextView badge=text(state,12,true);
-            badge.setTextColor(ready?GREEN:"completed".equals(run.optString("status",""))?
-                    Color.rgb(200,78,76):BLUE);
+            boolean runDone="completed".equals(run.optString("status",""));
+            badge.setTextColor(!runDone?BLUE:(ready||"success".equals(run.optString("conclusion","")))?GREEN:Color.rgb(200,78,76));
             card.addView(badge);
             TextView name=text(repo+" · "+app.githubble.mobile.ui.JsonText.of(run,"name","GitHub Actions"),14,true);
             name.setMaxLines(2);
@@ -5007,7 +5008,7 @@ public class MainActivity extends Activity {
         TextView description=text(app.githubble.mobile.ui.JsonText.of(repository,"description","Без описания"),11,false);description.setTextColor(MUTED);description.setMaxLines(2);description.setPadding(0,dp(7),0,0);tile.addView(description,new LinearLayout.LayoutParams(-1,0,1));
         TextView meta=text("★ "+repository.optInt("stargazers_count",0)+" · "+app.githubble.mobile.ui.JsonText.of(repository,"language","—"),11,true);meta.setTextColor(MUTED);meta.setPadding(0,dp(6),0,0);tile.addView(meta);
         tile.setOnClickListener(v->navigate(()->showRepository(full)));
-        GridLayout.LayoutParams p=new GridLayout.LayoutParams();p.width=0;p.height=dp(162);p.columnSpec=GridLayout.spec(GridLayout.UNDEFINED,1f);p.setMargins(dp(4),dp(4),dp(4),dp(4));grid.addView(tile,p);
+        GridLayout.LayoutParams p=new GridLayout.LayoutParams();p.width=0;p.height=dp(isLargeText()?150:124);p.columnSpec=GridLayout.spec(GridLayout.UNDEFINED,1f);p.setMargins(dp(4),dp(4),dp(4),dp(4));grid.addView(tile,p);
     }
 
     private TextView pill(String s){TextView t=text(s,12,true);t.setTextColor(MUTED);t.setGravity(Gravity.CENTER);t.setBackground(round(SUBTLE,12,Color.TRANSPARENT,0));LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-2,dp(30));p.setMargins(0,0,dp(8),0);t.setLayoutParams(p);return t;}

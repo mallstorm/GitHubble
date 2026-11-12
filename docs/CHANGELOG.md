@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased — редизайн (PR #37, #38)
+- Change: плоские компактные карточки без теней, единая шкала радиусов (`ui/DesignSystem`), компактные плитки репозитория, строки «Дополнительных действий».
+- Add: `UiPolish` — страховка от слипшихся кнопок/чипов/плиток (LinearLayout и GridLayout), зелёные переключатели.
+- Fix: «null» вместо описания/языка (`ui/JsonText`); цвет статуса «Сборка успешна»; тип файла релиза («APK», «ZIP»); загрузка релиза — заливка плашки и кнопка «Открыть».
+- Add: `RedesignUiInstrumentation` и workflow «Redesign UI review» — реальные экраны на эмуляторе, скриншоты и аудит слипшихся/обрезанных элементов.
+
 ## Unreleased — GitHubble 2.0, проход I–III (PR #29)
 - Fix: атомарная привязка GitHub-сессии в `AgentGitWorkspace`, `AgentBuildDiagnostics`, `AgentBuildArtifactController`.
 - Add: пакет `agent.core` (машина состояний, журнал, ToolLedger, ExecutionMode, классификатор сбоев, RetryPolicy, Supervisor, проверка APK).

@@ -4,7 +4,10 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.GridLayout;
+import android.content.res.ColorStateList;
+import android.graphics.Color;
 import android.widget.LinearLayout;
+import android.widget.Switch;
 import android.widget.TextView;
 import app.githubble.mobile.R;
 
@@ -15,17 +18,24 @@ import app.githubble.mobile.R;
 public final class UiPolish {
   private UiPolish() {}
 
-  public static void install(View root, int minGapPx, int gapPx) {
-    root.getViewTreeObserver().addOnGlobalLayoutListener(() -> apply(root, minGapPx, gapPx));
+  public static void install(View root, int minGapPx, int gapPx, int accent) {
+    root.getViewTreeObserver().addOnGlobalLayoutListener(() -> apply(root, minGapPx, gapPx, accent));
   }
 
-  public static void apply(View view, int minGapPx, int gapPx) {
+  public static void apply(View view, int minGapPx, int gapPx, int accent) {
     if (view instanceof Button) ((Button) view).setStateListAnimator(null);
+    if (view instanceof Switch && view.getTag(R.id.ui_polished) == null) {
+      Switch toggle = (Switch) view;
+      toggle.setTag(R.id.ui_polished, Boolean.TRUE);
+      int[][] states = {{android.R.attr.state_checked}, {}};
+      toggle.setThumbTintList(new ColorStateList(states, new int[] {accent, Color.rgb(236, 238, 240)}));
+      toggle.setTrackTintList(new ColorStateList(states, new int[] {Color.argb(120, Color.red(accent), Color.green(accent), Color.blue(accent)), Color.argb(70, 120, 128, 135)}));
+    }
     if (!(view instanceof ViewGroup)) return;
     ViewGroup group = (ViewGroup) view;
     if (group instanceof LinearLayout) separate((LinearLayout) group, minGapPx, gapPx);
     else if (group instanceof GridLayout) spaceGrid((GridLayout) group, gapPx / 2);
-    for (int i = 0; i < group.getChildCount(); i++) apply(group.getChildAt(i), minGapPx, gapPx);
+    for (int i = 0; i < group.getChildCount(); i++) apply(group.getChildAt(i), minGapPx, gapPx, accent);
   }
 
   private static void separate(LinearLayout row, int minGapPx, int gapPx) {
