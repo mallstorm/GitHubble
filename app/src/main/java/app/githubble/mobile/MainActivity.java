@@ -4036,13 +4036,13 @@ public class MainActivity extends Activity {
     private void showInboxTokenDialog(){
         final String account=currentAccountId();
         LinearLayout form=new LinearLayout(this);form.setOrientation(LinearLayout.VERTICAL);form.setPadding(dp(20),dp(8),dp(20),0);
-        TextView help=text("Нужен классический токен (Personal access token classic) со scope notifications; для приватных репозиториев ещё repo. Токен хранится в защищённом хранилище и используется только для Inbox.",13,false);
+        TextView help=text("Нужен классический токен (Personal access token classic) только со scope notifications (других прав не нужно). Токен хранится в защищённом хранилище и используется только для Inbox.",13,false);
         form.addView(help);
         EditText input=new EditText(this);input.setSingleLine(true);input.setHint("ghp_…");
         input.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD);
         form.addView(input);
         new AlertDialog.Builder(this).setTitle("Токен для Inbox").setView(form)
-                .setNeutralButton("Создать на GitHub",(d,w)->openSecureGitHubPage("https://github.com/settings/tokens/new?scopes=notifications,repo&description=GitHubble%20Inbox"))
+                .setNeutralButton("Создать на GitHub",(d,w)->openSecureGitHubPage("https://github.com/settings/tokens/new?scopes=notifications&description=GitHubble%20Inbox"))
                 .setNegativeButton(inboxToken().isEmpty()?"Отмена":"Удалить токен",(d,w)->{
                     if(!inboxToken().isEmpty()){secureStore.put("inbox_token_"+account,"");showGitHubInbox();}
                 })
