@@ -316,9 +316,9 @@ public final class AgentCodePanel {
         view.setTypeface(Typeface.MONOSPACE);
         view.setTextIsSelectable(true);
         view.setPadding(dp(16), dp(8), dp(16), dp(8));
-        scroll = new ScrollView(activity);
-        scroll.addView(view);
-        new android.app.AlertDialog.Builder(activity).setTitle(path).setView(scroll)
+        ScrollView viewer = new ScrollView(activity);
+        viewer.addView(view);
+        new android.app.AlertDialog.Builder(activity).setTitle(path).setView(viewer)
                 .setPositiveButton("Закрыть", null).show();
     }
 
@@ -463,7 +463,7 @@ public final class AgentCodePanel {
         body.addView(view);
     }
 
-    private TextView label(String value, int size, boolean bold, int color) {
+    private TextView label(String value, float size, boolean bold, int color) {
         TextView view = new TextView(activity);
         view.setText(value);
         view.setTextColor(color);
