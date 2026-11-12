@@ -3986,7 +3986,7 @@ public class MainActivity extends Activity {
             runOnUiThread(()->{
                 if(generation!=screenGeneration.get()||host!=content||!account.equals(currentAccountId()))return;
                 official[0]=wasOfficial;
-                if(!error.isEmpty()){status.setText("Не удалось загрузить: "+app.githubble.mobile.build.ActionsErrorText.describe(error));return;}
+                if(!error.isEmpty()){status.setText("Не удалось загрузить Inbox: "+(error.length()>160?error.substring(0,160):error));return;}
                 Set<String> read=inboxReadKeys();
                 List<InboxItem> shown=new ArrayList<>();
                 for(InboxItem item:result){
@@ -4056,7 +4056,7 @@ public class MainActivity extends Activity {
                             runOnUiThread(()->{toast("Токен сохранён");showGitHubInbox();});
                         }catch(Exception e){
                             runOnUiThread(()->errorDialog("Токен не подошёл",
-                                    app.githubble.mobile.build.ActionsErrorText.describe(e.getMessage())+"\nПроверьте scope notifications."));
+                                    "GitHub отклонил токен. Нужен classic-токен со scope notifications (HTTP 401/403)."));
                         }
                     });
                 }).show();
