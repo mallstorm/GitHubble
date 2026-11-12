@@ -267,6 +267,10 @@ public class MainActivity extends Activity {
     private String selectingAgentImageOwner="",selectingAgentImageThread="";
     private boolean selectingAgentImageOcr=false;
 
+    @Override protected void attachBaseContext(Context base) {
+        super.attachBaseContext(app.githubble.mobile.ui.DisplayScale.wrap(base,app.githubble.mobile.ui.DisplayScale.stored(base)));
+    }
+
     @Override public void onCreate(Bundle b) {
         super.onCreate(b);
         if (Build.VERSION.SDK_INT >= 33) {
@@ -8812,9 +8816,48 @@ public class MainActivity extends Activity {
         return sections;
     }
 
+    /** Slider for the app-wide display size; applied on release because the whole screen is rebuilt. */
+    private void addDisplayScaleCard(){
+        final int current=app.githubble.mobile.ui.DisplayScale.stored(this);
+        final int steps=(app.githubble.mobile.ui.DisplayScale.MAX-app.githubble.mobile.ui.DisplayScale.MIN)/app.githubble.mobile.ui.DisplayScale.STEP;
+        LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout head=new LinearLayout(this);head.setGravity(Gravity.CENTER_VERTICAL);
+        TextView title=text("Размер отображения",16,true);head.addView(title,new LinearLayout.LayoutParams(0,-2,1));
+        TextView value=text(current+"%",16,true);value.setTextColor(GREEN);head.addView(value);box.addView(head);
+        TextView hint=text("Меняет размер всего интерфейса: текста, карточек и отступов. 100% — стандартный вид.",12,false);hint.setTextColor(MUTED);box.addView(hint);
+        SeekBar bar=new SeekBar(this);bar.setMax(steps);bar.setProgress((current-app.githubble.mobile.ui.DisplayScale.MIN)/app.githubble.mobile.ui.DisplayScale.STEP);
+        bar.setProgressTintList(android.content.res.ColorStateList.valueOf(GREEN));bar.setThumbTintList(android.content.res.ColorStateList.valueOf(GREEN));
+        bar.setContentDescription("Размер отображения");
+        LinearLayout.LayoutParams barParams=new LinearLayout.LayoutParams(-1,dp(44));barParams.setMargins(0,dp(6),0,0);box.addView(bar,barParams);
+        LinearLayout marks=new LinearLayout(this);
+        TextView low=text(app.githubble.mobile.ui.DisplayScale.MIN+"%",11,false);low.setTextColor(MUTED);marks.addView(low,new LinearLayout.LayoutParams(0,-2,1));
+        TextView high=text(app.githubble.mobile.ui.DisplayScale.MAX+"%",11,false);high.setTextColor(MUTED);high.setGravity(Gravity.END);marks.addView(high,new LinearLayout.LayoutParams(0,-2,1));
+        box.addView(marks);
+        bar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
+            @Override public void onProgressChanged(SeekBar seekBar,int progress,boolean fromUser){
+                value.setText((app.githubble.mobile.ui.DisplayScale.MIN+progress*app.githubble.mobile.ui.DisplayScale.STEP)+"%");
+            }
+            @Override public void onStartTrackingTouch(SeekBar seekBar){}
+            @Override public void onStopTrackingTouch(SeekBar seekBar){
+                int chosen=app.githubble.mobile.ui.DisplayScale.MIN+seekBar.getProgress()*app.githubble.mobile.ui.DisplayScale.STEP;
+                if(chosen==current)return;
+                prefs.edit().putInt(app.githubble.mobile.ui.DisplayScale.PREF_KEY,chosen).commit();
+                recreate();
+            }
+        });
+        if(current!=app.githubble.mobile.ui.DisplayScale.DEFAULT){
+            Button reset=compactButton("Сбросить до 100%");
+            reset.setOnClickListener(v->{prefs.edit().putInt(app.githubble.mobile.ui.DisplayScale.PREF_KEY,app.githubble.mobile.ui.DisplayScale.DEFAULT).commit();recreate();});
+            LinearLayout.LayoutParams resetParams=new LinearLayout.LayoutParams(-1,dp(40));resetParams.setMargins(0,dp(8),0,0);box.addView(reset,resetParams);
+        }
+        card(box);
+    }
+
     private void showSettingsInterface(){
+        rememberScreen("settings_interface",null);
         setCurrentScreen(this::showSettingsInterface);
         shell("Интерфейс",false);
+        addDisplayScaleCard();
         new SettingsScreen(this,content,settingsPalette()).renderPage(null,tileColors[2],settingsInterfaceSections());
     }
 
@@ -10119,6 +10162,7 @@ public class MainActivity extends Activity {
             case "account_limits": showAccountInteractionLimits(); break;
             case "profile_editor": showNativeProfileEditor(); break;
             case "settings": showSettings(); break;
+            case "settings_interface": showSettingsInterface(); break;
             case "privacy_data": showPrivacyAndData(); break;
             case "rc_status": showReleaseCandidateStatus(); break;
             case "tracking": showTracking(); break;

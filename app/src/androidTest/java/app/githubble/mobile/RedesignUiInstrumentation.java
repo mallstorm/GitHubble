@@ -78,6 +78,25 @@ public final class RedesignUiInstrumentation extends Instrumentation {
           findings.add("s-" + name + ": render failed " + error);
         }
       }
+      try {
+        float baseDensity = app.getResources().getDisplayMetrics().density;
+        getTargetContext().getSharedPreferences("githubble", 0).edit().putInt("ui_display_scale", 90).commit();
+        Activity scaled =
+            startActivitySync(
+                new Intent(getTargetContext(), MainActivity.class)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK));
+        waitForIdleSync();
+        float ratio = scaled.getResources().getDisplayMetrics().density / baseDensity;
+        if (Math.abs(ratio - 0.9f) > 0.02f) findings.add("scale90: density ratio " + ratio);
+        call(scaled, "showHome");
+        capture(scaled, dir, "scale90-home");
+        call(scaled, "showSettingsInterface");
+        capture(scaled, dir, "scale90-settings-interface");
+      } catch (Throwable error) {
+        findings.add("scale90: render failed " + error);
+      } finally {
+        getTargetContext().getSharedPreferences("githubble", 0).edit().remove("ui_display_scale").commit();
+      }
       try (PrintWriter out = new PrintWriter(new File(dir, "audit.txt"))) {
         out.println("screens captured: " + shots);
         out.println("findings: " + findings.size());

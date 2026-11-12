@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   screens:
-    if: startsWith(github.head_ref, 'claude/redesign') || github.event_name == 'workflow_dispatch'
+    if: startsWith(github.head_ref, 'claude/redesign') || github.head_ref == 'claude/display-scale' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
