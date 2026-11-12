@@ -13,14 +13,15 @@ public final class InboxItem {
     public final String title;
     public final String type;
     public final int number;
+    public final long subjectId;
     public final String updatedAt;
     public final Set<String> reasons;
     public boolean unread;
 
     public InboxItem(String key,String threadId,String repo,String title,String type,int number,
-                     String updatedAt,Set<String> reasons,boolean unread){
+                     String updatedAt,Set<String> reasons,boolean unread,long subjectId){
         this.key=key;this.threadId=threadId;this.repo=repo;this.title=title;this.type=type;
-        this.number=number;this.updatedAt=updatedAt==null?"":updatedAt;this.reasons=reasons;this.unread=unread;
+        this.number=number;this.subjectId=subjectId;this.updatedAt=updatedAt==null?"":updatedAt;this.reasons=reasons;this.unread=unread;
     }
 
     /** Item from GET /notifications (needs a classic token with the notifications scope). */
@@ -36,7 +37,7 @@ public final class InboxItem {
         reasons.add(reasonLabel(thread.optString("reason","")));
         return new InboxItem("t"+id,id,repo,subject.optString("title","Без названия"),type,
                 numberFromUrl(subject.optString("url","")),thread.optString("updated_at",""),reasons,
-                thread.optBoolean("unread",false));
+                thread.optBoolean("unread",false),longFromUrl(subject.optString("url","")));
     }
 
     /** Item from GET /search/issues; works with GitHub App tokens. */
@@ -50,7 +51,7 @@ public final class InboxItem {
         Set<String> reasons=new LinkedHashSet<>();
         reasons.add(reason);
         return new InboxItem(repo+"#"+number,"",repo,issue.optString("title","Без названия"),
-                issue.has("pull_request")?"PullRequest":"Issue",number,issue.optString("updated_at",""),reasons,true);
+                issue.has("pull_request")?"PullRequest":"Issue",number,issue.optString("updated_at",""),reasons,true,number);
     }
 
     public static int numberFromUrl(String url){
@@ -58,6 +59,13 @@ public final class InboxItem {
         int slash=url.lastIndexOf('/');
         if(slash<0||slash==url.length()-1)return 0;
         try{return Integer.parseInt(url.substring(slash+1));}catch(NumberFormatException e){return 0;}
+    }
+
+    public static long longFromUrl(String url){
+        if(url==null)return 0;
+        int slash=url.lastIndexOf('/');
+        if(slash<0||slash==url.length()-1)return 0;
+        try{return Long.parseLong(url.substring(slash+1));}catch(NumberFormatException e){return 0;}
     }
 
     public static String reasonLabel(String reason){

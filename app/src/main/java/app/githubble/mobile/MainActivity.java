@@ -4025,12 +4025,31 @@ public class MainActivity extends Activity {
                 if(official)io.execute(()->{try{InboxService.markThreadRead(new GitHubApiClient(secureStore,null,token),item.threadId);}catch(Exception ignored){}});
                 else inboxRememberRead(Collections.singletonList(item.readKey()));
             }
-            if("PullRequest".equals(item.type)&&item.number>0)navigate(()->showPullDetail(item.repo,item.number));
+            if("CheckSuite".equals(item.type)&&item.subjectId>0)openInboxCheckSuite(item);
+            else if("PullRequest".equals(item.type)&&item.number>0)navigate(()->showPullDetail(item.repo,item.number));
             else if("Issue".equals(item.type)&&item.number>0)navigate(()->showIssueDetail(item.repo,item.number));
             else if("Discussion".equals(item.type)&&item.number>0)navigate(()->showDiscussionDetail(item.repo,item.number));
             else navigate(()->showRepository(item.repo));
         });
         return row;
+    }
+
+    /** A failed-workflow notification opens the run itself; the repository is only the fallback. */
+    private void openInboxCheckSuite(InboxItem item){
+        toast("Открываем запуск…");
+        io.execute(()->{
+            long runId=0;
+            try{
+                JSONObject runs=api.getJson("https://api.github.com/repos/"+item.repo+"/actions/runs?check_suite_id="+item.subjectId+"&per_page=1");
+                JSONArray list=runs.optJSONArray("workflow_runs");
+                if(list!=null&&list.length()>0)runId=list.optJSONObject(0).optLong("id",0);
+            }catch(Exception ignored){}
+            final long found=runId;
+            runOnUiThread(()->{
+                if(found>0)navigate(()->showBuildRunDetail(item.repo,found));
+                else navigate(()->showRepository(item.repo));
+            });
+        });
     }
 
     private void showInboxTokenDialog(){
