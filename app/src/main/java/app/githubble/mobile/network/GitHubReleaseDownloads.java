@@ -48,6 +48,11 @@ public final class GitHubReleaseDownloads {
     }
   }
 
+  /** Receives bytes written so far and the expected total (-1 when unknown). Called from the download thread. */
+  public interface Progress {
+    void onProgress(long received, long total);
+  }
+
   public static Uri download(
       Context context, String name, String apiUrl, long expected, GitHubSession.Source source)
       throws Exception {
@@ -61,6 +66,18 @@ public final class GitHubReleaseDownloads {
       long expected,
       GitHubSession.Source source,
       String expectedScope)
+      throws Exception {
+    return download(context, name, apiUrl, expected, source, expectedScope, null);
+  }
+
+  public static Uri download(
+      Context context,
+      String name,
+      String apiUrl,
+      long expected,
+      GitHubSession.Source source,
+      String expectedScope,
+      Progress progress)
       throws Exception {
     if (!validAssetApi(apiUrl))
       throw new IllegalArgumentException("Некорректный GitHub Release asset API URL");
@@ -129,6 +146,7 @@ public final class GitHubReleaseDownloads {
       }
       if (sink == null) throw new IOException("Не удалось открыть файл Downloads");
       long received = 0;
+      long reported = 0;
       try (InputStream in = connection.getInputStream();
           OutputStream out = sink) {
         byte[] buffer = new byte[64 * 1024];
@@ -139,8 +157,13 @@ public final class GitHubReleaseDownloads {
           if (expected >= 0 && received > expected)
             throw new IOException("Размер загрузки не совпадает с GitHub");
           out.write(buffer, 0, n);
+          if (progress != null && received - reported >= 64 * 1024) {
+            reported = received;
+            progress.onProgress(received, expected >= 0 ? expected : connection.getContentLengthLong());
+          }
         }
       }
+      if (progress != null) progress.onProgress(received, received);
       requireCurrent(source, session);
       if (expected >= 0 && received != expected) throw new IOException("Файл скачан не полностью");
       if (Build.VERSION.SDK_INT >= 29) {
