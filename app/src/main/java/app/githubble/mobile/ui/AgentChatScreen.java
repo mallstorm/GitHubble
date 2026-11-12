@@ -101,7 +101,7 @@ public final class AgentChatScreen {
         FrameLayout top = new FrameLayout(activity);
         top.setPadding(dp(14),dp(6),dp(14),dp(6));
         TextView brand=label(conversationTitle.isEmpty() || "Новый диалог".equals(conversationTitle)
-                ? "Git Agent" : conversationTitle,16,true,this.text);
+                ? "" : conversationTitle,16,true,this.text);
         brand.setGravity(Gravity.CENTER);brand.setSingleLine();brand.setEllipsize(TextUtils.TruncateAt.END);
         FrameLayout.LayoutParams brandLp=new FrameLayout.LayoutParams(-1,-1);
         brandLp.leftMargin=dp(60);brandLp.rightMargin=dp(60);top.addView(brand,brandLp);
@@ -161,7 +161,7 @@ public final class AgentChatScreen {
         input.setMaxLines(6);
         input.setBackgroundColor(Color.TRANSPARENT);
         input.setPadding(dp(12),dp(9),dp(10),dp(5));
-        input.setHint("Спросить Git Agent");
+        input.setHint("Спросить Hubble Agent");
         input.setOnClickListener(v->input.post(()->{
             android.view.inputmethod.InputMethodManager keyboard=(android.view.inputmethod.InputMethodManager)
                     activity.getSystemService(Context.INPUT_METHOD_SERVICE);
@@ -248,7 +248,7 @@ public final class AgentChatScreen {
         LinearLayout caption=new LinearLayout(activity);
         caption.setOrientation(LinearLayout.VERTICAL);caption.setGravity(Gravity.CENTER);
         caption.setPadding(dp(16),0,dp(16),dp(18));
-        TextView title=label("Git Agent",32,true,text);title.setGravity(Gravity.CENTER);
+        TextView title=label("Hubble Agent",32,true,text);title.setGravity(Gravity.CENTER);
         caption.addView(title);
         TextView subtitle=label("Единое пространство для ваших моделей и GitHub-проектов",14,false,muted);
         subtitle.setGravity(Gravity.CENTER);subtitle.setPadding(0,dp(2),0,0);
@@ -275,7 +275,7 @@ public final class AgentChatScreen {
         if(user)bubble.setBackground(shape(subtle,21,Color.TRANSPARENT,0));
         else if(system)bubble.setBackground(shape(dark?0xFF272E37:0xFFF1F3F5,13,Color.TRANSPARENT,0));
         if(!user){
-            TextView tag=label(system?"Система":"Git Agent"+(model.isEmpty()?"":" · "+model),11,true,system?muted:accent);
+            TextView tag=label(system?"Система":"Hubble Agent"+(model.isEmpty()?"":" · "+model),11,true,system?muted:accent);
             bubble.addView(tag);
         }
         if(user){TextView content=label(body,14,false,text);content.setTextIsSelectable(true);bubble.addView(content);}
@@ -313,7 +313,7 @@ public final class AgentChatScreen {
             copy.setPadding(dp(3),dp(5),dp(3),dp(3));
             copy.setOnClickListener(v->{
                 ClipboardManager cb=(ClipboardManager)activity.getSystemService(Context.CLIPBOARD_SERVICE);
-                if(cb!=null)cb.setPrimaryClip(ClipData.newPlainText("Git Agent",body));
+                if(cb!=null)cb.setPrimaryClip(ClipData.newPlainText("Hubble Agent",body));
                 android.widget.Toast.makeText(activity,"Скопировано",android.widget.Toast.LENGTH_SHORT).show();
             });
             bubble.addView(copy);

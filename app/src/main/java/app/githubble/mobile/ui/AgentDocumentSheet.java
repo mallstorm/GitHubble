@@ -52,7 +52,7 @@ public final class AgentDocumentSheet {
     formatted.run();
     AlertDialog d =
         new AlertDialog.Builder(a)
-            .setCustomTitle(title(a, "Документ Git Agent", text))
+            .setCustomTitle(title(a, "Документ Hubble Agent", text))
             .setView(root)
             .setPositiveButton("Сохранить .md", (v, w) -> save.run())
             .setNegativeButton("Закрыть", null)

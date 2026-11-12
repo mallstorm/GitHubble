@@ -208,11 +208,11 @@ final class GitAgentUiChecks {
                         dark?0xFF8CD74F:0xFF4EA839,dark?0xFF3A4C48:0xFFE0E7DE,actions);
                     screen.render("test",projects.project(account),new JSONArray(),0,false,"","",false,
                         "Новый диалог",false,"Сохранённый черновик");
-                    if(find(root,"Git Agent")==null||find(root,"Спросить Git Agent")==null)
-                        throw new AssertionError("Missing Git Agent branding/composer");
+                    if(find(root,"Hubble Agent")==null||find(root,"Спросить Hubble Agent")==null)
+                        throw new AssertionError("Missing Hubble Agent branding/composer");
                     if(find(root,"OmniChat")!=null)throw new AssertionError("Old branding visible");
                     if(find(root,"План")!=null)throw new AssertionError("Removed Plan control is visible");
-                    EditText input=(EditText)find(root,"Спросить Git Agent");
+                    EditText input=(EditText)find(root,"Спросить Hubble Agent");
                     if(!"Сохранённый черновик".equals(input.getText().toString()))throw new AssertionError("Draft missing");
 
                 });
@@ -258,7 +258,7 @@ final class GitAgentUiChecks {
                     settings.setAccessible(true);settings.invoke(activity);
                     View root=activity.getWindow().getDecorView();
                     View data=find(root,"Данные и безопасность");
-                    View agent=find(root,"Git Agent и Workspace");
+                    View agent=find(root,"Hubble Agent и Workspace");
                     View security=find(root,"О приложении");
                     if(data==null||agent==null||security==null)
                         throw new AssertionError("Central AI settings category missing");
@@ -273,12 +273,12 @@ final class GitAgentUiChecks {
                     ViewGroup list=(ViewGroup)dataRow.getParent();
                     if(!(list.indexOfChild(dataRow)<list.indexOfChild(agentRow)
                             && list.indexOfChild(agentRow)<list.indexOfChild(securityRow)))
-                        throw new AssertionError("Git Agent settings category has wrong dashboard order");
+                        throw new AssertionError("Hubble Agent settings category has wrong dashboard order");
                     java.lang.reflect.Method open=MainActivity.class.getDeclaredMethod("showSettingsGitAgentWorkspace");
                     open.setAccessible(true);open.invoke(activity);
                     root=activity.getWindow().getDecorView();
                     for(String label:new String[]{"Режим и исполнитель","Подключения API",
-                            "Аккаунты и подписки","Рабочие пространства","Память Git Agent",
+                            "Аккаунты и подписки","Рабочие пространства","Память Hubble Agent",
                             "DNS и Smart Routing","Xray / VLESS","Диктовка"}){
                         if(find(root,label)==null)throw new AssertionError("Missing AI settings row: "+label);
                     }
@@ -328,7 +328,7 @@ final class GitAgentUiChecks {
             // Opening the IME via the app-owned view avoids injecting pointer events
             // into an unrelated overlay window (Android 13 may target another UID).
             onMain(host,()->{
-                EditText input=(EditText)find(activity.getWindow().getDecorView(),"Спросить Git Agent");
+                EditText input=(EditText)find(activity.getWindow().getDecorView(),"Спросить Hubble Agent");
                 if(input==null)throw new AssertionError("Integrated composer missing");
                 input.requestFocus();
                 input.setText("Черновик перед перезапуском экрана");
@@ -353,13 +353,13 @@ final class GitAgentUiChecks {
                 android.view.WindowInsets insets=decor.getRootWindowInsets();
                 if(insets==null||!insets.isVisible(android.view.WindowInsets.Type.ime()))
                     throw new AssertionError("Soft keyboard did not open after tapping composer");
-                View editor=find(decor,"Спросить Git Agent");android.graphics.Rect visible=new android.graphics.Rect();
+                View editor=find(decor,"Спросить Hubble Agent");android.graphics.Rect visible=new android.graphics.Rect();
                 if(!editor.getGlobalVisibleRect(visible)||visible.height()<editor.getHeight()/2)
                     throw new AssertionError("Composer covered by keyboard");
             });
             screenshot(host,directory,"keyboard.png");
             onMain(host,()->{
-                EditText editor=(EditText)find(activity.getWindow().getDecorView(),"Спросить Git Agent");
+                EditText editor=(EditText)find(activity.getWindow().getDecorView(),"Спросить Hubble Agent");
                 android.view.inputmethod.InputMethodManager keyboard=
                     (android.view.inputmethod.InputMethodManager)activity.getSystemService(android.content.Context.INPUT_METHOD_SERVICE);
                 if(editor!=null&&keyboard!=null)keyboard.hideSoftInputFromWindow(editor.getWindowToken(),0);
@@ -367,7 +367,7 @@ final class GitAgentUiChecks {
             onMain(host,()->{
                 try{java.lang.reflect.Method chat=MainActivity.class.getDeclaredMethod("showAgentChat");chat.setAccessible(true);chat.invoke(activity);}
                 catch(Exception error){throw new RuntimeException(error);}
-                EditText input=(EditText)find(activity.getWindow().getDecorView(),"Спросить Git Agent");
+                EditText input=(EditText)find(activity.getWindow().getDecorView(),"Спросить Hubble Agent");
                 if(!"Черновик перед перезапуском экрана".equals(input.getText().toString()))
                     throw new AssertionError("Integrated draft did not survive screen recreation");
             });
@@ -379,7 +379,7 @@ final class GitAgentUiChecks {
             host.getUiAutomation().getRootInActiveWindow();
         CharSequence foreground=active==null?null:active.getPackageName();
         if(foreground==null||!activity.getPackageName().contentEquals(foreground))
-            throw new AssertionError("Git Agent lost foreground before closing a sheet: "+foreground);
+            throw new AssertionError("Hubble Agent lost foreground before closing a sheet: "+foreground);
         final boolean[] activityFocused={false};
         onMain(host,()->activityFocused[0]=activity.getWindow().getDecorView().hasWindowFocus());
         // Dialogs own the window focus; a native screen with no sheet must not
