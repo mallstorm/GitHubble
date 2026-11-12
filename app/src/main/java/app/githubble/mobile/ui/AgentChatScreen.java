@@ -61,6 +61,7 @@ public final class AgentChatScreen {
         default void exportMedia(String path,String mime){}
         default void exportMarkdown(String source){}
         default void openDiff(String id){}
+        default void openCode(){}
         default JSONObject activeRun(){return null;}
     }
 
@@ -104,7 +105,7 @@ public final class AgentChatScreen {
                 ? "" : conversationTitle,16,true,this.text);
         brand.setGravity(Gravity.CENTER);brand.setSingleLine();brand.setEllipsize(TextUtils.TruncateAt.END);
         FrameLayout.LayoutParams brandLp=new FrameLayout.LayoutParams(-1,-1);
-        brandLp.leftMargin=dp(60);brandLp.rightMargin=dp(60);top.addView(brand,brandLp);
+        brandLp.leftMargin=dp(60);brandLp.rightMargin=dp(118);top.addView(brand,brandLp);
         View menu=new View(activity){
             final android.graphics.Paint paint=new android.graphics.Paint(3);
             @Override protected void onDraw(android.graphics.Canvas c){
@@ -122,6 +123,11 @@ public final class AgentChatScreen {
         newChat.setBackground(shape(subtle,50,0,0));
         newChat.setOnLongClickListener(v->{actions.openTools();return true;});
         top.addView(newChat,new FrameLayout.LayoutParams(dp(52),dp(52),Gravity.END|Gravity.CENTER_VERTICAL));
+        TextView code=label("</>",14,true,this.text);code.setGravity(Gravity.CENTER);
+        code.setContentDescription("Код, файлы и журнал");code.setBackground(shape(subtle,50,0,0));
+        code.setOnClickListener(v->actions.openCode());
+        FrameLayout.LayoutParams codeLp=new FrameLayout.LayoutParams(dp(52),dp(52),Gravity.END|Gravity.CENTER_VERTICAL);
+        codeLp.rightMargin=dp(58);top.addView(code,codeLp);
         root.addView(top,new LinearLayout.LayoutParams(-1,dp(64)));
         View divider=separator();divider.setAlpha(.30f);
         root.addView(divider,new LinearLayout.LayoutParams(-1,dp(1)));

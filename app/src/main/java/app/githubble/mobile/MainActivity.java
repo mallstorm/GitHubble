@@ -700,6 +700,7 @@ public class MainActivity extends Activity {
             @Override public void exportMedia(String path,String mime){agentExportMedia(path,mime);}
             @Override public void exportMarkdown(String source){if(owner.equals(accountStore.activeCacheKey())&&renderedThread.equals(agentProjects.activeConversation(owner)))agentExportMarkdown(source);}
             @Override public void openDiff(String id){agentOpenDiff(owner,renderedThread,id);}
+            @Override public void openCode(){agentOpenCodePanel(owner,renderedThread);}
             @Override public void resumeTask(String runId){agentResumeTask(owner,renderedThread,runId);}
             @Override public JSONObject activeRun(){app.githubble.mobile.agent.AgentRun run=app.githubble.mobile.agent.AgentRunRegistry.get(owner,renderedThread);return run==null?null:run.snapshot();}
             @Override public void openAgentSettings() { navigate(MainActivity.this::showSettingsGitAgentWorkspace); }
@@ -1992,6 +1993,21 @@ public class MainActivity extends Activity {
             agentExportMedia(target.getPath(),"text/markdown");
         }catch(Exception e){toast("Не удалось сохранить документ: "+e.getMessage());}
     }
+    /** Right-hand code drawer: file changes, Workspace files and the journal of agent operations. */
+    private void agentOpenCodePanel(String owner,String thread){
+        if(!owner.equals(accountStore.activeCacheKey())||!thread.equals(agentProjects.activeConversation(owner)))return;
+        final JSONArray messages=agentProjects.messages(owner,thread);
+        AgentProjectStore.Project project=agentProjects.project(owner);
+        java.io.File root=null;
+        try{if(project.workspaceId!=null&&!project.workspaceId.isEmpty())root=new app.githubble.mobile.agent.WorkspaceHub(this).root(owner,project.workspaceId);}catch(Exception ignored){}
+        final java.io.File workspace=root;
+        app.githubble.mobile.ui.AgentCodePanel.show(this,new app.githubble.mobile.ui.AgentCodePanel.Source(){
+            @Override public JSONArray messages(){return messages;}
+            @Override public java.io.File workspaceRoot(){return workspace;}
+            @Override public void openDiff(String id){agentOpenDiff(owner,thread,id);}
+        },TEXT,MUTED,GREEN,SUBTLE,BORDER,BG,0);
+    }
+
     private void agentOpenDiff(String owner,String thread,String id){
         if(!owner.equals(accountStore.activeCacheKey())||!thread.equals(agentProjects.activeConversation(owner)))return;
         io.execute(()->{try{
