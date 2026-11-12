@@ -434,7 +434,7 @@ public class MainActivity extends Activity {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(BG);
-        app.githubble.mobile.ui.UiPolish.install(root, dp(6), dp(8));
+        app.githubble.mobile.ui.UiPolish.install(root, dp(6), dp(8), GREEN);
 
         // The OmniChat surface owns its header, transcript scroll and anchored composer.
         // Skip the generic dashboard header and outer ScrollView only for the Chat tab.
@@ -4158,8 +4158,8 @@ public class MainActivity extends Activity {
             card.setPadding(dp(12),dp(10),dp(12),dp(10));
             card.setBackground(round(CARD,15,BORDER,1));
             TextView badge=text(state,12,true);
-            badge.setTextColor(ready?GREEN:"completed".equals(run.optString("status",""))?
-                    Color.rgb(200,78,76):BLUE);
+            boolean runDone="completed".equals(run.optString("status",""));
+            badge.setTextColor(!runDone?BLUE:(ready||"success".equals(run.optString("conclusion","")))?GREEN:Color.rgb(200,78,76));
             card.addView(badge);
             TextView name=text(repo+" · "+app.githubble.mobile.ui.JsonText.of(run,"name","GitHub Actions"),14,true);
             name.setMaxLines(2);
