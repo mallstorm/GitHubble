@@ -152,7 +152,7 @@ public final class RedesignUiInstrumentation extends Instrumentation {
                           .put("head_sha", "d46c0e9a1b2c3d4e5f60718293a4b5c6d7e8f901")
                           .put("run_started_at", "2026-11-12T06:30:00Z")
                           .put("artifacts", i == 1 ? new JSONArray().put(new JSONObject().put("created_at", "2026-11-12T06:44:00Z")) : new JSONArray()));
-                call(app, "renderBuildRows", host, runs, "");
+                invoke(app, "renderBuildRows", host, runs, "");
               } catch (Throwable error) {
                 throw new RuntimeException(error);
               }
@@ -215,6 +215,16 @@ public final class RedesignUiInstrumentation extends Instrumentation {
       default:
         break;
     }
+  }
+
+  private static void invoke(Activity app, String method, Object... args) throws Exception {
+    for (Method candidate : MainActivity.class.getDeclaredMethods())
+      if (candidate.getName().equals(method) && candidate.getParameterTypes().length == args.length) {
+        candidate.setAccessible(true);
+        candidate.invoke(app, args);
+        return;
+      }
+    throw new NoSuchMethodException(method);
   }
 
   private static int drawable(Activity app, String name) {
