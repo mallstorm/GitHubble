@@ -79,7 +79,7 @@ public final class GitAgentUi {
       window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
       window.setSoftInputMode(
           WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
-              | WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN);
+              | WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN);
       WindowManager.LayoutParams attributes = window.getAttributes();
       attributes.dimAmount = .38f;
       window.setAttributes(attributes);
@@ -87,23 +87,33 @@ public final class GitAgentUi {
     dialog.show();
     if (window != null) {
       window.setGravity(Gravity.BOTTOM);
-      android.graphics.Rect available = new android.graphics.Rect();
-      activity.getWindow().getDecorView().getWindowVisibleDisplayFrame(available);
-      if (android.os.Build.VERSION.SDK_INT >= 30) {
-        android.view.WindowMetrics metrics = activity.getWindowManager().getCurrentWindowMetrics();
-        available.set(metrics.getBounds());
-        android.graphics.Insets insets =
-            metrics
-                .getWindowInsets()
-                .getInsetsIgnoringVisibility(
-                    android.view.WindowInsets.Type.systemBars()
-                        | android.view.WindowInsets.Type.displayCutout());
-        available.set(available.left+insets.left,available.top+insets.top,available.right-insets.right,available.bottom-insets.bottom);
-      }
-      window.setLayout(available.width(), Math.max(1, available.height() - dp(16)));
+      Runnable resize=()->{
+        android.graphics.Rect available=pickerBounds();
+        int height=Math.max(1,available.height()-dp(16));
+        if(window.getAttributes().width!=available.width()||window.getAttributes().height!=height)
+          window.setLayout(available.width(),height);
+      };
+      body.setOnApplyWindowInsetsListener((view,insets)->{resize.run();return insets;});
+      body.getViewTreeObserver().addOnGlobalLayoutListener(resize::run);
+      resize.run();body.requestApplyInsets();
     }
     return dialog;
   }
+
+    private android.graphics.Rect pickerBounds(){
+        android.graphics.Rect available=new android.graphics.Rect();
+        activity.getWindow().getDecorView().getWindowVisibleDisplayFrame(available);
+        if(android.os.Build.VERSION.SDK_INT>=30){
+            // Activity metrics describe the available display independently of this dialog's
+            // current height. Reading the dialog's overlap would cause resize oscillation.
+            android.view.WindowMetrics metrics=activity.getWindowManager().getCurrentWindowMetrics();
+            available.set(metrics.getBounds());
+            android.graphics.Insets insets=metrics.getWindowInsets().getInsets(
+                android.view.WindowInsets.Type.systemBars()|android.view.WindowInsets.Type.displayCutout()|android.view.WindowInsets.Type.ime());
+            available.set(available.left+insets.left,available.top+insets.top,available.right-insets.right,available.bottom-insets.bottom);
+        }
+        return available;
+    }
 
     public void note(LinearLayout body,String value){TextView t=label(value,13,false);t.setTextColor(muted);
         t.setPadding(0,dp(3),0,dp(16));body.addView(t);}

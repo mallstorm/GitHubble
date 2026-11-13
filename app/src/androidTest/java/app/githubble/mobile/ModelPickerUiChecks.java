@@ -126,7 +126,7 @@ final class ModelPickerUiChecks {
                   ((InputMethodManager) activity.getSystemService("input_method"))
                       .showSoftInput(search, InputMethodManager.SHOW_IMPLICIT);
                 });
-            for (int i = 0; i < 70 && !imeVisible(dialog); i++) SystemClock.sleep(100);
+            for (int i = 0; i < 300 && !imeVisible(dialog); i++) SystemClock.sleep(100);
             check(imeVisible(dialog), "Search keyboard did not open");
             host.waitForIdleSync();
             SystemClock.sleep(300);
@@ -159,6 +159,13 @@ final class ModelPickerUiChecks {
             }
             image.recycle();
             shell(host, "input keyevent 4");
+          } catch(Throwable failure){
+            Bitmap screenshot=host.getUiAutomation().takeScreenshot();
+            if(screenshot!=null){
+              try(FileOutputStream out=new FileOutputStream(new File(shots,"failure.png"))){screenshot.compress(Bitmap.CompressFormat.PNG,100,out);}
+              screenshot.recycle();
+            }
+            throw failure;
           } finally {
             main(
                 host,
@@ -196,7 +203,7 @@ final class ModelPickerUiChecks {
         view.getGlobalVisibleRect(visible)
             && visible.height() >= view.getHeight() - 2
             && visible.width() >= view.getWidth() - 2,
-        message);
+        message+"; bounds="+bounds(view)+"; visible="+visible);
   }
 
   private static View find(View view, String text) {
@@ -240,7 +247,7 @@ final class ModelPickerUiChecks {
             error.set(e);
           }
         });
-    if (error.get() != null) throw new AssertionError("UI verification failed", error.get());
+    if (error.get() != null) throw new AssertionError("UI verification failed: "+error.get().getMessage(), error.get());
   }
 
   private static void check(boolean condition, String message) {

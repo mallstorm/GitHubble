@@ -63,7 +63,9 @@ class AgentProtocolNegotiatorTest {
                 if (wire == ApiGateway.RESPONSES) MockResponse().setResponseCode(400).setBody("{\"error\":{\"message\":\"responses unsupported\"}}")
                 else if (body.getJSONArray("tools").getJSONObject(0).getJSONObject("function").getString("name") == "hubble_capability_probe") probeReply(body, wire, messages)
                 else {
-                    val results = (0 until messages.length()).map { messages.getJSONObject(it) }.filter { it.optString("role") == "tool" }
+                    val conversation=(0 until messages.length()).map { messages.getJSONObject(it) }
+                    assertEquals("user",conversation.first { it.optString("role")!="system" }.getString("role"))
+                    val results = conversation.filter { it.optString("role") == "tool" }
                     if (results.isEmpty()) reply(wire, JSONArray()
                         .put(call("hubble_action", JSONObject().put("name", "read_file").put("args", JSONObject().put("path", "README.md")), 0))
                         .put(call("hubble_action", JSONObject().put("name", "repository_info").put("args", JSONObject()), 1)))

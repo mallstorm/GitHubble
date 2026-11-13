@@ -1842,7 +1842,10 @@ class ApiGateway private constructor(private val context: Context?, private val 
      */
     suspend fun responsesAgentTurn(
         provider: ProviderEntity, key: String, history: List<MessageEntity>, extraItems: JSONArray, tools: JSONArray
-    ): NativeAgentTurn = openAiAgentTurn(provider, key, history, extraItems, tools)
+    ): NativeAgentTurn {
+        require(provider.protocol == RESPONSES) { "Responses tool calling requires Responses API" }
+        return openAiAgentTurn(provider, key, history, extraItems, tools)
+    }
 
     private fun attachments(message: MessageEntity): List<LocalAttachment> = LocalAttachment.fromJson(message.attachmentsJson)
 

@@ -22,6 +22,7 @@ internal class NativeOpenAiAgentCompletion(
     private var protocol: String? = null
     private var pending: ApiGateway.NativeAgentTurn? = null
     private var continuation = JSONArray()
+    private var previousPrompt = ""
     private val tools = JSONArray().put(JSONObject().put("type", "function").put("strict", false).put("name", "hubble_action")
         .put("description", "Execute one advertised host tool. Use only names and argument shapes in CURRENT HOST CAPABILITIES. The Android host enforces access and asks for approval when needed.")
         .put("parameters", JSONObject().put("type", "object").put("properties", JSONObject()
@@ -36,6 +37,7 @@ internal class NativeOpenAiAgentCompletion(
         }.also { protocol = it }
         // The broker supplies verified results and current grants on every round. Replay the native
         // call/result pair as well, so compatible APIs receive their required tool_call_id/call_id.
+        previousPrompt = instructions
         continuation.put(JSONObject().put("role", "user").put("content", instructions))
         val entity = provider.copy(protocol = wire, systemPrompt = "You are Hubble Agent. Plan autonomously. Answer in the user's language. " +
             "For tool execution use only the native hubble_action function, never a JSON tool request in text. " +
@@ -67,6 +69,9 @@ internal class NativeOpenAiAgentCompletion(
     override fun toolResults(results: JSONArray) {
         val turn = pending ?: return
         val wire = checkNotNull(protocol)
+        // Keep the originating user turn: several compatible APIs reject conversations
+        // beginning with an assistant function call even when its result is supplied.
+        continuation.put(JSONObject().put("role", "user").put("content", previousPrompt))
         AgentProtocolNegotiator.appendAssistant(wire, continuation, turn)
         for (call in turn.calls) {
             val name = call.arguments.getString("name")
