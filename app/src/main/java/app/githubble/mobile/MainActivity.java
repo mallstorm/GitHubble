@@ -1900,7 +1900,7 @@ public class MainActivity extends Activity {
         catalog.addView(introduction);
         EditText search=new EditText(this);search.setSingleLine(true);search.setHint("Поиск моделей и подключений");
         search.setTextColor(ui.text);search.setHintTextColor(ui.muted);search.setTextSize(14);body.addView(search);
-        final String[] filter={"Все"};LinearLayout filters=ui.row();
+        final String[] filter={"Все"};LinearLayout filters=ui.row();filters.setBaselineAligned(false);
         LinearLayout list=ui.column();catalog.addView(list);
         ScrollView models=new ScrollView(this);models.setFillViewport(false);models.setVerticalScrollBarEnabled(false);
         final Runnable[] refresh={null};
@@ -1932,7 +1932,8 @@ public class MainActivity extends Activity {
                 chip.setText((value.equals(scope)?"✓  ":"")+value);chip.setBackground(ui.shape(value.equals(scope)?(ui.dark?0xFF515963:0xFFE9EFF3):Color.TRANSPARENT,9,value.equals(scope)?0:ui.line));}
             refresh[0].run();});
         HorizontalScrollView priceScroll=new HorizontalScrollView(this);priceScroll.setHorizontalScrollBarEnabled(false);priceScroll.addView(filters);
-        body.addView(priceScroll,new LinearLayout.LayoutParams(-1,-2));
+        LinearLayout.LayoutParams filterSpacing=new LinearLayout.LayoutParams(-1,-2);filterSpacing.bottomMargin=ui.dp(8);
+        body.addView(priceScroll,filterSpacing);
         ui.action(catalog,"Обновить список моделей","Загрузить каталог выбранного API-подключения",0xFF2863B8,()->{
             dialog[0].dismiss();agentDiscoverAiModels(owner);});
         models.addView(catalog);body.addView(models,new LinearLayout.LayoutParams(-1,0,1));refresh[0].run();

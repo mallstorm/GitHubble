@@ -158,9 +158,9 @@ public final class GitAgentUi {
     }
     public TextView chip(LinearLayout row,String title,boolean selected,Runnable action){
         TextView t=label((selected?"✓  ":"")+title,14,true);t.setGravity(Gravity.CENTER);
-        t.setPadding(dp(12),dp(9),dp(12),dp(9));t.setTextColor(primary);
+        t.setPadding(dp(12),dp(9),dp(12),dp(9));t.setMinHeight(dp(48));t.setTextColor(primary);
         t.setBackground(shape(selected?(dark?0xFF515963:0xFFE9EFF3):Color.TRANSPARENT,9,selected?0:line));
-        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-2,-2);lp.rightMargin=dp(8);lp.bottomMargin=dp(8);
+        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-2,-2);lp.rightMargin=dp(8);
         row.addView(t,lp);t.setOnClickListener(v->action.run());return t;
     }
     public TextView modeChip(LinearLayout row,String title,boolean selected,boolean available,Runnable action){
