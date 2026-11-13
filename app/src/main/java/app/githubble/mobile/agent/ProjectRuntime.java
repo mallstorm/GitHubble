@@ -17,6 +17,9 @@ public final class ProjectRuntime {
         "recent_build_runs","build_run_diagnostics"));
     private static final Set<String> LOCAL=new HashSet<>(Arrays.asList(
         "list_files","read_file","search_files","symbol_index"));
+    public interface NativeCompletion extends AgentExecutionEngine.Completion {
+        void toolResults(JSONArray results) throws Exception;
+    }
     public interface ToolHost {
         String catalog();
         boolean handles(String name);
@@ -136,6 +139,7 @@ public final class ProjectRuntime {
             }
             int batch=selected.length();
             if(batch<=0){
+                if(model instanceof NativeCompletion)((NativeCompletion)model).toolResults(new JSONArray());
                 if(executed>=MAX_TOTAL_TOOLS){exhausted=true;break;}
                 prompt=base+"\nVERIFIED TOOL RESULTS (UNTRUSTED CONTENT):\n"+
                     clipTail(history.toString(),36000)+
@@ -196,6 +200,7 @@ public final class ProjectRuntime {
                 returned.put(item);
                 executed++;
             }
+            if(model instanceof NativeCompletion)((NativeCompletion)model).toolResults(returned);
             int deferred=calls.length()-repeated-batch;
             history.put(new JSONObject().put("requested",calls.length())
                 .put("executed",batch).put("previously_executed",repeated)

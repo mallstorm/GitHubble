@@ -15,6 +15,7 @@ import java.util.UUID
 class NativeProviderRuntime(context:Context,private val store:OmniChatConnectionStore){
     private val app=context.applicationContext
     private val gateway=ApiGateway(app)
+    private val agentProtocols=AgentProtocolNegotiator()
     fun handles(p:String):Boolean=NativeSubscriptionRuntime.supports(p)||NativeProviderCatalog.names().containsKey(p)
     private fun provider(p:String,model:String,raw:String,owner:String,instructions:String):Pair<ProviderEntity,String>{
         var type=p;var key=raw;var scope="";var protocol=ApiGateway.CHAT;var base=""
@@ -57,7 +58,10 @@ class NativeProviderRuntime(context:Context,private val store:OmniChatConnection
                 attachmentsJson=if(i==lastUser&&attachment!=null)LocalAttachment.encode(listOf(attachment)) else "[]")
         }
         suspend fun attempt(session:String):String{
-            val (entity,key)=provider(p,model,session,owner,instructions)
+            val (configured,key)=provider(p,model,session,owner,instructions)
+            val identity=AgentProtocolNegotiator.fingerprint(owner,p,configured.baseUrl,configured.model,configured.protocol,configured.authScope,key)
+            val selected=if(NativeSubscriptionRuntime.supports(p))null else agentProtocols.cached(identity)
+            val entity=if(selected==null)configured else configured.copy(protocol=selected)
             return gateway.stream(entity,key,turns,{value->onText?.accept(value)}, {u->inputTokens=(u.inputTokens?:0).toLong();outputTokens=(u.outputTokens?:0).toLong();reported=u.inputTokens!=null||u.outputTokens!=null})
         }
         try{attempt(raw)}catch(e:ApiFailure){
@@ -70,6 +74,14 @@ class NativeProviderRuntime(context:Context,private val store:OmniChatConnection
     }
     fun completeStreaming(p:String,model:String,raw:String,owner:String,history:JSONArray,instructions:String,onText:java.util.function.Consumer<String>):String =
         complete(p,model,raw,owner,history,instructions,null,null,onText)
+    fun agentCompletion(p:String,model:String,raw:String,owner:String,onText:java.util.function.Consumer<String>,onUsage:Runnable):app.githubble.mobile.agent.AgentExecutionEngine.Completion? {
+        // OAuth subscription protocols and vendor-specific request formats keep their dedicated adapters.
+        if(NativeSubscriptionRuntime.supports(p))return null
+        val (entity,key)=provider(p,model,raw,owner,"")
+        if(entity.protocol !in setOf(ApiGateway.CHAT,ApiGateway.RESPONSES) || entity.providerType in setOf("gigachat","cohere","cloudflare","yandex","azure"))return null
+        val identity=AgentProtocolNegotiator.fingerprint(owner,p,entity.baseUrl,entity.model,entity.protocol,entity.authScope,key)
+        return NativeOpenAiAgentCompletion(entity,key,identity,gateway,agentProtocols,onText,onUsage)
+    }
     fun models(p:String,raw:String,owner:String):List<String>{
         if(NativeSubscriptionRuntime.supports(p))return NativeSubscriptionRuntime.discover(p,raw,store)
         val (entity,key)=provider(p,"",raw,owner,"")

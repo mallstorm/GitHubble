@@ -147,7 +147,7 @@ public final class AgentChatScreen {
         transcript=new LinearLayout(activity);transcript.setOrientation(LinearLayout.VERTICAL);transcript.setPadding(dp(12),dp(13),dp(12),dp(14));
         transcriptScroll.addView(transcript);root.addView(transcriptScroll,new LinearLayout.LayoutParams(-1,0,1));
         newActions=label("Новые действия ↓",11,true,accent);newActions.setGravity(Gravity.CENTER);newActions.setMinHeight(dp(40));newActions.setVisibility(View.GONE);
-        newActions.setOnClickListener(v->{transcriptScroll.fullScroll(View.FOCUS_DOWN);newActions.setVisibility(View.GONE);});root.addView(newActions);
+        newActions.setOnClickListener(v->{scrollTranscriptToBottom();newActions.setVisibility(View.GONE);});root.addView(newActions);
         if(messages==null||messages.length()==0)empty(transcript,project,connected);
 
         LinearLayout dock=new LinearLayout(activity);
@@ -377,6 +377,10 @@ public final class AgentChatScreen {
     }
 
     public void syncDraft(String value){if(inputField!=null&&!inputField.getText().toString().equals(value)){inputField.setText(value);inputField.setSelection(inputField.length());}}
+    private void scrollTranscriptToBottom(){
+        // ScrollView.fullScroll also moves focus, which can pan the window and hide card tops.
+        transcriptScroll.scrollTo(0,Math.max(0,transcript.getHeight()-transcriptScroll.getHeight()));
+    }
     public boolean attached(){return root.isAttachedToWindow()&&transcriptScroll!=null;}
     public void refresh(JSONArray messages,boolean busy){
         requestBusy=busy;
@@ -428,7 +432,7 @@ public final class AgentChatScreen {
             if(streamed==null){streamed=new LinearLayout(activity);streamed.setOrientation(LinearLayout.VERTICAL);streamed.setPadding(dp(5),dp(12),dp(5),dp(8));transcript.addView(streamed);}
             if(!preview.equals(lastPreview)){streamed.removeAllViews();new AgentMarkdownView(activity,text,muted,accent,subtle,border).render(streamed,preview);lastPreview=preview;}
         }else if(streamed!=null){transcript.removeView(streamed);streamed=null;lastPreview="";}
-        transcriptScroll.post(()->{if(bottom){transcriptScroll.fullScroll(View.FOCUS_DOWN);newActions.setVisibility(View.GONE);}else{transcriptScroll.scrollTo(0,oldY);newActions.setVisibility(View.VISIBLE);}});
+        transcriptScroll.post(()->{if(bottom){scrollTranscriptToBottom();newActions.setVisibility(View.GONE);}else{transcriptScroll.scrollTo(0,oldY);newActions.setVisibility(View.VISIBLE);}});
     }
 
     private LinearLayout horizontal(){
