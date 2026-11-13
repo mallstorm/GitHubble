@@ -61,31 +61,7 @@ jobs:
           disk-size: 2048M
           emulator-boot-timeout: 180
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -feature -Vulkan
-          script: |
-            adb install -r app/build/outputs/apk/debug/app-debug.apk
-            adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
-            adb shell svc power stayon true
-            adb shell settings put system screen_off_timeout 2147483647
-            adb shell input keyevent 224
-            adb shell wm dismiss-keyguard
-            if [ "$UI_SUITE" = 'agent-model-picker' ]; then
-              mkdir -p redesign-ui
-              timeout -k 10s 240s adb shell am instrument -w -e model_picker_only true app.githubble.mobile.debug.test/app.githubble.mobile.AgentChatUiInstrumentation > redesign-ui/model-picker-result.txt || true
-              cat redesign-ui/model-picker-result.txt
-              adb pull /sdcard/Android/data/app.githubble.mobile.debug/files/model-picker-ui/. redesign-ui/ || true
-              grep -q 'PASS: 12 model-picker' redesign-ui/model-picker-result.txt
-              timeout -k 10s 240s adb shell am instrument -w app.githubble.mobile.debug.test/app.githubble.mobile.AgentChatUiInstrumentation > redesign-ui/agent-chat-result.txt || true
-              cat redesign-ui/agent-chat-result.txt
-              adb pull /sdcard/Android/data/app.githubble.mobile.debug/files/agent-ui/. redesign-ui/ || true
-              grep -q 'PASS: agent chat UI' redesign-ui/agent-chat-result.txt
-              exit 0
-            fi
-            timeout -k 10s 240s adb shell am instrument -w app.githubble.mobile.debug.test/app.githubble.mobile.RedesignUiInstrumentation > redesign-result.txt || true
-            cat redesign-result.txt
-            mkdir -p redesign-ui
-            adb pull /sdcard/Android/data/app.githubble.mobile.debug/files/redesign-ui/. redesign-ui/ || true
-            cat redesign-ui/audit.txt || true
-            grep -q 'PASS: redesign UI' redesign-result.txt
+          script: bash tools/run-ui-review.sh
       - uses: actions/upload-artifact@v4
         if: always()
         with:
