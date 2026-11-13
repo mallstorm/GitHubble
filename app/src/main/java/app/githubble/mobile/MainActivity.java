@@ -1881,15 +1881,12 @@ public class MainActivity extends Activity {
         aiActiveFutures.put(owner,future);
     }
 
-    private void agentChooseComposerModel(String owner) {
-        if (!owner.equals(accountStore.activeCacheKey())) return;
-        GitAgentUi ui=new GitAgentUi(this,BG,CARD,TEXT,MUTED,GREEN,BORDER);LinearLayout body=ui.body("Выбор модели",true);
+    private Dialog agentChooseComposerModel(String owner) {
+        if (!owner.equals(accountStore.activeCacheKey())) return null;
+        GitAgentUi ui=new GitAgentUi(this,BG,CARD,TEXT,MUTED,GREEN,BORDER);
+        LinearLayout body=ui.body("Выбор модели",true);
         final Dialog[] dialog={null};
-        ui.note(body,"Выберите модель или добавьте подключение. Для AI вход в GitHub не нужен.");
-        boolean any=false;
-        for(String id:OmniChatConnectionStore.supported().keySet())
-            if(aiConnections.isConfigured(owner,id))any=true;
-        ui.note(body,any?"Выберите подключённую модель":"Подключений пока нет. Выберите способ подключения.");
+        LinearLayout catalog=ui.column();
         LinearLayout onboarding=ui.row();
         ui.tile(onboarding,"Добавить API",R.drawable.ic_agent_link,0xFF2863B8,()->{
             dialog[0].dismiss();agentConfigureAiProvider(owner);});
@@ -1897,49 +1894,57 @@ public class MainActivity extends Activity {
                 ()->{dialog[0].dismiss();agentShowSubscriptions(owner,false);});
         ui.tile(onboarding,"Subscription proxy",R.drawable.ic_agent_public,0xFF14846C,
                 ()->{dialog[0].dismiss();agentShowSubscriptions(owner,true);});
-        body.addView(onboarding,new LinearLayout.LayoutParams(-1,ui.dp(112)));
-        if(any){
-            EditText search=new EditText(this);search.setSingleLine(true);search.setHint("Поиск моделей и подключений");
-            search.setTextColor(ui.text);search.setHintTextColor(ui.muted);search.setTextSize(14);body.addView(search);
-            final String[] filter={"Все"};LinearLayout filters=ui.row();
-            LinearLayout list=ui.column();final Runnable[] refresh={null};
-            refresh[0]=()->{
-                list.removeAllViews();String query=search.getText().toString().trim().toLowerCase(Locale.ROOT);
-                for(String provider:OmniChatConnectionStore.supported().keySet()){
-                    if(!aiConnections.isConfigured(owner,provider))continue;
-                    boolean subscription=OAuthSubscriptions.supports(provider)||provider.startsWith("proxy-");
-                    if("Подписки".equals(filter[0])&&!subscription || "API".equals(filter[0])&&subscription)continue;
-                    for(String model:aiConnections.models(owner,provider)){
-                        String category=aiConnections.modelGroup(owner,provider,model);
-                        if(java.util.Arrays.asList("Free","Pass","Billing").contains(filter[0])&&!filter[0].equals(category))continue;
-                        String label=aiConnections.displayName(provider)+" · "+model;
-                        if(!query.isEmpty()&&!label.toLowerCase(Locale.ROOT).contains(query))continue;
-                        boolean selected=provider.equals(aiConnections.selectedProvider(owner))
-                                &&model.equals(aiConnections.model(owner,provider));
-                        ui.action(list,(selected?"✓  ":"")+model,aiConnections.displayName(provider)+(category.isEmpty()?"":" · "+category),0xFF435B69,()->{
-                            if(!owner.equals(accountStore.activeCacheKey()))return;
-                            aiConnections.save(owner,provider,model,"");
-                            dialog[0].dismiss();agentRefreshIfCurrent(owner);
-                        });
-                    }
+        LinearLayout introduction=ui.column();
+        introduction.addView(onboarding,new LinearLayout.LayoutParams(-1,-2));
+        ui.note(introduction,"Добавьте подключение или выберите модель. Для AI вход в GitHub не нужен.");
+        catalog.addView(introduction);
+        EditText search=new EditText(this);search.setSingleLine(true);search.setHint("Поиск моделей и подключений");
+        search.setTextColor(ui.text);search.setHintTextColor(ui.muted);search.setTextSize(14);body.addView(search);
+        final String[] filter={"Все"};LinearLayout filters=ui.row();filters.setBaselineAligned(false);
+        LinearLayout list=ui.column();catalog.addView(list);
+        ScrollView models=new ScrollView(this);models.setFillViewport(false);models.setVerticalScrollBarEnabled(false);
+        final Runnable[] refresh={null};
+        refresh[0]=()->{
+            list.removeAllViews();String query=search.getText().toString().trim().toLowerCase(Locale.ROOT);
+            introduction.setVisibility(!search.hasFocus()&&query.isEmpty()&&"Все".equals(filter[0])?View.VISIBLE:View.GONE);
+            for(String provider:OmniChatConnectionStore.supported().keySet()){
+                if(!aiConnections.isConfigured(owner,provider))continue;
+                boolean subscription=OAuthSubscriptions.supports(provider)||provider.startsWith("proxy-");
+                if("Подписки".equals(filter[0])&&!subscription || "API".equals(filter[0])&&subscription)continue;
+                for(String model:aiConnections.models(owner,provider)){
+                    String category=aiConnections.modelGroup(owner,provider,model);
+                    if(java.util.Arrays.asList("Free","Pass","Billing").contains(filter[0])&&!filter[0].equals(category))continue;
+                    String label=aiConnections.displayName(provider)+" · "+model;
+                    if(!query.isEmpty()&&!label.toLowerCase(Locale.ROOT).contains(query))continue;
+                    boolean selected=provider.equals(aiConnections.selectedProvider(owner))&&model.equals(aiConnections.model(owner,provider));
+                    ui.action(list,(selected?"✓  ":"")+model,aiConnections.displayName(provider)+(category.isEmpty()?"":" · "+category),0xFF435B69,()->{
+                        if(!owner.equals(accountStore.activeCacheKey()))return;
+                        aiConnections.save(owner,provider,model,"");dialog[0].dismiss();agentRefreshIfCurrent(owner);
+                    });
                 }
-                if(list.getChildCount()==0)ui.note(list,"Модели не найдены");
-            };
-            for(String scope:new String[]{"Все","API","Подписки","Free","Pass","Billing"})ui.chip(filters,scope,scope.equals(filter[0]),()->{
-                filter[0]=scope;for(int i=0;i<filters.getChildCount();i++){
-                    TextView chip=(TextView)filters.getChildAt(i);String value=new String[]{"Все","API","Подписки","Free","Pass","Billing"}[i];
-                    chip.setText((value.equals(scope)?"✓  ":"")+value);chip.setBackground(ui.shape(value.equals(scope)?(ui.dark?0xFF515963:0xFFE9EFF3):Color.TRANSPARENT,9,value.equals(scope)?0:ui.line));}
-                refresh[0].run();});
-            HorizontalScrollView priceScroll=new HorizontalScrollView(this);priceScroll.setHorizontalScrollBarEnabled(false);priceScroll.addView(filters);body.addView(priceScroll);body.addView(list);refresh[0].run();
-            search.addTextChangedListener(new android.text.TextWatcher(){
-                public void beforeTextChanged(CharSequence s,int st,int count,int after){}
-                public void onTextChanged(CharSequence s,int st,int before,int count){refresh[0].run();}
-                public void afterTextChanged(android.text.Editable s){}
-            });
-        }else ui.note(body,"После подключения здесь появятся модели с поиском и фильтрами.");
-        ui.action(body,"Обновить список моделей","Загрузить каталог выбранного API-подключения",0xFF2863B8,()->{
+            }
+            if(list.getChildCount()==0)ui.note(list,"Модели не найдены");
+            models.scrollTo(0,0);
+        };
+        for(String scope:new String[]{"Все","API","Подписки","Free","Pass","Billing"})ui.chip(filters,scope,scope.equals(filter[0]),()->{
+            filter[0]=scope;for(int i=0;i<filters.getChildCount();i++){
+                TextView chip=(TextView)filters.getChildAt(i);String value=new String[]{"Все","API","Подписки","Free","Pass","Billing"}[i];
+                chip.setText((value.equals(scope)?"✓  ":"")+value);chip.setBackground(ui.shape(value.equals(scope)?(ui.dark?0xFF515963:0xFFE9EFF3):Color.TRANSPARENT,9,value.equals(scope)?0:ui.line));}
+            refresh[0].run();});
+        HorizontalScrollView priceScroll=new HorizontalScrollView(this);priceScroll.setHorizontalScrollBarEnabled(false);priceScroll.addView(filters);
+        LinearLayout.LayoutParams filterSpacing=new LinearLayout.LayoutParams(-1,-2);filterSpacing.bottomMargin=ui.dp(8);
+        body.addView(priceScroll,filterSpacing);
+        ui.action(catalog,"Обновить список моделей","Загрузить каталог выбранного API-подключения",0xFF2863B8,()->{
             dialog[0].dismiss();agentDiscoverAiModels(owner);});
-        dialog[0]=ui.present(body,true);
+        models.addView(catalog);body.addView(models,new LinearLayout.LayoutParams(-1,0,1));refresh[0].run();
+        search.addTextChangedListener(new android.text.TextWatcher(){
+            public void beforeTextChanged(CharSequence s,int st,int count,int after){}
+            public void onTextChanged(CharSequence s,int st,int before,int count){refresh[0].run();}
+            public void afterTextChanged(android.text.Editable s){}
+        });
+        search.setOnFocusChangeListener((view,focused)->refresh[0].run());
+        dialog[0]=ui.presentPicker(body);
+        return dialog[0];
     }
 
     private Uri agentCameraUri;
@@ -2123,7 +2128,7 @@ public class MainActivity extends Activity {
         ui.tile(quick,"Фото",R.drawable.ic_agent_photo,0xFF347EE2,()->{dialog[0].dismiss();agentPickImageAttachment(owner,false);});
         ui.tile(quick,"Файлы",R.drawable.ic_agent_attach,0xFFE5A126,()->{dialog[0].dismiss();agentPickTextAttachment(owner);});
         ui.tile(quick,"Сканировать текст",R.drawable.ic_agent_scan,0xFF8E59DE,()->{dialog[0].dismiss();new AlertDialog.Builder(this).setTitle("Источник текста").setItems(new String[]{"Камера","Галерея"},(d,n)->{if(n==0)agentCaptureImage(owner,true);else agentPickImageAttachment(owner,true);}).show();});
-        body.addView(quick,new LinearLayout.LayoutParams(-1,ui.dp(106)));
+        body.addView(quick,new LinearLayout.LayoutParams(-1,-2));
         ui.section(body,"Инструменты с изображениями");
         ui.note(body,"Фото, вопросы и OCR используют мультимодальный протокол выбранного подключения. Изображение отправляется после подтверждения и отправки. Генерация зависит от модели и тарифа провайдера.");
         String[] titles={"Анализ фотографии","Вопрос по изображению","Создание изображения","Веб-поиск","Плагины"};
@@ -2499,14 +2504,16 @@ public class MainActivity extends Activity {
                         agentProjects,expected,activeChat,activeProject,allowGithub,allowFiles,planning,
                         ()->agentPermission(expected),scopeGuard,()->agentRefreshIfCurrent(expected)).withRun(run);
                     if(toolMode){
-                        response=app.githubble.mobile.agent.ProjectRuntime.analyze(instructions->{
+                        response=app.githubble.mobile.agent.ProjectRuntime.analyze(aiChatClient.agentCompletionForAccount(
+                            expected,provider,model,credential,run::preview,
+                            ()->aiUsage.record(expected,provider,model,OmniChatChatClient.takeUsage()),instructions->{
                             JSONArray prompt=new JSONArray().put(
                                 new JSONObject().put("role","user").put("body",instructions));
                             String result=aiChatClient.completeStreamingForAccount(expected,provider,model,credential,
                                 prompt,"Native Hubble Agent tool execution",allowGithub?activeProject.repository:"",run::preview);
                             aiUsage.record(expected,provider,model,OmniChatChatClient.takeUsage());
                             return result;
-                        },aiGithub,agentWorkspaces,expected,activeProject.repository,
+                        }),aiGithub,agentWorkspaces,expected,activeProject.repository,
                             activeProject.branch,activeProject.workspaceId,message,context,
                             allowGithub,allowFiles,
                             scopeGuard,tools,new app.githubble.mobile.agent.ProjectRuntime.Listener(){

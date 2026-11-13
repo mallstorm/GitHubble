@@ -35,6 +35,22 @@ public final class OmniChatChatClient {
             "Вы Git Agent. Планируйте шаги самостоятельно. Отвечайте на языке пользователя. Не заявляйте выполнение без инструментального результата.\n"+project+"\n"+repository,onText);
         return completeInternal(provider,model,credential,transcript,project,repository,null,null,onText);
     }
+  public AgentExecutionEngine.Completion agentCompletionForAccount(
+      String owner,
+      String provider,
+      String model,
+      String credential,
+      java.util.function.Consumer<String> onText,
+      Runnable onUsage,
+      AgentExecutionEngine.Completion fallback) {
+    if (nativeRuntime != null && nativeRuntime.handles(provider)) {
+      AgentExecutionEngine.Completion nativeCompletion =
+          nativeRuntime.agentCompletion(provider, model, credential, owner, onText, onUsage);
+      if (nativeCompletion != null) return nativeCompletion;
+    }
+    return fallback;
+  }
+
     public String completeWithImageForAccount(String owner,String provider,String model,String credential,JSONArray transcript,String project,String repository,String mime,byte[] image)throws Exception{
         LAST_USAGE.remove();
         if(nativeRuntime!=null&&nativeRuntime.handles(provider))return nativeRuntime.complete(provider,model,credential,owner,transcript,project+"\n"+repository,mime,image);

@@ -24,9 +24,12 @@ import org.json.JSONObject;
 
 /** Credential-free Android integration and screenshots of the actual production chat components. */
 public final class AgentChatUiInstrumentation extends Instrumentation {
+  private boolean modelPickerOnly;
+
   @Override
   public void onCreate(Bundle args) {
     super.onCreate(args);
+    modelPickerOnly = args != null && "true".equals(args.getString("model_picker_only"));
     start();
   }
 
@@ -36,6 +39,14 @@ public final class AgentChatUiInstrumentation extends Instrumentation {
     int status = 0;
     AgentChatPreviewActivity app = null;
     try {
+      if (modelPickerOnly) {
+        ModelPickerUiChecks.run(this);
+        result.putString(
+            "result",
+            "PASS: 12 model-picker theme/display/font combinations with keyboard and filters");
+        finish(0, result);
+        return;
+      }
       if (!new app.githubble.mobile.security.SecureStore(getTargetContext())
           .get("github_token")
           .isEmpty()) throw new AssertionError("Clean test profile required");

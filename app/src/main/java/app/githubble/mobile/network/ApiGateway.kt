@@ -45,8 +45,12 @@ data class UsageSnapshot(val inputTokens: Long?, val outputTokens: Long?)
 data class CloudflareAccount(val id: String, val name: String)
 
 /** HTTP transport and wire-protocol adapters. Never follows redirects carrying user API keys. */
-class ApiGateway(private val context: Context) {
-    private val client = OkHttpClient.Builder()
+class ApiGateway private constructor(private val context: Context?, private val client: OkHttpClient) {
+    constructor(context: Context) : this(context, Transport.defaultClient())
+    internal constructor(client: OkHttpClient) : this(null, client)
+
+    private object Transport {
+        fun defaultClient() = OkHttpClient.Builder()
         .dns(NetworkDnsPolicy.dns()).proxySelector(InAppVlessRouter.proxySelector())
         .addInterceptor(NetworkDnsPolicy.feedbackInterceptor())
         .connectTimeout(20, TimeUnit.SECONDS)
@@ -54,8 +58,9 @@ class ApiGateway(private val context: Context) {
         .readTimeout(90, TimeUnit.SECONDS)
         .callTimeout(10, TimeUnit.MINUTES)
         .followRedirects(false).followSslRedirects(false).build()
+    }
     private val jsonType = "application/json; charset=utf-8".toMediaType()
-    private val gigaAuth = GigaChatAuth()
+    private val gigaAuth by lazy { GigaChatAuth() }
     private val gigaUploadedFiles = ConcurrentHashMap<String, String>()
 
     companion object {
@@ -147,7 +152,7 @@ class ApiGateway(private val context: Context) {
         fun endpoint(base: String, protocol: String, vararg segments: String): HttpUrl {
             val url = base.trim().trimEnd('/').toHttpUrlOrNull() ?: throw ApiFailure("Некорректный адрес API")
             val allowLocalHttp = protocol == OLLAMA ||
-                (protocol == CHAT && url.encodedPath.trimEnd('/').endsWith("/v1"))
+                (protocol in setOf(CHAT, RESPONSES) && url.encodedPath.trimEnd('/').endsWith("/v1"))
             NetworkEndpointPolicy.requireApiUrl(url, allowLocalHttp = allowLocalHttp)
             val suffix = when (protocol) {
                 CHAT -> "/chat/completions"
@@ -157,8 +162,11 @@ class ApiGateway(private val context: Context) {
                 else -> ""
             }
             val builder = url.newBuilder()
-            if (suffix.isNotEmpty() && url.encodedPath.endsWith(suffix)) {
-                repeat(suffix.count { it == '/' }) { builder.removePathSegment(builder.build().pathSize - 1) }
+            val existingSuffix = if (protocol in setOf(CHAT, RESPONSES))
+                listOf("/chat/completions", "/responses").firstOrNull { url.encodedPath.trimEnd('/').endsWith(it) }
+                else suffix.takeIf { it.isNotEmpty() && url.encodedPath.endsWith(it) }
+            if (existingSuffix != null) {
+                repeat(existingSuffix.count { it == '/' }) { builder.removePathSegment(builder.build().pathSize - 1) }
             } else if (protocol == OLLAMA && url.encodedPath.endsWith("/api")) {
                 builder.removePathSegment(builder.build().pathSize - 1)
             }
@@ -310,6 +318,9 @@ class ApiGateway(private val context: Context) {
         } catch (error: InterruptedIOException) {
             currentCoroutineContext().ensureActive()
             if (nvidiaHosted) throw ApiFailure(NvidiaNimClient.PUBLIC_ENDPOINTS_HINT)
+            throw error
+        } catch (error: IOException) {
+            currentCoroutineContext().ensureActive()
             throw error
         } finally { canceller.cancel() }
     }
@@ -476,7 +487,7 @@ class ApiGateway(private val context: Context) {
                 .put("type", "text")
                 .put("text", prompt.take(100_000))
         )
-        val attachmentRoot = File(context.filesDir, "attachments").canonicalFile
+        val attachmentRoot = File(requireNotNull(context).filesDir, "attachments").canonicalFile
         referenceImages
             .asSequence()
             .filter { it.mime.startsWith("image/", ignoreCase = true) }
@@ -945,7 +956,7 @@ class ApiGateway(private val context: Context) {
         val content = JSONArray()
             .put(JSONObject().put("type", "input_text").put("text", prompt.take(120_000)))
 
-        val root = File(context.filesDir, "attachments").canonicalFile
+        val root = File(requireNotNull(context).filesDir, "attachments").canonicalFile
         referenceImages
             .asSequence()
             .filter { it.mime in setOf("image/png", "image/jpeg", "image/webp") }
@@ -1053,7 +1064,7 @@ class ApiGateway(private val context: Context) {
         sceneHint: String = ""
     ): String = withContext(Dispatchers.IO) {
         require(provider.protocol == RESPONSES) { "Visual scene analysis requires Responses API" }
-        val root = File(context.filesDir, "attachments").canonicalFile
+        val root = File(requireNotNull(context).filesDir, "attachments").canonicalFile
         val file = runCatching { File(image.path).canonicalFile }.getOrNull()
             ?: throw ApiFailure("Изображение для анализа недоступно")
         require(file.isFile && file.path.startsWith(root.path + File.separator)) {
@@ -1683,6 +1694,40 @@ class ApiGateway(private val context: Context) {
         )
     }
 
+    /** Shared streaming native tool transport; also used by the protocol capability probe. */
+    suspend fun openAiAgentTurn(provider: ProviderEntity, key: String, history: List<MessageEntity>,
+        extraItems: JSONArray, tools: JSONArray, onText: (String) -> Unit = {}): NativeAgentTurn = withContext(Dispatchers.IO) {
+        require(provider.protocol in setOf(CHAT, RESPONSES))
+        val responses = provider.protocol == RESPONSES
+        val messages = openAiHistory(if (responses) "" else provider.systemPrompt, history, responses)
+        for (i in 0 until extraItems.length()) messages.put(extraItems.get(i))
+        val body = JSONObject().put("model", provider.model).put("stream", true)
+            .put("tools", if (responses) tools else chatCompletionTools(tools)).put("tool_choice", "auto")
+        if (responses) body.put("input", messages).put("store", false).put("instructions", provider.systemPrompt.ifBlank { "You are Hubble Agent." })
+        else body.put("messages", messages)
+        val req = request(endpoint(provider.baseUrl, provider.protocol, *if (responses) arrayOf("responses") else arrayOf("chat", "completions")),
+            key, provider.protocol, provider.providerType, provider.authScope, providerSessionId(provider, history))
+            .header("Accept", "text/event-stream").post(body.toString().toRequestBody(jsonType)).build()
+        val parser = OpenAiAgentStream(provider.protocol)
+        execute(req) { response ->
+            if (response.body?.contentType()?.let { it.type == "text" && it.subtype == "event-stream" } != true)
+                throw AgentCapabilityUnconfirmed("API не вернул поток text/event-stream")
+            val reader = response.body!!.charStream().buffered()
+            val decoder = SseDecoder()
+            fun accept(payload: String) {
+                parser.accept(payload)
+                if (parser.text.isNotEmpty()) onText(parser.text.toString())
+            }
+            while (!parser.done) {
+                currentCoroutineContext().ensureActive()
+                val line = reader.readLine() ?: break
+                decoder.feed(line)?.let(::accept)
+            }
+            if (!parser.done) decoder.flush()?.let(::accept)
+        }
+        parser.result()
+    }
+
     suspend fun nativeAgentTurn(provider: ProviderEntity, key: String, history: List<MessageEntity>,
                                 extraMessages: JSONArray, tools: JSONArray): NativeAgentTurn = withContext(Dispatchers.IO) {
         require(provider.protocol == CHAT) { "Tool calling currently requires Chat Completions" }
@@ -1796,124 +1841,10 @@ class ApiGateway(private val context: Context) {
      * the original call_id, matching the official Codex conversation protocol.
      */
     suspend fun responsesAgentTurn(
-        provider: ProviderEntity,
-        key: String,
-        history: List<MessageEntity>,
-        extraItems: JSONArray,
-        tools: JSONArray
-    ): NativeAgentTurn = withContext(Dispatchers.IO) {
+        provider: ProviderEntity, key: String, history: List<MessageEntity>, extraItems: JSONArray, tools: JSONArray
+    ): NativeAgentTurn {
         require(provider.protocol == RESPONSES) { "Responses tool calling requires Responses API" }
-        val input = openAiHistory("", history, true)
-        for (i in 0 until extraItems.length()) input.put(extraItems.get(i))
-        val body = JSONObject()
-            .put("model", provider.model)
-            .put("stream", true)
-            .put("store", false)
-            .put("instructions", provider.systemPrompt.ifBlank { "You are OmniChat, a helpful development assistant." })
-            .put("input", input)
-            .put("tools", tools)
-            .put("tool_choice", "auto")
-
-        var completed: JSONObject? = null
-        val outputItems = JSONArray()
-        val outputById = linkedMapOf<String, JSONObject>()
-        val calls = linkedMapOf<String, NativeToolCall>()
-        val text = StringBuilder()
-
-        fun rememberItem(item: JSONObject) {
-            val id = item.optString("id")
-            if (id.isNotBlank()) outputById[id] = item
-            else outputItems.put(item)
-        }
-
-        fun parseCall(item: JSONObject) {
-            if (item.optString("type") != "function_call") return
-            val callId = item.optString("call_id")
-            val name = item.optString("name")
-            val rawArgs = item.optString("arguments", "{}")
-            if (callId.isNotBlank() && name.isNotBlank()) {
-                val args = runCatching { JSONObject(rawArgs.ifBlank { "{}" }) }.getOrElse { JSONObject() }
-                calls[callId] = NativeToolCall(callId, name, args)
-            }
-        }
-
-        val req = request(endpoint(provider.baseUrl, RESPONSES, "responses"), key, RESPONSES,
-            provider.providerType, provider.authScope, providerSessionId(provider, history))
-            .header("Accept", "text/event-stream")
-            .post(body.toString().toRequestBody(jsonType)).build()
-
-        execute(req) { response ->
-            val reader = response.body?.charStream()?.buffered() ?: throw ApiFailure("Responses API вернул пустой поток")
-            val decoder = SseDecoder()
-            var done = false
-
-            fun handle(payload: String) {
-                if (payload == "[DONE]") { done = true; return }
-                val event = runCatching { JSONObject(payload) }.getOrNull() ?: return
-                when (event.optString("type")) {
-                    "response.output_text.delta" -> text.append(event.optString("delta", ""))
-                    "response.output_item.added", "response.output_item.done" -> {
-                        val item = event.optJSONObject("item") ?: return
-                        rememberItem(item)
-                        parseCall(item)
-                    }
-                    "response.completed" -> {
-                        completed = event.optJSONObject("response")
-                        done = true
-                    }
-                    "response.failed" -> {
-                        val failure = event.optJSONObject("response")?.optJSONObject("error")
-                        throw ApiFailure(failure?.optString("message").orEmpty()
-                            .ifBlank { "Responses API не смог завершить агентный ответ" })
-                    }
-                    "error" -> throw ApiFailure(streamErrorMessage(event))
-                }
-            }
-
-            while (!done) {
-                currentCoroutineContext().ensureActive()
-                val line = reader.readLine() ?: break
-                decoder.feed(line)?.let { handle(it) }
-            }
-            if (!done) decoder.flush()?.let { handle(it) }
-            if (!done) throw ApiFailure("Соединение Responses API оборвалось до окончания агентного ответа")
-        }
-
-        // The completed response is authoritative and contains fully assembled function arguments.
-        completed?.optJSONArray("output")?.let { output ->
-            outputById.clear()
-            while (outputItems.length() > 0) outputItems.remove(0)
-            for (i in 0 until output.length()) {
-                val item = output.optJSONObject(i) ?: continue
-                rememberItem(item)
-                parseCall(item)
-            }
-        }
-        outputById.values.forEach { outputItems.put(it) }
-
-        // Some servers emit final text only inside response.completed rather than delta events.
-        if (text.isEmpty()) {
-            for (i in 0 until outputItems.length()) {
-                val item = outputItems.optJSONObject(i) ?: continue
-                if (item.optString("type") != "message") continue
-                val content = item.optJSONArray("content") ?: continue
-                for (j in 0 until content.length()) {
-                    val part = content.optJSONObject(j) ?: continue
-                    if (part.optString("type") == "output_text") text.append(part.optString("text"))
-                }
-            }
-        }
-
-        val usage = completed?.optJSONObject("usage")
-        NativeAgentTurn(
-            text.toString(),
-            calls.values.toList(),
-            UsageSnapshot(
-                usage?.takeIf { it.has("input_tokens") }?.optLong("input_tokens"),
-                usage?.takeIf { it.has("output_tokens") }?.optLong("output_tokens")
-            ),
-            JSONObject().put("type", "response_items").put("items", outputItems)
-        )
+        return openAiAgentTurn(provider, key, history, extraItems, tools)
     }
 
     private fun attachments(message: MessageEntity): List<LocalAttachment> = LocalAttachment.fromJson(message.attachmentsJson)
@@ -1928,7 +1859,7 @@ class ApiGateway(private val context: Context) {
             emptyList()
         }
         for (attachment in replayableAttachments) {
-            val root = File(context.filesDir, "attachments").canonicalFile
+            val root = File(requireNotNull(context).filesDir, "attachments").canonicalFile
             val file = File(attachment.path).canonicalFile
             if (!file.path.startsWith(root.path + File.separator) || !file.isFile) throw ApiFailure("Вложение недоступно: ${attachment.name}")
             if (attachment.mime.startsWith("text/") || attachment.mime == "application/json") {
@@ -2035,7 +1966,7 @@ class ApiGateway(private val context: Context) {
     }
 
     private fun checkedAttachmentFile(attachment: LocalAttachment): File {
-        val root = File(context.filesDir, "attachments").canonicalFile
+        val root = File(requireNotNull(context).filesDir, "attachments").canonicalFile
         val file = File(attachment.path).canonicalFile
         if (!file.path.startsWith(root.path + File.separator) || !file.isFile)
             throw ApiFailure("Вложение недоступно: ${attachment.name}")
@@ -2060,7 +1991,7 @@ class ApiGateway(private val context: Context) {
             if (mime == "image/webp") {
                 val bitmap = BitmapFactory.decodeFile(original.absolutePath)
                     ?: throw ApiFailure("Не удалось декодировать WEBP")
-                temporary = File.createTempFile("giga-", ".jpg", context.cacheDir)
+                temporary = File.createTempFile("giga-", ".jpg", requireNotNull(context).cacheDir)
                 temporary.outputStream().use { out ->
                     if (!bitmap.compress(Bitmap.CompressFormat.JPEG, 90, out))
                         throw ApiFailure("Не удалось преобразовать WEBP")

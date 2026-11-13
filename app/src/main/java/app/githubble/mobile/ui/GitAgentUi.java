@@ -64,6 +64,57 @@ public final class GitAgentUi {
         body.setAlpha(0);body.setTranslationY(dp(12));body.animate().alpha(1).translationY(0).setDuration(180).start();
         return dialog;
     }
+  /** Fixed title/search/filter chrome with a single, separately scrolling model area. */
+  public Dialog presentPicker(LinearLayout body) {
+    Dialog dialog = new Dialog(activity);
+    body.setBackground(shape(background, 28, 0));
+    body.setClipToOutline(true);
+    body.setFocusableInTouchMode(true);
+    body.requestFocus();
+    dialog.setContentView(body);
+    dialog.setCanceledOnTouchOutside(true);
+    Window window = dialog.getWindow();
+    if (window != null) {
+      window.setBackgroundDrawableResource(android.R.color.transparent);
+      window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+      window.setSoftInputMode(
+          WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
+              | WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN);
+      WindowManager.LayoutParams attributes = window.getAttributes();
+      attributes.dimAmount = .38f;
+      window.setAttributes(attributes);
+    }
+    dialog.show();
+    if (window != null) {
+      window.setGravity(Gravity.BOTTOM);
+      Runnable resize=()->{
+        android.graphics.Rect available=pickerBounds();
+        int height=Math.max(1,available.height()-dp(16));
+        if(window.getAttributes().width!=available.width()||window.getAttributes().height!=height)
+          window.setLayout(available.width(),height);
+      };
+      body.setOnApplyWindowInsetsListener((view,insets)->{resize.run();return insets;});
+      body.getViewTreeObserver().addOnGlobalLayoutListener(resize::run);
+      resize.run();body.requestApplyInsets();
+    }
+    return dialog;
+  }
+
+    private android.graphics.Rect pickerBounds(){
+        android.graphics.Rect available=new android.graphics.Rect();
+        activity.getWindow().getDecorView().getWindowVisibleDisplayFrame(available);
+        if(android.os.Build.VERSION.SDK_INT>=30){
+            // Activity metrics describe the available display independently of this dialog's
+            // current height. Reading the dialog's overlap would cause resize oscillation.
+            android.view.WindowMetrics metrics=activity.getWindowManager().getCurrentWindowMetrics();
+            available.set(metrics.getBounds());
+            android.graphics.Insets insets=metrics.getWindowInsets().getInsets(
+                android.view.WindowInsets.Type.systemBars()|android.view.WindowInsets.Type.displayCutout()|android.view.WindowInsets.Type.ime());
+            available.set(available.left+insets.left,available.top+insets.top,available.right-insets.right,available.bottom-insets.bottom);
+        }
+        return available;
+    }
+
     public void note(LinearLayout body,String value){TextView t=label(value,13,false);t.setTextColor(muted);
         t.setPadding(0,dp(3),0,dp(16));body.addView(t);}
     public void section(LinearLayout body,String value){TextView t=label(value,16,true);
@@ -107,9 +158,9 @@ public final class GitAgentUi {
     }
     public TextView chip(LinearLayout row,String title,boolean selected,Runnable action){
         TextView t=label((selected?"✓  ":"")+title,14,true);t.setGravity(Gravity.CENTER);
-        t.setPadding(dp(12),dp(9),dp(12),dp(9));t.setTextColor(primary);
+        t.setPadding(dp(12),dp(9),dp(12),dp(9));t.setMinHeight(dp(48));t.setTextColor(primary);
         t.setBackground(shape(selected?(dark?0xFF515963:0xFFE9EFF3):Color.TRANSPARENT,9,selected?0:line));
-        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-2,-2);lp.rightMargin=dp(8);lp.bottomMargin=dp(8);
+        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-2,-2);lp.rightMargin=dp(8);
         row.addView(t,lp);t.setOnClickListener(v->action.run());return t;
     }
     public TextView modeChip(LinearLayout row,String title,boolean selected,boolean available,Runnable action){

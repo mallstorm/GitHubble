@@ -1,6 +1,12 @@
 name: Redesign UI review
 on:
   workflow_dispatch:
+    inputs:
+      suite:
+        description: 'UI checks to run'
+        type: choice
+        options: [redesign, agent-model-picker]
+        default: redesign
   pull_request:
     branches: [main]
     paths:
@@ -16,6 +22,8 @@ jobs:
     if: startsWith(github.head_ref, 'claude/redesign') || github.head_ref == 'claude/display-scale' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      UI_SUITE: ${{ inputs.suite || 'redesign' }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-java@v5
@@ -30,7 +38,13 @@ jobs:
         with:
           gradle-version: '9.5.1'
       - name: Build debug and instrumentation
-        run: ./gradlew --no-daemon --max-workers=2 -PGITHUBBLE_CI_EMULATOR_ABI=x86_64 -PGITHUBBLE_REDESIGN_UI=true assembleDebug assembleDebugAndroidTest
+        run: |
+          if [ "$UI_SUITE" = 'agent-model-picker' ]; then
+            flag=-PGITHUBBLE_AGENT_UI=true
+          else
+            flag=-PGITHUBBLE_REDESIGN_UI=true
+          fi
+          ./gradlew --no-daemon --max-workers=2 -PGITHUBBLE_CI_EMULATOR_ABI=x86_64 "$flag" assembleDebug assembleDebugAndroidTest
       - name: Prepare emulator
         run: |
           sudo rm -rf /usr/share/dotnet
@@ -47,15 +61,7 @@ jobs:
           disk-size: 2048M
           emulator-boot-timeout: 180
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -feature -Vulkan
-          script: |
-            adb install -r app/build/outputs/apk/debug/app-debug.apk
-            adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
-            timeout -k 10s 240s adb shell am instrument -w app.githubble.mobile.debug.test/app.githubble.mobile.RedesignUiInstrumentation > redesign-result.txt || true
-            cat redesign-result.txt
-            mkdir -p redesign-ui
-            adb pull /sdcard/Android/data/app.githubble.mobile.debug/files/redesign-ui/. redesign-ui/ || true
-            cat redesign-ui/audit.txt || true
-            grep -q 'PASS: redesign UI' redesign-result.txt
+          script: bash tools/run-ui-review.sh
       - uses: actions/upload-artifact@v4
         if: always()
         with:
