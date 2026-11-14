@@ -74,7 +74,8 @@ class InternalProjectFileSystem(rootDirectory: File) : ProjectFileSystem {
 
     override fun listFiles(limit: Int): List<String> =
         root.walkTopDown()
-            .filter { it.isFile && it.canonicalPath.startsWith(root.path + File.separator) }
+            .onEnter { !java.nio.file.Files.isSymbolicLink(it.toPath()) }
+            .filter { !java.nio.file.Files.isSymbolicLink(it.toPath()) && it.isFile && it.canonicalPath.startsWith(root.path + File.separator) }
             .take(limit + 1)
             .map { it.relativeTo(root).invariantSeparatorsPath }
             .toList()
@@ -82,7 +83,8 @@ class InternalProjectFileSystem(rootDirectory: File) : ProjectFileSystem {
 
     override fun listDirectories(limit: Int): List<String> =
         root.walkTopDown()
-            .filter { it.isDirectory && it != root && it.canonicalPath.startsWith(root.path + File.separator) }
+            .onEnter { !java.nio.file.Files.isSymbolicLink(it.toPath()) }
+            .filter { !java.nio.file.Files.isSymbolicLink(it.toPath()) && it.isDirectory && it != root && it.canonicalPath.startsWith(root.path + File.separator) }
             .map { it.relativeTo(root).invariantSeparatorsPath.trimEnd('/') }
             .filterNot { it.substringAfterLast('/').startsWith(".import-") }
             .take(limit + 1)

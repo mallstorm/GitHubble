@@ -15,9 +15,10 @@ public final class ProjectHubScreen {
     private final String account;
     private final java.util.function.BooleanSupplier current;
     private final Runnable refresh;
+    private final java.util.function.Consumer<String> changes;
     public ProjectHubScreen(Activity activity,AgentProjectStore store,String account,
-            java.util.function.BooleanSupplier current,Runnable refresh) {
-        this.activity=activity;this.store=store;this.account=account;this.current=current;this.refresh=refresh;
+            java.util.function.BooleanSupplier current,Runnable refresh,java.util.function.Consumer<String> changes) {
+        this.activity=activity;this.store=store;this.account=account;this.current=current;this.refresh=refresh;this.changes=changes;
     }
     private void failure(Exception error) {
         if(current.getAsBoolean())new AlertDialog.Builder(activity).setMessage(error.getMessage()).setPositiveButton("ОК",null).show();
@@ -68,6 +69,7 @@ public final class ProjectHubScreen {
                         .setMessage("Состояние: "+task.optString("state")+"\nВетка: "+task.optString("workingBranch")
                             +"\nБюджет: "+task.optJSONObject("budget").optInt("rounds")+" раундов, "+task.optJSONObject("budget").optInt("tools")+" инструментов")
                         .setPositiveButton("Открыть",(x,y)->{if(current.getAsBoolean())try{store.switchConversation(account,task.optString("taskId"));refresh.run();}catch(Exception error){failure(error);}})
+                        .setItems(new String[]{"Изменения и diff"},(x,index2)->{if(current.getAsBoolean()){store.switchConversation(account,task.optString("taskId"));refresh.run();changes.accept(task.optString("taskId"));}})
                         .setNeutralButton("Разрешить до 25 раундов",(x,y)->{
                             if(!current.getAsBoolean())return;
                             store.tasks.update(account,task.optString("taskId"),t->{try{t.getJSONObject("budget").put("maxRounds",25).put("maxTokens",360000);}

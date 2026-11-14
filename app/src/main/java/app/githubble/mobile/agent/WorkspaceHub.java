@@ -15,11 +15,11 @@ public final class WorkspaceHub {
     public WorkspaceHub(File isolatedRoot){context=null;base=isolatedRoot;}
     private File account(String owner)throws Exception{
         String hash=java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(MessageDigest.getInstance("SHA-256").digest(owner.getBytes(StandardCharsets.UTF_8)));
-        File f=new File(base,hash);if(!f.exists()&&!f.mkdirs())throw new IOException("Не создать папку проектов");return f;
+        File f=new File(base,hash);if(java.nio.file.Files.isSymbolicLink(f.toPath()))throw new IOException("Ссылка вместо папки аккаунта");if(!f.exists()&&!f.mkdirs())throw new IOException("Не создать папку проектов");return f;
     }
     public File root(String owner,String id)throws Exception{
         if(!id.matches("[a-f0-9-]{36}"))throw new IOException("Некорректный Workspace ID");
-        File f=new File(account(owner),id);if(!f.isDirectory())throw new IOException("Workspace не найден");return f;
+        File f=new File(account(owner),id);if(java.nio.file.Files.isSymbolicLink(f.toPath()))throw new IOException("Ссылка вместо Workspace");if(!f.isDirectory())throw new IOException("Workspace не найден");return f;
     }
     public synchronized JSONObject create(String owner,String name)throws Exception{
         if(name.trim().isEmpty())throw new IOException("Укажите название проекта");
@@ -100,6 +100,49 @@ public final class WorkspaceHub {
         File f=new File(r,path);String canonical=f.getCanonicalPath();
         if(!canonical.startsWith(r.getCanonicalPath()+File.separator)||f.getName().equals(".workspace.json"))throw new IOException("Путь вне Workspace");return f;
     }
+    public java.util.List<String> taskPaths(String owner,String id)throws Exception {
+        File root=root(owner,id);
+        if(context!=null)return WorkspaceEngine.taskPaths(context,root,id);
+        java.util.List<String> paths=new java.util.ArrayList<>();
+        java.nio.file.Files.walkFileTree(root.toPath(),new java.nio.file.SimpleFileVisitor<java.nio.file.Path>(){
+            public java.nio.file.FileVisitResult visitFile(java.nio.file.Path path,java.nio.file.attribute.BasicFileAttributes attrs)throws IOException {
+                if(attrs.isSymbolicLink())return java.nio.file.FileVisitResult.CONTINUE;
+                String relative=root.toPath().relativize(path).toString().replace(File.separatorChar,'/');
+                if(!relative.equals(".workspace.json")&&!relative.equals(".hubble-import.json"))paths.add(relative);
+                if(paths.size()>20000)throw new IOException("Больше 20000 файлов");return java.nio.file.FileVisitResult.CONTINUE;
+            }
+        });java.util.Collections.sort(paths);return paths;
+    }
+    public java.util.Set<String> taskDirectories(String owner,String id)throws Exception {
+        File root=root(owner,id);if(context!=null)return new java.util.TreeSet<>(WorkspaceEngine.taskDirectories(context,root,id));
+        java.util.Set<String> directories=new java.util.TreeSet<>();java.nio.file.Files.walkFileTree(root.toPath(),new java.nio.file.SimpleFileVisitor<java.nio.file.Path>(){
+            public java.nio.file.FileVisitResult preVisitDirectory(java.nio.file.Path path,java.nio.file.attribute.BasicFileAttributes attrs)throws IOException {
+                if(!path.equals(root.toPath()))directories.add(root.toPath().relativize(path).toString().replace(File.separatorChar,'/'));
+                if(directories.size()>20000)throw new IOException("Больше 20000 каталогов");return java.nio.file.FileVisitResult.CONTINUE;}
+        });return directories;
+    }
+    public String taskRead(String owner,String id,String path)throws Exception {
+        ChangeStore.path(path);File root=root(owner,id);
+        if(context!=null)return WorkspaceEngine.taskRead(context,root,id,path);
+        java.nio.file.Path candidate=root.toPath();for(String part:path.split("/")){candidate=candidate.resolve(part);if(java.nio.file.Files.isSymbolicLink(candidate))throw new SecurityException("Символическая ссылка");}
+        File target=file(owner,id,path);if(!target.exists())return null;if(!target.isFile()||target.length()>2L*1024*1024)throw new IOException("Не текстовый файл или больше 2 MiB");
+        byte[] data=java.nio.file.Files.readAllBytes(target.toPath());String text=StandardCharsets.UTF_8.newDecoder().onMalformedInput(java.nio.charset.CodingErrorAction.REPORT).decode(java.nio.ByteBuffer.wrap(data)).toString();
+        if(text.indexOf('\0')>=0)throw new IOException("Бинарный файл");return text;
+    }
+    public String importMap(String owner,String id)throws Exception {
+        File map=new File(root(owner,id),".hubble-import.json");return map.isFile()?read(map,8*1024*1024):"";
+    }
+    public JSONObject importSnapshot(String owner,String name,String repo,String branch,String commit,InputStream stream,Runnable guard)throws Exception {
+        String id=UUID.randomUUID().toString();File dest=new File(account(owner),id);JSONObject report;
+        try{
+            report=ZipballImporter.extract(stream,dest,commit,new ZipballImporter.Limits(),guard);
+            JSONObject meta=new JSONObject().put("id",id).put("name",name).put("state","READY").put("instructions","").put("created",System.currentTimeMillis())
+                .put("source_repository",repo).put("source_branch",branch).put("source_sha",commit).put("import_partial",report.optBoolean("partial"));
+            write(new File(dest,".workspace.json"),meta.toString());
+        }catch(Exception error){ZipballImporter.deleteTree(dest.toPath());throw error;}
+        return report.put("workspace_id",id).put("repository",repo).put("branch",branch);
+    }
+
     public void saveFile(String owner,String id,String path,String text)throws Exception{
         file(owner,id,path);if(context!=null){WorkspaceEngine.write(context,root(owner,id),id,path,text);return;}
         if(text.getBytes(StandardCharsets.UTF_8).length>1024*1024)throw new IOException("Текст больше 1 МБ");write(file(owner,id,path),text);

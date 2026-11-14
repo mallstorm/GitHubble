@@ -80,76 +80,17 @@ public final class RepositoryWorkspaceImporter {
 
     public static JSONObject copy(GitHubApiClient github,Runnable requireAccount,
             WorkspaceHub workspace,String account,String repo,String branch)throws Exception {
-        AgentGitWorkspace.validateRepository(repo,branch);
-        requireAccount.run();
-        String base="https://api.github.com/repos/"+repo;
-        JSONObject ref=github.getJson(base+"/git/ref/heads/"+branch);
-        String head=ref.getJSONObject("object").getString("sha");
-        if(!head.matches("[a-fA-F0-9]{40}"))throw new IOException("GitHub не вернул HEAD");
-        JSONObject commit=github.getJson(base+"/git/commits/"+head);
-        String tree=commit.getJSONObject("tree").getString("sha");
-        if(!tree.matches("[a-fA-F0-9]{40}"))throw new IOException("GitHub не вернул дерево");
-        JSONObject listing=github.getJson(base+"/git/trees/"+tree+"?recursive=1");
-        if(listing.optBoolean("truncated"))
-            throw new IOException("GitHub вернул неполное дерево; импорт отменён");
-        JSONArray files=listing.getJSONArray("tree");
-        List<Source> staged=new ArrayList<>();
-        int eligible=0,skipped=0,total=0;
-        for(int i=0;i<files.length();i++){
-            if(Thread.currentThread().isInterrupted())
-                throw new InterruptedException("Импорт отменён");
-            JSONObject file=files.optJSONObject(i);
-            if(file==null || !"blob".equals(file.optString("type")))continue;
-            String path=file.optString("path"),sha=file.optString("sha");
-            int size=file.optInt("size",-1);
-            if(!allowedPath(path) || "120000".equals(file.optString("mode"))
-                    || !sha.matches("[a-fA-F0-9]{40}") || size<0){
-                skipped++;continue;
-            }
-            eligible++;
-            if(size>MAX_FILE_BYTES || staged.size()>=MAX_FILES
-                    || total+size>MAX_TOTAL_BYTES){skipped++;continue;}
-            requireAccount.run();
-            JSONObject blob=github.getJson(base+"/git/blobs/"+sha);
-            if(!"base64".equals(blob.optString("encoding"))){skipped++;continue;}
-            byte[] bytes=Base64.decode(blob.optString("content").replace("\n",""),Base64.DEFAULT);
-            if(bytes.length>MAX_FILE_BYTES || total+bytes.length>MAX_TOTAL_BYTES){
-                skipped++;continue;
-            }
-            String source;
-            try{source=utf8(bytes);}
-            catch(CharacterCodingException binary){skipped++;continue;}
-            if(source.indexOf('\u0000')>=0 || containsCredential(source)){skipped++;continue;}
-            staged.add(new Source(path,source,bytes.length));
-            total+=bytes.length;
-        }
-        if(staged.isEmpty())
-            throw new IOException("Нет подходящих текстовых файлов в репозитории");
-        requireAccount.run();
-        String name=repo.substring(repo.indexOf('/')+1);
-        JSONObject created=workspace.create(account,name+" (GitHub)");
-        String id=created.getString("id");
-        int imported=0;
+        AgentGitWorkspace.validateRepository(repo,branch);requireAccount.run();
+        GitDataApi api=GitDataApi.bound(github,requireAccount);
+        String sha=GitHubWorkspaceSource.head(api,repo,branch);
+        java.io.File file=java.io.File.createTempFile("github-snapshot-",".zip");
         try{
-            for(Source file:staged){
-                requireAccount.run();
-                workspace.saveFile(account,id,file.path,file.body);
-                imported++;
+            github.downloadZipball(repo,sha,file,new ZipballImporter.Limits().compressed,requireAccount);
+            try(java.io.InputStream in=new java.io.FileInputStream(file)){
+                JSONObject result=workspace.importSnapshot(account,repo.substring(repo.indexOf('/')+1),repo,branch,sha,in,requireAccount);
+                result.put("head",sha).put("files",result.optInt("imported"));return result;
             }
-            workspace.configure(account,id,name,"READY",
-                "Локальный снимок GitHub: "+repo+" @ "+branch+" (HEAD "+head+"). "+
-                "Исходный репозиторий не изменён. Импортировано "+imported+
-                " текстовых файлов из "+eligible+" подходящих. Пропущено "+skipped+
-                ". Это не полный git clone: без .git, бинарных файлов и секретов.");
-            workspace.markRemoteRevision(account,id,repo,branch,head);
-        }catch(Exception error){
-            workspace.configure(account,id,name,"IMPORT_PARTIAL",
-                "Незавершённый импорт GitHub "+repo+": "+imported+" файлов. "+error.getMessage());
-            throw error;
-        }
-        return new JSONObject().put("workspace_id",id).put("repository",repo)
-            .put("branch",branch).put("head",head).put("imported",imported)
-            .put("eligible",eligible).put("skipped",skipped).put("bytes",total)
-            .put("partial",skipped>0);
+        }finally{java.nio.file.Files.deleteIfExists(file.toPath());}
     }
+
 }

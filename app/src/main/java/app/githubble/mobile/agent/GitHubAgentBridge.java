@@ -42,6 +42,7 @@ public final class GitHubAgentBridge {
         }
     }
 
+    public GitDataApi taskData(String account,Runnable guard)throws Exception {return GitDataApi.bound(toolApi(account),guard);}
     GitHubApiClient toolApi(String expected)throws GitHubApiClient.SessionChangedException{return scopedApi(expected);}
 
     public JSONObject createRepository(String expected, String name, String description, boolean privateRepo)
