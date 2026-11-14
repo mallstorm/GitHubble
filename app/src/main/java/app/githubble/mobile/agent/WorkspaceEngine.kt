@@ -13,6 +13,9 @@ object WorkspaceEngine {
         val relative=root.relativeTo(context.filesDir).path
         return WorkspaceTools.forInternalRoot(context,relative,id,meta.optString("storage_uri"))
     }
+    @JvmStatic fun taskPaths(context:Context,root:File,id:String)=engine(context,root,id).taskPaths()
+    @JvmStatic fun taskDirectories(context:Context,root:File,id:String)=engine(context,root,id).taskDirectories()
+    @JvmStatic fun taskRead(context:Context,root:File,id:String,path:String)=engine(context,root,id).taskRead(path)
     @JvmStatic fun files(context: Context,root: File,id: String): JSONArray {
         val e=engine(context,root,id);val a=JSONArray()
         e.list().filter { !it.endsWith(".workspace.json") }.forEach { path -> a.put(JSONObject().put("path",path).put("size",e.editorSnapshot(path).size)) }

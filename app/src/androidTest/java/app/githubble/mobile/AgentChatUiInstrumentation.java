@@ -67,7 +67,7 @@ public final class AgentChatUiInstrumentation extends Instrumentation {
                               Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK));
           waitForIdleSync();
           SystemClock.sleep(350);
-          if (theme.equals("light") && scale.equals("1.0")) verifyNativeTools(app);
+          if (theme.equals("light") && scale.equals("1.0")) {verifyNativeTools(app);ChangeReviewUiChecks.run(this,app);}
           AgentChatPreviewActivity current = app;
           main(
               () -> {
@@ -409,8 +409,10 @@ public final class AgentChatUiInstrumentation extends Instrumentation {
     check(reply.equals("Готово"), "Native tool loop incomplete");
     String id = store.project(owner).workspaceId;
     check(
-        workspace.readFile(owner, id, "docs/report.md").equals(AgentChatPreviewActivity.source()),
-        "Host did not write actual file");
+        new TaskGitService(new File(activity.getFilesDir(),"task-changes"),store,workspace,owner,thread,null,true,()->{}).tools()
+            .snapshot("docs/report.md").text.equals(AgentChatPreviewActivity.source()),
+        "Host did not apply the task overlay");
+    check(!workspace.file(owner,id,"docs/report.md").exists(),"Agent wrote a shared Workspace file instead of its overlay");
     JSONObject file =
         run.snapshot()
             .getJSONArray("operations")

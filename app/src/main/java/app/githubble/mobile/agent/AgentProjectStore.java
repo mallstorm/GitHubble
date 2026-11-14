@@ -15,6 +15,7 @@ public final class AgentProjectStore {
   private final SharedPreferences prefs;
   private final AgentConversationStore conversations;
   private final UnifiedAgentStore unified;
+  private final java.io.File taskChangesRoot;
   public final ProjectRegistry registry;
   public final TaskRepository tasks;
   private final java.util.Set<String> migrated = new java.util.HashSet<>();
@@ -25,6 +26,7 @@ public final class AgentProjectStore {
             .getApplicationContext()
             .getSharedPreferences("githubble_ai_workspace_v1", Context.MODE_PRIVATE);
     conversations = new AgentConversationStore(context);
+    taskChangesRoot=new java.io.File(context.getFilesDir(),"task-changes");
     unified = new UnifiedAgentStore(context);
     registry = new ProjectRegistry(unified);
     tasks = new TaskRepository(unified);
@@ -276,7 +278,10 @@ public final class AgentProjectStore {
 
   public synchronized void deleteConversation(String accountId, String id) {
     ensureUnified(accountId);
+    String project=projectId(accountId,id);
     conversations.delete(accountId, id);
+    if(!project.isEmpty())try{new ChangeStore(taskChangesRoot,accountId,project,id).deleteTaskData();}
+      catch(Exception error){throw new IllegalStateException("Не удалось удалить изменения задачи",error);}
     tasks.delete(accountId, id);
     prefs.edit().remove(key(accountId, "project_" + id)).commit();
   }

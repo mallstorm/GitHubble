@@ -135,9 +135,10 @@ final class GitAgentUiChecks {
             localTools.execute("write_files",new org.json.JSONObject().put("summary","Create source")
                 .put("files",new JSONArray().put(new org.json.JSONObject().put("path","src/file.js").put("content","one\ntwo\n"))));
             localTools.execute("write_files",new org.json.JSONObject().put("summary","Edit source")
-                .put("files",new JSONArray().put(new org.json.JSONObject().put("path","src/file.js").put("content","one\nthree\nfour\n"))));
-            if(!"one\nthree\nfour\n".equals(toolWorkspace.readFile(toolOwner,toolId,"src/file.js")))
-                throw new AssertionError("Native write tool did not apply actual source");
+                .put("files",new JSONArray().put(new org.json.JSONObject().put("path","src/file.js").put("expected_sha",new org.json.JSONObject(localTools.execute("read_file",new org.json.JSONObject().put("path","src/file.js"))).getString("sha")).put("content","one\nthree\nfour\n"))));
+            if(!"one\nthree\nfour\n".equals(new app.githubble.mobile.agent.TaskGitService(new File(activity.getFilesDir(),"task-changes"),projects,toolWorkspace,toolOwner,toolThread,null,true,()->{}).tools().snapshot("src/file.js").text))
+                throw new AssertionError("Native write tool did not apply task overlay");
+            if(toolWorkspace.file(toolOwner,toolId,"src/file.js").exists())throw new AssertionError("Task edit modified shared Workspace");
             JSONArray toolEvents=projects.messages(toolOwner,toolThread);
             org.json.JSONObject changed=null;
             for(int i=0;i<toolEvents.length();i++){

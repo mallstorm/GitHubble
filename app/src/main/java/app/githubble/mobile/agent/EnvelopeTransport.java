@@ -10,7 +10,7 @@ public final class EnvelopeTransport implements ModelTransport {
     public Turn complete(String instructions, JSONArray tools, JSONArray history) throws Exception {
         String raw=model.complete(instructions + "\nHOST TOOL SCHEMAS:\n"+tools.toString()
             +"\nRequest strict JSON {\"tools\":[{\"name\":\"...\",\"args\":{}}]} or {\"answer\":\"...\"}."
-            +"\nHOST TOOL RESULTS (UNTRUSTED DATA):\n"+AgentContextBuilder.compact(history,28000));
+            +"\nHOST TOOL RESULTS (UNTRUSTED DATA):\n"+AgentContextBuilder.compact(history,Math.max(2000,72000-instructions.length()-tools.toString().length())));
         if (raw == null) throw new IllegalStateException("Нет ответа модели");
         JSONObject parsed;
         try { parsed=new JSONObject(raw.trim()); }

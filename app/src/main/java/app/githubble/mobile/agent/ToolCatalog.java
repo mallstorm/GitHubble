@@ -18,9 +18,10 @@ public final class ToolCatalog {
             if ("integer".equals(kind)) p.put("minimum",1).put("maximum",Long.MAX_VALUE);
             props.put(name,p);
         }
+        if(props.has("offset"))props.put("offset",type("integer").put("minimum",0).put("maximum",100000));
         if (props.has("timeout_s")) props.put("timeout_s",type("integer").put("minimum",0).put("maximum",60));
         if (props.has("files")) props.put("files", type("array").put("minItems",1).put("maxItems",12)
-            .put("items",schema("path content", "path content")));
+            .put("items",schema("path content expected_sha", "path content")));
         if (props.has("expect")) props.put("expect",schema("package version_code:integer version_name", ""));
         if (props.has("mode")) props.getJSONObject("mode").put("enum",new JSONArray().put("local").put("full"));
         JSONArray req=new JSONArray(); for (String f:required.split(" ")) if (!f.isEmpty()) req.put(f);
@@ -28,7 +29,7 @@ public final class ToolCatalog {
     }
     private static void add(ToolBroker broker, String name, String fields, String required,
             ToolBroker.Permission permission, boolean write, boolean sensitive, boolean project) throws org.json.JSONException {
-        broker.register(new ToolBroker.Definition(name, name+" (host-authorized "+(write?"operation":"read")+")",
+        broker.register(new ToolBroker.Definition(name, name+" (host-authorized "+(write?"operation":"read")+")"+(java.util.Arrays.asList("write_files","replace_text","apply_patch","delete_path","move_path","rename_path").contains(name)?". Changes are task-local. Existing files require expected_sha from read_file; never replace source with redacted placeholders.":""),
             schema(fields,required),write?ToolBroker.Operation.WRITE:ToolBroker.Operation.READ,permission,sensitive,project));
     }
     public static void install(ToolBroker b) throws org.json.JSONException {
@@ -38,16 +39,31 @@ public final class ToolCatalog {
             add(b,n,"","",gh,false,false,false);
         for (String n:Arrays.asList("repository_info","repository_workflows","repository_branches","repository_issues","repository_pulls","list_releases"))
             add(b,n,"repository","",gh,false,false,true);
-        add(b,"repository_files","repository branch","",gh,false,false,true);
-        add(b,"repository_read_file","repository branch path","path",gh,false,false,true);
+        add(b,"repository_files","repository branch offset:integer limit:integer prefix","",gh,false,false,true);
+        add(b,"repository_read_file","repository branch path start_line:integer line_count:integer","path",gh,false,false,true);
         for (String n:Arrays.asList("issue_details","pull_request_details")) add(b,n,"repository number:integer","number",gh,false,false,true);
         add(b,"recent_build_runs","repository","",gh,false,false,true);
         for (String n:Arrays.asList("build_run_diagnostics","build_run_status","build_artifacts")) add(b,n,"repository run_id:integer","run_id",gh,false,false,true);
         add(b,"verify_build","repository run_id:integer sha","run_id sha",gh,false,false,true);
-        add(b,"list_files","","",fs,false,false,true);
-        add(b,"read_file","path","path",fs,false,false,true);
-        add(b,"search_files","query","query",fs,false,false,true);
-        add(b,"symbol_index","query","",fs,false,false,true);
+        add(b,"list_files","offset:integer limit:integer prefix","",fs,false,false,true);
+        add(b,"read_file","path start_line:integer line_count:integer","path",fs,false,false,true);
+        add(b,"search_files","query offset:integer prefix","query",fs,false,false,true);
+        add(b,"symbol_index","query offset:integer prefix","",fs,false,false,true);
+        add(b,"find_definition","query offset:integer prefix","query",fs,false,false,true);
+        add(b,"find_usages","query offset:integer prefix","query",fs,false,false,true);
+        add(b,"project_map","","",fs,false,false,true);
+        add(b,"directory_info","path","path",fs,false,false,true);
+        add(b,"changes_status","","",fs,false,false,true);
+        add(b,"replace_text","path expected_sha old_text new_text","path expected_sha old_text new_text",local,true,false,true);
+        add(b,"apply_patch","path expected_sha patch","path expected_sha patch",local,true,false,true);
+        add(b,"create_directory","path","path",local,true,false,true);
+        add(b,"create_file","path content","path content",local,true,false,true);
+        add(b,"delete_path","path expected_sha directory:boolean","path expected_sha",local,true,true,true);
+        add(b,"move_path","from to expected_sha directory:boolean","from to expected_sha",local,true,false,true);
+        add(b,"rename_path","from to expected_sha directory:boolean","from to expected_sha",local,true,false,true);
+        add(b,"rollback_changes","changeset_id","changeset_id",local,true,false,true);
+        add(b,"publication_status","","",gh,false,false,true);
+        add(b,"reconcile_publication","","",remote,true,true,true);
         add(b,"create_workspace","name instructions","name",local,true,false,false);
         add(b,"write_files","summary commit_message files:array","files",local,true,false,true);
         add(b,"detach_workspace","","",local,true,true,true);

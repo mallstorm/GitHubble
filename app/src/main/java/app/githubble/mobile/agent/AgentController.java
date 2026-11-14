@@ -48,7 +48,7 @@ public final class AgentController {
                 if (!host.handles(d.name)) return false;
                 switch (d.permission) {
                     case GITHUB_READ: return allowGithub;
-                    case FILE_READ: return allowFiles;
+                    case FILE_READ: return allowFiles||(allowGithub&&!linked.isEmpty());
                     case GITHUB_WRITE: return allowGithub;
                     case LOCAL_WRITE: return true; // The host checks planning, level and per-operation confirmation again.
                     case PUBLIC_WEB: return true;
@@ -58,11 +58,6 @@ public final class AgentController {
                 if (args.has("repository") && !linked.equalsIgnoreCase(args.optString("repository"))
                         && !name.equals("attach_repository") && !name.equals("import_repository"))
                     throw new SecurityException("Инструмент ограничен репозиторием выбранного проекта");
-                if ("publish_workspace".equals(name)) {
-                    String branch=projects.projectForChat(account,thread).branch;
-                    if ("main".equalsIgnoreCase(branch)||"master".equalsIgnoreCase(branch))
-                        throw new SecurityException("Нужна отдельная рабочая ветка задачи перед публикацией");
-                }
                 return host.executeFromBroker(name,args);
             },new ToolBroker.Journal() {
                 public String started(String name,JSONObject args) { return run.begin(name,args); }
