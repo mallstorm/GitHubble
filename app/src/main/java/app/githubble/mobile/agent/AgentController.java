@@ -66,10 +66,16 @@ public final class AgentController {
             });
             ToolCatalog.install(broker);
             host.registerPlugins(broker);
+            host.requireDelivery(message);
             AgentLoop.Outcome outcome=executeLoop(session,message,context,transport,broker,run::round);
+            JSONObject evidence=outcome.budgetExhausted?null:host.completionStatus();
+            if(evidence!=null){
+                boolean accepted=evidence.optBoolean("accepted");
+                outcome=new AgentLoop.Outcome(accepted?"Результат подтверждён: "+evidence.toString():"Задача ещё не завершена. Проверка результата: "+evidence.optJSONArray("issues"),false);
+            }
             // A model answer is not engineering completion. Stage III's evidence supervisor owns DONE.
-            run.finish(outcome.budgetExhausted?"interrupted":"succeeded",
-                outcome.budgetExhausted?"Бюджет исчерпан · задача сохранена":"Ответ получен · результат ожидает проверки");
+            run.finish(outcome.budgetExhausted?"interrupted":evidence!=null&&!evidence.optBoolean("accepted")?"interrupted":"succeeded",
+                outcome.budgetExhausted?"Бюджет исчерпан · задача сохранена":evidence!=null&&evidence.optBoolean("accepted")?"Результат подтверждён":"Ответ получен · результат ожидает проверки");
             return outcome;
         } catch (Exception error) {
             edit(account,thread,t -> put(t,"state",error instanceof java.util.concurrent.CancellationException

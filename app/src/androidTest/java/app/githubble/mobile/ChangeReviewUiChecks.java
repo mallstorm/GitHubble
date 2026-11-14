@@ -28,7 +28,7 @@ final class ChangeReviewUiChecks {
             click(host,"Закрыть");System.out.println("PASS: task diff and per-hunk review controls");
         }finally{worker.shutdownNow();}
     }
-    private static void click(Instrumentation host,String text)throws Exception {
+    static void click(Instrumentation host,String text)throws Exception {
         for(int i=0;i<100;i++){
             AccessibilityNodeInfo node=find(host.getUiAutomation().getRootInActiveWindow(),text);
             if(node!=null){

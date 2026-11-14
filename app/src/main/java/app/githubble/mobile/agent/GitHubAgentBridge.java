@@ -153,6 +153,11 @@ public final class GitHubAgentBridge {
     }
 
     /** Model-visible read tools: no mutation endpoints or access token disclosure. */
+    public JSONObject ciDiagnostics(String expected,String repo,long runId,boolean logs)throws Exception {
+        requireAccount(expected);AgentBuildDiagnostics d=new AgentBuildDiagnostics(accounts,secrets);
+        JSONObject result=logs?d.summarizeWithErrors(expected,repo,runId):d.summarize(expected,repo,runId);
+        requireAccount(expected);return result;
+    }
     public JSONObject executeReadOnly(String expected,String name,JSONObject args,String linkedRepo,String branch)throws Exception{
         if(args==null)args=new JSONObject();
         if(GitHubAgentOperations.READS.contains(name))

@@ -82,6 +82,10 @@ public final class ToolCatalog {
         add(b,"merge_pull_request","repository number:integer sha merge_method","number sha",remote,true,true,true);
         add(b,"create_release","repository tag name body target draft:boolean prerelease:boolean","tag",remote,true,true,true);
         add(b,"dispatch_workflow","repository workflow_id ref","workflow_id",remote,true,false,true);
+        add(b,"build","workflow_id","",remote,true,false,true);
+        add(b,"ci_failure","run_id:integer include_logs:boolean","",gh,false,false,true);
+        add(b,"ci_status","","",gh,false,false,true);
+        add(b,"verify_task_result","run_id:integer artifact_id:integer pull_number:integer","",gh,false,false,true);
         add(b,"await_build","run_id:integer timeout_s:integer","run_id",gh,false,false,true);
         add(b,"download_artifact","artifact_id:integer expect:object","artifact_id",remote,true,false,true);
         add(b,"artifact_verdict","artifact_id:integer","artifact_id",gh,false,false,true);

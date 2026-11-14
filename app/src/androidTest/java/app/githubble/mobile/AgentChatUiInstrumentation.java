@@ -67,7 +67,8 @@ public final class AgentChatUiInstrumentation extends Instrumentation {
                               Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK));
           waitForIdleSync();
           SystemClock.sleep(350);
-          if (theme.equals("light") && scale.equals("1.0")) {verifyNativeTools(app);ChangeReviewUiChecks.run(this,app);}
+          if (theme.equals("light") && scale.equals("1.0")) {verifyNativeTools(app);ChangeReviewUiChecks.run(this,app);
+          Stage3UiChecks.run(this,app);}
           AgentChatPreviewActivity current = app;
           main(
               () -> {

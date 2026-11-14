@@ -59,22 +59,13 @@ public final class ProjectHubScreen {
             JSONObject project=store.registry.get(account,projectId);
             JSONArray tasks=store.tasks.list(account,projectId);String[] labels=new String[tasks.length()];
             for(int i=0;i<labels.length;i++){
-                JSONObject t=tasks.getJSONObject(i);labels[i]=t.optString("title")+" · "+t.optString("state");
+                JSONObject t=tasks.getJSONObject(i);labels[i]=t.optString("title")+" · "+TaskWorkPanel.state(t.optString("state"));
             }
             new AlertDialog.Builder(activity).setTitle(project.optString("name"))
                 .setItems(labels,(d,index)->{
                     if(!current.getAsBoolean())return;
                     JSONObject task=tasks.optJSONObject(index);
-                    new AlertDialog.Builder(activity).setTitle(task.optString("title"))
-                        .setMessage("Состояние: "+task.optString("state")+"\nВетка: "+task.optString("workingBranch")
-                            +"\nБюджет: "+task.optJSONObject("budget").optInt("rounds")+" раундов, "+task.optJSONObject("budget").optInt("tools")+" инструментов")
-                        .setPositiveButton("Открыть",(x,y)->{if(current.getAsBoolean())try{store.switchConversation(account,task.optString("taskId"));refresh.run();}catch(Exception error){failure(error);}})
-                        .setItems(new String[]{"Изменения и diff"},(x,index2)->{if(current.getAsBoolean()){store.switchConversation(account,task.optString("taskId"));refresh.run();changes.accept(task.optString("taskId"));}})
-                        .setNeutralButton("Разрешить до 25 раундов",(x,y)->{
-                            if(!current.getAsBoolean())return;
-                            store.tasks.update(account,task.optString("taskId"),t->{try{t.getJSONObject("budget").put("maxRounds",25).put("maxTokens",360000);}
-                                catch(org.json.JSONException error){throw new IllegalStateException(error);}});tasks(projectId);
-                        }).setNegativeButton("Назад",(x,y)->tasks(projectId)).show();
+                    new TaskWorkPanel(activity,store,account,task.optString("taskId"),current,refresh,changes).show();
                 }).setPositiveButton("Новая задача",(d,w)->newTask(projectId))
                 .setNeutralButton(project.optBoolean("modelAccess")?"Отозвать доступ AI":"Доступ AI",(d,w)->{
                     if(!current.getAsBoolean())return;

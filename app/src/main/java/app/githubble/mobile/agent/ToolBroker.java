@@ -63,7 +63,7 @@ public final class ToolBroker {
     }
     private void rememberWrite(JSONObject call) {
         Definition definition=catalog.get(call.optString("name"));JSONObject args=call.optJSONObject("args");
-        if(definition!=null&&definition.operation==Operation.WRITE&&args!=null)
+        if(definition!=null&&definition.operation==Operation.WRITE&&args!=null&&!definition.name.equals("build"))
             attemptedWrites.add(definition.name+":"+canonical(args));
     }
     public JSONArray schemas() throws org.json.JSONException {
@@ -86,7 +86,8 @@ public final class ToolBroker {
                 Object lock = WRITE_LOCKS.computeIfAbsent(session.accountKey+":"+session.projectId, key -> new Object());
                 synchronized (lock) {
                     String key=name+":"+canonical(args);
-                    if(!attemptedWrites.add(key))throw new SecurityException("Повтор изменения заблокирован; сначала проверьте фактическое состояние");
+                    // build owns a durable dispatch ledger; repeated calls perform read-only reconciliation.
+                    if(!name.equals("build")&&!attemptedWrites.add(key))throw new SecurityException("Повтор изменения заблокирован; сначала проверьте фактическое состояние");
                     return dispatch(tool,args,id);
                 }
             }

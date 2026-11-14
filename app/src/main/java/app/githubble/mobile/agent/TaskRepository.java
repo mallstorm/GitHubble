@@ -74,12 +74,39 @@ public final class TaskRepository {
             JSONObject state=store.read(account),tasks=state.optJSONObject("tasks");boolean changed=false;
             for(String id:UnifiedAgentStore.keys(tasks)) {
                 JSONObject task=tasks.optJSONObject(id);
-                if("RUNNING".equals(task.optString("state"))&&!id.equals(liveTask)) {
-                    AgentController.put(task,"state","INTERRUPTED");changed=true;
+                if(java.util.Arrays.asList("RUNNING","BUILDING","EXECUTING","VERIFYING","DELIVERING").contains(task.optString("state"))&&!id.equals(liveTask)) {
+                    AgentController.put(task,"state","INTERRUPTED");
+                    AgentController.put(task,"recoveryNote","Операции не повторяются автоматически. Откройте панель задачи и сверьте CI/публикацию перед продолжением.");
+                    JSONObject ci=task.optJSONObject("ci");
+                    if(ci!=null&&"DISPATCH_PENDING".equals(ci.optString("state")))AgentController.put(ci,"state","UNKNOWN");
+                    changed=true;
                 }
             }
             if(changed)store.save(account,state);
         }
+    }
+    /** Invoked only by a physical user confirmation; audit previous budget instead of losing it. */
+    public void authorizeContinuation(String account,String id) {
+        update(account,id,t->{
+            JSONObject budget=t.optJSONObject("budget");
+            AgentController.put(budget,"roundWindowStart",budget.optInt("rounds"));
+            AgentController.put(budget,"toolWindowStart",budget.optInt("tools"));
+            AgentController.put(budget,"maxRounds",budget.optInt("rounds")+12);
+            AgentController.put(budget,"maxTools",budget.optInt("tools")+100);
+            AgentController.put(budget,"maxTokens",Math.max(budget.optLong("maxTokens",180000),budget.optLong("inputTokens")+budget.optLong("outputTokens")+180000));
+            JSONObject ci=t.optJSONObject("ci");
+            if(ci!=null){
+                String state=ci.optString("state");
+                if(!state.equals("UNKNOWN")&&!state.equals("DISPATCH_PENDING")){
+                    JSONArray grants=t.optJSONArray("ciBudgetHistory");if(grants==null)grants=new JSONArray();
+                    JSONArray recent=new JSONArray();for(int i=Math.max(0,grants.length()-19);i<grants.length();i++)recent.put(grants.opt(i));
+                    recent.put(UnifiedAgentStore.copy(ci));AgentController.put(t,"ciBudgetHistory",recent);
+                    ci.remove("decision");ci.remove("failure");ci.remove("failureKey");ci.remove("decidedRun");ci.remove("retryAt");
+                    AgentController.put(ci,"retryRunId",ci.optLong("runId"));AgentController.put(ci,"retry",new JSONObject());
+                }
+            }
+            AgentController.put(t,"state","READY");AgentController.put(t,"continuationApprovedAt",System.currentTimeMillis());
+        });
     }
     public void delete(String account, String id) {
         synchronized (UnifiedAgentStore.LOCK) {
