@@ -162,11 +162,72 @@ public final class AgentFeatureScreens {
         ui.note(body,"Локальный проект работает без GitHub-репозитория. Каждый диалог выбирает Workspace отдельно.");
         ui.action(body,"Новый Workspace","Папка проекта, файлы и собственная память",0xFF14846C,()->form("Новый проект",new String[]{"Название"},new String[]{""},v->{JSONObject j=workspaces.create(owner,v[0]);projects.save(new AgentProjectStore.Project(owner,j.getString("name"),"","main",j.getString("id")));d[0].dismiss();refresh.run();workspace();}));
         ui.action(body,"Обычный чат — без проекта","Открепить Workspace и репозиторий от этого диалога",0xFF435B69,()->run(()->{projects.save(new AgentProjectStore.Project(owner,"","","main",""));d[0].dismiss();refresh.run();}));
+        ui.action(body,"Управление Workspace","Отвязать · Удалить локально · Удалить полностью",0xFF713CB3,()->{d[0].dismiss();manageWorkspace();});
         JSONArray list=workspaces.list(owner);for(int i=0;i<list.length();i++){JSONObject j=list.getJSONObject(i);String id=j.getString("id");
             ui.action(body,(id.equals(selected.workspaceId)?"✓ ":"")+j.getString("name"),j.optString("state"),0xFF435B69,()->run(()->{projects.save(new AgentProjectStore.Project(owner,j.getString("name"),"","main",id));d[0].dismiss();refresh.run();files();}));}
         if(!selected.workspaceId.isEmpty())ui.action(body,"Файлы и настройки текущего проекта",selected.name,0xFF2863B8,()->{d[0].dismiss();files();});
         if(!selected.repository.isEmpty())ui.action(body,"Открепить репозиторий",selected.repository,0xFF713CB3,()->run(()->{projects.save(new AgentProjectStore.Project(owner,selected.name,"",selected.branch,selected.workspaceId));d[0].dismiss();refresh.run();workspace();}));
         d[0]=ui.present(body,true);
+    });}
+    /** Account-scoped lifecycle controls; never delete a remote GitHub repository. */
+    private void manageWorkspace(){run(()->{
+        JSONArray list=workspaces.list(owner);
+        if(list.length()==0){Toast.makeText(a,"Локальных Workspace нет",Toast.LENGTH_SHORT).show();return;}
+        String activeId=wid();
+        String[] labels=new String[list.length()];
+        for(int i=0;i<list.length();i++){
+            JSONObject j=list.getJSONObject(i);
+            labels[i]=(activeId.equals(j.optString("id"))?"✓ ":"")+j.optString("name","Workspace");
+        }
+        new AlertDialog.Builder(a).setTitle("Выберите Workspace").setItems(labels,(d,n)->{
+            JSONObject item=list.optJSONObject(n);
+            if(item==null)return;
+            String id=item.optString("id"),name=item.optString("name","Workspace");
+            new AlertDialog.Builder(a).setTitle(name).setItems(new String[]{
+                "Отвязать от текущего диалога",
+                "Удалить локально · файлы и контрольные точки",
+                "Удалить полностью · включая память Workspace"
+            },(dialog,choice)->{
+                if(!current())return;
+                if(choice==0){
+                    run(()->{
+                        if(!id.equals(wid())){
+                            Toast.makeText(a,"В этом диалоге выбран другой Workspace",Toast.LENGTH_LONG).show();
+                            return;
+                        }
+                        projects.save(new AgentProjectStore.Project(owner,"","","main",""));
+                        refresh.run();
+                        Toast.makeText(a,"Workspace отвязан от диалога",Toast.LENGTH_SHORT).show();
+                    });
+                    return;
+                }
+                boolean full=choice==2;
+                String explanation="Проект: "+name+"\\n"
+                    +"Локальные файлы и контрольные точки будут удалены без возможности восстановления.\\n"
+                    +"Привязки к этому Workspace во всех диалогах будут сброшены.\\n"
+                    +(full?"Память именно этого Workspace также будет удалена.\\n":
+                          "Память Workspace и история переписок сохранятся.\\n")
+                    +"GitHub-репозиторий и внешняя папка SAF не удаляются.";
+                new AlertDialog.Builder(a)
+                    .setTitle(full?"Полностью удалить Workspace?":"Удалить локальный Workspace?")
+                    .setMessage(explanation)
+                    .setPositiveButton("Удалить",(confirm,ignored)->async("Удаление Workspace",()->{
+                        app.githubble.mobile.agent.AgentRun active=
+                            app.githubble.mobile.agent.AgentRunRegistry.current(owner);
+                        if(active!=null&&active.active())
+                            throw new IllegalStateException("Дождитесь завершения работы агента перед удалением Workspace");
+                        // First remove references, so interrupted disk deletion cannot
+                        // leave a conversation pinned to a now-partially-deleted folder.
+                        projects.detachWorkspaceEverywhere(owner,id);
+                        workspaces.deleteLocal(owner,id);
+                        if(full)memory.clearWorkspace(owner,id);
+                    },()->{
+                        refresh.run();
+                        workspace();
+                    }))
+                    .setNegativeButton("Отмена",null).show();
+            }).show();
+        }).setNegativeButton("Отмена",null).show();
     });}
     public void files(){run(()->{
         String id=wid();if(id.isEmpty()){workspace();return;}JSONObject meta=workspaces.info(owner,id);LinearLayout body=ui.body(meta.optString("name"),true);final Dialog[] d={null};
