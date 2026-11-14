@@ -42,3 +42,7 @@ CI запускает статус `Android checks` для PR, main и ручн�
 ## Встроенные коммиты
 
 `controller/CommitDetailController.java` читает авторизованный GitHub commit API и получает файлы коммита постранично; `ui/CommitDetailScreen.java` отображает метаданные и безопасный native diff с моделью `diff/DiffModel.java`. Вкладка «Активность», коммиты PR и коммиты репозитория открывают этот экран, сохраняя обратную навигацию и проверяя поколение экрана/аккаунт при асинхронной загрузке.
+
+## Unified Agent Engine 2.0
+
+Проектная модель, миграция и единый цикл этапа I описаны в [docs/unified-agent/STAGE1.md](docs/unified-agent/STAGE1.md). Этапы II (ChangeSet/дельта) и III (CI/Evidence/финальный UI) принимаются отдельно.

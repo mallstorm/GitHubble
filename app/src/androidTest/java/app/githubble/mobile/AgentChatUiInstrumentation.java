@@ -36,6 +36,7 @@ public final class AgentChatUiInstrumentation extends Instrumentation {
     int status = 0;
     AgentChatPreviewActivity app = null;
     try {
+      UnifiedAgentUiChecks.run(getTargetContext());
       if (!new app.githubble.mobile.security.SecureStore(getTargetContext())
           .get("github_token")
           .isEmpty()) throw new AssertionError("Clean test profile required");
