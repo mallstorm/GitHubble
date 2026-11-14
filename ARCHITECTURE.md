@@ -48,3 +48,5 @@ CI запускает статус `Android checks` для PR, main и ручн�
 Проектная модель, миграция и единый цикл этапа I описаны в [docs/unified-agent/STAGE1.md](docs/unified-agent/STAGE1.md). Этапы II (ChangeSet/дельта) и III (CI/Evidence/финальный UI) принимаются отдельно.
 
 Этап II: [task overlay, ChangeSet, безопасный импорт и публикация дельты](docs/unified-agent/STAGE2.md).
+
+Этап III: [CI, Evidence, восстановление и Work Panel](docs/unified-agent/STAGE3.md).

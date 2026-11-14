@@ -152,19 +152,26 @@ public final class BuildDownloadReceiver extends BroadcastReceiver {
                 if(check.status==ArtifactVerifier.Status.FAIL)failed=true;
                 else if(check.status==ArtifactVerifier.Status.UNVERIFIED)unverified=true;
             }
+            JSONObject signature;
+            try{signature=app.githubble.mobile.agent.ApkSignatureVerifier.verify(temp);}
+            catch(Exception invalid){signature=new JSONObject();}
+            if(!signature.optBoolean("signature_verified"))failed=true;
             JSONObject verdict=new JSONObject();
             try{
                 verdict.put("file",name).put("status",failed?"FAIL":unverified?"UNVERIFIED":"PASS")
-                    .put("sha256",report.sha256);
+                    .put("sha256",report.sha256).put("signature_verified",signature.optBoolean("signature_verified"))
+                    .put("certificate_sha256",signature.optString("certificate_sha256"));
                 if(report.identity!=null)verdict.put("package",report.identity.packageName)
                     .put("version_code",report.identity.versionCode).put("version_name",report.identity.versionName);
                 JSONArray bad=new JSONArray();
                 for(ArtifactVerifier.Check check:report.checks)
                     if(check.status!=ArtifactVerifier.Status.PASS)bad.put(check.name+": "+check.detail);
+                if(!signature.optBoolean("signature_verified"))bad.put("Криптографическая подпись APK недействительна или не проверена");
                 verdict.put("problems",bad);
             }catch(Exception impossible){/* valid keys */}
             if(failed){
                 StringBuilder why=new StringBuilder();
+                if(!signature.optBoolean("signature_verified"))why.append("Криптографическая подпись APK не прошла проверку; ");
                 for(ArtifactVerifier.Check check:report.checks)
                     if(check.status==ArtifactVerifier.Status.FAIL)
                         why.append(check.name).append(": ").append(check.detail).append("; ");

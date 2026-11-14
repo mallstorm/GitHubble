@@ -13,7 +13,7 @@ public final class AgentBudget {
         this.value=UnifiedAgentStore.copy(value); this.persist=persist;
     }
     public synchronized void round(long estimatedInput) throws Exhausted, org.json.JSONException {
-        if (value.optInt("rounds")>=Math.min(25,value.optInt("maxRounds",12))) throw new Exhausted("Исчерпан бюджет раундов");
+        if (value.optInt("rounds")>=Math.min(value.optInt("roundWindowStart")+25,value.optInt("maxRounds",12))) throw new Exhausted("Исчерпан бюджет раундов");
         long used=value.optLong("inputTokens")+value.optLong("outputTokens");
         if (used+estimatedInput+8192>value.optLong("maxTokens",180000)) throw new Exhausted("Исчерпан бюджет токенов");
         if (value.optLong("maxCostMicros",-1)>=0 && value.optLong("costMicros")>=value.optLong("maxCostMicros"))
@@ -38,7 +38,7 @@ public final class AgentBudget {
             throw new Exhausted("Ответ модели превысил оставшийся бюджет токенов");
     }
     public synchronized void tool() throws Exhausted, org.json.JSONException {
-        if (value.optInt("tools")>=Math.min(100,value.optInt("maxTools",100))) throw new Exhausted("Исчерпан бюджет инструментов");
+        if (value.optInt("tools")>=Math.min(value.optInt("toolWindowStart")+100,value.optInt("maxTools",100))) throw new Exhausted("Исчерпан бюджет инструментов");
         value.put("tools",value.optInt("tools")+1); persist.accept(UnifiedAgentStore.copy(value));
     }
     public synchronized int rounds() { return value.optInt("rounds"); }

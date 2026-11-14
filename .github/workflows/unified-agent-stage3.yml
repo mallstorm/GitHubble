@@ -1,0 +1,135 @@
+name: Unified Agent stage III checks
+on:
+  pull_request:
+    branches: [main, feat/unified-agent-stage2]
+  workflow_dispatch:
+
+# PR code receives no repository write capability or production secrets.
+permissions:
+  contents: read
+concurrency:
+  group: unified-stage3-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    if: github.head_ref == 'feat/unified-agent-stage3' || github.event_name == 'workflow_dispatch'
+    name: Stage III Android checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'ndk;28.2.13676358'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.1'
+      - name: Unit tests, Debug, Release and lint
+        run: ./gradlew --no-daemon --max-workers=2 test assembleDebug assembleRelease lintRelease
+      - name: Verify ARM64 Release Xray
+        run: python3 tools/verify-xray-payload.py app/build/outputs/apk/release/app-release-unsigned.apk --require-stripped
+      - name: Prepare test APK and exact source tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from zipfile import ZipFile
+          with ZipFile('app/build/outputs/apk/debug/app-debug.apk') as apk:
+              libs = [p for p in apk.namelist() if p.startswith('lib/') and p.endswith('.so')]
+              assert 'lib/arm64-v8a/libgojni.so' in libs
+              assert all(p.startswith('lib/arm64-v8a/') for p in libs)
+          PY
+          mkdir -p stage3-artifacts
+          cp app/build/outputs/apk/debug/app-debug.apk stage3-artifacts/GitHubble-stage3-debug.apk
+          cp app/build/outputs/apk/release/app-release-unsigned.apk stage3-artifacts/GitHubble-stage3-release-unsigned.apk
+          sha256sum stage3-artifacts/*.apk | sed 's|stage3-artifacts/||' > stage3-artifacts/SHA256SUMS.txt
+          git archive --format=zip --output=stage3-artifacts/GitHubble-stage3-source.zip HEAD
+          git rev-parse HEAD > stage3-artifacts/SOURCE_SHA.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: githubble-stage3-${{ github.sha }}
+          retention-days: 14
+          path: stage3-artifacts/
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: stage3-test-reports-${{ github.sha }}
+          retention-days: 14
+          path: |
+            app/build/reports/tests/
+            app/build/reports/lint-results-release.*
+            app/build/test-results/
+
+  device:
+    if: github.head_ref == 'feat/unified-agent-stage3' || github.event_name == 'workflow_dispatch'
+    name: Stage III ${{ matrix.mode }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [rc, agent-ui, account-ui, r8-smoke]
+    env:
+      CHECK_MODE: ${{ matrix.mode }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'ndk;28.2.13676358'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.1'
+      - name: Build isolated emulator APKs
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$CHECK_MODE" in
+            agent-ui) ./gradlew --no-daemon --max-workers=2 -PGITHUBBLE_CI_EMULATOR_ABI=x86_64 -PGITHUBBLE_AGENT_UI=true assembleDebug assembleDebugAndroidTest ;;
+            account-ui) ./gradlew --no-daemon --max-workers=2 -PGITHUBBLE_CI_EMULATOR_ABI=x86_64 -PGITHUBBLE_ACCOUNT_UI=true assembleDebug assembleDebugAndroidTest ;;
+            r8-smoke)
+              ./gradlew --no-daemon --max-workers=2 -PGITHUBBLE_CI_EMULATOR_ABI=x86_64 -PGITHUBBLE_R8_SMOKE=true assembleRelease assembleReleaseAndroidTest
+              python3 tools/verify-xray-payload.py app/build/outputs/apk/release/app-release.apk --require-stripped
+              ;;
+            rc) ./gradlew --no-daemon --max-workers=2 -PGITHUBBLE_CI_EMULATOR_ABI=x86_64 assembleDebug assembleDebugAndroidTest ;;
+          esac
+      - name: Enable KVM
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-stage3-kvm.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Verify real Android flows
+        uses: ReactiveCircus/android-emulator-runner@v2
+        with:
+          api-level: 33
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          disk-size: 2048M
+          emulator-boot-timeout: 180
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -feature -Vulkan
+          script: bash tools/stage3-device-check.sh "$CHECK_MODE"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: stage3-${{ matrix.mode }}-${{ github.sha }}
+          retention-days: 14
+          path: |
+            stage3-device-result.txt
+            stage3-screenshots/
+            app/build/outputs/mapping/release/mapping.txt
