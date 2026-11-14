@@ -18,4 +18,36 @@ public class WorkspaceHubTest {
         try{hub.importZip("A",id,new ByteArrayInputStream(bytes.toByteArray()));fail();}catch(IOException expected){}
         for(String path:new String[]{"../file","a/../file","/tmp/file",".workspace.json",".git/config"}){try{hub.saveFile("A",id,path,"bad");fail(path);}catch(IOException expected){}}
     }
+    @Test public void deletesOnlySelectedWorkspaceAndItsPrivateCheckpoints()throws Exception{
+        File root=Files.createTempDirectory("workspace-delete").toFile();
+        WorkspaceHub hub=new WorkspaceHub(root);
+        String selected=hub.create("A","agent-sandbox").getString("id");
+        String retained=hub.create("A","Important project").getString("id");
+        String other=hub.create("B","Other account").getString("id");
+        hub.saveFile("A",selected,"src/one.txt","remove");
+        hub.saveFile("A",retained,"src/two.txt","preserve");
+        File selectedRoot=hub.root("A",selected);
+        File checkpointRoot=new File(selectedRoot.getParentFile(),selected+"-checkpoints");
+        assertTrue(checkpointRoot.mkdirs());
+        Files.writeString(new File(checkpointRoot,"snapshot.zip").toPath(),"checkpoint");
+        hub.deleteLocal("A",selected);
+        assertFalse(selectedRoot.exists());
+        assertFalse(checkpointRoot.exists());
+        assertEquals("preserve",hub.readFile("A",retained,"src/two.txt"));
+        assertEquals(other,hub.info("B",other).getString("id"));
+        try{hub.deleteLocal("B",selected);fail("Cross-account deletion allowed");}
+        catch(IOException expected){}
+    }
+    @Test public void deleteWorkspaceDoesNotFollowSymlinks()throws Exception{
+        File root=Files.createTempDirectory("workspace-symlink").toFile();
+        File outside=Files.createTempDirectory("workspace-outside").toFile();
+        File important=new File(outside,"keep.txt");
+        Files.writeString(important.toPath(),"preserved");
+        WorkspaceHub hub=new WorkspaceHub(root);
+        String id=hub.create("A","Project").getString("id");
+        Files.createSymbolicLink(new File(hub.root("A",id),"outside-link").toPath(),outside.toPath());
+        hub.deleteLocal("A",id);
+        assertTrue("External file was deleted via symlink",important.isFile());
+        assertEquals("preserved",Files.readString(important.toPath()));
+    }
 }
