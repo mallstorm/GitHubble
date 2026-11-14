@@ -45,7 +45,7 @@ final class ChangeReviewUiChecks {
         }throw new AssertionError("Review control unavailable: "+text);
     }
     private static AccessibilityNodeInfo find(AccessibilityNodeInfo node,String text){
-        if(node==null)return null;CharSequence value=node.getText();if(value!=null&&value.toString().contains(text))return node;
+        if(node==null)return null;CharSequence value=node.getText();if(value!=null&&value.toString().toLowerCase(java.util.Locale.ROOT).contains(text.toLowerCase(java.util.Locale.ROOT)))return node;
         for(int i=0;i<node.getChildCount();i++){AccessibilityNodeInfo found=find(node.getChild(i),text);if(found!=null)return found;}return null;
     }
 }
