@@ -163,6 +163,7 @@ class ApiGateway(private val context: Context) {
             val endpointSegments = when {
                 url.encodedPath.endsWith("/chat/completions") -> 2
                 url.encodedPath.endsWith("/responses") -> 1
+                suffix.isNotEmpty() && url.encodedPath.endsWith(suffix) -> suffix.count { it == '/' }
                 protocol == OLLAMA && url.encodedPath.endsWith("/api") -> 1
                 else -> 0
             }
