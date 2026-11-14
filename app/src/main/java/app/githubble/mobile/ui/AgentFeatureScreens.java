@@ -161,7 +161,7 @@ public final class AgentFeatureScreens {
         LinearLayout body=ui.body("Workspace",true);final Dialog[] d={null};AgentProjectStore.Project selected=projects.project(owner);
         ui.note(body,"Локальный проект работает без GitHub-репозитория. Каждый диалог выбирает Workspace отдельно.");
         ui.action(body,"Новый Workspace","Папка проекта, файлы и собственная память",0xFF14846C,()->form("Новый проект",new String[]{"Название"},new String[]{""},v->{JSONObject j=workspaces.create(owner,v[0]);projects.save(new AgentProjectStore.Project(owner,j.getString("name"),"","main",j.getString("id")));d[0].dismiss();refresh.run();workspace();}));
-        ui.action(body,"Обычный чат — без проекта","Открепить Workspace и репозиторий от этого диалога",0xFF435B69,()->run(()->{projects.save(new AgentProjectStore.Project(owner,"","","main",""));d[0].dismiss();refresh.run();}));
+        ui.action(body,"Обычный чат — без проекта","Открыть новый диалог без Workspace и репозитория",0xFF435B69,()->run(()->{projects.newConversation(owner);d[0].dismiss();refresh.run();}));
         ui.action(body,"Управление Workspace","Отвязать · Удалить локально · Удалить полностью",0xFF713CB3,()->{d[0].dismiss();manageWorkspace();});
         JSONArray list=workspaces.list(owner);for(int i=0;i<list.length();i++){JSONObject j=list.getJSONObject(i);String id=j.getString("id");
             ui.action(body,(id.equals(selected.workspaceId)?"✓ ":"")+j.getString("name"),j.optString("state"),0xFF435B69,()->run(()->{projects.save(new AgentProjectStore.Project(owner,j.getString("name"),"","main",id));d[0].dismiss();refresh.run();files();}));}
