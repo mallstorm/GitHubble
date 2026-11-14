@@ -311,8 +311,8 @@ public final class AgentChatUiInstrumentation extends Instrumentation {
         "Workspace detachment crossed account boundaries");
     app.githubble.mobile.memory.MemoryHub memories =
         new app.githubble.mobile.memory.MemoryHub(getTargetContext());
-    memories.add(isolated, sandbox, firstChat, "Sandbox project memory");
-    memories.add(isolated, "", firstChat, "Global memory unaffected");
+    memories.add(isolated, sandbox, firstChat, "Sandbox project memory", "project", "sandbox", false, 80);
+    memories.add(isolated, "", firstChat, "Global memory unaffected", "fact", "global", false, 80);
     check(memories.clearWorkspace(isolated, sandbox) == 1,
         "Full deletion did not remove the selected Workspace memory");
     check(memories.list(isolated, "").length() == 1,
