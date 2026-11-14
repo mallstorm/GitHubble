@@ -30,7 +30,7 @@ public final class CiToolset {
     public JSONObject build(String workflow)throws Exception {
         guard.run();JSONObject s=state();assertSourceAllowed(s);
         JSONObject decision=s.optJSONObject("decision");
-        if(decision!=null&&"FIX_SOURCE".equals(decision.optString("action"))&&sha.equals(s.optString("sha")))
+        if(decision!=null&&"FIX_SOURCE".equals(decision.optString("action"))&&(s.optString("decidedRun").isEmpty()?sha.equals(s.optString("sha")):s.optString("decidedRun").startsWith(sha+":")))
             throw new IllegalStateException("Сначала исправьте и опубликуйте исходники: повтор старого SHA запрещён");
         if(clock.getAsLong()<s.optLong("retryAt"))throw new IllegalStateException("Повтор разрешён после "+s.optLong("retryAt"));
         String requested=workflow==null?"":workflow;
@@ -97,6 +97,12 @@ public final class CiToolset {
     public JSONObject await(long id)throws Exception {
         guard.run();if(id<=0)id=state().optLong("runId");if(id<=0)throw new IllegalArgumentException("Сначала найдите запуск через build");
         JSONObject run=api.get(base+"/actions/runs/"+id);validateRun(run);JSONObject s=state();
+        // An unrelated run must not resolve an unknown dispatch and allow another mutation.
+        if(java.util.Arrays.asList("DISPATCH_PENDING","UNKNOWN").contains(s.optString("state"))){
+            if(!sha.equals(s.optString("sha"))||!branch.equals(s.optString("branch"))
+                    ||!String.valueOf(run.optLong("workflow_id")).equals(s.optString("workflowId"))
+                    ||id<=s.optLong("priorRunId"))throw new SecurityException("Запуск не подтверждает ожидаемый dispatch workflow/SHA");
+        }
         if(s.optLong("runId")!=id){RetryPolicy p=policy(s);if(!p.tryStartBuild())throw new IllegalStateException("Исчерпан бюджет сборок");s.put("retry",p.snapshot());}
         s.put("runId",id).put("sha",sha).put("branch",branch).put("state",run.optString("status").equals("completed")?"COMPLETED":"TRACKING");save(s);
         return compact(run).put("done","completed".equals(run.optString("status")));

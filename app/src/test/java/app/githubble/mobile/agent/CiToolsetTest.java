@@ -78,4 +78,26 @@ public class CiToolsetTest {
         try{ci(a,s).await(1);fail();}catch(SecurityException expected){}
         a.head=OTHER;try{ci(a,s).build("7");fail();}catch(ChangeStore.Conflict expected){}assertEquals(0,a.posts);
     }
+    private void repairedCommitCanBeReconciled(boolean loseResponse)throws Exception {
+        Api a=new Api();Memory s=new Memory();a.runs.put(a.run(1,SHA,"failure"));
+        ci(a,s).failure(1,false);a.head=OTHER;a.loseResponse=loseResponse;
+        CiToolset fixed=ci(a,s,OTHER,id->true,(id,logs)->new JSONObject());
+        try{fixed.build("7");if(loseResponse)fail();}catch(java.io.IOException unknown){if(!loseResponse)throw unknown;}
+        fixed=ci(a,s,OTHER,id->true,(id,logs)->new JSONObject());
+        fixed.build("7");assertEquals(1,a.posts);
+        a.runs.put(a.run(2,OTHER,"success"));
+        assertEquals(2,fixed.build("7").getLong("run_id"));
+        assertEquals(2,fixed.build("7").getLong("run_id"));assertEquals(1,a.posts);
+        assertEquals(2,s.s.getJSONObject("retry").getInt("buildRuns"));
+    }
+    @Test public void repairedCommitDispatchCanBeReconciledAcrossRestart()throws Exception {repairedCommitCanBeReconciled(false);}
+    @Test public void lostDispatchAfterRepairIsNeverRepeated()throws Exception {repairedCommitCanBeReconciled(true);}
+    @Test public void unrelatedRunCannotClearPendingDispatch()throws Exception {
+        Api a=new Api();Memory s=new Memory();ci(a,s).build("7");
+        a.runs.put(a.run(3,SHA,"success").put("workflow_id",8));
+        try{ci(a,s).await(3);fail("Wrong workflow cleared dispatch journal");}catch(SecurityException expected){}
+        assertEquals("DISPATCH_PENDING",s.s.getString("state"));
+        ci(a,s).build("7");assertEquals(1,a.posts);
+    }
+
 }

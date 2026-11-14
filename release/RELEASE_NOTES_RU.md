@@ -190,3 +190,9 @@ Release candidate, ARM64, Android 9+. Физический телефон, ре�
 - версия вынесена в `version.properties`, UI/User-Agent/artifacts читают BuildConfig;
 - CI выполняет tests, lint, debug/release build и emulator regression suite;
 - release без постоянного signing keystore блокируется.
+
+## Уточнение кандидата Unified Agent перед выпуском
+
+Исправлено продолжение CI после публикации исправленного коммита. Неопределённый
+workflow dispatch нельзя подтвердить старым запуском или запуском другого workflow.
+Приёмка и последовательность выпуска описаны в docs/unified-agent/ACCEPTANCE.md.
