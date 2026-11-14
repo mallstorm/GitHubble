@@ -29,7 +29,7 @@ public class WorkspaceHubTest {
         File selectedRoot=hub.root("A",selected);
         File checkpointRoot=new File(selectedRoot.getParentFile(),selected+"-checkpoints");
         assertTrue(checkpointRoot.mkdirs());
-        Files.writeString(new File(checkpointRoot,"snapshot.zip").toPath(),"checkpoint");
+        Files.write(new File(checkpointRoot,"snapshot.zip").toPath(),"checkpoint".getBytes(java.nio.charset.StandardCharsets.UTF_8));
         hub.deleteLocal("A",selected);
         assertFalse(selectedRoot.exists());
         assertFalse(checkpointRoot.exists());
@@ -42,12 +42,12 @@ public class WorkspaceHubTest {
         File root=Files.createTempDirectory("workspace-symlink").toFile();
         File outside=Files.createTempDirectory("workspace-outside").toFile();
         File important=new File(outside,"keep.txt");
-        Files.writeString(important.toPath(),"preserved");
+        Files.write(important.toPath(),"preserved".getBytes(java.nio.charset.StandardCharsets.UTF_8));
         WorkspaceHub hub=new WorkspaceHub(root);
         String id=hub.create("A","Project").getString("id");
         Files.createSymbolicLink(new File(hub.root("A",id),"outside-link").toPath(),outside.toPath());
         hub.deleteLocal("A",id);
         assertTrue("External file was deleted via symlink",important.isFile());
-        assertEquals("preserved",Files.readString(important.toPath()));
+        assertEquals("preserved",new String(Files.readAllBytes(important.toPath()),java.nio.charset.StandardCharsets.UTF_8));
     }
 }
