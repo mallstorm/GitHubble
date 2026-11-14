@@ -23,6 +23,50 @@ public final class OmniChatChatClient {
         this.subscriptions=subscriptions;this.nativeRuntime=new app.githubble.mobile.network.NativeProviderRuntime(context,store);
     }
     public static void reportUsage(long input,long output,boolean reported){LAST_USAGE.set(new Usage(input,output,reported));}
+    /** Endpoint and protocol are resolved from the existing provider configuration before selection. */
+    public ModelTransport agentTransport(String owner,String provider,String model,String credential,
+            AgentExecutionEngine.Completion compatible,java.util.function.Consumer<Usage> usageObserver) {
+        if(!"openai".equals(provider)||model==null)return new EnvelopeTransport(compatible);
+        String base="https://api.openai.com/v1",wire="openai-responses";
+        if(nativeRuntime!=null&&nativeRuntime.handles(provider)){
+            app.githubble.mobile.data.ProviderEntity entity=nativeRuntime.entity(provider,model,credential,owner).getFirst();
+            base=entity.getBaseUrl();wire=entity.getProtocol();
+        }
+        // Never send a custom endpoint's credential to the official API or infer capabilities from its brand.
+        if(!"https://api.openai.com/v1".equals(base)||!model.matches("(?:gpt-4o|gpt-4\\.1|gpt-5|o3|o4-mini)(?:$|[-.].*)"))
+            return new EnvelopeTransport(compatible);
+        final NativeToolTransport.Protocol protocol;
+        if("openai-responses".equals(wire))protocol=NativeToolTransport.Protocol.RESPONSES;
+        else if("openai-chat".equals(wire))protocol=NativeToolTransport.Protocol.CHAT_COMPLETIONS;
+        else return new EnvelopeTransport(compatible);
+        final String target=base+(protocol==NativeToolTransport.Protocol.RESPONSES?"/responses":"/chat/completions");
+        TransportCapabilities capabilities=new TransportCapabilities();capabilities.confirmed(target,model,protocol,true);
+        if(!capabilities.supports(target,model,protocol))return new EnvelopeTransport(compatible);
+        ModelTransport nativeTools=new NativeToolTransport(protocol,model,body -> {
+            if(credential==null||credential.isBlank())throw new IllegalStateException("Нет API-ключа");
+            byte[] bytes=body.toString().getBytes(StandardCharsets.UTF_8);
+            if(bytes.length>MAX_INPUT_BYTES)throw new IllegalArgumentException("Контекст превысил лимит API");
+            HttpURLConnection connection=app.githubble.mobile.network.AiNetwork.open(target);
+            try{
+                connection.setRequestMethod("POST");connection.setDoOutput(true);
+                connection.setConnectTimeout(15000);connection.setReadTimeout(85000);
+                connection.setInstanceFollowRedirects(false);connection.setUseCaches(false);
+                connection.setRequestProperty("Authorization","Bearer "+credential.trim());
+                connection.setRequestProperty("Content-Type","application/json; charset=UTF-8");
+                connection.setRequestProperty("Accept","application/json");connection.setFixedLengthStreamingMode(bytes.length);
+                try(OutputStream out=connection.getOutputStream()){out.write(bytes);}
+                int status=connection.getResponseCode();String raw;
+                try(InputStream in=status>=200&&status<300?connection.getInputStream():connection.getErrorStream()){raw=readLimited(in);}
+                if(status<200||status>=300){
+                    if(ToolTransportFallback.unsupported(status,raw))throw new ToolTransportFallback.Unsupported();
+                    throw new IllegalStateException("AI API HTTP "+status+": "+apiError(raw,credential));
+                }
+                JSONObject result=new JSONObject(raw);captureUsage(result);Usage usage=takeUsage();
+                if(usageObserver!=null)usageObserver.accept(usage);return result;
+            }finally{connection.disconnect();}
+        });
+        return new ToolTransportFallback(nativeTools,new EnvelopeTransport(compatible));
+    }
     public String completeForAccount(String owner,String provider,String model,String credential,JSONArray transcript,String project,String repository)throws Exception{
         LAST_USAGE.remove();
         if(nativeRuntime!=null&&nativeRuntime.handles(provider))return nativeRuntime.complete(provider,model,credential,owner,transcript,

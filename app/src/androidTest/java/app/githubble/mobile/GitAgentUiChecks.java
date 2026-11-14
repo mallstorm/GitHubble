@@ -20,6 +20,7 @@ import java.io.FileOutputStream;
 final class GitAgentUiChecks {
     static void run(Instrumentation host) throws Exception {
         Context context=host.getTargetContext();
+        UnifiedAgentUiChecks.run(context);
         AgentProjectStore projects=new AgentProjectStore(context);
         String account="ui-regression-"+System.nanoTime(), other=account+"-other";
         if(projects.listConversations(account).length()!=0)throw new AssertionError("Fresh account contains a phantom conversation");

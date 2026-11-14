@@ -39,7 +39,8 @@ public final class AgentChatUiInstrumentation extends Instrumentation {
       if (!new app.githubble.mobile.security.SecureStore(getTargetContext())
           .get("github_token")
           .isEmpty()) throw new AssertionError("Clean test profile required");
-      storage();
+      storage(); // Creates the legacy v3 archive fixture before any test opens its v4 database.
+      UnifiedAgentUiChecks.run(getTargetContext());
       File directory = getTargetContext().getExternalFilesDir("agent-ui");
       if (directory == null || (!directory.isDirectory() && !directory.mkdirs()))
         throw new AssertionError("Screenshot directory unavailable");

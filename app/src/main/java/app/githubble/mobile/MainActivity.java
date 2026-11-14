@@ -121,6 +121,7 @@ public class MainActivity extends Activity {
     private OAuthManager oauth;
     private GitHubAccountStore accountStore;
     private AgentProjectStore agentProjects;
+    private app.githubble.mobile.agent.AgentController agentController;
     private GitHubAgentBridge aiGithub;
     private OmniChatConnectionStore aiConnections;
     private OmniChatChatClient aiChatClient;
@@ -134,6 +135,9 @@ public class MainActivity extends Activity {
         return agentFeatures;
     }
     private String agentContext(String owner,AgentProjectStore.Project project,String thread,String query){
+        String pid=agentProjects.projectId(owner,thread);
+        if(!pid.isEmpty()&&!agentProjects.registry.get(owner,pid).optBoolean("modelAccess"))
+            throw new SecurityException("Сначала разрешите AI-доступ к проекту в разделе «Проекты»");
         String result=project.name;
         // AI account credentials and GitHub OAuth are independent.
         boolean githubReady=!"guest".equals(owner)&&owner.equals(accountStore.activeCacheKey())
@@ -155,7 +159,7 @@ public class MainActivity extends Activity {
             &&project.repository!=null&&!project.repository.isEmpty())
             result+="Linked repository: "+project.repository+
                 " (branch "+project.branch+").\n";
-        result+=agentMemory.recall(owner,project.workspaceId==null?"":project.workspaceId,thread,query);
+        result+=agentMemory.recall(owner,agentProjects.memoryScope(owner,thread),thread,query);
         if(project.workspaceId!=null&&!project.workspaceId.isEmpty()){
             if(prefs.getBoolean("ai_tool_file_read_"+owner,false))
                 try{result+=agentWorkspaces.context(owner,project.workspaceId);}
@@ -296,6 +300,7 @@ public class MainActivity extends Activity {
         api = new GitHubApiClient(secureStore, entityCache);
         graphql = new GitHubGraphQlClient(api);
         agentProjects = new AgentProjectStore(this);
+        agentController = new app.githubble.mobile.agent.AgentController(agentProjects);
         final java.io.File journalDir = new java.io.File(getFilesDir(), "agent-journal");
         new Thread(() -> app.githubble.mobile.agent.core.AgentRunJournal.recoverInterrupted(
             journalDir, System::currentTimeMillis), "agent-journal-recovery").start();
@@ -750,25 +755,13 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void agentNewProject(String expected) {
-        if(!expected.equals(accountStore.activeCacheKey()))return;
-        if("repo".equals(agentProjectMode(expected)))agentAttachRepository(expected);
-        else agentFeatures(expected).workspace();
+    private app.githubble.mobile.ui.ProjectHubScreen agentProjectHub(String owner) {
+        return new app.githubble.mobile.ui.ProjectHubScreen(this,agentProjects,owner,
+            ()->owner.equals(accountStore.activeCacheKey()),()->agentRefreshIfCurrent(owner));
     }
 
-    /** "local": work in a Workspace first, publish to a new repository and build later; "repo": edit a repository directly. */
-    private String agentProjectMode(String owner){return prefs.getString("agent_project_mode_"+owner,"local");}
-
-    private void agentChooseProjectMode(String owner){
-        final String[] labels={"Локально, затем репозиторий","Сразу в репозитории GitHub"};
-        int selected="repo".equals(agentProjectMode(owner))?1:0;
-        new AlertDialog.Builder(this).setTitle("Как работать с проектом")
-                .setSingleChoiceItems(labels,selected,(d,which)->{
-                    prefs.edit().putString("agent_project_mode_"+owner,which==1?"repo":"local").apply();
-                    d.dismiss();toast(labels[which]);
-                })
-                .setMessage("Локально: файлы создаются и правятся в Workspace на телефоне, потом проект публикуется в новый репозиторий и собирается.\n\nСразу в репозитории: выбирается готовый репозиторий и ветка, агент вносит правки прямо туда через GitHub.\n\nРежим выбирает, что откроется по «Новый проект» в чате.")
-                .setNegativeButton("Закрыть",null).show();
+    private void agentNewProject(String expected) {
+        if(expected.equals(accountStore.activeCacheKey()))agentProjectHub(expected).createProject();
     }
 
     /** GitHub account and repository metadata are read through a pinned OAuth token,
@@ -1454,21 +1447,7 @@ public class MainActivity extends Activity {
         projectLink.setPadding(dp(10), dp(13), dp(10), dp(13));
         projectLink.setOnClickListener(v -> {
             drawer.dismiss();
-            new AlertDialog.Builder(this).setTitle("Проект GitHub")
-                    .setItems(new String[]{"Новый проект", "Привязать репозиторий",
-                            "Создать репозиторий", "Открыть репозиторий"},
-                            (d, choice) -> {
-                                switch (choice) {
-                                    case 0: agentNewProject(owner); break;
-                                    case 1: agentAttachRepository(owner); break;
-                                    case 2: agentCreateRepository(owner, "", true); break;
-                                    case 3:
-                                        AgentProjectStore.Project p = agentProjects.project(owner);
-                                        if (!p.repository.isEmpty()) navigate(() -> showRepository(p.repository));
-                                        else toast("Репозиторий пока не привязан");
-                                        break;
-                                }
-                            }).show();
+            agentProjectHub(owner).show();
         });
         panel.addView(projectLink);
         TextView workspace=ui.label("Workspace · проекты и файлы",14,true);
@@ -2310,6 +2289,7 @@ public class MainActivity extends Activity {
         if (aiRequestsInFlight.contains(owner)) {
             aiCanceledRequests.add(owner);
             app.githubble.mobile.agent.AgentRun run=app.githubble.mobile.agent.AgentRunRegistry.current(owner);
+            agentController.cancel(owner);
             if(run!=null)run.finish("cancelled","Остановлено пользователем");
             aiRequestTickets.remove(owner);
             java.util.concurrent.Future<?> task = aiActiveFutures.remove(owner);
@@ -2353,6 +2333,14 @@ public class MainActivity extends Activity {
         if (!expected.equals(accountStore.activeCacheKey())) { toast("Аккаунт проекта изменился"); return; }
         if(aiRequestsInFlight.contains(expected)){toast("Предыдущий запрос ещё выполняется");return;}
         final String activeChat = agentProjects.activeConversation(expected);
+        String selectedProjectId=agentProjects.projectId(expected,activeChat);
+        if(!selectedProjectId.isEmpty()&&!agentProjects.registry.get(expected,selectedProjectId).optBoolean("modelAccess")
+            &&!app.githubble.mobile.agent.DirectAnswers.handles(message)){
+            new AlertDialog.Builder(this).setTitle("Разрешить AI-доступ к проекту?")
+                .setMessage("Обсуждение, память и разрешённые файлы проекта могут передаваться выбранному внешнему AI-провайдеру. Доступ действует только для этого проекта и отзывается в разделе «Проекты». CI-логи требуют отдельного согласия.")
+                .setPositiveButton("Разрешить",(d,w)->{if(expected.equals(accountStore.activeCacheKey())&&activeChat.equals(agentProjects.activeConversation(expected))){agentProjects.registry.modelAccess(expected,selectedProjectId,true);agentSend(expected,message,ignoredLegacyMode);}})
+                .setNegativeButton("Отмена",null).show();return;
+        }
         final boolean planning=agentPlanning(expected);
         final boolean mayWrite=app.githubble.mobile.agent.AgentPermissionPolicy.mayWrite(agentPermission(expected),planning);
         final Uri imageUri=expected.equals(pendingAgentImageOwner)
@@ -2365,8 +2353,8 @@ public class MainActivity extends Activity {
         agentProjects.appendToConversation(expected, activeChat, "user", message);
         // Answer repo inventory via the user's authenticated GitHub session.
         // Do not ask a subscription model to guess the account or repository count.
-        if(imageUri==null && (message.trim().startsWith("/")||!prefs.getBoolean("ai_tool_github_read_"+expected,false))&&
-            app.githubble.mobile.agent.GitHubReadLoop.isDirectRepositoryQuestion(message)){
+        if(imageUri==null &&
+            app.githubble.mobile.agent.DirectAnswers.handles(message)){
             if("guest".equals(expected)||!isSignedIn()){
                 agentProjects.appendToConversation(expected,activeChat,"system",
                     "Для списка репозиториев подключите GitHub в разделе «Аккаунт и доступ». "+
@@ -2381,7 +2369,7 @@ public class MainActivity extends Activity {
             directRun.round(1);String operation=directRun.begin("list_repositories",new JSONObject());agentRefreshIfCurrent(expected);
             java.util.concurrent.FutureTask<Void> future=new java.util.concurrent.FutureTask<>(()->{
                 try{
-                    String answer=app.githubble.mobile.agent.GitHubReadLoop.directAnswer(aiGithub,expected,message);
+                    String answer=app.githubble.mobile.agent.DirectAnswers.answer(aiGithub,expected,message);
                     if(java.util.Objects.equals(aiRequestTickets.get(expected),directTicket)&&expected.equals(accountStore.activeCacheKey())
                         &&activeChat.equals(agentProjects.activeConversation(expected))){
                         directRun.result(operation,"succeeded","");agentProjects.appendToConversation(expected,activeChat,"agent",answer);directRun.finish("succeeded","Список получен из GitHub API");
@@ -2407,7 +2395,7 @@ public class MainActivity extends Activity {
             agentProjects.appendToConversation(expected,activeChat,"system","Репозиторий откреплён от этого диалога.");agentRefreshIfCurrent(expected);return;
         }
         String explicitMemory;
-        try{explicitMemory=agentMemory.explicit(expected,p.workspaceId,activeChat,message);}catch(Exception e){explicitMemory="Память: "+e.getMessage();}
+        try{explicitMemory=agentMemory.explicit(expected,agentProjects.memoryScope(expected,activeChat),activeChat,message);}catch(Exception e){explicitMemory="Память: "+e.getMessage();}
         if(explicitMemory!=null){agentProjects.appendToConversation(expected,activeChat,"system",explicitMemory);agentRefreshIfCurrent(expected);return;}
         java.util.regex.Matcher attach=java.util.regex.Pattern.compile("(?iu)^(?:/repo|закрепи репозиторий|привяжи репозиторий)\\s+([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)\\s*$").matcher(message.trim());
         if(agentMode&&attach.matches()){
@@ -2419,27 +2407,6 @@ public class MainActivity extends Activity {
         if(imageUri==null&&(lower.matches("(?s)^(?:/repo delete|удали репозиторий)\\s+[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\\s*$"))){
             String target=message.trim().substring(message.trim().lastIndexOf(' ')+1);
             agentDeleteRepository(expected,target);return;
-        }
-        if(imageUri==null&&(lower.equals("/workspace push")
-                ||lower.contains("загрузи workspace в github")
-                ||lower.contains("опубликуй workspace в github"))){
-            agentPublishWorkspace(expected);return;
-        }
-        if(imageUri==null&&agentMode&&
-            (lower.matches("(?s)^/repair(?:\\s+\\d+)?\\s*$")
-                ||lower.contains("исправь сборку")||lower.contains("почини сборку"))){
-            java.util.regex.Matcher run=java.util.regex.Pattern.compile("^/repair\\s+(\\d+)\\s*$")
-                .matcher(lower.trim());
-            if(run.matches()){
-                try{agentInspectBuildDiagnostics(expected,p,Long.parseLong(run.group(1)));}
-                catch(NumberFormatException bad){toast("Некорректный ID сборки");}
-            }else agentDiagnoseBuild(expected);
-            return;
-        }
-        if (imageUri==null && agentMode && (lower.startsWith("/build") || lower.contains("собери проект") || lower.contains("запусти сборку"))) {
-            agentRefreshIfCurrent(expected);
-            agentChooseWorkflow(expected);
-            return;
         }
         }
         {
@@ -2460,14 +2427,8 @@ public class MainActivity extends Activity {
             aiCanceledRequests.remove(expected);
             final long ticket = aiTicketCounter.incrementAndGet();
             aiRequestTickets.put(expected, ticket);
-            final app.githubble.mobile.agent.AgentRun run=new app.githubble.mobile.agent.AgentRun(expected,activeChat,android.os.SystemClock::elapsedRealtime);
-            run.model(model);
-            run.events(new app.githubble.mobile.agent.AgentNotifier(getApplicationContext()));
-            run.attachJournal(new app.githubble.mobile.agent.core.AgentRunJournal(run.id,activeProject.name,
-                app.githubble.mobile.agent.core.ExecutionMode.forLevel(agentPermission(expected)),
-                new java.io.File(getFilesDir(),"agent-journal"),System::currentTimeMillis));
-            app.githubble.mobile.agent.AgentRunRegistry.put(run);
-            new app.githubble.mobile.agent.AgentRunBinding(run,agentProjects,()->agentRefreshIfCurrent(expected));
+            final app.githubble.mobile.agent.AgentRun run=agentController.begin(this,expected,activeChat,model,
+                agentPermission(expected),()->agentRefreshIfCurrent(expected));
             agentRefreshIfCurrent(expected);
             java.util.concurrent.FutureTask<Void> call = new java.util.concurrent.FutureTask<>(() -> {
                 Runnable deferredLearn=null;
@@ -2488,6 +2449,9 @@ public class MainActivity extends Activity {
                             ||!java.util.Objects.equals(aiRequestTickets.get(expected),ticket)
                             ||aiCanceledRequests.contains(expected)||agentPlanning(expected)!=planning)
                             throw new java.util.concurrent.CancellationException("Контекст запроса изменился");
+                        String pid=agentProjects.projectId(expected,activeChat);
+                        if(!pid.isEmpty()&&!agentProjects.registry.get(expected,pid).optBoolean("modelAccess"))
+                            throw new SecurityException("Доступ модели к проекту отозван");
                         if(allowGithub){
                             aiGithub.requireAccount(expected);
                             if(!prefs.getBoolean("ai_tool_github_read_"+expected,false))throw new SecurityException("Доступ GitHub отозван");
@@ -2499,22 +2463,17 @@ public class MainActivity extends Activity {
                         agentProjects,expected,activeChat,activeProject,allowGithub,allowFiles,planning,
                         ()->agentPermission(expected),scopeGuard,()->agentRefreshIfCurrent(expected)).withRun(run);
                     if(toolMode){
-                        response=app.githubble.mobile.agent.ProjectRuntime.analyze(instructions->{
-                            JSONArray prompt=new JSONArray().put(
-                                new JSONObject().put("role","user").put("body",instructions));
+                        app.githubble.mobile.agent.AgentExecutionEngine.Completion completion=instructions->{
+                            JSONArray prompt=new JSONArray().put(new JSONObject().put("role","user").put("body",instructions));
                             String result=aiChatClient.completeStreamingForAccount(expected,provider,model,credential,
-                                prompt,"Native Hubble Agent tool execution",allowGithub?activeProject.repository:"",run::preview);
-                            aiUsage.record(expected,provider,model,OmniChatChatClient.takeUsage());
-                            return result;
-                        },aiGithub,agentWorkspaces,expected,activeProject.repository,
-                            activeProject.branch,activeProject.workspaceId,message,context,
-                            allowGithub,allowFiles,
-                            scopeGuard,tools,new app.githubble.mobile.agent.ProjectRuntime.Listener(){
-                                public void round(int number){run.round(number);}
-                                public String started(String name,JSONObject args){return run.begin(name,args);}
-                                public void completed(String id,String state,String error){run.result(id,state,app.githubble.mobile.agent.AgentLogRedactor.redact(error));}
-                            });
+                                prompt,"Hubble Unified Agent",allowGithub?activeProject.repository:"",run::preview);
+                            aiUsage.record(expected,provider,model,OmniChatChatClient.takeUsage());return result;
+                        };
+                        app.githubble.mobile.agent.ModelTransport transport=aiChatClient.agentTransport(expected,provider,model,credential,completion,usage->aiUsage.record(expected,provider,model,usage));
+                        response=agentController.execute(expected,activeChat,message,context,transport,tools,
+                            allowGithub,allowFiles,scopeGuard,run).answer;
                     }else if(imageUri!=null){
+                        scopeGuard.run();
                         String mime=getContentResolver().getType(imageUri);
                         response=aiChatClient.completeWithImageForAccount(expected,provider,model,credential,snapshot,
                             context,agentMode?activeProject.repository:"",mime,agentReadImage(imageUri));
@@ -2527,15 +2486,16 @@ public class MainActivity extends Activity {
                     if (java.util.Objects.equals(aiRequestTickets.get(expected), ticket)
                             && !aiCanceledRequests.contains(expected)){
                         agentProjects.appendToConversation(expected, activeChat, "agent", response);
-                        run.finish("succeeded","Задача завершена");
-                        try{agentMemory.recordEpisode(expected,activeProject.workspaceId,activeChat,message,response);}catch(Exception ignored){}
-                        if(agentMemory.shouldLearn(expected,activeProject.workspaceId,message)){
+                        if(run.active())run.finish("succeeded","Ответ получен · результат ожидает проверки");
+                        try{agentMemory.recordEpisode(expected,agentProjects.memoryScope(expected,activeChat),activeChat,message,response);}catch(Exception ignored){}
+                        if(agentMemory.shouldLearn(expected,agentProjects.memoryScope(expected,activeChat),message)){
                             // Memory extraction is a second model call. It runs after the request lock is released,
                             // otherwise the composer stays in "stop" mode and cannot send while the answer is already done.
                             final String learnPrompt=agentMemory.extractionPrompt(message,response,activeProject.name);
-                            final String learnWorkspace=activeProject.workspaceId;
+                            final String learnWorkspace=agentProjects.memoryScope(expected,activeChat);
                             deferredLearn=()->{
                                 try{
+                                    scopeGuard.run();
                                     JSONArray extract=new JSONArray().put(new JSONObject().put("role","user").put("body",learnPrompt));
                                     String learned=aiChatClient.completeForAccount(expected,provider,model,credential,extract,"Memory extraction","");
                                     aiUsage.record(expected,provider,model,OmniChatChatClient.takeUsage());
@@ -9285,9 +9245,9 @@ public class MainActivity extends Activity {
         workspace.add(SettingsScreen.Item.action(R.drawable.ic_projects,"Рабочие пространства",
                 project.workspaceId.isEmpty()?"Локальные проекты и привязка к чатам":"Активен: "+project.name,
                 "workspace проект рабочее пространство",()->agentFeatures(owner).workspace()));
-        workspace.add(SettingsScreen.Item.action(R.drawable.ic_repository,"Режим проектов",
-                "repo".equals(agentProjectMode(owner))?"Сразу в репозитории GitHub":"Локально, затем репозиторий",
-                "режим проект локально репозиторий workspace",()->agentChooseProjectMode(owner)));
+        workspace.add(SettingsScreen.Item.action(R.drawable.ic_repository,"Проекты и задачи",
+                "Постоянные проекты, независимые задачи и доступ AI",
+                "проект задачи доступ модель",()->agentProjectHub(owner).show()));
         workspace.add(SettingsScreen.Item.action(R.drawable.ic_repository,"Файлы и инструменты Workspace",
                 "Редактор, индекс, поиск, snapshots, ZIP и папки","файлы редактор индекс zip snapshot",
                 ()->agentFeatures(owner).files()));

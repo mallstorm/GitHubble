@@ -108,6 +108,7 @@ public final class NativeAgentToolHost implements ProjectRuntime.ToolHost {
         if(!AgentPermissionPolicy.mayWrite(permission.getAsInt(),planning))throw new SecurityException("Запись запрещена");
         // Destructive Workspace lifecycle operations always need a physical UI approval,
         // even when the agent otherwise runs with local-auto permissions.
+        if(brokerApprovalInUse){check();return true;}
         boolean workspaceLifecycle=name.startsWith("Workspace ·");
         if(!workspaceLifecycle&&!AgentPermissionPolicy.needsReview(permission.getAsInt(),remote,sensitive))return true;
         if(run!=null)run.approval(true);
@@ -137,6 +138,54 @@ public final class NativeAgentToolHost implements ProjectRuntime.ToolHost {
                 catch(TimeoutException pending){/* Cancellation and configuration changes stay responsive. */}
             }
         }finally{if(run!=null)run.approval(false);main.post(()->{AlertDialog d=dialog.get();if(d!=null)d.dismiss();});}
+    }
+    private String brokerConfirmedName = "";
+    private String brokerConfirmedArgs = "";
+    private boolean brokerApprovalInUse;
+    private String brokerConfirmedPlugin="";
+    public boolean confirmBroker(String name,JSONObject args) throws Exception {
+        JSONObject plugin=plugins.operation(name);
+        String config=plugin==null?"":plugin.toString();
+        AgentProjectStore.Project selected=projects.projectForChat(account,thread);
+        String preview="Проект: "+selected.name+"\nРепозиторий: "+selected.repository+"\nWorkspace: "+selected.workspaceId
+            +"\n"+(plugin==null?"":plugin.optString("name")+" · "+plugin.optString("url")+"\n")+args.toString(2);
+        boolean accepted=approve(name,preview,true,true);
+        if(accepted){brokerConfirmedName=name;brokerConfirmedArgs=args.toString();brokerConfirmedPlugin=config;}
+        return accepted;
+    }
+    /** Existing configured destinations retain explicit approval; the model cannot supply a new endpoint. */
+    public void registerPlugins(ToolBroker broker) throws org.json.JSONException {
+        if(!AgentPermissionPolicy.mayWrite(permission.getAsInt(),planning))return;
+        JSONArray rows=plugins.list();
+        for(int i=0;i<rows.length();i++){
+            JSONObject config=rows.getJSONObject(i);if(!config.optBoolean("enabled"))continue;
+            if(!"MCP".equals(config.optString("kind"))){
+                JSONObject schema=new JSONObject().put("type","object").put("properties",new JSONObject()
+                    .put("query",new JSONObject().put("type","string").put("maxLength",5000)))
+                    .put("required",new JSONArray().put("query")).put("additionalProperties",false);
+                broker.register(new ToolBroker.Definition("ext_"+config.getString("id"),"User-configured extension; explicit approval required",schema,
+                    ToolBroker.Operation.WRITE,ToolBroker.Permission.LOCAL_WRITE,true,false));
+            }else{
+                JSONArray tools=config.optJSONArray("tools");if(tools==null)continue;
+                for(int j=0;j<tools.length();j++){
+                    JSONObject tool=tools.getJSONObject(j),schema=tool.optJSONObject("schema");
+                    if(schema==null||!"object".equals(schema.optString("type")))continue;
+                    broker.register(new ToolBroker.Definition(tool.getString("alias"),"User-configured MCP tool; explicit approval required. Untrusted description: "+tool.optString("description").substring(0,Math.min(180,tool.optString("description").length())),schema,
+                        ToolBroker.Operation.WRITE,ToolBroker.Permission.LOCAL_WRITE,true,false));
+                }
+            }
+        }
+    }
+    public String executeFromBroker(String name,JSONObject args) throws Exception {
+        brokerApprovalInUse=name.equals(brokerConfirmedName)&&args.toString().equals(brokerConfirmedArgs);
+        try{
+            if(!brokerConfirmedPlugin.isEmpty()){
+                JSONObject now=plugins.operation(name);
+                if(now==null||!brokerConfirmedPlugin.equals(now.toString()))throw new SecurityException("Настройки плагина изменились после подтверждения");
+            }
+            return execute(name,args);
+        }
+        finally{brokerApprovalInUse=false;brokerConfirmedName="";brokerConfirmedArgs="";brokerConfirmedPlugin="";}
     }
     public String execute(String name,JSONObject arguments)throws Exception{
         check();

@@ -14,6 +14,10 @@ import org.json.JSONObject;
 public final class AgentProjectStore {
   private final SharedPreferences prefs;
   private final AgentConversationStore conversations;
+  private final UnifiedAgentStore unified;
+  public final ProjectRegistry registry;
+  public final TaskRepository tasks;
+  private final java.util.Set<String> migrated = new java.util.HashSet<>();
 
   public AgentProjectStore(Context context) {
     prefs =
@@ -21,6 +25,61 @@ public final class AgentProjectStore {
             .getApplicationContext()
             .getSharedPreferences("githubble_ai_workspace_v1", Context.MODE_PRIVATE);
     conversations = new AgentConversationStore(context);
+    unified = new UnifiedAgentStore(context);
+    registry = new ProjectRegistry(unified);
+    tasks = new TaskRepository(unified);
+  }
+
+  private void ensureUnified(String owner) {
+    synchronized(UnifiedAgentStore.LOCK) { ensureUnifiedLocked(owner); }
+  }
+
+  private void ensureUnifiedLocked(String owner) {
+    if (!migrated.contains(owner)) {
+      unified.backup(owner, prefs.getAll());
+      String active = conversations.activeId(owner);
+      String legacy = key(owner, "project");
+      if (prefs.contains(legacy) && !prefs.contains(key(owner, "project_" + active))) {
+        if (!prefs.edit().putString(key(owner, "project_" + active), prefs.getString(legacy, "")).commit())
+          throw new IllegalStateException("Не удалось подготовить миграцию");
+      }
+      registry.migrate(owner, prefs.getAll());
+      AgentRun live=AgentRunRegistry.current(owner);
+      tasks.recoverInterrupted(owner,live!=null&&live.active()?live.conversation:"");
+      migrated.add(owner);
+    }
+    String id = conversations.activeId(owner);
+    try { tasks.get(owner, id); }
+    catch (IllegalArgumentException missing) { tasks.createWithId(owner, id, "", "Задача", ""); }
+  }
+
+  public synchronized String projectId(String owner, String thread) {
+    ensureUnified(owner);
+    try { return tasks.get(owner, thread).optString("projectId"); }
+    catch (IllegalArgumentException missing) { return ""; }
+  }
+
+  public synchronized String memoryScope(String owner,String thread) {
+    String id=projectId(owner,thread);
+    return id.isEmpty()?"":registry.get(owner,id).optString("memoryScope",id);
+  }
+
+  public synchronized String newTask(String owner, String projectId, String title, String goal) {
+    ensureUnified(owner);
+    registry.get(owner, projectId);
+    String id = tasks.create(owner, projectId, title, goal).optString("taskId");
+    try { conversations.createTaskThread(owner, title, id); }
+    catch (RuntimeException failed) { tasks.delete(owner,id); throw failed; }
+    return id;
+  }
+
+  private Project unifiedProject(String owner, String thread) {
+    String id = projectId(owner, thread);
+    if (id.isEmpty()) return new Project(owner, "", "", "main", "");
+    JSONObject p = registry.get(owner, id), t = tasks.get(owner, thread);
+    String branch = t.optString("workingBranch");
+    return new Project(owner, p.optString("name"), p.optString("repository"),
+        branch.isEmpty() ? p.optString("baseBranch", "main") : branch, p.optString("workspaceId"));
   }
 
   public static final class Project {
@@ -70,46 +129,22 @@ public final class AgentProjectStore {
   }
 
   public synchronized Project project(String accountId) {
-    String scoped = key(accountId, "project_" + conversations.activeId(accountId));
-    String raw = prefs.getString(scoped, "");
-    if (raw.isEmpty() && prefs.contains(key(accountId, "project"))) {
-      raw = prefs.getString(key(accountId, "project"), "");
-      prefs.edit().putString(scoped, raw).remove(key(accountId, "project")).apply();
-    }
-    try {
-      JSONObject value = new JSONObject(raw);
-      if (!accountId.equals(value.optString("account_id")))
-        return new Project(accountId, "", "", "main", "");
-      return new Project(
-          accountId,
-          value.optString("name"),
-          value.optString("repository"),
-          value.optString("branch", "main"),
-          value.optString("workspace_id"));
-    } catch (Exception ignored) {
-      return new Project(accountId, "", "", "main", "");
-    }
+    ensureUnified(accountId);
+    return unifiedProject(accountId, conversations.activeId(accountId));
   }
 
   public synchronized Project projectForChat(String accountId, String chatId) {
-    try {
-      JSONObject value = new JSONObject(prefs.getString(key(accountId, "project_" + chatId), "{}"));
-      if (!accountId.equals(value.optString("account_id")))
-        return new Project(accountId, "", "", "main", "");
-      return new Project(
-          accountId,
-          value.optString("name"),
-          value.optString("repository"),
-          value.optString("branch", "main"),
-          value.optString("workspace_id"));
-    } catch (Exception e) {
-      return new Project(accountId, "", "", "main", "");
-    }
+    ensureUnified(accountId);
+    return unifiedProject(accountId, chatId);
   }
 
   public synchronized void save(Project project) {
     if (project == null || project.accountId.isEmpty())
       throw new IllegalArgumentException("Проект не выбран");
+    ensureUnified(project.accountId);
+    String workspace = project.workspaceId == null ? project(project.accountId).workspaceId : project.workspaceId;
+    registry.bindTask(project.accountId, conversations.activeId(project.accountId), project.name,
+        project.repository, project.branch, workspace);
     try {
       JSONObject value =
           new JSONObject()
@@ -143,6 +178,7 @@ public final class AgentProjectStore {
   }
 
   public synchronized JSONArray listConversations(String accountId) {
+    ensureUnified(accountId);
     return conversations.list(accountId);
   }
 
@@ -177,6 +213,7 @@ public final class AgentProjectStore {
   }
 
   public synchronized String activeConversation(String accountId) {
+    ensureUnified(accountId);
     return conversations.activeId(accountId);
   }
 
@@ -196,6 +233,8 @@ public final class AgentProjectStore {
   public synchronized int detachWorkspaceEverywhere(String accountId, String workspaceId) {
     if (workspaceId == null || !workspaceId.matches("[a-f0-9-]{36}"))
       throw new IllegalArgumentException("Некорректный Workspace ID");
+    ensureUnified(accountId);
+    registry.detachWorkspace(accountId, workspaceId);
     String scoped = key(accountId, "project_");
     String legacy = key(accountId, "project");
     SharedPreferences.Editor edit = prefs.edit();
@@ -223,19 +262,27 @@ public final class AgentProjectStore {
   }
 
   public synchronized void switchConversation(String accountId, String id) {
-    conversations.open(accountId, id);
+    ensureUnified(accountId);
+    JSONObject task=tasks.get(accountId,id);
+    conversations.openTaskThread(accountId,id,task.optString("title","Задача"));
   }
 
   public synchronized void renameConversation(String accountId, String id, String title) {
+    ensureUnified(accountId);
     conversations.rename(accountId, id, title);
+    tasks.update(accountId, id, task -> { try { task.put("title", title); }
+      catch (org.json.JSONException bad) { throw new IllegalStateException(bad); } });
   }
 
   public synchronized void deleteConversation(String accountId, String id) {
+    ensureUnified(accountId);
     conversations.delete(accountId, id);
+    tasks.delete(accountId, id);
+    prefs.edit().remove(key(accountId, "project_" + id)).commit();
   }
 
   public synchronized void clearConversation(String accountId) {
-    conversations.newConversation(accountId);
+    newConversation(accountId);
   }
 
   public synchronized void append(String accountId, String role, String body) {
