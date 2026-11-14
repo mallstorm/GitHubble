@@ -180,9 +180,46 @@ public final class AgentProjectStore {
     return conversations.activeId(accountId);
   }
 
+  /** A new chat must never inherit the Workspace of an empty draft or legacy project. */
   public synchronized String newConversation(String accountId) {
-    project(accountId);
-    return conversations.newConversation(accountId);
+    project(accountId); // Perform legacy migration before switching threads.
+    String id = conversations.newConversation(accountId);
+    save(new Project(accountId, "", "", "main", ""));
+    return id;
+  }
+
+  /**
+   * Remove an unavailable local Workspace from every conversation in this account,
+   * including hidden drafts and the legacy project record. Preserve GitHub links
+   * and conversation history: deleting phone files must never delete a repository.
+   */
+  public synchronized int detachWorkspaceEverywhere(String accountId, String workspaceId) {
+    if (workspaceId == null || !workspaceId.matches("[a-f0-9-]{36}"))
+      throw new IllegalArgumentException("Некорректный Workspace ID");
+    String scoped = key(accountId, "project_");
+    String legacy = key(accountId, "project");
+    SharedPreferences.Editor edit = prefs.edit();
+    int changed = 0;
+    for (java.util.Map.Entry<String, ?> entry : prefs.getAll().entrySet()) {
+      String entryKey = entry.getKey();
+      if (!entryKey.startsWith(scoped) && !entryKey.equals(legacy)) continue;
+      if (!(entry.getValue() instanceof String)) continue;
+      try {
+        JSONObject project = new JSONObject((String) entry.getValue());
+        if (!accountId.equals(project.optString("account_id"))
+            || !workspaceId.equals(project.optString("workspace_id"))) continue;
+        String repository = project.optString("repository", "");
+        project.put("workspace_id", "");
+        project.put("name", repository.isEmpty() ? ""
+            : repository.substring(repository.lastIndexOf('/') + 1));
+        edit.putString(entryKey, project.toString());
+        changed++;
+      } catch (org.json.JSONException ignored) {
+        // A corrupt foreign/legacy entry must not change another project.
+      }
+    }
+    if (!edit.commit()) throw new IllegalStateException("Не удалось отвязать Workspace");
+    return changed;
   }
 
   public synchronized void switchConversation(String accountId, String id) {
