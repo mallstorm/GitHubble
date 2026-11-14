@@ -157,11 +157,17 @@ class ApiGateway(private val context: Context) {
                 else -> ""
             }
             val builder = url.newBuilder()
-            if (suffix.isNotEmpty() && url.encodedPath.endsWith(suffix)) {
-                repeat(suffix.count { it == '/' }) { builder.removePathSegment(builder.build().pathSize - 1) }
-            } else if (protocol == OLLAMA && url.encodedPath.endsWith("/api")) {
-                builder.removePathSegment(builder.build().pathSize - 1)
+            // A user may paste a complete endpoint instead of an API base URL.
+            // Strip either OpenAI wire endpoint before appending the selected one.
+            // This is also required when Responses fails over to Chat Completions.
+            val endpointSegments = when {
+                url.encodedPath.endsWith("/chat/completions") -> 2
+                url.encodedPath.endsWith("/responses") -> 1
+                suffix.isNotEmpty() && url.encodedPath.endsWith(suffix) -> suffix.count { it == '/' }
+                protocol == OLLAMA && url.encodedPath.endsWith("/api") -> 1
+                else -> 0
             }
+            repeat(endpointSegments) { builder.removePathSegment(builder.build().pathSize - 1) }
             segments.forEach { builder.addPathSegment(it) }
             return builder.build()
         }
