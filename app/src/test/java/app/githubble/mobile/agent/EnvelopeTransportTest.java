@@ -17,4 +17,12 @@ public class EnvelopeTransportTest {
         JSONArray records=new JSONArray().put(new JSONObject().put("data","x".repeat(500))).put(new JSONObject().put("data","latest"));
         String compact=AgentContextBuilder.compact(records,100);JSONArray parsed=new JSONArray(compact);assertTrue(compact.contains("latest"));assertEquals(1,parsed.getJSONObject(0).getInt("omittedOlderResults"));
     }
+    @Test public void largeWriteArgumentsNeverEvictTheVerifiedOutcome() throws Exception {
+        JSONArray files=new JSONArray();for(int i=0;i<12;i++)files.put(new JSONObject().put("path","File"+i+".java").put("content","x".repeat(20000)));
+        JSONArray history=new JSONArray().put(new JSONObject().put("results",new JSONArray().put(new JSONObject()
+            .put("name","write_files").put("args",new JSONObject().put("files",files)).put("data","applied: checkpoint-123"))));
+        String compact=AgentContextBuilder.compact(history,28000);
+        assertTrue(compact.contains("checkpoint-123"));assertTrue(compact.contains("File11.java"));assertTrue(compact.length()<28000);
+        assertTrue(history.toString().contains("x".repeat(20000))); // Durable originals are untouched.
+    }
 }

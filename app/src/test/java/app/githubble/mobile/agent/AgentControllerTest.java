@@ -21,13 +21,13 @@ public class AgentControllerTest {
         UnifiedAgentStore store=new UnifiedAgentStore(new UnifiedAgentTestSupport.Memory());
         ProjectRegistry projects=new ProjectRegistry(store);TaskRepository tasks=new TaskRepository(store);
         String project=projects.create("a","Demo","","main").getString("projectId");projects.modelAccess("a",project,true);
-        String task=tasks.create("a",project,"Inspect", "").getString("taskId");TaskSession session=new TaskSession("a",project,task,()->{});
+        String task=tasks.create("a",project,"Inspect", "Maintain the source").getString("taskId");TaskSession session=new TaskSession("a",project,task,()->{});
         ToolBroker broker=new ToolBroker(session,d->true,(d,a)->true,(n,a)->"source",UnifiedAgentTestSupport.journal());broker.register(UnifiedAgentTestSupport.read());
         java.util.concurrent.atomic.AtomicInteger rounds=new java.util.concurrent.atomic.AtomicInteger();
         AgentLoop.Outcome outcome=new AgentController(tasks,projects).executeLoop(session,"Inspect", "",
             new EnvelopeTransport(prompt->rounds.incrementAndGet()==1?"{\"tools\":[{\"name\":\"read_file\",\"args\":{\"path\":\"a.java\"}}]}":"{\"answer\":\"Read source\"}"),broker,n->{});
         assertEquals("Read source",outcome.answer);JSONObject saved=tasks.get("a",task);
-        assertEquals("REVIEW",saved.getString("state"));assertEquals(2,saved.getJSONObject("budget").getInt("rounds"));
+        assertEquals("REVIEW",saved.getString("state"));assertEquals("Maintain the source",saved.getString("goal"));assertEquals(2,saved.getJSONObject("budget").getInt("rounds"));
         assertEquals(1,saved.getJSONObject("budget").getInt("tools"));assertTrue(saved.getJSONArray("loopHistory").toString().contains("source"));
     }
     @Test public void controllerNeverCallsModelWithoutProjectConsent() throws Exception {

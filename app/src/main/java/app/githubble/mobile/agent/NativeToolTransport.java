@@ -31,7 +31,7 @@ public final class NativeToolTransport implements ModelTransport {
         } else messages.put(new JSONObject().put("role","system").put("content",instructions))
             .put(new JSONObject().put("role","user").put("content","Continue the engineering task using the supplied context."));
         // Compact whole protocol exchanges so every retained function call keeps its output.
-        JSONArray compacted=new JSONArray(AgentContextBuilder.compact(history,90000));
+        JSONArray compacted=new JSONArray(AgentContextBuilder.compactNative(history,90000));
         for (int i=0;i<compacted.length();i++) {
             JSONObject record=compacted.getJSONObject(i), response=record.optJSONObject("nativeResponse");
             JSONArray results=record.optJSONArray("results");

@@ -41,4 +41,12 @@ public class NativeTransportTest {
         assertEquals("compatible",transport.complete("task",new JSONArray(),new JSONArray()).answer);
         transport.complete("task",new JSONArray(),new JSONArray());assertEquals(1,nativeCalls.get());
     }
+    @Test public void largeNativeArgumentsKeepCallCorrelationAndOutput() throws Exception {
+        JSONObject response=response();response.getJSONArray("output").getJSONObject(0)
+            .put("arguments",new JSONObject().put("path","a.java").put("content","x".repeat(200000)).toString());
+        JSONArray history=new JSONArray().put(new JSONObject().put("nativeResponse",response)
+            .put("results",new JSONArray().put(new JSONObject().put("id","call1").put("name","read_file").put("data","verified-result"))));
+        String compact=AgentContextBuilder.compactNative(history,90000);
+        assertTrue(compact.contains("call1"));assertTrue(compact.contains("verified-result"));assertTrue(compact.length()<90000);
+    }
 }
