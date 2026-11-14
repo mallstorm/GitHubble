@@ -31,7 +31,16 @@ final class ChangeReviewUiChecks {
     private static void click(Instrumentation host,String text)throws Exception {
         for(int i=0;i<100;i++){
             AccessibilityNodeInfo node=find(host.getUiAutomation().getRootInActiveWindow(),text);
-            if(node!=null){while(node!=null&&!node.isClickable())node=node.getParent();if(node!=null&&node.performAction(AccessibilityNodeInfo.ACTION_CLICK)){SystemClock.sleep(150);return;}}
+            if(node!=null){
+                android.graphics.Rect bounds=new android.graphics.Rect();node.getBoundsInScreen(bounds);
+                if(!bounds.isEmpty()){
+                    long now=SystemClock.uptimeMillis();
+                    android.view.MotionEvent down=android.view.MotionEvent.obtain(now,now,android.view.MotionEvent.ACTION_DOWN,bounds.centerX(),bounds.centerY(),0);
+                    android.view.MotionEvent up=android.view.MotionEvent.obtain(now,now+60,android.view.MotionEvent.ACTION_UP,bounds.centerX(),bounds.centerY(),0);
+                    try{host.getUiAutomation().injectInputEvent(down,true);host.getUiAutomation().injectInputEvent(up,true);}finally{down.recycle();up.recycle();}
+                    host.waitForIdleSync();SystemClock.sleep(200);return;
+                }
+            }
             SystemClock.sleep(50);
         }throw new AssertionError("Review control unavailable: "+text);
     }
