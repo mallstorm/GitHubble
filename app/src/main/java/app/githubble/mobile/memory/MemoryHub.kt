@@ -38,6 +38,11 @@ class MemoryHub(context: Context) : SQLiteOpenHelper(context.applicationContext,
     }
     @Synchronized fun remove(owner: String,id: Long) { writableDatabase.delete("memories","owner=? AND id=?",arrayOf(owner,id.toString())) }
     @Synchronized fun clear(owner: String) { writableDatabase.delete("memories","owner=?",arrayOf(owner)) }
+    /** Purge only memories assigned to this Workspace, not global or other project facts. */
+    @Synchronized fun clearWorkspace(owner: String,workspaceId: String): Int {
+        require(workspaceId.matches(Regex("[a-f0-9-]{36}"))) { "Некорректный Workspace ID" }
+        return writableDatabase.delete("memories","owner=? AND workspace=?",arrayOf(owner,workspaceId))
+    }
     @Synchronized fun togglePin(owner: String,id: Long) {
         readableDatabase.query("memories",arrayOf("body"),"owner=? AND id=?",arrayOf(owner,id.toString()),null,null,null).use { c ->
             if(c.moveToFirst()){val j=JSONObject(c.getString(0));j.put("pinned",!j.optBoolean("pinned"));val cv=ContentValues();cv.put("body",j.toString());writableDatabase.update("memories",cv,"owner=? AND id=?",arrayOf(owner,id.toString()))}

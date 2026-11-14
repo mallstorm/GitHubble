@@ -275,6 +275,54 @@ public final class AgentChatUiInstrumentation extends Instrumentation {
         if (new File(directory, removed + ".json").exists()) removedFileExists = true;
     check(!removedFileExists, "Deleted snapshot bytes remain on disk");
     store.deleteConversation(owner, otherThread);
+    // Regression: an empty draft can have a Workspace binding. "New chat" must
+    // re-use the draft without re-attaching agent-sandbox.
+    String isolated = "workspace-regression-" + java.util.UUID.randomUUID();
+    WorkspaceHub hub = new WorkspaceHub(getTargetContext());
+    String sandbox = hub.create(isolated, "agent-sandbox").getString("id");
+    String retainedWorkspace = hub.create(isolated, "do-not-delete").getString("id");
+    String firstChat = store.activeConversation(isolated);
+    store.save(new AgentProjectStore.Project(isolated, "agent-sandbox", "", "main", sandbox));
+    check(firstChat.equals(store.newConversation(isolated)),
+        "New-chat reused an empty draft with a stale Workspace binding");
+    check(store.project(isolated).workspaceId.isEmpty(),
+        "Agent-sandbox was re-attached when creating a project-free chat");
+
+    store.save(new AgentProjectStore.Project(isolated, "agent-sandbox",
+        "owner/remote-repo", "main", sandbox));
+    store.appendToConversation(isolated, firstChat, "user", "Preserved chat history");
+    String secondChat = store.newConversation(isolated);
+    store.save(new AgentProjectStore.Project(isolated, "agent-sandbox", "", "main", sandbox));
+    store.appendToConversation(isolated, secondChat, "user", "Second chat remains");
+    String unrelated = "workspace-foreign-" + java.util.UUID.randomUUID();
+    String foreignChat = store.activeConversation(unrelated);
+    store.save(new AgentProjectStore.Project(unrelated, "foreign", "", "main", sandbox));
+    check(store.detachWorkspaceEverywhere(isolated, sandbox) == 2,
+        "Deletion did not unlink every chat referencing the selected Workspace");
+    check(store.projectForChat(isolated, firstChat).workspaceId.isEmpty()
+        && store.projectForChat(isolated, secondChat).workspaceId.isEmpty(),
+        "Workspace association resurrected after bulk detachment");
+    check("owner/remote-repo".equals(store.projectForChat(isolated, firstChat).repository),
+        "Unlinking local files also disconnected the GitHub repository");
+    check(store.messages(isolated, firstChat).length() == 1
+        && store.messages(isolated, secondChat).length() == 1,
+        "Unlinking Workspace destroyed conversation history");
+    check(sandbox.equals(store.projectForChat(unrelated, foreignChat).workspaceId),
+        "Workspace detachment crossed account boundaries");
+    app.githubble.mobile.memory.MemoryHub memories =
+        new app.githubble.mobile.memory.MemoryHub(getTargetContext());
+    memories.add(isolated, sandbox, firstChat, "Sandbox project memory", "project", "sandbox", false, 80);
+    memories.add(isolated, "", firstChat, "Global memory unaffected", "fact", "global", false, 80);
+    check(memories.clearWorkspace(isolated, sandbox) == 1,
+        "Full deletion did not remove the selected Workspace memory");
+    check(memories.list(isolated, "").length() == 1,
+        "Full deletion removed global account memory");
+    memories.clear(isolated);
+    memories.close();
+    hub.deleteLocal(isolated, sandbox);
+    check(hub.list(isolated).length() == 1 &&
+        retainedWorkspace.equals(hub.list(isolated).getJSONObject(0).getString("id")),
+        "Local deletion removed another Workspace or failed to remove the selected one");
   }
 
   public void verifyNativeTools(AgentChatPreviewActivity activity) throws Exception {

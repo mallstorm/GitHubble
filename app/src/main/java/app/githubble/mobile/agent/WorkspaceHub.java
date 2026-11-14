@@ -32,6 +32,39 @@ public final class WorkspaceHub {
         JSONArray a=new JSONArray();File[] dirs=account(owner).listFiles();if(dirs!=null)for(File f:dirs){File meta=new File(f,".workspace.json");if(meta.isFile())try{a.put(new JSONObject(read(meta,64*1024)));}catch(Exception ignored){}}return a;
     }
     public JSONObject info(String owner,String id)throws Exception{return new JSONObject(read(new File(root(owner,id),".workspace.json"),64*1024));}
+    /**
+     * Delete one account-scoped private Workspace and its private checkpoints.
+     * Never recurse into a SAF-linked external device folder or follow symlinks.
+     * Removing conversation links and project memory is handled separately.
+     */
+    public synchronized void deleteLocal(String owner,String id)throws Exception{
+        File directory=root(owner,id);
+        if(java.nio.file.Files.isSymbolicLink(directory.toPath()))
+            throw new IOException("Нельзя удалять Workspace через символическую ссылку");
+        JSONObject meta=info(owner,id);
+        if(!id.equals(meta.optString("id")))
+            throw new IOException("Метаданные Workspace не совпадают с ID");
+        File checkpoints=new File(account(owner),id+"-checkpoints");
+        deletePrivateTree(checkpoints);
+        deletePrivateTree(directory);
+    }
+    private static void deletePrivateTree(File folder)throws IOException{
+        java.nio.file.Path path=folder.toPath();
+        if(!java.nio.file.Files.exists(path,java.nio.file.LinkOption.NOFOLLOW_LINKS))return;
+        java.nio.file.Files.walkFileTree(path,new java.nio.file.SimpleFileVisitor<java.nio.file.Path>(){
+            @Override public java.nio.file.FileVisitResult visitFile(
+                    java.nio.file.Path file,java.nio.file.attribute.BasicFileAttributes attrs)throws IOException{
+                java.nio.file.Files.delete(file);
+                return java.nio.file.FileVisitResult.CONTINUE;
+            }
+            @Override public java.nio.file.FileVisitResult postVisitDirectory(
+                    java.nio.file.Path dir,IOException failure)throws IOException{
+                if(failure!=null)throw failure;
+                java.nio.file.Files.delete(dir);
+                return java.nio.file.FileVisitResult.CONTINUE;
+            }
+        });
+    }
 
     /** The last GitHub commit whose source was imported or published from this Workspace. */
     public synchronized void markRemoteRevision(String owner,String id,String repo,String branch,
