@@ -5,32 +5,35 @@ import android.content.SharedPreferences;
 import app.githubble.mobile.auth.GitHubAccountStore;
 import app.githubble.mobile.network.GitHubApiClient;
 import app.githubble.mobile.network.GitHubSession;
+import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.UUID;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
 /**
- * Cloud-only Git mirror: the phone sends REST commands; Git/LFS bytes stay on a GitHub runner.
- * Accounts are pinned per operation. Never use an active-account switch to borrow credentials.
- * Public repository transfers are implemented. Private repositories require a separately
- * approved secure runner credential exchange; never put an OAuth token in workflow inputs.
+ * Independent Git mirror controller. Two separate user sessions authorize setup; on the hosted
+ * runner only restricted GitHub App installation tokens are minted from a PRIVATE Actions
+ * environment secret. Neither token nor private key enters workflow_dispatch or app preferences.
  */
 public final class MirrorManager {
-    public static final String COPY="copy", MANAGED="managed", FORK="fork";
-    public static final String PREPARING="preparing", DEST_CREATED="destination_created",
-            DISPATCHED="dispatched", RUNNING="running", VERIFIED="verified",
-            FAILED="failed", DIVERGED="diverged", UNKNOWN="unknown";
-    private static final String PREFS="githubble_mirror_manager";
-    private static final String KEY_JOBS="jobs";
+    public static final String COPY="copy",MANAGED="managed",FORK="fork";
+    public static final String PREPARING="preparing",DEST_CREATED="destination_created",
+            DISPATCHED="dispatched",RUNNING="running",VERIFIED="verified",
+            FAILED="failed",DIVERGED="diverged",UNKNOWN="unknown";
+    public static final String CONTROLLER="mallstorm/"+MirrorWorkflow.CONTROLLER_NAME;
+    public static final String CONTROLLER_URL="https://github.com/"+CONTROLLER;
     private static final String API="https://api.github.com/repos/";
+    private static final String PREFS="githubble_mirror_manager", KEY_JOBS="jobs";
     private final GitHubAccountStore accounts;
     private final SharedPreferences prefs;
     private final Object lock=new Object();
@@ -42,309 +45,351 @@ public final class MirrorManager {
 
     public static final class Job {
         public String id="",requestId="",source="",destination="",sourceAccountId="",destinationAccountId="";
-        public String sourceDefault="",mode=COPY,state=PREPARING,error="",runUrl="";
+        public String sourceDefault="",mode=COPY,state=PREPARING,error="",runUrl="",targetDigest="";
+        public boolean privateSource;
         public long runId,createdAt,updatedAt;
         public boolean isManaged(){return MANAGED.equals(mode);}
         public JSONObject json(){
             JSONObject j=new JSONObject();
             try {
-                j.put("id",id);j.put("requestId",requestId);j.put("source",source);j.put("destination",destination);
-                j.put("sourceAccountId",sourceAccountId);
-                j.put("destinationAccountId",destinationAccountId);
-                j.put("sourceDefault",sourceDefault);j.put("mode",mode);
-                j.put("state",state);j.put("error",error);j.put("runUrl",runUrl);
-                j.put("runId",runId);j.put("createdAt",createdAt);j.put("updatedAt",updatedAt);
+                j.put("id",id);j.put("requestId",requestId);
+                j.put("source",source);j.put("destination",destination);
+                j.put("sourceAccountId",sourceAccountId);j.put("destinationAccountId",destinationAccountId);
+                j.put("sourceDefault",sourceDefault);j.put("mode",mode);j.put("state",state);
+                j.put("error",error);j.put("runUrl",runUrl);j.put("targetDigest",targetDigest);
+                j.put("privateSource",privateSource);j.put("runId",runId);
+                j.put("createdAt",createdAt);j.put("updatedAt",updatedAt);
             }catch(Exception ignored){}
             return j;
         }
         public static Job fromJson(JSONObject j){
-            Job r=new Job();if(j==null)return r;
-            r.id=j.optString("id","");r.requestId=j.optString("requestId",r.id);r.source=j.optString("source","");
-            r.destination=j.optString("destination","");
-            r.sourceAccountId=j.optString("sourceAccountId","");
-            r.destinationAccountId=j.optString("destinationAccountId","");
-            r.sourceDefault=j.optString("sourceDefault","main");
-            r.mode=j.optString("mode",COPY);r.state=j.optString("state",PREPARING);
-            r.error=j.optString("error","");r.runUrl=j.optString("runUrl","");
-            r.runId=j.optLong("runId");r.createdAt=j.optLong("createdAt");
-            r.updatedAt=j.optLong("updatedAt");return r;
+            Job x=new Job();if(j==null)return x;
+            x.id=j.optString("id","");x.requestId=j.optString("requestId",x.id);
+            x.source=j.optString("source","");x.destination=j.optString("destination","");
+            x.sourceAccountId=j.optString("sourceAccountId","");
+            x.destinationAccountId=j.optString("destinationAccountId","");
+            x.sourceDefault=j.optString("sourceDefault","main");
+            x.mode=j.optString("mode",COPY);x.state=j.optString("state",PREPARING);
+            x.error=j.optString("error","");x.runUrl=j.optString("runUrl","");
+            x.targetDigest=j.optString("targetDigest","");
+            x.privateSource=j.optBoolean("privateSource");
+            x.runId=j.optLong("runId");x.createdAt=j.optLong("createdAt");
+            x.updatedAt=j.optLong("updatedAt");return x;
         }
     }
 
     public List<Job> list(){
-        synchronized(lock) {
-            List<Job> jobs=new ArrayList<>();
-            try {
-                JSONArray arr=new JSONArray(prefs.getString(KEY_JOBS,"[]"));
-                for(int i=0;i<arr.length();i++){
-                    JSONObject j=arr.optJSONObject(i);
-                    if(j!=null)jobs.add(Job.fromJson(j));
+        synchronized(lock){
+            List<Job> out=new ArrayList<>();
+            try{
+                JSONArray a=new JSONArray(prefs.getString(KEY_JOBS,"[]"));
+                for(int i=0;i<a.length();i++){
+                    JSONObject j=a.optJSONObject(i);if(j!=null)out.add(Job.fromJson(j));
                 }
             }catch(Exception ignored){}
-            jobs.sort((a,b)->Long.compare(b.updatedAt,a.updatedAt));
-            return jobs;
+            out.sort((a,b)->Long.compare(b.updatedAt,a.updatedAt));
+            return out;
         }
     }
-    public Job find(String id){
-        for(Job job:list())if(job.id.equals(id))return job;
-        return null;
-    }
+    public Job find(String id){for(Job j:list())if(j.id.equals(id))return j;return null;}
     private void save(Job job){
-        synchronized(lock) {
-            List<Job> all=list();boolean replaced=false;
+        synchronized(lock){
+            List<Job> all=list();boolean found=false;
             for(int i=0;i<all.size();i++)if(all.get(i).id.equals(job.id)){
-                all.set(i,job);replaced=true;break;
+                all.set(i,job);found=true;break;
             }
-            if(!replaced)all.add(job);
+            if(!found)all.add(job);
             job.updatedAt=System.currentTimeMillis();
-            JSONArray arr=new JSONArray();
-            for(Job item:all)arr.put(item.json());
-            if(!prefs.edit().putString(KEY_JOBS,arr.toString()).commit())
-                throw new IllegalStateException("Не удалось сохранить план зеркалирования");
+            JSONArray json=new JSONArray();for(Job j:all)json.put(j.json());
+            if(!prefs.edit().putString(KEY_JOBS,json.toString()).commit())
+                throw new IllegalStateException("Не удалось сохранить журнал зеркал");
         }
     }
 
-    private GitHubAccountStore.Account account(String id) {
-        for(GitHubAccountStore.Account a:accounts.listAccounts())
-            if(a.id.equals(id))return a;
-        throw new IllegalArgumentException("Аккаунт GitHub больше не подключён");
+    private GitHubAccountStore.Account account(String id){
+        for(GitHubAccountStore.Account a:accounts.listAccounts())if(a.id.equals(id))return a;
+        throw new IllegalArgumentException("Аккаунт GitHub удалён или не подключён");
     }
-
-    private static GitHubApiClient client(String token,String owner){
+    private GitHubAccountStore.Account controllerAccount(){
+        for(GitHubAccountStore.Account a:accounts.listAccounts())
+            if("mallstorm".equalsIgnoreCase(a.login))return a;
+        throw new IllegalStateException("Для управления доверенным runner подключите @mallstorm");
+    }
+    private static GitHubApiClient client(String token,String login){
         if(token==null||token.isEmpty())
-            throw new IllegalStateException("Срок действия входа GitHub истёк — переподключите аккаунт");
-        final GitHubSession session=new GitHubSession(token,owner,0L);
+            throw new IllegalStateException("Нужна повторная авторизация GitHub: "+login);
+        final GitHubSession session=new GitHubSession(token,login,0);
         return new GitHubApiClient(new GitHubSession.Source(){
             public GitHubSession capture(){return session;}
-            public boolean isCurrent(GitHubSession s){return s==session;}
-            public void reauthorization(GitHubSession s,boolean required){}
+            public boolean isCurrent(GitHubSession requested){return requested==session;}
+            public void reauthorization(GitHubSession requested,boolean required){}
         },null);
     }
-
-    private GitHubApiClient forAccount(GitHubAccountStore.Account account)throws Exception {
-        GitHubApiClient client=client(accounts.tokenForAccount(account.id),account.login);
-        JSONObject identity=client.getJsonFresh("https://api.github.com/user");
-        if(!account.login.equalsIgnoreCase(identity.optString("login","")))
-            throw new SecurityException("GitHub выдал сессию не того аккаунта: "+account.login);
-        return client;
+    private GitHubApiClient api(GitHubAccountStore.Account a)throws Exception{
+        GitHubApiClient out=client(accounts.tokenForAccount(a.id),a.login);
+        JSONObject identity=out.getJsonFresh("https://api.github.com/user");
+        if(!a.login.equalsIgnoreCase(identity.optString("login","")))
+            throw new SecurityException("Токен принадлежит другому пользователю, не @"+a.login);
+        return out;
+    }
+    private static String enc(String text){
+        try{return URLEncoder.encode(text,"UTF-8").replace("+","%20");}
+        catch(UnsupportedEncodingException impossible){throw new IllegalStateException(impossible);}
     }
 
-    public Job start(String sourceFull,String sourceAccountId,String destinationAccountId,
-                     String destinationName,boolean managed)throws Exception {
-        MirrorPolicy.requireRepository(sourceFull);
-        MirrorPolicy.requireName(destinationName);
-        if(managed)throw new IllegalStateException(
-                "Независимая синхронизация пока недоступна: GitHub Actions не имеет права "
-                +"перезаписывать файлы .github/workflows без Workflows:write. "
-                +"Пока доступна безопасная однократная копия через GitHub Fork.");
-        GitHubAccountStore.Account sourceAccount=account(sourceAccountId);
-        GitHubAccountStore.Account targetAccount=account(destinationAccountId);
-        if(sourceAccount.id.equals(targetAccount.id))
-            throw new IllegalArgumentException("Выберите другой GitHub-аккаунт");
-        if(!sourceFull.substring(0,sourceFull.indexOf('/')).equalsIgnoreCase(sourceAccount.login))
-            throw new IllegalArgumentException("Для зеркала выберите собственный репозиторий исходного аккаунта");
-        String destination=MirrorPolicy.requireDifferent(sourceFull,targetAccount.login+"/"+destinationName);
-        for(Job old:list())if(old.destination.equalsIgnoreCase(destination))
-            throw new IllegalStateException("Для этого назначения уже есть план. Откройте его для синхронизации");
-
-        GitHubApiClient src=forAccount(sourceAccount);
-        GitHubApiClient dst=forAccount(targetAccount);
-        JSONObject repository=src.getJsonFresh(API+sourceFull);
-        if(repository.optBoolean("private",false))
-            throw new IllegalStateException("Приватный источник: безопасная передача токена на runner пока не настроена. Создание остановлено без передачи секретов.");
-        String sourceDefault=repository.optString("default_branch","main");
-        if(!sourceDefault.matches("[A-Za-z0-9_.\\/-]{1,250}") || sourceDefault.contains(".."))
-            throw new IllegalStateException("Недопустимая default branch");
-        // An empty source cannot replace the target default branch safely.
-        src.getJsonFresh(API+sourceFull+"/git/ref/heads/"+encode(sourceDefault));
-        try {
-            dst.getJsonFresh(API+destination);
-            throw new IllegalStateException("Назначение уже существует. Существующие репозитории никогда не перезаписываются при первичном копировании.");
-        }catch(GitHubApiClient.ApiException notFound){
-            if(notFound.statusCode!=404)throw notFound;
-        }
-
-        Job job=new Job();
-        job.id=UUID.randomUUID().toString().replace("-","");
-        job.requestId=job.id;
-        job.createdAt=System.currentTimeMillis();
-        job.source=sourceFull;job.sourceAccountId=sourceAccountId;
-        job.destination=destination;job.destinationAccountId=destinationAccountId;
-        job.sourceDefault=sourceDefault;job.mode=FORK;
-        save(job);
-        try {
-            // GitHub creates and copies the fork server-side, including all branches.
-            // The device neither downloads Git objects nor transmits credentials to a runner.
+    /**
+     * Explicit user action. Creates or upgrades only the fixed, PRIVATE trusted controller repo.
+     * No GitHub App keys are handled here: they must be configured in GitHub's environment secret UI.
+     */
+    public String setupController()throws Exception{
+        GitHubApiClient api=api(controllerAccount());
+        JSONObject control;
+        try{control=api.getJsonFresh(API+CONTROLLER);}
+        catch(GitHubApiClient.ApiException error){
+            if(error.statusCode!=404)throw error;
             JSONObject payload=new JSONObject()
-                    .put("name",destinationName)
-                    .put("default_branch_only",false);
-            JSONObject created=dst.postJson(API+sourceFull+"/forks",payload,true);
-            if(!destination.equalsIgnoreCase(created.optString("full_name","")))
-                throw new SecurityException("GitHub вернул неожиданное имя копии — проверьте назначения");
-            job.state=RUNNING;
-            job.runUrl=created.optString("html_url","https://github.com/"+destination);
-            save(job);
-            return job;
-        }catch(Exception error){
-            failed(job,error);throw error;
+                    .put("name",MirrorWorkflow.CONTROLLER_NAME)
+                    .put("description","GitHubble Secure Mirror Control (private runner)")
+                    .put("private",true).put("auto_init",true);
+            control=api.postJson("https://api.github.com/user/repos",payload,true);
         }
-    }
-
-    private static String encode(String value){
-        try {return URLEncoder.encode(value,"UTF-8").replace("+","%20");}
-        catch(java.io.UnsupportedEncodingException impossible){throw new IllegalStateException(impossible);}
-    }
-
-    /** Change initial GitHub-generated default branch before the first mirror push. */
-    private void configureDefaultBranch(GitHubApiClient dest,Job job,JSONObject created)throws Exception {
-        String original=created.optString("default_branch","main");
-        if(original.equals(job.sourceDefault))return;
-        JSONObject ref=dest.getJsonFresh(API+job.destination+"/git/ref/heads/"+encode(original));
-        String sha=ref.getJSONObject("object").getString("sha");
-        JSONObject create=new JSONObject().put("ref","refs/heads/"+job.sourceDefault).put("sha",sha);
-        dest.postJson(API+job.destination+"/git/refs",create,true);
-        dest.patch(API+job.destination,new JSONObject().put("default_branch",job.sourceDefault));
-        // Delete only the automatically generated bootstrap ref; this is a NEW repository.
-        dest.delete(API+job.destination+"/git/refs/heads/"+encode(original));
-    }
-
-    private void dispatch(GitHubApiClient destination,Job job)throws Exception {
-        String url=API+job.destination+"/contents/"+MirrorPolicy.WORKFLOW_PATH;
-        JSONObject payload=new JSONObject().put("message","chore: prepare temporary GitHubble mirror runner")
-                .put("branch",job.sourceDefault)
+        if(!CONTROLLER.equalsIgnoreCase(control.optString("full_name",""))
+                ||!control.optBoolean("private")||control.optBoolean("fork"))
+            throw new SecurityException("Контроллер должен быть отдельным приватным репозиторием @mallstorm");
+        String branch=control.optString("default_branch","main");
+        if(branch.isEmpty())throw new IllegalStateException("У контроллера ещё нет default branch");
+        String url=API+CONTROLLER+"/contents/"+MirrorWorkflow.WORKFLOW_PATH;
+        JSONObject payload=new JSONObject().put("message","feat: provision secure GitHubble Mirror controller")
+                .put("branch",branch)
                 .put("content",Base64.getEncoder().encodeToString(
                         MirrorWorkflow.yaml().getBytes(StandardCharsets.UTF_8)));
         try{
-            JSONObject existing=destination.getJsonFresh(url+"?ref="+encode(job.sourceDefault));
+            JSONObject existing=api.getJsonFresh(url+"?ref="+enc(branch));
             String sha=existing.optString("sha","");
-            if(!sha.isEmpty())payload.put("sha",sha);
+            if(!sha.isEmpty()){
+                String raw=existing.optString("content","").replaceAll("\\s+","");
+                String current=new String(Base64.getDecoder().decode(raw),StandardCharsets.UTF_8);
+                if(current.equals(MirrorWorkflow.yaml()))return CONTROLLER_URL;
+                payload.put("sha",sha);
+            }
         }catch(GitHubApiClient.ApiException missing){
             if(missing.statusCode!=404)throw missing;
         }
-        destination.putJson(url,payload);
-        JSONObject input=new JSONObject()
-                .put("ref",job.sourceDefault)
-                .put("inputs",new JSONObject().put("source",job.source).put("request_id",job.requestId));
-        // Dispatch returns HTTP 204; never send GitHub user tokens as inputs.
-        destination.executeText("POST",API+job.destination+
-                "/actions/workflows/githubble-mirror.yml/dispatches",input.toString(),true);
-        job.state=DISPATCHED;job.error="";job.runId=0L;job.runUrl="";
-        save(job);
+        api.putJson(url,payload);
+        return CONTROLLER_URL;
     }
 
-    /** Explicit, user-confirmed update. Target may be rewritten and deleted refs are pruned. */
-    public Job sync(String jobId)throws Exception {
-        Job job=find(jobId);
-        if(job==null)throw new IllegalArgumentException("План не найден");
-        if(!job.isManaged())throw new IllegalStateException("Разовая копия не имеет режима повторного зеркалирования");
-        if(PREPARING.equals(job.state)||DEST_CREATED.equals(job.state)
-                ||DISPATCHED.equals(job.state)||RUNNING.equals(job.state)
-                ||UNKNOWN.equals(job.state))
-            throw new IllegalStateException("Предыдущая операция не завершена или требует проверки");
-        GitHubAccountStore.Account sourceAccount=account(job.sourceAccountId);
-        GitHubAccountStore.Account destinationAccount=account(job.destinationAccountId);
-        GitHubApiClient src=forAccount(sourceAccount),dst=forAccount(destinationAccount);
-        JSONObject source=src.getJsonFresh(API+job.source);
-        if(source.optBoolean("private",false))
-            throw new IllegalStateException("Приватные репозитории требуют безопасного облачного канала");
-        dst.getJsonFresh(API+job.destination);
-        String currentDefault=source.optString("default_branch","main");
-        if(!currentDefault.equals(job.sourceDefault))
-            throw new IllegalStateException("Default branch изменилась. Перепривязка плана нужна перед синхронизацией");
-        job.requestId=UUID.randomUUID().toString().replace("-","");
-        // Mirror identity remains stable across synchronization runs.
-        job.state=PREPARING;job.runId=0;job.error="";job.runUrl="";save(job);
-        try{dispatch(dst,job);return job;}
-        catch(Exception error){failed(job,error);throw error;}
+    private GitHubApiClient requireController()throws Exception{
+        GitHubApiClient api=api(controllerAccount());
+        JSONObject repo=api.getJsonFresh(API+CONTROLLER);
+        if(!repo.optBoolean("private")||repo.optBoolean("fork"))
+            throw new SecurityException("Runner должен находиться в приватном независимом репозитории");
+        JSONObject workflow=api.getJsonFresh(API+CONTROLLER+"/actions/workflows/"
+                +enc("githubble-mirror-controller.yml"));
+        if(!"active".equals(workflow.optString("state","")))
+            throw new IllegalStateException("Контроллер не активен: откройте Mirror Manager → Настроить контроллер");
+        return api;
     }
 
-    public Job refresh(String id)throws Exception {
-        Job job=find(id);if(job==null)throw new IllegalArgumentException("План не найден");
-        if(VERIFIED.equals(job.state)||FAILED.equals(job.state)||DIVERGED.equals(job.state))
+    /** Create a new independent destination repository, then dispatch the trusted cloud runner. */
+    public Job start(String sourceFull,String sourceAccountId,String destAccountId,
+                     String destName,boolean managed)throws Exception{
+        MirrorPolicy.requireRepository(sourceFull);MirrorPolicy.requireName(destName);
+        GitHubAccountStore.Account sa=account(sourceAccountId),da=account(destAccountId);
+        if(sa.id.equals(da.id)||sa.login.equalsIgnoreCase(da.login))
+            throw new IllegalArgumentException("Исходный и целевой аккаунты должны отличаться");
+        if(!sourceFull.substring(0,sourceFull.indexOf('/')).equalsIgnoreCase(sa.login))
+            throw new IllegalArgumentException("Источник должен принадлежать выбранному аккаунту");
+        String dest=MirrorPolicy.requireDifferent(sourceFull,da.login+"/"+destName);
+        for(Job previous:list())if(previous.destination.equalsIgnoreCase(dest))
+            throw new IllegalStateException("Этот репозиторий уже зарегистрирован в Mirror Manager");
+        GitHubApiClient controller=requireController();
+        GitHubApiClient source=api(sa),target=api(da);
+        JSONObject sourceRepo=source.getJsonFresh(API+sourceFull);
+        String defaultBranch=sourceRepo.optString("default_branch","main");
+        if(defaultBranch.isEmpty()||defaultBranch.length()>250||defaultBranch.contains("..")
+                ||!defaultBranch.matches("[A-Za-z0-9_./-]+"))
+            throw new IllegalStateException("Неподдерживаемое имя default branch");
+        source.getJsonFresh(API+sourceFull+"/git/ref/heads/"+enc(defaultBranch));
+        try{
+            target.getJsonFresh(API+dest);
+            throw new IllegalStateException("Назначение уже существует — первичное зеркало никогда не перезаписывает чужой проект");
+        }catch(GitHubApiClient.ApiException e){if(e.statusCode!=404)throw e;}
+
+        Job job=new Job();job.id=UUID.randomUUID().toString().replace("-","");
+        job.requestId=job.id;job.source=sourceFull;job.destination=dest;
+        job.sourceAccountId=sa.id;job.destinationAccountId=da.id;
+        job.sourceDefault=defaultBranch;job.mode=managed?MANAGED:COPY;
+        job.privateSource=sourceRepo.optBoolean("private");
+        job.createdAt=System.currentTimeMillis();save(job);
+        try{
+            JSONObject created=target.postJson("https://api.github.com/user/repos",
+                    new JSONObject().put("name",destName).put("private",job.privateSource)
+                            .put("auto_init",false)
+                            .put("description","Independent Git mirror of "+sourceFull),true);
+            if(!dest.equalsIgnoreCase(created.optString("full_name",""))
+                    ||created.optBoolean("fork"))
+                throw new SecurityException("GitHub вернул неверное или связанное с Fork назначение");
+            job.state=DEST_CREATED;save(job);
+            dispatch(controller,job,"copy","EMPTY");
             return job;
-        if(FORK.equals(job.mode)){
-            GitHubApiClient destination=forAccount(account(job.destinationAccountId));
-            GitHubApiClient source=forAccount(account(job.sourceAccountId));
-            try{
-                destination.getJsonFresh(API+job.destination);
-                Map<String,String> original=refs(source,job.source);
-                Map<String,String> copied=refs(destination,job.destination);
-                if(!original.isEmpty()&&original.equals(copied)){
-                    job.state=VERIFIED;job.error="";
-                }else if(System.currentTimeMillis()-job.createdAt < 5L*60_000L){
-                    job.state=RUNNING;
-                }else{
-                    job.state=DIVERGED;
-                    job.error="GitHub Fork создал копию, но ветки или теги пока не совпадают";
-                }
-            }catch(GitHubApiClient.ApiException unavailable){
-                if(unavailable.statusCode==404 &&
-                        System.currentTimeMillis()-job.createdAt < 5L*60_000L)
-                    job.state=RUNNING;
-                else throw unavailable;
-            }
-            save(job);return job;
+        }catch(Exception error){
+            failure(job,error);throw error;
         }
-        GitHubApiClient destination=forAccount(account(job.destinationAccountId));
-        JSONObject root=destination.getJsonFresh(API+job.destination+"/actions/runs?event=workflow_dispatch&per_page=100");
+    }
+
+    private void dispatch(GitHubApiClient controller,Job job,String mode,String expected)throws Exception{
+        String controllerBranch=controller.getJsonFresh(API+CONTROLLER)
+                .optString("default_branch","main");
+        JSONObject payload=new JSONObject().put("ref",controllerBranch)
+                .put("inputs",new JSONObject()
+                        .put("source",job.source).put("target",job.destination)
+                        .put("mode",mode).put("expected_target",expected)
+                        .put("request_id",job.requestId));
+        controller.executeText("POST",API+CONTROLLER+
+                "/actions/workflows/githubble-mirror-controller.yml/dispatches",
+                payload.toString(),true);
+        job.state=DISPATCHED;job.runId=0;job.runUrl="";job.error="";save(job);
+    }
+
+    /** Re-checks an interrupted initial operation; never silently overwrites nonempty targets. */
+    public Job retry(String id)throws Exception{
+        Job job=find(id);
+        if(job==null)throw new IllegalArgumentException("План не найден");
+        if(FORK.equals(job.mode))throw new IllegalStateException("Старый Fork не поддерживает независимое зеркалирование");
+        if(!(FAILED.equals(job.state)||DEST_CREATED.equals(job.state)))
+            throw new IllegalStateException("Повтор доступен только для остановленной первичной операции");
+        GitHubApiClient dst=api(account(job.destinationAccountId));
+        if(!refs(dst,job.destination).isEmpty())
+            throw new IllegalStateException("Назначение уже содержит Git refs. Автоматический повтор заблокирован для защиты данных");
+        GitHubApiClient src=api(account(job.sourceAccountId));
+        src.getJsonFresh(API+job.source);
+        job.requestId=UUID.randomUUID().toString().replace("-","");
+        job.state=PREPARING;save(job);
+        try{dispatch(requireController(),job,"copy","EMPTY");return job;}
+        catch(Exception error){failure(job,error);throw error;}
+    }
+
+    /** Explicit, conflict-checked re-mirroring. No force push if target changed independently. */
+    public Job sync(String id)throws Exception{
+        Job job=find(id);
+        if(job==null)throw new IllegalArgumentException("План не найден");
+        if(!job.isManaged()||!VERIFIED.equals(job.state))
+            throw new IllegalStateException("Обновлять можно только проверенное управляемое зеркало");
+        if(!job.targetDigest.matches("[0-9a-f]{64}"))
+            throw new IllegalStateException("Не сохранена контрольная сумма предыдущего зеркала");
+        GitHubApiClient src=api(account(job.sourceAccountId)),dst=api(account(job.destinationAccountId));
+        JSONObject source=src.getJsonFresh(API+job.source);
+        JSONObject target=dst.getJsonFresh(API+job.destination);
+        if(source.optBoolean("fork")||target.optBoolean("fork"))
+            throw new IllegalStateException("Fork нельзя использовать как независимое зеркало");
+        if(!source.optString("default_branch","main").equals(job.sourceDefault))
+            throw new IllegalStateException("Default branch изменилась — требуется новая операция");
+        if(!digest(refs(dst,job.destination)).equals(job.targetDigest))
+            throw new IllegalStateException("Назначение изменено независимо — синхронизация отменена без перезаписи");
+        job.requestId=UUID.randomUUID().toString().replace("-","");
+        job.state=PREPARING;save(job);
+        try{dispatch(requireController(),job,"sync",job.targetDigest);return job;}
+        catch(Exception error){failure(job,error);throw error;}
+    }
+
+    /** Query the private controller's run ledger, then verify remote SHA values on BOTH accounts. */
+    public Job refresh(String id)throws Exception{
+        Job job=find(id);if(job==null)throw new IllegalArgumentException("План не найден");
+        if(FORK.equals(job.mode))throw new IllegalStateException("Устаревшая операция Fork, не зеркало");
+        if(VERIFIED.equals(job.state))return job;
+        GitHubApiClient controller=requireController();
+        JSONObject root=controller.getJsonFresh(API+CONTROLLER+
+                "/actions/workflows/githubble-mirror-controller.yml/runs?event=workflow_dispatch&per_page=100");
         JSONArray runs=root.optJSONArray("workflow_runs");
         JSONObject found=null;
         for(int i=0;runs!=null&&i<runs.length();i++){
-            JSONObject run=runs.optJSONObject(i);
-            if(run!=null&&run.optString("display_title","").contains(job.requestId)){found=run;break;}
+            JSONObject item=runs.optJSONObject(i);
+            if(item!=null&&item.optString("display_title","").contains(job.requestId)){
+                found=item;break;
+            }
         }
-        if(found==null)return job;
-        job.runId=found.optLong("id");
-        job.runUrl=found.optString("html_url","");
-        String status=found.optString("status","");
-        if(!"completed".equals(status)){
+        if(found==null){
+            if(System.currentTimeMillis()-job.updatedAt>10L*60_000L){
+                job.state=UNKNOWN;job.error="Не удалось найти запуск по идентификатору: проверьте private Actions";
+                save(job);
+            }
+            return job;
+        }
+        job.runId=found.optLong("id");job.runUrl=found.optString("html_url","");
+        if(!"completed".equals(found.optString("status",""))){
             job.state=RUNNING;save(job);return job;
         }
         if(!"success".equals(found.optString("conclusion",""))){
-            job.state=FAILED;job.error="GitHub Actions: "+found.optString("conclusion","failure");
+            job.state=FAILED;job.error="Runner: "+found.optString("conclusion","failure");
             save(job);return job;
         }
         try{
-            GitHubApiClient source=forAccount(account(job.sourceAccountId));
-            if(!refs(source,job.source).equals(refs(destination,job.destination))){
+            GitHubApiClient source=api(account(job.sourceAccountId));
+            GitHubApiClient target=api(account(job.destinationAccountId));
+            Map<String,String> a=refs(source,job.source),b=refs(target,job.destination);
+            if(a.isEmpty()||!a.equals(b)){
                 job.state=DIVERGED;
-                job.error="Ветки или теги различаются: зеркало нельзя считать завершённым";
-            } else {
+                job.error="Ветки и теги различаются. Завершение нельзя подтвердить";
+            }else{
+                job.targetDigest=digest(b);
                 job.state=VERIFIED;job.error="";
+                String actualDefault=target.getJsonFresh(API+job.destination)
+                        .optString("default_branch","");
+                if(!job.sourceDefault.equals(actualDefault)){
+                    try{target.patch(API+job.destination,
+                            new JSONObject().put("default_branch",job.sourceDefault));}
+                    catch(Exception error){
+                        job.state=DIVERGED;
+                        job.error="Git refs совпали, но default branch не удалось установить";
+                    }
+                }
             }
         }catch(Exception error){
-            job.state=UNKNOWN;job.error="Невозможно проверить refs: "+safeError(error);
+            job.state=UNKNOWN;job.error="Проверка Git refs: "+safeError(error);
         }
         save(job);return job;
     }
 
-    private static Map<String,String> refs(GitHubApiClient api,String repo)throws Exception{
-        Map<String,String> all=new LinkedHashMap<>();
+    private static Map<String,String> refs(GitHubApiClient api,String repository)throws Exception{
+        Map<String,String> out=new LinkedHashMap<>();
         for(String kind:new String[]{"heads","tags"}){
-            for(int page=1;page<=30;page++){
-                JSONArray items=api.getArray(API+repo+"/git/matching-refs/"+kind
+            for(int page=1;page<=50;page++){
+                JSONArray items=api.getArray(API+repository+"/git/matching-refs/"+kind
                         +"?per_page=100&page="+page);
                 for(int i=0;i<items.length();i++){
-                    JSONObject item=items.optJSONObject(i);
-                    if(item==null)continue;
-                    String ref=item.optString("ref","");
-                    JSONObject obj=item.optJSONObject("object");
-                    if(obj!=null&&ref.startsWith("refs/"+kind+"/"))
-                        all.put(ref,obj.optString("sha",""));
+                    JSONObject ref=items.optJSONObject(i);
+                    if(ref==null)continue;
+                    String name=ref.optString("ref","");
+                    JSONObject object=ref.optJSONObject("object");
+                    if(name.startsWith("refs/"+kind+"/")&&object!=null)
+                        out.put(name,object.optString("sha",""));
                 }
                 if(items.length()<100)break;
-                if(page==30)throw new IllegalStateException("Количество Git-ссылок превышает лимит проверки");
+                if(page==50)throw new IllegalStateException("Слишком много Git refs для безопасной проверки");
             }
         }
-        return all;
+        return out;
     }
 
-    private static String safeError(Exception e){
-        String msg=e.getMessage();if(msg==null||msg.isEmpty())return e.getClass().getSimpleName();
-        return msg.length()>240?msg.substring(0,240):msg;
+    public static String digest(Map<String,String> refs)throws Exception{
+        MessageDigest sha=MessageDigest.getInstance("SHA-256");
+        for(Map.Entry<String,String> e:new TreeMap<>(refs).entrySet()){
+            String row=e.getValue()+"\t"+e.getKey()+"\n";
+            sha.update(row.getBytes(StandardCharsets.UTF_8));
+        }
+        StringBuilder b=new StringBuilder();
+        for(byte value:sha.digest())b.append(String.format(java.util.Locale.ROOT,"%02x",value&255));
+        return b.toString();
     }
-    private void failed(Job job,Exception error){
-        job.state=error instanceof GitHubApiClient.MutationOutcomeUnknownException?UNKNOWN:FAILED;
-        job.error=safeError(error);save(job);
+    private static String safeError(Exception e){
+        String message=e.getMessage();
+        if(message==null||message.isEmpty())return e.getClass().getSimpleName();
+        // Neither token nor raw GitHub authorization headers is ever deliberately reported.
+        return message.length()>240?message.substring(0,240):message;
+    }
+    private void failure(Job job,Exception e){
+        job.state=e instanceof GitHubApiClient.MutationOutcomeUnknownException?UNKNOWN:FAILED;
+        job.error=safeError(e);save(job);
     }
 }

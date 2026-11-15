@@ -3,7 +3,7 @@ package app.githubble.mobile.mirror;
 /** Security and input validation for account-to-account mirror operations. */
 public final class MirrorPolicy {
     private MirrorPolicy() {}
-    public static final String WORKFLOW_PATH=".github/workflows/githubble-mirror.yml";
+    public static final String WORKFLOW_PATH=MirrorWorkflow.WORKFLOW_PATH;
 
     public static String requireRepository(String full) {
         if(full==null || !full.matches("[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9_.-]{1,100}")
