@@ -46,7 +46,7 @@ jobs:
           ruby -ryaml -e '
             doc=YAML.load_file(ARGV[0])
             job=doc.fetch("jobs").fetch("mirror")
-            abort "Private controller environment missing" unless job.fetch("environment")=="mirror-production"
+            abort "Do not use private environment secrets on GitHub Free" if job.key?("environment")
             abort "Expected 4 workflow steps" unless job.fetch("steps").size>=4
             abort "Wrong GitHub Actions privileges" unless doc.fetch("permissions").fetch("contents")=="read"
             puts "Secure controller YAML syntax valid"

@@ -49,10 +49,10 @@ public final class MirrorManagerScreen {
                         +"в APK не сохраняются. Для работы дополнительно настройте Environment Secret.")
                 .setNegativeButton("Отмена",null)
                 .setPositiveButton("Установить",(d,w)->runController(activity,background,manager,reload)).show());
-        Button secrets=button(activity,"Настроить секреты GitHub Actions",accent);
-        secrets.setOnClickListener(v->openUrl.accept(MirrorManager.CONTROLLER_URL+"/settings/environments"));
+        Button secrets=button(activity,"Repository Secrets и Variables",accent);
+        secrets.setOnClickListener(v->openUrl.accept(MirrorManager.CONTROLLER_URL+"/settings/secrets/actions"));
         controlsSetup.addView(secrets);
-        subtitle(activity,controlsSetup,"Environment: mirror-production\n"
+        subtitle(activity,controlsSetup,"Только приватный Repository Secret\n"
                 +"Secret: GITHUBBLE_MIRROR_APP_PRIVATE_KEY\n"
                 +"Variable: GITHUBBLE_MIRROR_APP_CLIENT_ID\n"
                 +"GitHub App должен быть установлен на обоих аккаунтах с Contents и Workflows: write.",muted);
@@ -168,7 +168,7 @@ public final class MirrorManagerScreen {
                 if(a.isFinishing())return;
                 progress.dismiss();refresh.run();
                 new AlertDialog.Builder(a).setTitle("Контроллер установлен")
-                        .setMessage("Добавьте Environment Secret и Variable в GitHub Actions "
+                        .setMessage("Добавьте Repository Secret и Variable в GitHub Actions "
                                 +"репозитория mallstorm/GitHubble-Mirror-Control. Без ключа GitHub App "
                                 +"runner не начнёт передачу.")
                         .setPositiveButton("OK",null).show();

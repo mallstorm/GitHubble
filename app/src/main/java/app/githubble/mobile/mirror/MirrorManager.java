@@ -23,7 +23,7 @@ import org.json.JSONObject;
 /**
  * Independent Git mirror controller. Two separate user sessions authorize setup; on the hosted
  * runner only restricted GitHub App installation tokens are minted from a PRIVATE Actions
- * environment secret. Neither token nor private key enters workflow_dispatch or app preferences.
+ * repository secret. Neither token nor private key enters workflow_dispatch or app preferences.
  */
 public final class MirrorManager {
     public static final String COPY="copy",MANAGED="managed",FORK="fork";
@@ -139,7 +139,7 @@ public final class MirrorManager {
 
     /**
      * Explicit user action. Creates or upgrades only the fixed, PRIVATE trusted controller repo.
-     * No GitHub App keys are handled here: they must be configured in GitHub's environment secret UI.
+     * No GitHub App keys are handled here: they must be configured in GitHub's repository secrets UI.
      */
     public String setupController()throws Exception{
         GitHubApiClient api=api(controllerAccount());

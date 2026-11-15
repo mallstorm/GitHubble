@@ -2,13 +2,12 @@ package app.githubble.mobile.mirror;
 
 /**
  * Trusted, standalone workflow installed ONLY inside a private controller repository.
- * Its GitHub App private key is an Actions Environment Secret, never an Android secret.
+ * Its GitHub App private key is an Repository Actions Secret, never an Android secret.
  */
 public final class MirrorWorkflow {
     private MirrorWorkflow() {}
     public static final String CONTROLLER_NAME="GitHubble-Mirror-Control";
     public static final String WORKFLOW_PATH=".github/workflows/githubble-mirror-controller.yml";
-    public static final String ENVIRONMENT="mirror-production";
 
     public static String yaml() {
         return """
@@ -48,7 +47,6 @@ jobs:
     name: Secure Git and LFS transfer
     runs-on: ubuntu-latest
     timeout-minutes: 55
-    environment: mirror-production
     steps:
       - name: Validate controller and operation
         id: preflight

@@ -10,7 +10,7 @@ import org.junit.Test;
 public final class MirrorWorkflowTest {
     @Test public void secretNeverLeavesPrivateControllerEnvironment(){
         String y=MirrorWorkflow.yaml();
-        assertTrue(y.contains("environment: mirror-production"));
+        assertFalse(y.contains("environment: mirror-production"));
         assertTrue(y.contains("secrets.GITHUBBLE_MIRROR_APP_PRIVATE_KEY"));
         assertTrue(y.contains("vars.GITHUBBLE_MIRROR_APP_CLIENT_ID"));
         assertTrue(y.contains("permission-contents: read"));
