@@ -79,8 +79,8 @@ jobs:
           cat >"$RUNNER_TEMP/oneshot-askpass" <<'ASKPASS'
           #!/bin/sh
           case "$1" in
-            *Username*) printf '%s\n' 'x-access-token' ;;
-            *Password*) printf '%s\n' "$GH_MIRROR_TOKEN" ;;
+            *Username*) printf '%s\\n' 'x-access-token' ;;
+            *Password*) printf '%s\\n' "$GH_MIRROR_TOKEN" ;;
             *) exit 1 ;;
           esac
           ASKPASS
