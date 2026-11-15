@@ -36,6 +36,7 @@ import app.githubble.mobile.auth.OAuthManager;
 import app.githubble.mobile.auth.GitHubAccountStore;
 import app.githubble.mobile.mirror.MirrorManager;
 import app.githubble.mobile.ui.MirrorManagerScreen;
+import app.githubble.mobile.ui.MirrorSetupWizardScreen;
 import app.githubble.mobile.auth.GitHubAppInstallationGate;
 import app.githubble.mobile.auth.DeviceCodeAssist;
 import app.githubble.mobile.network.GitHubApiClient;
@@ -5077,6 +5078,16 @@ public class MainActivity extends Activity {
         });
     }
 
+    private void showMirrorSetupWizard(){
+        rememberScreen("mirror_setup_wizard",null);
+        setCurrentScreen(this::showMirrorSetupWizard);
+        shell("Настройка зеркалирования",true);
+        MirrorSetupWizardScreen.render(this,content,mirrorManager,accountStore,
+                CARD,TEXT,MUTED,GREEN,BORDER,io,
+                this::showMirrorSetupWizard,this::openWeb,
+                ()->navigate(this::showSettingsAccount));
+    }
+
     private void showMirrorManager(String full){
         String source=full==null?"":full;
         rememberScreen("mirror_manager",routeArgs("full",source));
@@ -8337,9 +8348,9 @@ public class MainActivity extends Activity {
         if(isSignedIn())accounts.add(SettingsScreen.Item.danger(R.drawable.ic_back,"Выйти из аккаунта",
                 login.isEmpty()?"Удалить локальный сеанс":"Удалить локальный сеанс @"+login,
                 "выход выйти отключить signout logout",this::confirmSignOut));
-        accounts.add(SettingsScreen.Item.action(R.drawable.ic_repository,"Mirror Manager",
-                "Копировать и синхронизировать Git-репозитории между аккаунтами",
-                "mirror зеркало перенос аккаунты синхронизация репозиторий",()->navigate(()->showMirrorManager(""))));
+        accounts.add(SettingsScreen.Item.action(R.drawable.ic_lock,"Мастер настройки зеркалирования",
+                "Пошаговая настройка GitHub App, контроллера и защищённого доступа",
+                "mirror мастер настройка секрет secret variable ключ зеркало",()->navigate(this::showMirrorSetupWizard)));
         sections.add(accounts);
         SettingsScreen.Section quotas=new SettingsScreen.Section("Доступ и квоты");
         quotas.add(SettingsScreen.Item.action(R.drawable.ic_lock,"Доступ к репозиториям",
@@ -8521,6 +8532,9 @@ public class MainActivity extends Activity {
                 snapshot.lastSyncedAt>0?formatEpoch(snapshot.lastSyncedAt):"ещё не выполнялась",""));
         access.add(SettingsScreen.Item.action(R.drawable.ic_lock,"Настроить доступ GitHub App",
                 "Установка и выбор приватных репозиториев","",this::openPrivateRepositoryAccess));
+        access.add(SettingsScreen.Item.action(R.drawable.ic_repository,"Мастер настройки зеркалирования",
+                "Контроллер, Client ID, Private Key · 6 шагов",
+                "mirror мастер секрет ключ variable зеркало",()->navigate(this::showMirrorSetupWizard)));
         access.add(SettingsScreen.Item.action(R.drawable.ic_lock,"Управление аккаунтом и доступом","Блокировки, ограничения взаимодействия, права установок","",()->navigate(this::showAccountControls)));
         sections.add(access);
 
@@ -10077,6 +10091,7 @@ public class MainActivity extends Activity {
             case "tracking": showTracking(); break;
             case "repository": showRepository(a.optString("full")); break;
             case "mirror_manager": showMirrorManager(a.optString("full","")); break;
+            case "mirror_setup_wizard": showMirrorSetupWizard(); break;
             case "repo_issues": showRepoIssues(a.optString("full")); break;
             case "repo_pulls": showRepoPulls(a.optString("full")); break;
             case "repo_releases": showRepoReleases(a.optString("full")); break;
