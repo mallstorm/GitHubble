@@ -1,196 +1,135 @@
 package app.githubble.mobile.mirror;
 
-/**
- * Trusted, standalone workflow installed ONLY inside a private controller repository.
- * Its GitHub App private key is an Repository Actions Secret, never an Android secret.
- */
+/** Temporary source-repository workflow. No separate controller or GitHub App PEM. */
 public final class MirrorWorkflow {
-    private MirrorWorkflow() {}
-    public static final String CONTROLLER_NAME="GitHubble-Mirror-Control";
-    public static final String WORKFLOW_PATH=".github/workflows/githubble-mirror-controller.yml";
+    private MirrorWorkflow(){}
+
+    public static String path(String requestId){
+        if(requestId==null || !requestId.matches("[0-9a-f]{32}"))
+            throw new IllegalArgumentException("Invalid OneShot request ID");
+        return ".github/workflows/githubble-oneshot-"+requestId+".yml";
+    }
 
     public static String yaml() {
         return """
-name: GitHubble Secure Mirror
-run-name: Mirror ${{ inputs.request_id }}
+name: GitHubble OneShot Mirror
+run-name: GitHubble OneShot ${{ inputs.request_id }}
 on:
   workflow_dispatch:
     inputs:
-      source:
-        description: Git source repository (owner/name)
-        required: true
+      destination:
         type: string
-      target:
-        description: Git destination repository (owner/name)
         required: true
+      source_default:
         type: string
-      mode:
-        description: copy or sync
         required: true
-        type: choice
-        options: [copy, sync]
-      expected_target:
-        description: EMPTY or SHA-256 of last confirmed target refs
-        required: true
+      baseline_sha:
         type: string
+        required: true
       request_id:
-        description: Opaque operation ID
-        required: true
         type: string
+        required: true
 permissions:
   contents: read
 concurrency:
-  group: githubble-mirror-${{ inputs.target }}
+  group: githubble-oneshot-${{ inputs.destination }}
   cancel-in-progress: false
 jobs:
   mirror:
-    name: Secure Git and LFS transfer
     runs-on: ubuntu-latest
     timeout-minutes: 55
     steps:
-      - name: Validate controller and operation
-        id: preflight
+      - name: Validate inputs and secrets
         shell: bash
         env:
-          ACTOR_ID: ${{ github.actor_id }}
-          SOURCE: ${{ inputs.source }}
-          TARGET: ${{ inputs.target }}
-          MODE: ${{ inputs.mode }}
-          EXPECTED: ${{ inputs.expected_target }}
+          SOURCE: ${{ github.repository }}
+          TARGET: ${{ inputs.destination }}
+          DEFAULT_BRANCH: ${{ inputs.source_default }}
+          BASE_SHA: ${{ inputs.baseline_sha }}
           REQUEST_ID: ${{ inputs.request_id }}
+          DST_TOKEN: ${{ secrets[format('GITHUBBLE_ONESHOT_DST_{0}', inputs.request_id)] }}
         run: |
           set -euo pipefail
           python3 - <<'PY'
           import os,re
-          assert os.environ["ACTOR_ID"] == "142712475", "Only the control account owner may dispatch"
-          pattern=r"^[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9_.-]{1,100}$"
-          s,t=os.environ["SOURCE"],os.environ["TARGET"]
-          assert re.fullmatch(pattern,s) and re.fullmatch(pattern,t), "Invalid repository name"
-          assert ".." not in s and ".." not in t and s.lower()!=t.lower(), "Invalid repository pair"
-          assert s.split("/")[0].lower()!=t.split("/")[0].lower(), "Select different owners"
-          assert re.fullmatch(r"[0-9a-f]{32}",os.environ["REQUEST_ID"]), "Invalid request identifier"
-          mode,expected=os.environ["MODE"],os.environ["EXPECTED"]
-          assert mode in ("copy","sync"), "Unsupported operation"
-          assert expected=="EMPTY" if mode=="copy" else bool(re.fullmatch(r"[0-9a-f]{64}",expected)), "Invalid target baseline"
-          with open(os.environ["GITHUB_OUTPUT"],"a",encoding="utf8") as o:
-              o.write(f"source_owner={s.split('/')[0]}\\n")
-              o.write(f"source_repo={s.split('/')[1]}\\n")
-              o.write(f"target_owner={t.split('/')[0]}\\n")
-              o.write(f"target_repo={t.split('/')[1]}\\n")
+          a=os.environ
+          repo=r'[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9_.-]{1,100}'
+          assert re.fullmatch(repo,a['SOURCE']) and re.fullmatch(repo,a['TARGET'])
+          assert '..' not in a['SOURCE'] and '..' not in a['TARGET']
+          assert a['SOURCE'].split('/')[0].lower()!=a['TARGET'].split('/')[0].lower()
+          assert re.fullmatch(r'[A-Za-z0-9_./-]{1,250}',a['DEFAULT_BRANCH'])
+          assert '..' not in a['DEFAULT_BRANCH'] and not a['DEFAULT_BRANCH'].startswith('/')
+          assert re.fullmatch(r'[0-9a-f]{40}',a['BASE_SHA'])
+          assert re.fullmatch(r'[0-9a-f]{32}',a['REQUEST_ID'])
+          assert bool(a['DST_TOKEN']), 'Destination credential missing; check permissions and secret setup'
           PY
-      - name: Mint scoped source read-only installation token
-        id: source_token
-        uses: actions/create-github-app-token@v3
-        with:
-          client-id: ${{ vars.GITHUBBLE_MIRROR_APP_CLIENT_ID }}
-          private-key: ${{ secrets.GITHUBBLE_MIRROR_APP_PRIVATE_KEY }}
-          owner: ${{ steps.preflight.outputs.source_owner }}
-          repositories: ${{ steps.preflight.outputs.source_repo }}
-          permission-contents: read
-      - name: Mint scoped destination write and workflows installation token
-        id: target_token
-        uses: actions/create-github-app-token@v3
-        with:
-          client-id: ${{ vars.GITHUBBLE_MIRROR_APP_CLIENT_ID }}
-          private-key: ${{ secrets.GITHUBBLE_MIRROR_APP_PRIVATE_KEY }}
-          owner: ${{ steps.preflight.outputs.target_owner }}
-          repositories: ${{ steps.preflight.outputs.target_repo }}
-          permission-contents: write
-          permission-workflows: write
-      - name: Mirror Git objects, all heads, all tags and LFS
+      - name: Transfer independent Git snapshot, tags, LFS
         shell: bash
         env:
-          SOURCE: ${{ inputs.source }}
-          TARGET: ${{ inputs.target }}
-          MODE: ${{ inputs.mode }}
-          EXPECTED: ${{ inputs.expected_target }}
-          SRC_TOKEN: ${{ steps.source_token.outputs.token }}
-          DST_TOKEN: ${{ steps.target_token.outputs.token }}
+          SOURCE: ${{ github.repository }}
+          TARGET: ${{ inputs.destination }}
+          DEFAULT_BRANCH: ${{ inputs.source_default }}
+          BASE_SHA: ${{ inputs.baseline_sha }}
+          SRC_TOKEN: ${{ github.token }}
+          DST_TOKEN: ${{ secrets[format('GITHUBBLE_ONESHOT_DST_{0}', inputs.request_id)] }}
         run: |
           set -euo pipefail
-          export GIT_TERMINAL_PROMPT=0
           umask 077
-          cat > "$RUNNER_TEMP/githubble-askpass" <<'ASKPASS'
+          export GIT_TERMINAL_PROMPT=0
+          cat >"$RUNNER_TEMP/oneshot-askpass" <<'ASKPASS'
           #!/bin/sh
           case "$1" in
-            *Username*github.com*) printf '%s\\n' 'x-access-token' ;;
-            *Password*github.com*) printf '%s\\n' "$GH_MIRROR_TOKEN" ;;
+            *Username*) printf '%s\n' 'x-access-token' ;;
+            *Password*) printf '%s\n' "$GH_MIRROR_TOKEN" ;;
             *) exit 1 ;;
           esac
           ASKPASS
-          chmod 700 "$RUNNER_TEMP/githubble-askpass"
-          export GIT_ASKPASS="$RUNNER_TEMP/githubble-askpass"
+          chmod 700 "$RUNNER_TEMP/oneshot-askpass"
+          export GIT_ASKPASS="$RUNNER_TEMP/oneshot-askpass"
+          SRC_URL="https://github.com/$SOURCE.git"
+          DST_URL="https://github.com/$TARGET.git"
           export GH_MIRROR_TOKEN="$SRC_TOKEN"
-          SOURCE_URL="https://github.com/$SOURCE.git"
-          TARGET_URL="https://github.com/$TARGET.git"
-          git clone --bare "$SOURCE_URL" "$RUNNER_TEMP/source.git"
-          cd "$RUNNER_TEMP/source.git"
-          git fetch --force origin '+refs/heads/*:refs/heads/*' '+refs/tags/*:refs/tags/*'
-          # Git LFS config inside an untrusted repository may redirect token-bearing
-          # requests to another domain. Fail closed instead of following that config.
-          for branch in $(git for-each-ref --format='%(refname)' refs/heads refs/tags); do
-            if git cat-file -e "$branch:.lfsconfig" 2>/dev/null; then
-              echo "::error::Custom .lfsconfig found. LFS credentials require manual review."
+          git clone --bare "$SRC_URL" "$RUNNER_TEMP/oneshot.git"
+          cd "$RUNNER_TEMP/oneshot.git"
+          git fetch origin '+refs/heads/*:refs/heads/*' '+refs/tags/*:refs/tags/*'
+          git cat-file -e "$BASE_SHA^{commit}"
+          git merge-base --is-ancestor "$BASE_SHA" "refs/heads/$DEFAULT_BRANCH"
+          # Copy the pre-bootstrap snapshot; temporary workflow commits are never mirrored.
+          git update-ref "refs/heads/$DEFAULT_BRANCH" "$BASE_SHA"
+          # Fail closed for custom LFS credential endpoints on any mirrored branch/tag.
+          while IFS= read -r ref; do
+            if git cat-file -e "$ref:.lfsconfig" 2>/dev/null; then
+              echo "::error::Custom .lfsconfig; review manually before transfer"
               exit 29
             fi
-          done
+          done < <(git for-each-ref --format='%(refname)' refs/heads refs/tags)
           git lfs fetch --all origin
           export GH_MIRROR_TOKEN="$DST_TOKEN"
-          # The destination is an independently created repository, NOT a fork.
-          git ls-remote --heads --tags "$TARGET_URL" > "$RUNNER_TEMP/target-before.tsv"
-          cat >"$RUNNER_TEMP/check-refs.py" <<'PY'
-          import hashlib,sys
-          def refs(path):
-              result={}
-              with open(path,encoding="utf-8") as inp:
-                  for row in inp:
-                      sha,ref=row.split()[:2]
-                      if ref.endswith("^{}"):
-                          continue
-                      if ref.startswith("refs/heads/") or ref.startswith("refs/tags/"):
-                          result[ref]=sha
-              return result
-          def digest(data):
-              payload="".join(f"{sha}\\t{ref}\\n" for ref,sha in sorted(data.items()))
-              return hashlib.sha256(payload.encode("utf-8")).hexdigest()
-          if __name__=="__main__":
-              old=refs(sys.argv[1])
-              mode,expected=sys.argv[2:]
-              if mode=="copy":
-                  assert not old, "Destination is not empty; refusing overwrite"
-              else:
-                  assert digest(old)==expected, "Target refs changed since last verification; refusing overwrite"
-          PY
-          python3 "$RUNNER_TEMP/check-refs.py" "$RUNNER_TEMP/target-before.tsv" "$MODE" "$EXPECTED"
-          git lfs push --all "$TARGET_URL"
-          # Copy full commit graph and all user branch/tag refs; exclude GitHub
-          # internal read-only refs/pull/* which GitHub will reject.
-          if [[ "$MODE" == "copy" ]]; then
-            git push --prune "$TARGET_URL" '+refs/heads/*:refs/heads/*' '+refs/tags/*:refs/tags/*'
-          else
-            git push --force --prune "$TARGET_URL" '+refs/heads/*:refs/heads/*' '+refs/tags/*:refs/tags/*'
-          fi
-          git ls-remote --heads --tags "$TARGET_URL" > "$RUNNER_TEMP/target-after.tsv"
-          git show-ref --heads --tags > "$RUNNER_TEMP/source-refs.tsv"
-          python3 - "$RUNNER_TEMP/source-refs.tsv" "$RUNNER_TEMP/target-after.tsv" <<'PY'
+          git ls-remote --heads --tags "$DST_URL" >"$RUNNER_TEMP/oneshot-before.tsv"
+          test ! -s "$RUNNER_TEMP/oneshot-before.tsv" || { echo "::error::Destination is not empty"; exit 30; }
+          git lfs push --all "$DST_URL"
+          git push "$DST_URL" 'refs/heads/*:refs/heads/*' 'refs/tags/*:refs/tags/*'
+          git show-ref --heads --tags >"$RUNNER_TEMP/oneshot-source.tsv"
+          git ls-remote --heads --tags "$DST_URL" >"$RUNNER_TEMP/oneshot-target.tsv"
+          python3 - "$RUNNER_TEMP/oneshot-source.tsv" "$RUNNER_TEMP/oneshot-target.tsv" <<'PY'
           import sys
           def refs(path):
-              result={}
+              data={}
               with open(path,encoding="utf8") as f:
-                  for row in f:
-                      sha,ref=row.split()[:2]
+                  for line in f:
+                      sha,ref=line.split()[:2]
                       if ref.endswith("^{}"): continue
                       if ref.startswith("refs/heads/") or ref.startswith("refs/tags/"):
-                          result[ref]=sha
-              return result
-          source,destination=refs(sys.argv[1]),refs(sys.argv[2])
-          assert source and source==destination, "Verification failed: branch/tag SHA mismatch"
-          print("Verified matching Git refs:",len(source))
+                          data[ref]=sha
+              return data
+          s,t=refs(sys.argv[1]),refs(sys.argv[2])
+          assert s and s==t, 'Git refs did not match after transfer'
+          print('Verified snapshot refs:',len(s))
           PY
-      - name: Cleanup
+      - name: Remove local credentials
         if: always()
         shell: bash
-        run: rm -rf "$RUNNER_TEMP/source.git" "$RUNNER_TEMP/githubble-askpass" "$RUNNER_TEMP/target-before.tsv" "$RUNNER_TEMP/target-after.tsv" "$RUNNER_TEMP/source-refs.tsv" "$RUNNER_TEMP/check-refs.py"
+        run: rm -rf "$RUNNER_TEMP/oneshot.git" "$RUNNER_TEMP/oneshot-askpass" "$RUNNER_TEMP/oneshot-before.tsv" "$RUNNER_TEMP/oneshot-source.tsv" "$RUNNER_TEMP/oneshot-target.tsv"
 """;
     }
 }
