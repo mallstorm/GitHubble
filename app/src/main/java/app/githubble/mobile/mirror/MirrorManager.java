@@ -29,13 +29,16 @@ public final class MirrorManager {
     private static final String API="https://api.github.com/repos/";
     private static final String PREFS="githubble_mirror_manager", KEY_JOBS="jobs";
     private final GitHubAccountStore accounts;
+    private final Context applicationContext;
     private final SharedPreferences prefs;
     private final Object lock=new Object();
 
     public MirrorManager(Context context,GitHubAccountStore accounts){
         this.accounts=accounts;
-        this.prefs=context.getApplicationContext().getSharedPreferences(PREFS,Context.MODE_PRIVATE);
+        this.applicationContext=context.getApplicationContext();
+        this.prefs=applicationContext.getSharedPreferences(PREFS,Context.MODE_PRIVATE);
     }
+    private Context prefsContext(){return applicationContext;}
 
     public static final class Job {
         public String id="",requestId="",source="",destination="",sourceAccountId="",destinationAccountId="";
@@ -127,6 +130,27 @@ public final class MirrorManager {
             throw new SecurityException("Сессия принадлежит другому GitHub-аккаунту");
         return gh;
     }
+    private static void enqueueRecovery(Context app,String jobId){
+        try{
+            androidx.work.Data data=new androidx.work.Data.Builder()
+                    .putString(MirrorOneShotWorker.JOB_ID,jobId).build();
+            androidx.work.Constraints c=new androidx.work.Constraints.Builder()
+                    .setRequiredNetworkType(androidx.work.NetworkType.CONNECTED).build();
+            androidx.work.OneTimeWorkRequest request=
+                    new androidx.work.OneTimeWorkRequest.Builder(MirrorOneShotWorker.class)
+                            .setInputData(data).setConstraints(c)
+                            .setInitialDelay(30,java.util.concurrent.TimeUnit.SECONDS)
+                            .setBackoffCriteria(androidx.work.BackoffPolicy.LINEAR,
+                                    45,java.util.concurrent.TimeUnit.SECONDS)
+                            .build();
+            androidx.work.WorkManager.getInstance(app).enqueueUniqueWork(
+                    "GitHubble-OneShot-"+jobId,
+                    androidx.work.ExistingWorkPolicy.KEEP,request);
+        }catch(RuntimeException ignored){
+            // User may still press "Проверить" in the repository screen.
+        }
+    }
+
     private static String enc(String s){
         try{return URLEncoder.encode(s,"UTF-8").replace("+","%20");}
         catch(java.io.UnsupportedEncodingException e){throw new IllegalStateException(e);}
@@ -226,6 +250,7 @@ public final class MirrorManager {
             job.state=DISPATCHED;
             job.runUrl="https://github.com/"+sourceFull+"/actions";
             save(job);
+            enqueueRecovery(prefsContext(),job.id);
             return job;
         }catch(Exception error){
             job.error=safeError(error);
