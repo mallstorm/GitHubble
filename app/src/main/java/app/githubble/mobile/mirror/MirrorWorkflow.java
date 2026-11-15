@@ -108,6 +108,8 @@ jobs:
           git ls-remote --heads --tags "$DST_URL" >"$RUNNER_TEMP/oneshot-before.tsv"
           test ! -s "$RUNNER_TEMP/oneshot-before.tsv" || { echo "::error::Destination is not empty"; exit 30; }
           git lfs push --all "$DST_URL"
+          # Initialize an empty target with the correct default branch first.
+          git push "$DST_URL" "refs/heads/$DEFAULT_BRANCH:refs/heads/$DEFAULT_BRANCH"
           git push "$DST_URL" 'refs/heads/*:refs/heads/*' 'refs/tags/*:refs/tags/*'
           git show-ref --heads --tags >"$RUNNER_TEMP/oneshot-source.tsv"
           git ls-remote --heads --tags "$DST_URL" >"$RUNNER_TEMP/oneshot-target.tsv"
