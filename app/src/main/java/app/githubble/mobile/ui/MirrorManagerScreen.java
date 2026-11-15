@@ -31,15 +31,14 @@ public final class MirrorManagerScreen {
             GitHubAccountStore store,String source,int card,int text,int muted,int accent,int border,
             Executor background,Runnable reload,Consumer<String> openUrl) {
 
-        panel(activity,host,card,border,text,muted,"Mirror Manager · независимые репозитории",
-                "Облачный Git mirror без Fork: все ветки, история коммитов, теги и LFS. "
-                +"Для каждого аккаунта используется отдельный кратковременный GitHub App token. "
-                +"Токены и ключ приложения не передаются через смартфон на runner.");
-        // Setup belongs exclusively to Settings → Account and GitHub → Mirror setup wizard.
-        // Repository screen only handles source/target selection and transfer monitoring.
+        panel(activity,host,card,border,text,muted,"Mirror Manager · OneShot",
+                "Разовое независимое Git-зеркало без Fork и стороннего контроллера. "
+                +"Временный GitHub Actions workflow запускается в исходном репозитории, "
+                +"переносит историю, ветки, теги и Git LFS и затем очищается.");
         subtitle(activity,host,
-                "Доступ настраивается один раз: Настройки → Аккаунт и GitHub → "
-                +"Мастер настройки зеркалирования.",muted);
+                "Оба аккаунта должны быть авторизованы. Для исходного репозитория нужны "
+                +"Contents:write, Workflows:write, Secrets:write и Actions:write. "
+                +"Для целевого — право создать репозиторий, Contents:write и Workflows:write.",muted);
 
         if(source!=null&&!source.isEmpty() && source.contains("/")) {
             GitHubAccountStore.Account active=store.listAccounts().stream()
@@ -62,14 +61,12 @@ public final class MirrorManagerScreen {
                 EditText name=new EditText(activity);
                 name.setSingleLine(true);name.setHint("Название нового репозитория");
                 name.setText(source.substring(source.indexOf('/')+1));box.addView(name);
-                CheckBox managed=new CheckBox(activity);
-                managed.setChecked(true);
-                managed.setText("Управляемое зеркало · обновление по команде");
-                box.addView(managed);
-                subtitle(activity,box,"Создаётся НОВЫЙ независимый репозиторий с такой же "
-                        +"приватностью, как у источника. Текущие репозитории не перезаписываются. "
-                        +"Для старта нужен установленный приватный контроллер и его GitHub App secret.",muted);
-                Button start=button(activity,"Создать независимое Git-зеркало",accent);
+                subtitle(activity,box,"Будет создан новый пустой репозиторий с той же приватностью. "
+                        +"Один раз скопируем снимок Git-истории, все ветки, теги и LFS. "
+                        +"Issues, PR, Releases, Actions secrets и настройки не переносятся. "
+                        +"На исходной default branch появятся два технических коммита: "
+                        +"создание и удаление временного workflow.",muted);
+                Button start=button(activity,"Скопировать OneShot",accent);
                 box.addView(start);
                 start.setOnClickListener(v->{
                     int index=selector.getSelectedItemPosition();
@@ -78,15 +75,17 @@ public final class MirrorManagerScreen {
                     try {MirrorPolicy.requireName(repoName);}
                     catch(Exception invalid){name.setError(invalid.getMessage());return;}
                     GitHubAccountStore.Account target=targets.get(index);
-                    boolean isManaged=managed.isChecked();
-                    new AlertDialog.Builder(activity).setTitle("Подтвердить зеркалирование")
+                    new AlertDialog.Builder(activity).setTitle("OneShot · подтвердить разовую копию")
                             .setMessage(source+" → "+target.login+"/"+repoName
-                                    +"\n\nБудет создан новый независимый Git-репозиторий (не Fork). "
-                                    +"Передача исходников и LFS выполняется только на защищённом "
-                                    +"runner GitHub. Режим: "+(isManaged?"управляемый":"разовая копия")+".")
+                                    +"\n\nСоздать НОВЫЙ независимый репозиторий, скопировать "
+                                    +"Git историю, ветки, теги и LFS? "
+                                    +"GitHub Actions запустится в исходном репозитории. "
+                                    +"Будут добавлены и затем удалены временный workflow и Secret "
+                                    +"с токеном целевого аккаунта. Технические коммиты останутся "
+                                    +"в истории источника. Другие данные GitHub не переносятся.")
                             .setNegativeButton("Отмена",null)
-                            .setPositiveButton("Создать",(dialog,which)->run(activity,background,
-                                    "Создание зеркала",()->manager.start(source,active.id,target.id,repoName,isManaged),reload))
+                            .setPositiveButton("Копировать",(dialog,which)->run(activity,background,
+                                    "Запуск OneShot",()->manager.start(source,active.id,target.id,repoName,false),reload))
                             .show();
                 });
             }
@@ -102,39 +101,18 @@ public final class MirrorManagerScreen {
             LinearLayout box=vertical(activity);
             heading(activity,box,job.source+" → "+job.destination,text);
             subtitle(activity,box,(MirrorManager.FORK.equals(job.mode)
-                    ?"Устаревшая операция Fork · не Git-зеркало":status(job.state))
-                    +" · "+(job.isManaged()?"Управляемое":"Разовая копия")
+                    ||MirrorManager.MANAGED.equals(job.mode)
+                    ?"Устаревшая операция":status(job.state))
+                    +" · OneShot"
+                    +(job.cleanupPending?" · Требуется очистка временного Secret/Workflow":"")
                     +(job.error.isEmpty()?"":"\n"+job.error),muted);
             LinearLayout controls=new LinearLayout(activity);
             Button verify=button(activity,"Проверить",accent);
             controls.addView(verify,new LinearLayout.LayoutParams(0,dp(activity,48),1));
-            verify.setEnabled(!MirrorManager.FORK.equals(job.mode));
+            verify.setEnabled(!MirrorManager.FORK.equals(job.mode)
+                    && !MirrorManager.MANAGED.equals(job.mode));
             verify.setOnClickListener(v->run(activity,background,"Проверяем GitHub",
                     ()->manager.refresh(job.id),reload));
-            if(job.isManaged()&&MirrorManager.VERIFIED.equals(job.state)) {
-                Button sync=button(activity,"Обновить",accent);
-                controls.addView(sync,new LinearLayout.LayoutParams(0,dp(activity,48),1));
-                sync.setOnClickListener(v->new AlertDialog.Builder(activity)
-                        .setTitle("Обновить зеркало?")
-                        .setMessage(job.source+" → "+job.destination
-                                +"\n\nВнимание: целевые ветки, отсутствующие в источнике, "
-                                +"будут удалены. Изменения только на назначении могут быть утрачены.")
-                        .setNegativeButton("Отмена",null)
-                        .setPositiveButton("Синхронизировать",(d,w)->run(activity,background,
-                                "Синхронизация",()->manager.sync(job.id),reload)).show());
-            }
-            if(!MirrorManager.FORK.equals(job.mode)
-                    &&(MirrorManager.DEST_CREATED.equals(job.state)||MirrorManager.FAILED.equals(job.state))){
-                Button retry=button(activity,"Повторить безопасно",accent);
-                retry.setOnClickListener(v->new AlertDialog.Builder(activity)
-                        .setTitle("Повторить отправку?")
-                        .setMessage("Повтор будет разрешён только при ПУСТОМ назначении. "
-                                +"Ранее записанные ветки не будут перезаписаны.")
-                        .setPositiveButton("Повторить",(d,w)->run(activity,background,
-                                "Проверяем назначение",()->manager.retry(job.id),reload))
-                        .setNegativeButton("Отмена",null).show());
-                controls.addView(retry,new LinearLayout.LayoutParams(0,dp(activity,48),1));
-            }
             box.addView(controls);
             if(!job.runUrl.isEmpty()) {
                 Button run=button(activity,"Открыть запуск Actions #"+job.runId,accent);
@@ -168,10 +146,11 @@ public final class MirrorManagerScreen {
         if(MirrorManager.DEST_CREATED.equals(state))return "Назначение создано";
         if(MirrorManager.DISPATCHED.equals(state))return "Запуск отправлен";
         if(MirrorManager.RUNNING.equals(state))return "GitHub копирует ветки";
-        if(MirrorManager.VERIFIED.equals(state))return "Проверено · все Git refs совпадают";
+        if(MirrorManager.VERIFIED.equals(state))return "Проверено · Git snapshot совпадает";
         if(MirrorManager.FAILED.equals(state))return "Ошибка GitHub Actions";
         if(MirrorManager.DIVERGED.equals(state))return "Ветки или теги различаются";
-        if(MirrorManager.UNKNOWN.equals(state))return "Результат неизвестен · проверьте на GitHub";
+        if(MirrorManager.UNKNOWN.equals(state))return "Результат требует проверки · откройте GitHub Actions";
+        if(MirrorManager.CLEANUP_PENDING.equals(state))return "Завершён · нужна очистка";
         return state;
     }
     private static void panel(Activity a,LinearLayout parent,int card,int border,
