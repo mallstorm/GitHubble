@@ -30,9 +30,10 @@ public final class MirrorManagerScreen {
     public static void render(Activity activity,LinearLayout host,MirrorManager manager,
             GitHubAccountStore store,String source,int card,int text,int muted,int accent,int border,
             Executor background,Runnable reload,Consumer<String> openUrl) {
-        panel(activity,host,card,border,text,muted,"Mirror Manager",
-                "Перенос всех Git-веток, тегов, коммитов и LFS на runner GitHub. "
-                +"На телефон исходники и архивы не скачиваются.");
+        panel(activity,host,card,border,text,muted,"Mirror Manager · этап I",
+                "Серверная копия GitHub Fork переносит историю и все ветки без загрузки "
+                +"исходников на телефон. Полностью независимое зеркало и автоматическая "
+                +"синхронизация потребуют отдельного защищённого механизма Git push.");
         if(source!=null&&!source.isEmpty()) {
             GitHubAccountStore.Account active=store.activeAccount();
             List<GitHubAccountStore.Account> targets=new ArrayList<>();
@@ -53,13 +54,15 @@ public final class MirrorManagerScreen {
                 name.setSingleLine(true);name.setHint("Название нового репозитория");
                 name.setText(source.substring(source.indexOf('/')+1));box.addView(name);
                 CheckBox managed=new CheckBox(activity);
-                managed.setChecked(true);
-                managed.setText("Управляемое зеркало · повторная синхронизация вручную");
+                managed.setChecked(false);
+                managed.setEnabled(false);
+                managed.setText("Независимое управляемое зеркало · следующий этап");
                 box.addView(managed);
-                subtitle(activity,box,"Назначение должно быть новым. Повторное обновление "
-                        +"перезаписывает ветки и удаляет отсутствующие в источнике. "
-                        +"Приватные репозитории будут поддержаны только через защищённый runner.",muted);
-                Button start=button(activity,"Создать зеркало",accent);
+                subtitle(activity,box,"Сейчас создаётся GitHub Fork со всеми ветками. "
+                        +"Он связан с исходным проектом и имеет собственные права. "
+                        +"Независимое зеркало, приватный cloud transfer и автоматическая "
+                        +"синхронизация пока не включены.",muted);
+                Button start=button(activity,"Создать копию GitHub Fork",accent);
                 box.addView(start);
                 start.setOnClickListener(v->{
                     int index=selector.getSelectedItemPosition();
@@ -71,9 +74,9 @@ public final class MirrorManagerScreen {
                     boolean isManaged=managed.isChecked();
                     new AlertDialog.Builder(activity).setTitle("Подтвердить зеркалирование")
                             .setMessage(source+" → "+target.login+"/"+repoName
-                                    +"\n\nПередача выполняется только в облаке GitHub. "
-                                    +"В приложении не сохраняются общие токены двух аккаунтов. "
-                                    +"Новый репозиторий будет создан на целевом аккаунте.")
+                                    +"\n\nGitHub создаст Fork со всеми ветками без передачи "
+                                    +"исходников на телефон. Это копия, связанная с оригиналом, "
+                                    +"а не независимое Git-зеркало.")
                             .setNegativeButton("Отмена",null)
                             .setPositiveButton("Создать",(dialog,which)->run(activity,background,
                                     "Создание зеркала",()->manager.start(source,active.id,target.id,repoName,isManaged),reload))
@@ -144,7 +147,7 @@ public final class MirrorManagerScreen {
         if(MirrorManager.PREPARING.equals(state))return "Подготовка";
         if(MirrorManager.DEST_CREATED.equals(state))return "Назначение создано";
         if(MirrorManager.DISPATCHED.equals(state))return "Запуск отправлен";
-        if(MirrorManager.RUNNING.equals(state))return "Выполняется";
+        if(MirrorManager.RUNNING.equals(state))return "GitHub копирует ветки";
         if(MirrorManager.VERIFIED.equals(state))return "Проверено · все Git refs совпадают";
         if(MirrorManager.FAILED.equals(state))return "Ошибка GitHub Actions";
         if(MirrorManager.DIVERGED.equals(state))return "Ветки или теги различаются";
