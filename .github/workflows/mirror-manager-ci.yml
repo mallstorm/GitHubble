@@ -28,6 +28,29 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.5.1'
+      - name: Validate generated private controller workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/ghm"
+          javac -d "$RUNNER_TEMP/ghm" app/src/main/java/app/githubble/mobile/mirror/MirrorWorkflow.java
+          cat > "$RUNNER_TEMP/ghm/Emit.java" <<'JAVA'
+          public class Emit {
+            public static void main(String[] args) {
+              System.out.print(app.githubble.mobile.mirror.MirrorWorkflow.yaml());
+            }
+          }
+          JAVA
+          javac -cp "$RUNNER_TEMP/ghm" -d "$RUNNER_TEMP/ghm" "$RUNNER_TEMP/ghm/Emit.java"
+          java -cp "$RUNNER_TEMP/ghm" Emit > "$RUNNER_TEMP/controller.yml"
+          ruby -ryaml -e '
+            doc=YAML.load_file(ARGV[0])
+            job=doc.fetch("jobs").fetch("mirror")
+            abort "Private controller environment missing" unless job.fetch("environment")=="mirror-production"
+            abort "Expected 4 workflow steps" unless job.fetch("steps").size>=4
+            abort "Wrong GitHub Actions privileges" unless doc.fetch("permissions").fetch("contents")=="read"
+            puts "Secure controller YAML syntax valid"
+          ' "$RUNNER_TEMP/controller.yml"
       - name: Unit tests and compile
         run: ./gradlew --no-daemon --max-workers=2 test assembleDebug lintRelease
       - name: Check ARM64 artifact
