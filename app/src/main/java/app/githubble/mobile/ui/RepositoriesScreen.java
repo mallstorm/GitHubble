@@ -188,12 +188,13 @@ public final class RepositoriesScreen {
         control("Публичные",options.visibility.equals("public"),"Фильтр: публичные",()->{options.visibility=options.visibility.equals("public")?"all":"public";changedFilters();});
         control("Избранные",options.favoritesOnly,"Фильтр: избранные",()->{options.favoritesOnly=!options.favoritesOnly;changedFilters();});
         control((options.language.isEmpty()?"Язык":options.language)+" ▾",!options.language.isEmpty(),"Фильтр по языку",()->{
-            List<String> languages=RepositoryListOptions.languages(repositories);languages.add(0,"Все языки");
-            int selected=options.language.isEmpty()?0:languages.indexOf(options.language);
-            new android.app.AlertDialog.Builder(activity).setTitle("Язык репозитория")
-                .setSingleChoiceItems(languages.toArray(new String[0]),Math.max(0,selected),(d,n)->{
-                    options.language=n==0?"":languages.get(n);d.dismiss();changedFilters();
-                }).setNegativeButton("Отмена",null).show();
+            List<String> languages=RepositoryListOptions.languages(repositories);
+            languages.add(0,"Все языки");
+            RepositoryLanguageSheet.show(activity,languages,options.language,
+                    card,textColor,muted,green,border,subtle,selected->{
+                        options.language=selected;
+                        changedFilters();
+                    });
         });
     }
     private void changedFilters(){makeFilters();updateRows();}
