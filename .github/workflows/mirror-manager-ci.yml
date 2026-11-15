@@ -28,7 +28,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.5.1'
-      - name: Validate generated private controller workflow
+      - name: Validate generated source OneShot workflow
         shell: bash
         run: |
           set -euo pipefail
@@ -42,15 +42,15 @@ jobs:
           }
           JAVA
           javac -cp "$RUNNER_TEMP/ghm" -d "$RUNNER_TEMP/ghm" "$RUNNER_TEMP/ghm/Emit.java"
-          java -cp "$RUNNER_TEMP/ghm" Emit > "$RUNNER_TEMP/controller.yml"
+          java -cp "$RUNNER_TEMP/ghm" Emit > "$RUNNER_TEMP/oneshot.yml"
           ruby -ryaml -e '
             doc=YAML.load_file(ARGV[0])
             job=doc.fetch("jobs").fetch("mirror")
             abort "Do not use private environment secrets on GitHub Free" if job.key?("environment")
-            abort "Expected 4 workflow steps" unless job.fetch("steps").size>=4
+            abort "Expected 3 OneShot steps" unless job.fetch("steps").size>=3
             abort "Wrong GitHub Actions privileges" unless doc.fetch("permissions").fetch("contents")=="read"
-            puts "Secure controller YAML syntax valid"
-          ' "$RUNNER_TEMP/controller.yml"
+            puts "OneShot workflow YAML syntax valid"
+          ' "$RUNNER_TEMP/oneshot.yml"
       - name: Unit tests and compile
         run: ./gradlew --no-daemon --max-workers=2 test assembleDebug lintRelease
       - name: Check ARM64 artifact

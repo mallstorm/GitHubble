@@ -1,57 +1,34 @@
-# GitHubble Mirror Manager — независимое Git-зеркало (этап II)
+# GitHubble Mirror Manager OneShot
 
-Ветка: feat/mirror-manager. Контроллер: приватный репозиторий mallstorm/GitHubble-Mirror-Control, создаваемый **по явному нажатию** в GitHubble. Fork не используется.
+Режим: одноразовый независимый Git snapshot source → destination через временный GitHub Actions workflow **в исходном репозитории**. Без Fork, без общего Mirror Controller, без GitHub App PEM, без ручного Client ID. Аккаунты источника/назначения выбираются независимо друг от друга.
 
-## Реализованный поток
+## Вход
 
-1. Выбор исходного собственного репозитория и другого подключённого аккаунта назначения.
-2. По отдельному подтверждению создаётся **новый пустой независимый** репозиторий с той же приватностью, что и у источника (auto_init=false, fork=false). Если репозиторий назначения уже существует, создание запрещено.
-3. GitHubble инициирует workflow_dispatch в **приватном контроллере**. Через inputs передаются только имена репозиториев, режим операции, идентификатор и SHA-256 контрольного набора refs. Никогда не передаётся пользовательский OAuth-токен.
-4. Доверенный runner получает приватный ключ GitHub App из **Actions Repository Secret**, кратковременно выпускает два scoped installation access token: source только Contents:read; target Contents:write + Workflows:write.
-5. На runner выполняются bare Git clone, fetch всех heads/tags, git lfs fetch/push --all, затем force/prune push только refs/heads/* и refs/tags/*. GitHub-внутренние refs/pull/* не переносимы. Репозиторий не скачивается на устройство.
-6. Для разовой копии runner требует пустой target. Для управляемого зеркала runner сравнивает его SHA-256 fingerprint с ранее зафиксированным; при независимых изменениях операция **останавливается без перезаписи**.
-7. Mirror Manager отслеживает запуск через приватный Actions API, проверяет совпадение исходных и целевых refs по SHA, сохраняет baseline, выравнивает default branch.
-8. Ручное обновление доступно лишь для проверенного управляемого зеркала и всегда требует дополнительного подтверждения.
+Настройки → Аккаунт и GitHub → Мастер настройки зеркалирования: краткая информация о подключённых аккаунтах и необходимых разрешениях. Репозитории → репозиторий источника → Mirror Manager: непосредственное копирование. Выбор и создание выполняются только после подтверждения.
 
-## Мастер настройки в приложении (6 шагов)
+## Требования к токенам
 
-Маршрут: **Настройки → Аккаунт и GitHub → Мастер настройки зеркалирования**. Пункт находится также через поиск настроек.
-В самом **Mirror Manager** открытого репозитория остаются только операции переноса, выбор аккаунта назначения, режим, прогресс и проверка.
+- Источник (GitHub App user OAuth): Contents:write, Workflows:write, Secrets:write и Actions:write; право вносить изменения в default branch. GitHub App installation должна включать исходный репозиторий.
+- Назначение (другой user OAuth): право создания репозитория (для GitHub App user token необходимы соответствующие user/repository permissions), Contents:write и Workflows:write для новых `.github/workflows` в зеркале. При недостаточных полномочиях исходник не передаётся на телефон.
+- Не требуется держать аккаунт mallstorm авторизованным, если переносятся, например, marwell4 → Digger401.
 
-1. **Аккаунты.** Показать зарегистрированные аккаунты, предупредить, если отсутствует @mallstorm или второй пользователь.
-2. **Контроллер.** По отдельному подтверждению создать/обновить приватный `mallstorm/GitHubble-Mirror-Control`; дать ссылку на репозиторий.
-3. **GitHub App.** Прямые ссылки Settings → Developer settings → GitHub Apps и Installed GitHub Apps, описание Contents:write, Workflows:write, Actions:write, установки на оба аккаунта.
-4. **Client ID.** Значение берётся из General GitHub App GiHubble. Есть кнопка копирования имени переменной `GITHUBBLE_MIRROR_APP_CLIENT_ID` и ссылка на Actions → Variables контроллера.
-5. **Private key.** Generate a private key в GitHub App → General → Private keys. Github скачивает `.pem`; полный текст размещается только в Repository Secret `GITHUBBLE_MIRROR_APP_PRIVATE_KEY`. Кнопка копирования имени, без импорта или хранения ключа в Android.
-6. **Проверка.** Read-only запрос метаданных контроллера, workflow, секрета и переменной. Если permissions не позволяют проверить, состояние отмечается «неизвестно», а не «отсутствует». Содержимое секрета не читается.
+## Технический поток
 
-Мастер хранит только номер текущего шага в SharedPreferences. Он не создаёт Git-зеркало до явного запуска из экрана репозитория.
-## Разовая настройка безопасного контроллера (GitHub Free)
+1. Создать новый пустой независимый destination с приватностью source. Существующие репозитории не трогаем.
+2. Сохранить исходный SHA default branch как snapshot baseline, создать временный `.github/workflows/githubble-oneshot-<requestId>.yml` в default branch источника (изменяет его историю одним коммитом).
+3. Получить публичный ключ Actions Secrets из исходного репозитория. Зашифровать целевой OAuth token на телефоне **libsodium crypto_box_seal**, записать в `GITHUBBLE_ONESHOT_DST_<requestId>` через API. Значение никогда не попадает в workflow source, JSON inputs, логи или SharedPreferences.
+4. `workflow_dispatch` запускает workflow внутри source repository. GITHUB_TOKEN предоставляет source read. Временный secret — запись в destination.
+5. Runner `git clone --bare`, `git lfs fetch --all`, возвращает default branch на исходный baseline SHA перед push, чтобы технический workflow-коммит не попал в destination; проверяет что destination пустой, выполняет `git lfs push --all` и Git push heads/tags без force.
+6. Сверить refs/tags. После того как GitHub подтвердил `completed`, приложение удаляет временный Secret и workflow. Удаление workflow добавляет второй технический коммит в default branch source; Git-история останется, хотя файл исчезнет.
+7. Журнал сохраняется в GitHubble с requestId, состояниями и URL Actions. При проблеме с очисткой покажет предупреждение; необходим повторный запуск проверки. Нет фонового серверного гарантированного удаления Secret при удалении приложения или полном исчезновении связи.
 
-1. Аккаунт @mallstorm должен быть подключён к GitHubble. В настройках откройте «Мастер настройки зеркалирования» и нажмите «Создать / обновить контроллер» на шаге 2. Приложение создаст **приватный** репозиторий GitHubble-Mirror-Control и поместит в него единственный доверенный workflow. Не используйте публичный контроллер.
-2. Настройте GitHub App «GiHubble» в Developer settings → GitHub Apps. Для источника нужна Contents:read; для назначения Contents:write и Workflows:write. Права App могут быть шире, но runner выдаёт минимальные разрешения каждому токену. Для создания репозитория пользователем нужен Repository creation:write (или Administration:write по старым правилам). Для вызова контроллера нужен Actions:write.
-3. Установите GitHub App на оба аккаунта (mallstorm и Digger401). Доступ на **все репозитории** проще для только что создаваемых зеркал; при «Selected repositories» потребуется явно включить новый target.
-4. В приватном контроллере на GitHub: Settings → Secrets and variables → Actions → Secrets → добавьте `GITHUBBLE_MIRROR_APP_PRIVATE_KEY`. Приватный ключ хранится только на GitHub.
-5. На вкладке Actions → Variables создайте `GITHUBBLE_MIRROR_APP_CLIENT_ID` (публичный Client ID зарегистрированной GitHub App вида `Iv...`).
-6. Убедитесь, что workflow \`.github/workflows/githubble-mirror-controller.yml\` активен на default branch, а Actions разрешены в приватном репозитории. После этого можно инициировать зеркало из приложения.
+## Ограничения
 
-**Важное ограничение:** пока GitHub App key не настроен в Actions Repository secrets, нельзя считать облачное зеркалирование активным. Программа может создать пустой target, но runner завершится ошибкой полномочий. Такой target не удаляется автоматически, а повторный запуск безопасен только при отсутствии refs.
-
-## Безопасность
-
-- Нет общей OAuth-сессии, токена в APK/SharedPreferences или логах. Credentials получаются независимо на каждый запуск и автоматически отзываются action.
-- Доступ к приватным данным ограничен приватным контроллером. На public GitHubble никакие секреты или имена приватных mirror operations не публикуются.
-- Controller workflow имеет \`workflow_dispatch\` и проверяет immutable GitHub actor ID владельца mallstorm.
-- Input values проверяются по regex, никакая строка пользователя не вставляется прямо в исполняемый shell-код.
-- Любая ошибка App token, branch protection, rulesets, Git LFS или несовпадение SHA завершает операцию без утверждения успеха.
-- Force/prune меняет только целевые refs; исходный Git репозиторий не модифицируется.
-- Git LFS конфигурация \`.lfsconfig\` блокируется до индивидуальной проверки, чтобы не передавать credential на произвольный LFS host.
-- Исполнение файлов или скриптов из исходного репозитория на runner не производится.
-
-## Не входит в Git-зеркало
-
-Issues/PR/Discussions, GitHub Releases assets/APK, Wiki, GitHub Actions secrets и журналы workflow требуют отдельных механизмов. GitHub Actions secrets из исходного репозитория не экспортируются и не копируются. Автоматическая серверная синхронизация по расписанию также пока не реализована: поддержаны ручные подтверждённые обновления.
-
-## Проверка
-
-CI собирает Debug APK, запускает JVM-тесты безопасности и проверяет lintRelease. End-to-end перенос между mallstorm и Digger401 возможен только после пользовательской установки GitHub App permissions и её приватного ключа в контроллере. Работа с реальными исходными проектами запускается из приложения **только по явному подтверждению**.
+- Этот режим — **однократный снимок** (не ongoing mirroring). Для нового переноса создайте новое пустое назначение. Старый режим managed отключён.
+- Создание/удаление временного workflow требуют записи в default branch source. Branch protection и repository rules могут блокировать операцию.
+- Передача destination user access token через Secret требует особого доверия к source repository collaborators / GitHub Actions. Удаление Secret **не отзывает** сам токен. По возможности отдельный минимально-разрешённый токен назначения безопаснее.
+- При потере соединения во время запуска Secret остаётся до пользовательской проверки и очистки; серверная автоматическая очистка не гарантируется. `sweep` удаляет только OneShot secrets старше 6 ч на источнике, но запускается только при наличии исходной сессии и явном использовании функции.
+- GitHub LFS `.lfsconfig` на любой ветке/теге блокирует перенос до ручной проверки, чтобы токен не отправлялся на непроверенный LFS-host.
+- Если Git data больше доступного места runner, или GitHub rules / branch restrictions / LFS quotas не позволяют push, OneShot сообщит ошибку.
+- GitHub Issues/PR/Discussions/Wiki, Releases assets, Secrets/Variables, Actions logs, branch protection, collaborators не входят в Git snapshot.
+- Настоящий end-to-end перенос между двумя аккаунтами ещё не подтверждён до ручного теста.
