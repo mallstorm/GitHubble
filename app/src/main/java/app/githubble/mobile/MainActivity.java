@@ -4250,10 +4250,9 @@ public class MainActivity extends Activity {
                         new app.githubble.mobile.ui.RepositoriesScreen.Actions() {
                             @Override public void create(){ showCreateRepositoryDialog(); }
                             @Override public void refresh(){ showMyRepositories(true); }
-                            @Override public void sort(){ showRepositorySortDialog(); }
-                            @Override public void toggleLayout(boolean grid){
-                                repositoriesGrid=grid;
-                                prefs.edit().putBoolean("repositories_grid",grid).apply();
+                            @Override public void sort(String value){
+                                repositoriesSort=value;
+                                prefs.edit().putString("repositories_sort",value).apply();
                             }
                             @Override public void open(String full){
                                 navigate(() -> showRepository(full));
@@ -4272,7 +4271,7 @@ public class MainActivity extends Activity {
                         },CARD,TEXT,MUTED,GREEN,BORDER,SUBTLE,
                         new LinkedHashSet<>(prefs.getStringSet("favorites",new LinkedHashSet<>())),
                         repositoriesGrid);
-        screen.render(sortedRepositories(cached.repositories),repositorySortLabel(),
+        screen.render(cached.repositories,repositoriesSort,
                 cached.lastSyncedAt>0?"Синхронизация: "+formatEpoch(cached.lastSyncedAt)
                         :"Синхронизация ещё не выполнялась");
         if(cached.status==RepositoryStore.Status.ERROR || cached.status==RepositoryStore.Status.STALE)
@@ -4289,7 +4288,7 @@ public class MainActivity extends Activity {
                         .putLong(accountStateKey("repository_last_sync",accountId),System.currentTimeMillis()).apply();
                 runOnUiThread(()->{
                     if(generation!=screenGeneration.get()||!accountId.equals(currentAccountId()))return;
-                    screen.updateData(sortedRepositories(fresh.repositories));
+                    screen.updateData(fresh.repositories);
                     screen.setStatus("Синхронизировано: "+formatEpoch(fresh.lastSyncedAt));
                     if(fresh.invalid>0)
                         errorCard("Часть данных GitHub не распознана",
@@ -4317,32 +4316,7 @@ public class MainActivity extends Activity {
     }
 
     private String repositorySortLabel(){
-        if("name".equals(repositoriesSort))return "название";
-        if("stars".equals(repositoriesSort))return "звёзды";
-        return "обновление";
-    }
-
-    private void showRepositorySortDialog(){
-        final String[] values={"updated","name","stars"};
-        final String[] labels={"Недавно обновлённые","По названию","По звёздам"};
-        int checked=0;for(int i=0;i<values.length;i++)if(values[i].equals(repositoriesSort))checked=i;
-        new AlertDialog.Builder(this).setTitle("Сортировка репозиториев")
-                .setSingleChoiceItems(labels,checked,(dialog,which)->{
-                    repositoriesSort=values[which];
-                    prefs.edit().putString("repositories_sort",repositoriesSort).apply();
-                    dialog.dismiss();showMyRepositories(false);
-                }).setNegativeButton("Отмена",null).show();
-    }
-
-    private JSONArray sortedRepositories(JSONArray source){
-        List<JSONObject> entries=new ArrayList<>();
-        for(int i=0;i<source.length();i++){JSONObject repository=source.optJSONObject(i);if(repository!=null)entries.add(repository);}
-        Collections.sort(entries,(left,right)->{
-            if("name".equals(repositoriesSort))return left.optString("full_name","").compareToIgnoreCase(right.optString("full_name", ""));
-            if("stars".equals(repositoriesSort))return Integer.compare(right.optInt("stargazers_count",0),left.optInt("stargazers_count",0));
-            return right.optString("updated_at",right.optString("pushed_at","")).compareTo(left.optString("updated_at",left.optString("pushed_at", "")));
-        });
-        JSONArray sorted=new JSONArray();for(JSONObject repository:entries)sorted.put(repository);return sorted;
+        return app.githubble.mobile.ui.RepositoryListOptions.sortLabel(repositoriesSort);
     }
 
     private void renderRepositoryAccessSummary(RepositoryAccessController.SyncResult result){
@@ -8687,7 +8661,7 @@ public class MainActivity extends Activity {
                 "spacious".equals(prefs.getString("ui_card_density","compact"))?"Свободные":"Компактные",
                 "размер карточек плитки главная компактный свободный",this::chooseCardDensityDialog));
         look.add(SettingsScreen.Item.toggle(R.drawable.ic_repository,"Репозитории плитками",
-                "Сетка вместо списка на вкладке «Репозитории»","сетка список плитки вид",
+                "Две карточки в строке; выключено — список","сетка список плитки вид",
                 new SettingsScreen.Toggle(){
                     @Override public boolean get(){return repositoriesGrid;}
                     @Override public void set(boolean on){repositoriesGrid=on;prefs.edit().putBoolean("repositories_grid",on).apply();}

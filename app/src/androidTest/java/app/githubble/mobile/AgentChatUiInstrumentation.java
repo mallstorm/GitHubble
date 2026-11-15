@@ -69,6 +69,7 @@ public final class AgentChatUiInstrumentation extends Instrumentation {
           SystemClock.sleep(350);
           if (theme.equals("light") && scale.equals("1.0")) {verifyNativeTools(app);ChangeReviewUiChecks.run(this,app);
           Stage3UiChecks.run(this,app);}
+          if(theme.equals("light"))RepositoryUiChecks.run(this,app);
           AgentChatPreviewActivity current = app;
           main(
               () -> {
