@@ -19,7 +19,7 @@
 3. Получить публичный ключ Actions Secrets из исходного репозитория. Зашифровать целевой OAuth token на телефоне **libsodium crypto_box_seal**, записать в `GITHUBBLE_ONESHOT_DST_<requestId>` через API. Значение никогда не попадает в workflow source, JSON inputs, логи или SharedPreferences.
 4. `workflow_dispatch` запускает workflow внутри source repository. GITHUB_TOKEN предоставляет source read. Временный secret — запись в destination.
 5. Runner `git clone --bare`, `git lfs fetch --all`, возвращает default branch на исходный baseline SHA перед push, чтобы технический workflow-коммит не попал в destination; проверяет что destination пустой, выполняет `git lfs push --all` и Git push heads/tags без force.
-6. Сверить refs/tags. После того как GitHub подтвердил `completed`, приложение удаляет временный Secret и workflow. Удаление workflow добавляет второй технический коммит в default branch source; Git-история останется, хотя файл исчезнет.
+6. WorkManager сохраняет задание по непрозрачному requestId и после закрытия приложения продолжает опрашивать Actions. Сверить refs/tags. После того как GitHub подтвердил `completed`, приложение удаляет временный Secret и workflow. При долгой потере связи возможна задержка очистки. Удаление workflow добавляет второй технический коммит в default branch source; Git-история останется, хотя файл исчезнет.
 7. Журнал сохраняется в GitHubble с requestId, состояниями и URL Actions. При проблеме с очисткой покажет предупреждение; необходим повторный запуск проверки. Нет фонового серверного гарантированного удаления Secret при удалении приложения или полном исчезновении связи.
 
 ## Ограничения
