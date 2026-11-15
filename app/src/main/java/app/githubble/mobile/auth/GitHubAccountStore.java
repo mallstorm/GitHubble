@@ -202,6 +202,15 @@ public final class GitHubAccountStore {
     }
   }
 
+  /** Scoped credential read: does not switch the foreground account. Never log the result. */
+  public String tokenForAccount(String id) {
+    synchronized (SecureStore.SESSION_LOCK) {
+      if (id == null || find(readAccounts(), id) == null) return "";
+      if (id.equals(activeId())) persistActiveSession();
+      return secureStore.get(accountSecretKey(id, "github_token"));
+    }
+  }
+
   public void remove(String id) {
     synchronized (SecureStore.SESSION_LOCK) {
       if (id == null || id.isEmpty()) return;

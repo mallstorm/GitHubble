@@ -1,0 +1,48 @@
+name: GitHubble Mirror Manager CI
+on:
+  push:
+    branches: [feat/mirror-manager]
+  pull_request:
+    branches: [feat/unified-agent-stage3, main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: githubble-mirror-ci
+  cancel-in-progress: true
+jobs:
+  build:
+    name: Tests and Android Debug
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'ndk;28.2.13676358'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.1'
+      - name: Unit tests and compile
+        run: ./gradlew --no-daemon --max-workers=2 test assembleDebug lintDebug
+      - name: Check ARM64 artifact
+        run: |
+          python3 - <<'PY'
+          from zipfile import ZipFile
+          p='app/build/outputs/apk/debug/app-debug.apk'
+          with ZipFile(p) as z:
+              libs=[n for n in z.namelist() if n.startswith('lib/') and n.endswith('.so')]
+              assert libs and all(x.startswith('lib/arm64-v8a/') for x in libs)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GitHubble-MirrorManager-debug
+          retention-days: 14
+          path: app/build/outputs/apk/debug/app-debug.apk

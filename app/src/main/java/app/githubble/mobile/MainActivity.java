@@ -34,6 +34,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import app.githubble.mobile.auth.OAuthManager;
 import app.githubble.mobile.auth.GitHubAccountStore;
+import app.githubble.mobile.mirror.MirrorManager;
+import app.githubble.mobile.ui.MirrorManagerScreen;
 import app.githubble.mobile.auth.GitHubAppInstallationGate;
 import app.githubble.mobile.auth.DeviceCodeAssist;
 import app.githubble.mobile.network.GitHubApiClient;
@@ -120,6 +122,7 @@ public class MainActivity extends Activity {
     private GitHubGraphQlClient graphql;
     private OAuthManager oauth;
     private GitHubAccountStore accountStore;
+    private MirrorManager mirrorManager;
     private AgentProjectStore agentProjects;
     private app.githubble.mobile.agent.AgentController agentController;
     private GitHubAgentBridge aiGithub;
@@ -296,6 +299,7 @@ public class MainActivity extends Activity {
         repositoriesSort = prefs.getString("repositories_sort", "updated");
         secureStore = new SecureStore(this);
         accountStore = new GitHubAccountStore(this, secureStore);
+        mirrorManager = new MirrorManager(this, accountStore);
         entityCache = new EntityCache(this);
         api = new GitHubApiClient(secureStore, entityCache);
         graphql = new GitHubGraphQlClient(api);
@@ -4256,13 +4260,14 @@ public class MainActivity extends Activity {
                             }
                             @Override public void menu(JSONObject repo){
                                 String full=repo.optString("full_name","");
-                                String[] items={"Открыть","Управление","Открыть на GitHub","Обновить репозитории"};
+                                String[] items={"Открыть","Управление","Зеркалировать","Открыть на GitHub","Обновить репозитории"};
                                 new AlertDialog.Builder(MainActivity.this)
                                         .setTitle(full).setItems(items,(dialog,index)->{
                                             if(index==0)navigate(() -> showRepository(full));
                                             if(index==1)navigate(() -> showRepositoryAdmin(full,repo));
-                                            if(index==2)openWeb("https://github.com/"+full);
-                                            if(index==3)showMyRepositories(true);
+                                            if(index==2)navigate(()->showMirrorManager(full));
+                                             if(index==3)openWeb("https://github.com/"+full);
+                                            if(index==4)showMyRepositories(true);
                                         }).show();
                             }
                         },CARD,TEXT,MUTED,GREEN,BORDER,SUBTLE,
@@ -4987,6 +4992,7 @@ public class MainActivity extends Activity {
                 else repoActionCard(actions,R.drawable.ic_star,"Звезда недоступна","Проверьте права",()->toast("Проверьте сеть и разрешения GitHub"));
                 repoActionCard(actions,R.drawable.ic_settings,"Управление","Настройки проекта",()->navigate(()->showRepositoryAdmin(full,r)));
             }
+            repoActionCard(actions,R.drawable.ic_repository,"Mirror Manager","Копия на другом аккаунте",()->navigate(()->showMirrorManager(full)));
             repoActionCard(actions,R.drawable.ic_star,"Избранное","Сохранить проект",()->{saveFavorite(full);toast("Добавлено в избранное");});
             repoActionCard(actions,R.drawable.ic_globe,"Открыть GitHub","В браузере",()->openRepoUrl(full,""));
             repoActionCard(actions,R.drawable.ic_history,"Центр наблюдения","Ваша активность",()->navigate(this::showTracking));
@@ -5069,6 +5075,15 @@ public class MainActivity extends Activity {
                 runOnUiThread(() -> { dialog.dismiss(); new AlertDialog.Builder(this).setTitle("Выберите ветку").setSingleChoiceItems(names, finalChecked, (d, which) -> { d.dismiss(); navigate(() -> showRepositoryFiles(full, names[which], "")); }).setNegativeButton("Отмена",null).show(); });
             } catch(Exception e) { runOnUiThread(() -> { dialog.dismiss(); toast("Не удалось загрузить ветки"); }); }
         });
+    }
+
+    private void showMirrorManager(String full){
+        String source=full==null?"":full;
+        rememberScreen("mirror_manager",routeArgs("full",source));
+        setCurrentScreen(()->showMirrorManager(source));
+        shell("Mirror Manager",true);
+        MirrorManagerScreen.render(this,content,mirrorManager,accountStore,source,
+                CARD,TEXT,MUTED,GREEN,BORDER,io,()->showMirrorManager(source),this::openWeb);
     }
 
     private void showCreateRepositoryDialog(){
@@ -8322,6 +8337,9 @@ public class MainActivity extends Activity {
         if(isSignedIn())accounts.add(SettingsScreen.Item.danger(R.drawable.ic_back,"Выйти из аккаунта",
                 login.isEmpty()?"Удалить локальный сеанс":"Удалить локальный сеанс @"+login,
                 "выход выйти отключить signout logout",this::confirmSignOut));
+        accounts.add(SettingsScreen.Item.action(R.drawable.ic_repository,"Mirror Manager",
+                "Копировать и синхронизировать Git-репозитории между аккаунтами",
+                "mirror зеркало перенос аккаунты синхронизация репозиторий",()->navigate(()->showMirrorManager(""))));
         sections.add(accounts);
         SettingsScreen.Section quotas=new SettingsScreen.Section("Доступ и квоты");
         quotas.add(SettingsScreen.Item.action(R.drawable.ic_lock,"Доступ к репозиториям",
@@ -10058,6 +10076,7 @@ public class MainActivity extends Activity {
             case "rc_status": showReleaseCandidateStatus(); break;
             case "tracking": showTracking(); break;
             case "repository": showRepository(a.optString("full")); break;
+            case "mirror_manager": showMirrorManager(a.optString("full","")); break;
             case "repo_issues": showRepoIssues(a.optString("full")); break;
             case "repo_pulls": showRepoPulls(a.optString("full")); break;
             case "repo_releases": showRepoReleases(a.optString("full")); break;
