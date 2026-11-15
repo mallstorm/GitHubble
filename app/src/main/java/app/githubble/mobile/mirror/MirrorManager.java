@@ -231,7 +231,7 @@ public final class MirrorManager {
             state.controllerMessage="Приватный контроллер доступен";
         }catch(GitHubApiClient.ApiException error){
             if(error.statusCode==404){
-                state.controller=MISSING;
+                state.controller=SetupStatus.MISSING;
                 state.controllerMessage="Не найден приватный контроллер. Создайте его через мастер.";
             }else state.controllerMessage="Ошибка GitHub: "+safeError(error);
             return state;
