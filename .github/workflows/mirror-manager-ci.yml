@@ -29,7 +29,7 @@ jobs:
         with:
           gradle-version: '9.5.1'
       - name: Unit tests and compile
-        run: ./gradlew --no-daemon --max-workers=2 test assembleDebug lintDebug
+        run: ./gradlew --no-daemon --max-workers=2 test assembleDebug lintRelease
       - name: Check ARM64 artifact
         run: |
           python3 - <<'PY'
