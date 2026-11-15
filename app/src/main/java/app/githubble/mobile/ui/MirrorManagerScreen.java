@@ -35,29 +35,13 @@ public final class MirrorManagerScreen {
                 "Облачный Git mirror без Fork: все ветки, история коммитов, теги и LFS. "
                 +"Для каждого аккаунта используется отдельный кратковременный GitHub App token. "
                 +"Токены и ключ приложения не передаются через смартфон на runner.");
-        LinearLayout controlsSetup=vertical(activity);
-        heading(activity,controlsSetup,"Защищённый Mirror Controller",text);
-        subtitle(activity,controlsSetup,"Управляющий репозиторий создаётся приватным на @mallstorm. "
-                +"Его GitHub Actions secrets хранят ключ GitHub App, а рабочие токены действуют "
-                +"только на выбранные репозитории. Настройка выполняется один раз.",muted);
-        Button setup=button(activity,"Создать / обновить контроллер",accent);
-        controlsSetup.addView(setup);
-        setup.setOnClickListener(v->new AlertDialog.Builder(activity)
-                .setTitle("Установить защищённый контроллер?")
-                .setMessage("Будет создан или обновлён только приватный репозиторий "
-                        +MirrorManager.CONTROLLER+". Код runner проверяемый, закрытые ключи "
-                        +"в APK не сохраняются. Для работы дополнительно настройте Environment Secret.")
-                .setNegativeButton("Отмена",null)
-                .setPositiveButton("Установить",(d,w)->runController(activity,background,manager,reload)).show());
-        Button secrets=button(activity,"Repository Secrets и Variables",accent);
-        secrets.setOnClickListener(v->openUrl.accept(MirrorManager.CONTROLLER_URL+"/settings/secrets/actions"));
-        controlsSetup.addView(secrets);
-        subtitle(activity,controlsSetup,"Только приватный Repository Secret\n"
-                +"Secret: GITHUBBLE_MIRROR_APP_PRIVATE_KEY\n"
-                +"Variable: GITHUBBLE_MIRROR_APP_CLIENT_ID\n"
-                +"GitHub App должен быть установлен на обоих аккаунтах с Contents и Workflows: write.",muted);
-        wrap(activity,host,controlsSetup,card,border);
-        if(source!=null&&!source.isEmpty()) {
+        // Setup belongs exclusively to Settings → Account and GitHub → Mirror setup wizard.
+        // Repository screen only handles source/target selection and transfer monitoring.
+        subtitle(activity,host,
+                "Доступ настраивается один раз: Настройки → Аккаунт и GitHub → "
+                +"Мастер настройки зеркалирования.",muted);
+
+        if(source!=null&&!source.isEmpty() && source.contains("/")) {
             GitHubAccountStore.Account active=store.listAccounts().stream()
                     .filter(a->a.login.equalsIgnoreCase(source.substring(0,source.indexOf('/'))))
                     .findFirst().orElse(null);
@@ -161,26 +145,6 @@ public final class MirrorManagerScreen {
         }
     }
 
-    private static void runController(Activity a,Executor executor,MirrorManager manager,Runnable refresh){
-        ProgressDialog progress=ProgressDialog.show(a,"Mirror Manager","Настраиваем приватный контроллер…",true,false);
-        executor.execute(()->{
-            try{manager.setupController();a.runOnUiThread(()->{
-                if(a.isFinishing())return;
-                progress.dismiss();refresh.run();
-                new AlertDialog.Builder(a).setTitle("Контроллер установлен")
-                        .setMessage("Добавьте Repository Secret и Variable в GitHub Actions "
-                                +"репозитория mallstorm/GitHubble-Mirror-Control. Без ключа GitHub App "
-                                +"runner не начнёт передачу.")
-                        .setPositiveButton("OK",null).show();
-            });}
-            catch(Exception error){a.runOnUiThread(()->{
-                if(a.isFinishing())return;
-                progress.dismiss();
-                new AlertDialog.Builder(a).setTitle("Не удалось установить контроллер")
-                        .setMessage(error.getMessage()).setPositiveButton("OK",null).show();
-            });}
-        });
-    }
     private interface Task{MirrorManager.Job execute()throws Exception;}
     private static void run(Activity a,Executor executor,String title,Task task,Runnable refresh){
         ProgressDialog progress=ProgressDialog.show(a,title,"GitHub обрабатывает операцию…",true,false);

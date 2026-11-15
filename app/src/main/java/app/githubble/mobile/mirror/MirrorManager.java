@@ -191,6 +191,96 @@ public final class MirrorManager {
         return api;
     }
 
+    /** Read-only setup diagnostics. A missing credential is NEVER retrieved, only its metadata. */
+    public static final class SetupStatus {
+        public static final int UNKNOWN=0, PRESENT=1, MISSING=2;
+        public int connectedAccounts;
+        public boolean controllerAccountConnected;
+        public int controller=UNKNOWN, workflow=UNKNOWN, secret=UNKNOWN, variable=UNKNOWN;
+        public String controllerMessage="", workflowMessage="", secretMessage="", variableMessage="";
+        public boolean verifiedReady(){
+            return controllerAccountConnected && connectedAccounts>=2
+                    && controller==PRESENT && workflow==PRESENT
+                    && secret==PRESENT && variable==PRESENT;
+        }
+    }
+
+    public SetupStatus setupStatus() {
+        SetupStatus state=new SetupStatus();
+        state.connectedAccounts=accounts.listAccounts().size();
+        for(GitHubAccountStore.Account item:accounts.listAccounts())
+            if("mallstorm".equalsIgnoreCase(item.login))state.controllerAccountConnected=true;
+        if(!state.controllerAccountConnected){
+            state.controllerMessage="Подключите @mallstorm в GitHubble";
+            return state;
+        }
+        GitHubApiClient gh;
+        try{gh=api(controllerAccount());}
+        catch(Exception error){
+            state.controllerMessage="Не удалось проверить аккаунт: "+safeError(error);
+            return state;
+        }
+        try{
+            JSONObject repo=gh.getJsonFresh(API+CONTROLLER);
+            if(!repo.optBoolean("private") || repo.optBoolean("fork")){
+                state.controller=MISSING;
+                state.controllerMessage="Контроллер существует, но не является приватным независимым репозиторием";
+                return state;
+            }
+            state.controller=PRESENT;
+            state.controllerMessage="Приватный контроллер доступен";
+        }catch(GitHubApiClient.ApiException error){
+            if(error.statusCode==404){
+                state.controller=MISSING;
+                state.controllerMessage="Не найден приватный контроллер. Создайте его через мастер.";
+            }else state.controllerMessage="Ошибка GitHub: "+safeError(error);
+            return state;
+        }catch(Exception error){
+            state.controllerMessage="Проверка недоступна: "+safeError(error);
+            return state;
+        }
+        try{
+            JSONObject workflow=gh.getJsonFresh(API+CONTROLLER+"/actions/workflows/githubble-mirror-controller.yml");
+            state.workflow="active".equals(workflow.optString("state",""))
+                    ?SetupStatus.PRESENT:SetupStatus.MISSING;
+            state.workflowMessage=state.workflow==SetupStatus.PRESENT
+                    ?"Контроллерный workflow активен":"Workflow существует, но не активен";
+        }catch(GitHubApiClient.ApiException error){
+            state.workflow=error.statusCode==404?SetupStatus.MISSING:SetupStatus.UNKNOWN;
+            state.workflowMessage=error.statusCode==404
+                    ?"Workflow ещё не установлен или не включены Actions"
+                    :"Недостаточно прав для проверки workflow (HTTP "+error.statusCode+")";
+        }catch(Exception error){
+            state.workflowMessage="Проверка workflow недоступна: "+safeError(error);
+        }
+        try{
+            gh.getJsonFresh(API+CONTROLLER+"/actions/secrets/GITHUBBLE_MIRROR_APP_PRIVATE_KEY");
+            state.secret=SetupStatus.PRESENT;
+            state.secretMessage="Секрет зарегистрирован (его содержимое недоступно приложению)";
+        }catch(GitHubApiClient.ApiException error){
+            state.secret=SetupStatus.UNKNOWN;
+            state.secretMessage="GitHub не разрешил проверить наличие секрета (HTTP "
+                    +error.statusCode+"). Убедитесь в его наличии в настройках.";
+        }catch(Exception error){
+            state.secretMessage="Метаданные секрета недоступны: "+safeError(error);
+        }
+        try{
+            JSONObject v=gh.getJsonFresh(API+CONTROLLER+"/actions/variables/GITHUBBLE_MIRROR_APP_CLIENT_ID");
+            String id=v.optString("value","");
+            state.variable=id.startsWith("Iv")&&id.length()>4
+                    ?SetupStatus.PRESENT:SetupStatus.MISSING;
+            state.variableMessage=state.variable==SetupStatus.PRESENT
+                    ?"Client ID зарегистрирован":"Значение Client ID выглядит некорректно";
+        }catch(GitHubApiClient.ApiException error){
+            state.variable=SetupStatus.UNKNOWN;
+            state.variableMessage="GitHub не разрешил проверить переменную (HTTP "
+                    +error.statusCode+"). Проверьте Actions → Variables.";
+        }catch(Exception error){
+            state.variableMessage="Метаданные переменной недоступны: "+safeError(error);
+        }
+        return state;
+    }
+
     /** Create a new independent destination repository, then dispatch the trusted cloud runner. */
     public Job start(String sourceFull,String sourceAccountId,String destAccountId,
                      String destName,boolean managed)throws Exception{
