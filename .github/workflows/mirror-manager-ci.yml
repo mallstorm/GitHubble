@@ -1,7 +1,5 @@
 name: GitHubble Mirror Manager CI
 on:
-  push:
-    branches: [feat/mirror-manager]
   pull_request:
     branches: [feat/unified-agent-stage3, main]
   workflow_dispatch:
