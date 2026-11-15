@@ -130,7 +130,7 @@ jobs:
           git fetch --force origin '+refs/heads/*:refs/heads/*' '+refs/tags/*:refs/tags/*'
           # Git LFS config inside an untrusted repository may redirect token-bearing
           # requests to another domain. Fail closed instead of following that config.
-          for branch in $(git for-each-ref --format='%(refname)' refs/heads); do
+          for branch in $(git for-each-ref --format='%(refname)' refs/heads refs/tags); do
             if git cat-file -e "$branch:.lfsconfig" 2>/dev/null; then
               echo "::error::Custom .lfsconfig found. LFS credentials require manual review."
               exit 29
@@ -167,7 +167,11 @@ jobs:
           git lfs push --all "$TARGET_URL"
           # Copy full commit graph and all user branch/tag refs; exclude GitHub
           # internal read-only refs/pull/* which GitHub will reject.
-          git push --force --prune "$TARGET_URL" '+refs/heads/*:refs/heads/*' '+refs/tags/*:refs/tags/*'
+          if [[ "$MODE" == "copy" ]]; then
+            git push --prune "$TARGET_URL" '+refs/heads/*:refs/heads/*' '+refs/tags/*:refs/tags/*'
+          else
+            git push --force --prune "$TARGET_URL" '+refs/heads/*:refs/heads/*' '+refs/tags/*:refs/tags/*'
+          fi
           git ls-remote --heads --tags "$TARGET_URL" > "$RUNNER_TEMP/target-after.tsv"
           git show-ref --heads --tags > "$RUNNER_TEMP/source-refs.tsv"
           python3 - "$RUNNER_TEMP/source-refs.tsv" "$RUNNER_TEMP/target-after.tsv" <<'PY'

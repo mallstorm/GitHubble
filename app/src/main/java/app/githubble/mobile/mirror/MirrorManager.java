@@ -281,7 +281,7 @@ public final class MirrorManager {
         GitHubApiClient src=api(account(job.sourceAccountId)),dst=api(account(job.destinationAccountId));
         JSONObject source=src.getJsonFresh(API+job.source);
         JSONObject target=dst.getJsonFresh(API+job.destination);
-        if(source.optBoolean("fork")||target.optBoolean("fork"))
+        if(target.optBoolean("fork"))
             throw new IllegalStateException("Fork нельзя использовать как независимое зеркало");
         if(!source.optString("default_branch","main").equals(job.sourceDefault))
             throw new IllegalStateException("Default branch изменилась — требуется новая операция");
