@@ -151,6 +151,8 @@ public final class MirrorManager {
         String sourceDefault=repository.optString("default_branch","main");
         if(!sourceDefault.matches("[A-Za-z0-9_.\\/-]{1,250}") || sourceDefault.contains(".."))
             throw new IllegalStateException("Недопустимая default branch");
+        // An empty source cannot replace the target default branch safely.
+        src.getJsonFresh(API+sourceFull+"/git/ref/heads/"+encode(sourceDefault));
         try {
             dst.getJsonFresh(API+destination);
             throw new IllegalStateException("Назначение уже существует. Существующие репозитории никогда не перезаписываются при первичном копировании.");
@@ -183,7 +185,8 @@ public final class MirrorManager {
     }
 
     private static String encode(String value){
-        return URLEncoder.encode(value,StandardCharsets.UTF_8).replace("+","%20");
+        try {return URLEncoder.encode(value,"UTF-8").replace("+","%20");}
+        catch(java.io.UnsupportedEncodingException impossible){throw new IllegalStateException(impossible);}
     }
 
     /** Change initial GitHub-generated default branch before the first mirror push. */
