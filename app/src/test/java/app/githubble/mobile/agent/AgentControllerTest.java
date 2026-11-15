@@ -9,6 +9,7 @@ public class AgentControllerTest {
         assertTrue(AgentController.intent("/build").startsWith("Build the linked project"));
         assertTrue(AgentController.intent("/repair 123").contains("123"));
         assertTrue(AgentController.intent("/workspace push").contains("Never publish to main"));
+        assertTrue(AgentController.intent("/workspace import mallstorm/test").contains("import_repository"));
         assertTrue(AgentController.intent("/edit fix parser").contains("fix parser"));
         assertEquals("Обсудим архитектуру",AgentController.intent("Обсудим архитектуру"));
     }

@@ -4,15 +4,23 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 public final class RepositoryWorkspaceImporterTest {
-    @Test public void naturalLanguageCloneRequestIsDispatchedLocally(){
-        assertTrue(RepositoryWorkspaceImporter.isImportIntent(
-            "Ai Endpoin берем создавай временный воркспейс и сливай туда репозиторий для локальной работы"));
-        assertTrue(RepositoryWorkspaceImporter.isImportIntent(
-            "/workspace import mallstorm/AI-Endpoint-Checker"));
-        assertTrue(RepositoryWorkspaceImporter.isImportIntent(
-            "Склонируй репозиторий GitHub в локальный Workspace"));
+    @Test public void onlyStandaloneSlashCommandsAreNormalized(){
+        assertTrue(RepositoryWorkspaceImporter.isImportIntent("/workspace import mallstorm/AI-Endpoint-Checker"));
+        assertTrue(RepositoryWorkspaceImporter.isImportIntent(" /workspace import "));
+        assertFalse(RepositoryWorkspaceImporter.isImportIntent("Склонируй репозиторий GitHub в локальный Workspace"));
+        assertFalse(RepositoryWorkspaceImporter.isImportIntent("Ai Endpoin берем создавай временный воркспейс и сливай туда репозиторий для локальной работы"));
         assertFalse(RepositoryWorkspaceImporter.isImportIntent("Покажи мои репозитории"));
-        assertFalse(RepositoryWorkspaceImporter.isImportIntent("Привет Git Agent"));
+        assertFalse(RepositoryWorkspaceImporter.isImportIntent("Объясни команду /workspace import"));
+        assertFalse(RepositoryWorkspaceImporter.isImportIntent("Не выполняй /workspace import mallstorm/private"));
+    }
+    @Test public void createRepositoryWithWorkspaceProhibitionNeverMeansImport(){
+        String prompt="Создай в моём активном GitHub-аккаунте приватный репозиторий hubble-acceptance-80.\n"
+            +"Используй create_repository и привяжи результат к текущему проекту.\n"
+            +"Пока не создавай дополнительные файлы, Workspace или workflow. Не запускай сборку.";
+        assertFalse(RepositoryWorkspaceImporter.isImportIntent(prompt));
+        assertEquals(prompt,AgentController.intent(prompt));
+        String noImport="Проверь репозиторий, ничего не импортируй в Workspace";
+        assertFalse(RepositoryWorkspaceImporter.isImportIntent(noImport));assertEquals(noImport,AgentController.intent(noImport));
     }
 
     @Test public void importerRejectsDangerousPaths(){

@@ -2187,11 +2187,8 @@ public class MainActivity extends Activity {
             aiActiveFutures.put(expected,future);app.githubble.mobile.agent.AgentUiSession.WORKERS.execute(future);return;
         }
         if(mayWrite){
-        boolean workspaceImport=app.githubble.mobile.agent.RepositoryWorkspaceImporter.isImportIntent(message);
-        if(imageUri==null && workspaceImport){
-            agentImportRepositoryToWorkspace(expected,message);
-            return;
-        }
+        // Natural language and slash import requests belong to the same agent loop.
+        // Mentioning Workspace (including a prohibition) must never open an import picker.
         AgentProjectStore.Project p = agentProjects.project(expected);
         if(agentMode&&!p.workspaceId.isEmpty()&&app.githubble.mobile.agent.ProjectWorkspaceSupport.INSTANCE.architectureSelectionIntent(message))try{
             JSONObject info=agentWorkspaces.info(expected,p.workspaceId);

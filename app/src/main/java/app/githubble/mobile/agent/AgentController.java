@@ -17,6 +17,7 @@ public final class AgentController {
         if (command.matches("(?i)^/build(?:\\s.*)?$")) return "Build the linked project: inspect workflows and recent runs, use the working branch, await the result and report actual evidence. " + command;
         if (command.matches("(?i)^/repair(?:\\s.*)?$")) return "Diagnose the indicated or latest build using metadata. Do not send CI logs without separate consent. Respect external blockers and RetryPolicy. " + command;
         if (command.equalsIgnoreCase("/workspace push")) return "Publish the current reviewed changes using the host's publish tool and report the verified ref/commit. Never publish to main or master. No force push.";
+        if (RepositoryWorkspaceImporter.isImportIntent(command)) return "Import a commit-pinned snapshot only after checking the requested repository and obtaining host approval through import_repository. Do not open a separate UI picker or guess a repository. " + command;
         if (command.startsWith("/edit ")) return "Propose reviewed file changes for this task: " + command.substring(6);
         return message;
     }

@@ -102,11 +102,20 @@ public final class GitHubAgentBridge {
 
     public JSONObject activeIdentity(String expected) throws Exception {
         GitHubApiClient api=scopedApi(expected);
-        JSONObject who=api.getJson("https://api.github.com/user");
-        return new JSONObject().put("login",who.optString("login"))
-            .put("id",who.optLong("id"))
-            .put("public_repos",who.optInt("public_repos"))
-            .put("private_repos",who.optInt("total_private_repos"));
+        return accountSummary(api.getJsonFresh("https://api.github.com/user"));
+    }
+
+    /** Missing profile counters are unknown, never evidence of zero accessible repositories. */
+    static JSONObject accountSummary(JSONObject who)throws org.json.JSONException {
+        Object publicCount=profileCount(who,"public_repos"),privateCount=profileCount(who,"total_private_repos");
+        return new JSONObject().put("login",who.optString("login")).put("id",who.optLong("id"))
+            .put("public_repos",publicCount).put("private_repos",privateCount)
+            .put("private_repos_status",privateCount==JSONObject.NULL?"UNKNOWN":"REPORTED_BY_PROFILE")
+            .put("counts_scope","account_profile_not_accessible_repository_inventory")
+            .put("repository_count_note","Null means unknown, not zero. Profile counts do not prove private repository visibility. Use list_repositories to count actually accessible repositories, including collaborators and organizations.");
+    }
+    private static Object profileCount(JSONObject who,String key){
+        Object value=who.opt(key);return value instanceof Number&&((Number)value).longValue()>=0?value:JSONObject.NULL;
     }
 
     public JSONObject repositoryDetails(String expected,String fullName)throws Exception{
