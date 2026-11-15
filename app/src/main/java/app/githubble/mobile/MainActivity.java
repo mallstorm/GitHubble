@@ -4277,12 +4277,6 @@ public class MainActivity extends Activity {
                         :"Синхронизация ещё не выполнялась");
         if(cached.status==RepositoryStore.Status.ERROR || cached.status==RepositoryStore.Status.STALE)
             screen.setStatus("Последняя синхронизация завершилась ошибкой. Сохранённые данные доступны.");
-        Button buildCenter=button("◈  Центр сборок · APK и артефакты");
-        buildCenter.setContentDescription("Открыть центр сборок GitHub Actions");
-        buildCenter.setOnClickListener(v->navigate(this::showBuildCenter));
-        LinearLayout.LayoutParams buildsP=new LinearLayout.LayoutParams(-1,dp(48));
-        buildsP.setMargins(0,0,0,dp(10));
-        content.addView(buildCenter,0,buildsP);
         final boolean needsNetwork=forceNetwork || cached.lastSyncedAt==0L
                 || System.currentTimeMillis()-cached.lastSyncedAt>120000L;
         if(!needsNetwork)return;
