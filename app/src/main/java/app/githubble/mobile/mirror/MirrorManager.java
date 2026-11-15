@@ -223,11 +223,11 @@ public final class MirrorManager {
         try{
             JSONObject repo=gh.getJsonFresh(API+CONTROLLER);
             if(!repo.optBoolean("private") || repo.optBoolean("fork")){
-                state.controller=MISSING;
+                state.controller=SetupStatus.MISSING;
                 state.controllerMessage="Контроллер существует, но не является приватным независимым репозиторием";
                 return state;
             }
-            state.controller=PRESENT;
+            state.controller=SetupStatus.PRESENT;
             state.controllerMessage="Приватный контроллер доступен";
         }catch(GitHubApiClient.ApiException error){
             if(error.statusCode==404){
