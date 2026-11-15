@@ -12,7 +12,6 @@ import android.graphics.drawable.GradientDrawable;
 import android.view.Gravity;
 import android.widget.Button;
 import android.widget.LinearLayout;
-import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 import app.githubble.mobile.auth.GitHubAccountStore;
@@ -151,7 +150,7 @@ public final class MirrorSetupWizardScreen {
             prev.setOnClickListener(v->{prefs.edit().putInt(KEY_STEP,step-1).apply();reload.run();});
             nav.addView(prev,new LinearLayout.LayoutParams(0,dp(activity,50),1));
         }
-        Button next=navigation(activity,step==STEPS-1?"Завершить":"Продолжить",accent);
+        Button next=navigation(activity,step==STEPS-1?"Вернуться в настройки":"Продолжить",accent);
         next.setOnClickListener(v->{
             if(step==STEPS-1){prefs.edit().putInt(KEY_STEP,0).apply();done.run();}
             else advance(prefs,step,reload);
