@@ -156,7 +156,7 @@ public final class AgentChatScreen {
         LinearLayout composer=new LinearLayout(activity);
         composer.setOrientation(LinearLayout.VERTICAL);
         composer.setPadding(dp(8),dp(6),dp(8),dp(6));
-        composer.setBackground(shape(dark?0xFF253238:0xFFF2F4F3,28,this.border,1));
+        composer.setBackground(shape(dark?0xFF253238:Color.blue(this.subtle)>Color.red(this.subtle)+12?this.subtle:0xFFF2F4F3,28,this.border,1));
         LinearLayout.LayoutParams panelParams=new LinearLayout.LayoutParams(-1,-2);
         panelParams.topMargin=dp(2);
         dock.addView(composer,panelParams);
@@ -293,7 +293,7 @@ public final class AgentChatScreen {
         bubble.setOrientation(LinearLayout.VERTICAL);
         bubble.setPadding(user?dp(14):dp(5),dp(8),user?dp(14):dp(5),dp(5));
         if(user)bubble.setBackground(shape(subtle,21,Color.TRANSPARENT,0));
-        else if(system)bubble.setBackground(shape(dark?0xFF272E37:0xFFF1F3F5,13,Color.TRANSPARENT,0));
+        else if(system)bubble.setBackground(shape(dark?0xFF272E37:Color.blue(subtle)>Color.red(subtle)+12?subtle:0xFFF1F3F5,13,Color.TRANSPARENT,0));
         if(!user){
             TextView tag=label(system?"Система":"Hubble Agent"+(model.isEmpty()?"":" · "+model),11,true,system?muted:accent);
             bubble.addView(tag);

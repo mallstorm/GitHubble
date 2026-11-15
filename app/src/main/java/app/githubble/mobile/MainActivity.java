@@ -537,12 +537,13 @@ public class MainActivity extends Activity {
     private int currentIconResource() {
         if ("beige".equals(activeTheme)) return app.githubble.mobile.R.mipmap.ic_launcher_beige;
         if ("dark".equals(activeTheme)) return app.githubble.mobile.R.mipmap.ic_launcher_dark;
+        if ("blue".equals(activeTheme)) return app.githubble.mobile.R.mipmap.ic_launcher_blue;
         return app.githubble.mobile.R.mipmap.ic_launcher_light;
     }
 
     private LinearLayout bottomNav(String title) {
         if("Управление аккаунтом".equals(title)||"Права установки".equals(title)||"Заблокированные пользователи".equals(title)||"Ограничения взаимодействия".equals(title))title="Настройки";
-        boolean chat="Чат".equals(title),dark=Color.luminance(BG)<.4f;
+        boolean chat="Чат".equals(title)&&!"blue".equals(activeTheme),dark=Color.luminance(BG)<.4f;
         return BottomNavigationBar.create(this,title,chat?(dark?0xFF343941:Color.WHITE):SURFACE,
                 chat?(dark?0xFF515963:0xFFE9EFF3):SUBTLE,
                 chat?(dark?0xFFCCD8E0:0xFF435B69):GREEN,
@@ -4250,10 +4251,6 @@ public class MainActivity extends Activity {
                         new app.githubble.mobile.ui.RepositoriesScreen.Actions() {
                             @Override public void create(){ showCreateRepositoryDialog(); }
                             @Override public void refresh(){ showMyRepositories(true); }
-                            @Override public void sort(String value){
-                                repositoriesSort=value;
-                                prefs.edit().putString("repositories_sort",value).apply();
-                            }
                             @Override public void open(String full){
                                 navigate(() -> showRepository(full));
                             }
@@ -8656,7 +8653,7 @@ public class MainActivity extends Activity {
         SettingsScreen.Section look=new SettingsScreen.Section("Оформление");
         look.add(SettingsScreen.Item.action(R.drawable.ic_tools,"Тема оформления",
                 themeDisplayName()+" · меняет и иконку приложения",
-                "тема цвет тёмная темная светлая бежевая иконка dark",this::chooseThemeDialog));
+                "тема цвет тёмная темная светлая бежевая голубая синяя иконка dark blue",this::chooseThemeDialog));
         look.add(SettingsScreen.Item.action(R.drawable.ic_home,"Карточки на главной",
                 "spacious".equals(prefs.getString("ui_card_density","compact"))?"Свободные":"Компактные",
                 "размер карточек плитки главная компактный свободный",this::chooseCardDensityDialog));
@@ -8954,9 +8951,9 @@ public class MainActivity extends Activity {
     }
 
     private void chooseThemeDialog(){
-        final String[] ids={"light","beige","dark"};
-        final String[] labels={"Светлая — белая и зелёная","Бежевая — тёплая и зелёная","Тёмная — графитовая и зелёная"};
-        int checked="beige".equals(activeTheme)?1:"dark".equals(activeTheme)?2:0;
+        final String[] ids={"light","beige","dark","blue"};
+        final String[] labels={"Светлая — белая и зелёная","Бежевая — тёплая и зелёная","Тёмная — графитовая и зелёная","Светло-синяя — голубая и синяя"};
+        int checked=themeIconIndex(activeTheme);
         new AlertDialog.Builder(this).setTitle("Тема оформления")
                 .setSingleChoiceItems(labels,checked,(dialog,which)->{
                     dialog.dismiss();
@@ -9416,7 +9413,7 @@ public class MainActivity extends Activity {
         if(requestCode==REQUEST_REPOSITORY_FOLDER||requestCode==REQUEST_REPOSITORY_ZIP||requestCode==REQUEST_REPOSITORY_FILE){handleRepositoryImportUri(requestCode,uri);return;}
         if(requestCode==REQUEST_EXPORT_PORTABLE){try(OutputStream out=getContentResolver().openOutputStream(uri)){if(out==null)throw new IOException("Не удалось открыть файл");out.write(pendingPortableExport.getBytes(StandardCharsets.UTF_8));out.flush();pendingPortableExport="";toast("Резервная копия сохранена");}catch(Exception e){errorDialog("Ошибка экспорта",e.getMessage());}}
         else if(requestCode==REQUEST_EXPORT_USER_DATA){try(OutputStream out=getContentResolver().openOutputStream(uri)){if(out==null)throw new IOException("Не удалось открыть файл");out.write(pendingUserDataExport.getBytes(StandardCharsets.UTF_8));out.flush();pendingUserDataExport="";toast("Данные пользователя экспортированы");}catch(Exception e){errorDialog("Ошибка экспорта данных",e.getMessage());}}
-        else if(requestCode==REQUEST_IMPORT_PORTABLE){try(InputStream in=getContentResolver().openInputStream(uri)){if(in==null)throw new IOException("Не удалось открыть файл");JSONObject root=new JSONObject(readAll(in));PortableSettingsManager.ImportResult r=features.portableSettings.importData(root);reloadUiPreferences();applyTheme();TrackingJobService.schedule(this,prefs.getInt("tracking_interval_hours",6));new AlertDialog.Builder(this).setTitle("Импорт завершён").setMessage("Добавлено избранных: "+r.favoritesAdded+"\nДобавлено разработчиков: "+r.developersAdded+"\nПрименено настроек: "+r.settingsApplied).setPositiveButton("ОК",(d,w)->showPortableBackup()).show();}catch(Exception e){errorDialog("Ошибка импорта",e.getMessage());}}
+        else if(requestCode==REQUEST_IMPORT_PORTABLE){try(InputStream in=getContentResolver().openInputStream(uri)){if(in==null)throw new IOException("Не удалось открыть файл");JSONObject root=new JSONObject(readAll(in));PortableSettingsManager.ImportResult r=features.portableSettings.importData(root);reloadUiPreferences();applyTheme();switchLauncherIcon(activeTheme);TrackingJobService.schedule(this,prefs.getInt("tracking_interval_hours",6));new AlertDialog.Builder(this).setTitle("Импорт завершён").setMessage("Добавлено избранных: "+r.favoritesAdded+"\nДобавлено разработчиков: "+r.developersAdded+"\nПрименено настроек: "+r.settingsApplied).setPositiveButton("ОК",(d,w)->showPortableBackup()).show();}catch(Exception e){errorDialog("Ошибка импорта",e.getMessage());}}
     }
 
     private void settingsRow(String title,String value){settingsActionRow(title,value,null);}
@@ -9570,6 +9567,10 @@ public class MainActivity extends Activity {
             BG=Color.rgb(251,247,235); SURFACE=Color.rgb(255,252,243); CARD=Color.rgb(255,250,237); SUBTLE=Color.rgb(246,241,214);
             TEXT=Color.rgb(54,47,34); MUTED=Color.rgb(112,102,78); GREEN=Color.rgb(86,158,45); BLUE=Color.rgb(75,132,47); BORDER=Color.rgb(226,216,184);
             tileColors=new int[]{Color.rgb(91,164,65),Color.rgb(69,139,214),Color.rgb(129,86,190),Color.rgb(232,142,45),Color.rgb(223,92,92),Color.rgb(222,177,30),Color.rgb(52,157,151),Color.rgb(112,108,91)};
+        }else if("blue".equals(activeTheme)){
+            BG=Color.rgb(241,248,254); SURFACE=Color.rgb(247,251,255); CARD=Color.WHITE; SUBTLE=Color.rgb(225,240,252);
+            TEXT=Color.rgb(23,53,77); MUTED=Color.rgb(75,104,128); GREEN=Color.rgb(36,108,166); BLUE=Color.rgb(36,108,166); BORDER=Color.rgb(201,220,237);
+            tileColors=new int[]{Color.rgb(46,142,208),Color.rgb(65,114,197),Color.rgb(126,96,188),Color.rgb(217,145,61),Color.rgb(201,91,112),Color.rgb(188,154,43),Color.rgb(48,151,167),Color.rgb(91,123,146)};
         }else if("dark".equals(activeTheme)){
             BG=Color.rgb(24,34,38); SURFACE=Color.rgb(29,42,46); CARD=Color.rgb(34,49,53); SUBTLE=Color.rgb(38,59,51);
             TEXT=Color.rgb(242,247,244); MUTED=Color.rgb(174,190,183); GREEN=Color.rgb(140,215,79); BLUE=Color.rgb(129,211,83); BORDER=Color.rgb(58,76,72);
@@ -9594,7 +9595,8 @@ public class MainActivity extends Activity {
         decor.setSystemUiVisibility(light?flags|mask:flags&~mask);
     }
 
-    private String themeDisplayName(){ return "beige".equals(activeTheme)?"Бежевая":"dark".equals(activeTheme)?"Тёмная":"Светлая"; }
+    private String themeDisplayName(){ return "blue".equals(activeTheme)?"Светло-синяя":"beige".equals(activeTheme)?"Бежевая":"dark".equals(activeTheme)?"Тёмная":"Светлая"; }
+    private static int themeIconIndex(String theme){return "blue".equals(theme)?3:"dark".equals(theme)?2:"beige".equals(theme)?1:0;}
 
     private ComponentName launcherAliasComponent(String suffix){
         String activityClass=MainActivity.class.getName();
@@ -9608,19 +9610,21 @@ public class MainActivity extends Activity {
         ComponentName[] aliases={
             launcherAliasComponent("LightIcon"),
             launcherAliasComponent("BeigeIcon"),
-            launcherAliasComponent("DarkIcon")
+            launcherAliasComponent("DarkIcon"),
+            launcherAliasComponent("BlueIcon")
         };
-        int selectedIndex="beige".equals(theme)?1:"dark".equals(theme)?2:0;
+        int selectedIndex=themeIconIndex(theme);
+        // Enable the new launcher first so a theme change never leaves the app without an entry.
+        try{
+            if(pm.getComponentEnabledSetting(aliases[selectedIndex])!=PackageManager.COMPONENT_ENABLED_STATE_ENABLED)
+                pm.setComponentEnabledSetting(aliases[selectedIndex],PackageManager.COMPONENT_ENABLED_STATE_ENABLED,PackageManager.DONT_KILL_APP);
+        }catch(IllegalArgumentException unavailable){return;}
         for(int i=0;i<aliases.length;i++){
+            if(i==selectedIndex)continue;
             try{
-                pm.setComponentEnabledSetting(
-                    aliases[i],
-                    i==selectedIndex?PackageManager.COMPONENT_ENABLED_STATE_ENABLED:PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
-                    PackageManager.DONT_KILL_APP
-                );
-            }catch(IllegalArgumentException ignored){
-                // Never crash the app if a build variant changes launcher aliases.
-            }
+                if(pm.getComponentEnabledSetting(aliases[i])!=PackageManager.COMPONENT_ENABLED_STATE_DISABLED)
+                    pm.setComponentEnabledSetting(aliases[i],PackageManager.COMPONENT_ENABLED_STATE_DISABLED,PackageManager.DONT_KILL_APP);
+            }catch(IllegalArgumentException ignored){}
         }
     }
 
@@ -9637,9 +9641,10 @@ public class MainActivity extends Activity {
         ComponentName[] aliases={
             launcherAliasComponent("LightIcon"),
             launcherAliasComponent("BeigeIcon"),
-            launcherAliasComponent("DarkIcon")
+            launcherAliasComponent("DarkIcon"),
+            launcherAliasComponent("BlueIcon")
         };
-        int selectedIndex="beige".equals(activeTheme)?1:"dark".equals(activeTheme)?2:0;
+        int selectedIndex=themeIconIndex(activeTheme);
         int temporaryIndex=(selectedIndex+1)%aliases.length;
 
         try{

@@ -31,7 +31,6 @@ public final class RepositoriesScreen {
     public interface Actions {
         void create();
         void refresh();
-        void sort(String value);
         void open(String fullName);
         void menu(JSONObject repository);
     }
@@ -130,7 +129,7 @@ public final class RepositoriesScreen {
         filtersHost=horizontal(Gravity.CENTER_VERTICAL);
         filtersHost.setPadding(0,0,0,0);
         filterScroll.addView(filtersHost);
-        add(filterScroll,dp(46),5);
+        add(filterScroll,dp(38),5);
         makeFilters();
         resultCount=label("",11,false,muted);
         resultCount.setGravity(Gravity.END|Gravity.CENTER_VERTICAL);
@@ -184,16 +183,6 @@ public final class RepositoriesScreen {
 
     private void makeFilters(){
         filtersHost.removeAllViews();
-        String order=RepositoryListOptions.sortLabel(options.order);
-        String compact=options.order.equals("name")?"Название":options.order.equals("stars")?"Звёзды":"Обновлённые";
-        control("↕ "+compact+" ▾",false,"Сортировка: "+order,()->{
-            String[] values={"updated","name","stars"};String[] labels={"Недавно обновлённые","По названию","По звёздам"};
-            int selected=java.util.Arrays.asList(values).indexOf(options.order);
-            new android.app.AlertDialog.Builder(activity).setTitle("Сортировка репозиториев")
-                .setSingleChoiceItems(labels,Math.max(0,selected),(d,n)->{
-                    options.order=values[n];actions.sort(values[n]);d.dismiss();makeFilters();updateRows();
-                }).setNegativeButton("Отмена",null).show();
-        });
         control("Все",options.visibility.equals("all")&&!options.favoritesOnly&&options.language.isEmpty(),"Все репозитории",()->{options.clearFilters();changedFilters();});
         control("Приватные",options.visibility.equals("private"),"Фильтр: приватные",()->{options.visibility=options.visibility.equals("private")?"all":"private";changedFilters();});
         control("Публичные",options.visibility.equals("public"),"Фильтр: публичные",()->{options.visibility=options.visibility.equals("public")?"all":"public";changedFilters();});
@@ -215,7 +204,7 @@ public final class RepositoriesScreen {
         chip.setBackground(shape(active?green:card,17,active?green:border,active?0:1));
         chip.setSelected(active);
         chip.setOnClickListener(v->click.run());
-        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-2,dp(44));p.setMargins(0,0,dp(6),0);filtersHost.addView(chip,p);
+        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-2,dp(36));p.setMargins(0,0,dp(6),0);filtersHost.addView(chip,p);
     }
 
     /**

@@ -44,7 +44,7 @@ public final class AgentChatUiInstrumentation extends Instrumentation {
       File directory = getTargetContext().getExternalFilesDir("agent-ui");
       if (directory == null || (!directory.isDirectory() && !directory.mkdirs()))
         throw new AssertionError("Screenshot directory unavailable");
-      for (String theme : new String[] {"light", "dark", "beige"})
+      for (String theme : new String[] {"light", "dark", "beige", "blue"})
         for (String scale : new String[] {"1.0", "1.5"}) {
           shell("settings put system font_scale " + scale);
           shell("settings put secure show_ime_with_hard_keyboard 1");
@@ -69,7 +69,8 @@ public final class AgentChatUiInstrumentation extends Instrumentation {
           SystemClock.sleep(350);
           if (theme.equals("light") && scale.equals("1.0")) {verifyNativeTools(app);ChangeReviewUiChecks.run(this,app);
           Stage3UiChecks.run(this,app);}
-          if(theme.equals("light"))RepositoryUiChecks.run(this,app);
+          if(theme.equals("blue")&&scale.equals("1.0"))ThemeUiChecks.run(this,app);
+          if(theme.equals("light")||theme.equals("blue"))RepositoryUiChecks.run(this,app);
           AgentChatPreviewActivity current = app;
           main(
               () -> {
@@ -185,7 +186,7 @@ public final class AgentChatUiInstrumentation extends Instrumentation {
         }
       result.putString(
           "result",
-          "PASS: agent chat UI; storage migration; native tools; 3 themes; 2 font scales; timer;"
+          "PASS: agent chat UI; storage migration; native tools; 4 themes; 2 font scales; timer;"
               + " recreation; composer; Markdown; diff; IME");
     } catch (Throwable e) {
       android.util.Log.e("AndroidRuntime", "Agent chat UI failed", e);
