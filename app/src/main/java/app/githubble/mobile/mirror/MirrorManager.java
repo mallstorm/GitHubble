@@ -24,7 +24,7 @@ import org.json.JSONObject;
  * approved secure runner credential exchange; never put an OAuth token in workflow inputs.
  */
 public final class MirrorManager {
-    public static final String COPY="copy", MANAGED="managed";
+    public static final String COPY="copy", MANAGED="managed", FORK="fork";
     public static final String PREPARING="preparing", DEST_CREATED="destination_created",
             DISPATCHED="dispatched", RUNNING="running", VERIFIED="verified",
             FAILED="failed", DIVERGED="diverged", UNKNOWN="unknown";
@@ -133,6 +133,10 @@ public final class MirrorManager {
                      String destinationName,boolean managed)throws Exception {
         MirrorPolicy.requireRepository(sourceFull);
         MirrorPolicy.requireName(destinationName);
+        if(managed)throw new IllegalStateException(
+                "Независимая синхронизация пока недоступна: GitHub Actions не имеет права "
+                +"перезаписывать файлы .github/workflows без Workflows:write. "
+                +"Пока доступна безопасная однократная копия через GitHub Fork.");
         GitHubAccountStore.Account sourceAccount=account(sourceAccountId);
         GitHubAccountStore.Account targetAccount=account(destinationAccountId);
         if(sourceAccount.id.equals(targetAccount.id))
@@ -166,18 +170,20 @@ public final class MirrorManager {
         job.createdAt=System.currentTimeMillis();
         job.source=sourceFull;job.sourceAccountId=sourceAccountId;
         job.destination=destination;job.destinationAccountId=destinationAccountId;
-        job.sourceDefault=sourceDefault;job.mode=managed?MANAGED:COPY;
+        job.sourceDefault=sourceDefault;job.mode=FORK;
         save(job);
         try {
-            JSONObject payload=new JSONObject();
-            payload.put("name",destinationName).put("description","GitHubble mirror of "+sourceFull);
-            payload.put("auto_init",true).put("private",false);
-            JSONObject created=dst.postJson("https://api.github.com/user/repos",payload,true);
+            // GitHub creates and copies the fork server-side, including all branches.
+            // The device neither downloads Git objects nor transmits credentials to a runner.
+            JSONObject payload=new JSONObject()
+                    .put("name",destinationName)
+                    .put("default_branch_only",false);
+            JSONObject created=dst.postJson(API+sourceFull+"/forks",payload,true);
             if(!destination.equalsIgnoreCase(created.optString("full_name","")))
-                throw new SecurityException("GitHub создал неожиданный репозиторий — проверьте назначения");
-            job.state=DEST_CREATED;save(job);
-            configureDefaultBranch(dst,job,created);
-            dispatch(dst,job);
+                throw new SecurityException("GitHub вернул неожиданное имя копии — проверьте назначения");
+            job.state=RUNNING;
+            job.runUrl=created.optString("html_url","https://github.com/"+destination);
+            save(job);
             return job;
         }catch(Exception error){
             failed(job,error);throw error;
@@ -256,6 +262,29 @@ public final class MirrorManager {
         Job job=find(id);if(job==null)throw new IllegalArgumentException("План не найден");
         if(VERIFIED.equals(job.state)||FAILED.equals(job.state)||DIVERGED.equals(job.state))
             return job;
+        if(FORK.equals(job.mode)){
+            GitHubApiClient destination=forAccount(account(job.destinationAccountId));
+            GitHubApiClient source=forAccount(account(job.sourceAccountId));
+            try{
+                destination.getJsonFresh(API+job.destination);
+                Map<String,String> original=refs(source,job.source);
+                Map<String,String> copied=refs(destination,job.destination);
+                if(!original.isEmpty()&&original.equals(copied)){
+                    job.state=VERIFIED;job.error="";
+                }else if(System.currentTimeMillis()-job.createdAt < 5L*60_000L){
+                    job.state=RUNNING;
+                }else{
+                    job.state=DIVERGED;
+                    job.error="GitHub Fork создал копию, но ветки или теги пока не совпадают";
+                }
+            }catch(GitHubApiClient.ApiException unavailable){
+                if(unavailable.statusCode==404 &&
+                        System.currentTimeMillis()-job.createdAt < 5L*60_000L)
+                    job.state=RUNNING;
+                else throw unavailable;
+            }
+            save(job);return job;
+        }
         GitHubApiClient destination=forAccount(account(job.destinationAccountId));
         JSONObject root=destination.getJsonFresh(API+job.destination+"/actions/runs?event=workflow_dispatch&per_page=100");
         JSONArray runs=root.optJSONArray("workflow_runs");
