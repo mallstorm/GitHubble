@@ -35,6 +35,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import app.githubble.mobile.auth.OAuthManager;
 import app.githubble.mobile.auth.GitHubAccountStore;
 import app.githubble.mobile.mirror.MirrorManager;
+import app.githubble.mobile.mirror.GoogleMirrorCloudStore;
 import app.githubble.mobile.mirror.MirrorCloudStore;
 import app.githubble.mobile.ui.MirrorManagerScreen;
 import app.githubble.mobile.ui.MirrorSetupWizardScreen;
@@ -247,6 +248,8 @@ public class MainActivity extends Activity {
     private static final int REQUEST_EXPORT_PORTABLE = 2701;
     private static final int REQUEST_MIRROR_CLOUD_CREATE = 2740;
     private static final int REQUEST_MIRROR_CLOUD_OPEN = 2741;
+    private static final int REQUEST_MIRROR_GOOGLE_AUTH = 2742;
+    private boolean mirrorGoogleConnectRequest=false;
     private static final int REQUEST_IMPORT_PORTABLE = 2702;
     private static final int REQUEST_EXPORT_USER_DATA = 2703;
     private static final int REQUEST_REPOSITORY_FOLDER = 2710;
@@ -5090,7 +5093,92 @@ public class MainActivity extends Activity {
                 this::showMirrorSetupWizard,this::openWeb,
                 ()->navigate(this::showSettingsAccount),
                 this::startMirrorCloudCreate,this::startMirrorCloudOpen,
-                this::syncMirrorCloud,this::disconnectMirrorCloud);
+                this::syncMirrorCloud,this::disconnectMirrorCloud,
+                this::connectMirrorGoogle,this::syncMirrorGoogle,
+                this::disconnectMirrorGoogle,this::openMirrorGoogleFolder);
+    }
+
+    private void connectMirrorGoogle(){
+        if(mirrorManager.googleCloud().connected()){
+            new AlertDialog.Builder(this)
+                    .setTitle("Выбрать другой Google-аккаунт?")
+                    .setMessage("При смене аккаунта связанные репозитории из локального "
+                            +"реестра будут сохранены в новом Google Диске. "
+                            +"Файлы на прежнем Google Диске останутся на месте.")
+                    .setNegativeButton("Отмена",null)
+                    .setPositiveButton("Выбрать",(d,w)->authorizeMirrorGoogle(true))
+                    .show();
+        }else authorizeMirrorGoogle(true);
+    }
+    private void syncMirrorGoogle(){authorizeMirrorGoogle(false);}
+
+    private void authorizeMirrorGoogle(boolean connect){
+        mirrorGoogleConnectRequest=connect;
+        String email=connect?"":mirrorManager.googleCloud().email();
+        com.google.android.gms.auth.api.identity.AuthorizationRequest request=
+                GoogleMirrorCloudStore.request(connect,email);
+        com.google.android.gms.auth.api.identity.Identity.getAuthorizationClient(this)
+                .authorize(request)
+                .addOnSuccessListener(result->{
+                    if(isFinishing())return;
+                    if(result.hasResolution()){
+                        try{
+                            startIntentSenderForResult(result.getPendingIntent().getIntentSender(),
+                                    REQUEST_MIRROR_GOOGLE_AUTH,null,0,0,0);
+                        }catch(android.content.IntentSender.SendIntentException e){
+                            errorDialog("Google Drive", "Не удалось открыть окно авторизации Google");
+                        }
+                    }else completeMirrorGoogleAuth(result,mirrorGoogleConnectRequest);
+                })
+                .addOnFailureListener(e->{
+                    if(!isFinishing())errorDialog("Google Drive",
+                            "Google не предоставил доступ. Проверь Google Play Services, "
+                                    +"Android OAuth-клиент и включение Google Drive API.");
+                });
+    }
+
+    private void completeMirrorGoogleAuth(
+            com.google.android.gms.auth.api.identity.AuthorizationResult auth,boolean connect){
+        if(auth==null||auth.getAccessToken()==null||auth.getAccessToken().isEmpty()){
+            errorDialog("Google Drive","Google не выдал токен. Повтори авторизацию.");
+            return;
+        }
+        // The access token is short-lived and held only in the callback.
+        String token=auth.getAccessToken();
+        io.execute(()->{
+            try{
+                GoogleMirrorCloudStore.Result out=connect?
+                        mirrorManager.googleCloud().connect(token):
+                        mirrorManager.googleCloud().sync(token);
+                runOnUiThread(()->{
+                    if(isFinishing())return;
+                    showMirrorSetupWizard();
+                    new AlertDialog.Builder(this)
+                            .setTitle("Google Drive подключён")
+                            .setMessage("Аккаунт: "+out.email
+                                    +"\nПапка: Мой диск / GitHubble"
+                                    +"\nФайл: mirror-registry.json"
+                                    +"\nСвязанных пар: "+out.total
+                                    +"\nИмпортировано: "+out.imported
+                                    +"\nОбновление Google Диска: "+(out.uploaded?"да":"не требовалось"))
+                            .setPositiveButton("Готово",null).show();
+                });
+            }catch(Exception e){
+                runOnUiThread(()->{
+                    if(!isFinishing())errorDialog("Google Drive",e.getMessage());
+                });
+            }
+        });
+    }
+    private void disconnectMirrorGoogle(){
+        mirrorManager.googleCloud().disconnect();
+        showMirrorSetupWizard();
+        toast("Google Диск отключён, файлы и связи сохранены");
+    }
+    private void openMirrorGoogleFolder(){
+        String url=mirrorManager.googleCloud().folderLink();
+        if(url.isEmpty()){toast("Папка Google Drive ещё не создана");return;}
+        openWeb(url);
     }
 
     private void startMirrorCloudCreate(){
@@ -9461,6 +9549,20 @@ public class MainActivity extends Activity {
 
     @Override protected void onActivityResult(int requestCode,int resultCode,Intent data){
         super.onActivityResult(requestCode,resultCode,data);
+        if(requestCode==REQUEST_MIRROR_GOOGLE_AUTH){
+            if(resultCode==RESULT_OK&&data!=null){
+                try{
+                    com.google.android.gms.auth.api.identity.AuthorizationResult granted=
+                            com.google.android.gms.auth.api.identity.Identity
+                                    .getAuthorizationClient(this)
+                                    .getAuthorizationResultFromIntent(data);
+                    completeMirrorGoogleAuth(granted,mirrorGoogleConnectRequest);
+                }catch(com.google.android.gms.common.api.ApiException ignored){
+                    errorDialog("Google Drive","Google не подтвердил разрешение на доступ к Диску");
+                }
+            }else toast("Вход через Google отменён");
+            return;
+        }
         if(agentFeatures!=null&&agentFeatures.result(requestCode,resultCode,data))return;
         if(requestCode==REQUEST_MIRROR_CLOUD_CREATE||requestCode==REQUEST_MIRROR_CLOUD_OPEN){
             if(resultCode==RESULT_OK&&data!=null&&data.getData()!=null){

@@ -19,6 +19,7 @@ import app.githubble.mobile.auth.GitHubAccountStore;
 import app.githubble.mobile.mirror.MirrorManager;
 import app.githubble.mobile.mirror.MirrorLinkRegistry;
 import app.githubble.mobile.mirror.MirrorCloudStore;
+import app.githubble.mobile.mirror.GoogleMirrorCloudStore;
 import app.githubble.mobile.mirror.MirrorPolicy;
 import java.util.ArrayList;
 import java.util.List;
@@ -250,49 +251,33 @@ public final class MirrorManagerScreen {
     private static void cloudStatus(Activity a,LinearLayout host,MirrorManager manager,
             int card,int text,int muted,int accent,int border,Executor background,
             Runnable reload,Runnable openCloudSettings){
-        MirrorCloudStore cloud=manager.cloud();
+        GoogleMirrorCloudStore google=manager.googleCloud();
+        MirrorCloudStore fallback=manager.cloud();
         LinearLayout panel=vertical(a);
         eyebrow(a,panel,"ОБЛАЧНЫЙ РЕЕСТР",accent);
-        if(cloud.connected()){
-            heading(a,panel,"Связи синхронизируются",text,15);
-            subtitle(a,panel,"Источник: "+cloud.location()
-                    +(cloud.pending()?" · есть несинхронизированные изменения":""),muted);
-            Button sync=button(a,"Синхронизировать связи",accent,card,border,false);
-            LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,dp(a,44));
-            p.setMargins(0,dp(a,12),0,0);
-            panel.addView(sync,p);
-            sync.setOnClickListener(v->{
-                ProgressDialog wait=ProgressDialog.show(a,"Mirror Manager",
-                        "Объединяем связанные пары с облачным реестром…",true,false);
-                background.execute(()->{
-                    try{
-                        MirrorCloudStore.Result value=cloud.sync();
-                        a.runOnUiThread(()->{
-                            if(a.isFinishing())return;
-                            wait.dismiss();reload.run();
-                            new AlertDialog.Builder(a).setTitle("Облачный реестр")
-                                .setMessage("Связанных пар: "+value.merged
-                                        +"\nОбновлено локально: "+value.imported
-                                        +"\nОблако обновлено: "+(value.wrote?"да":"не требовалось"))
-                                .setPositiveButton("OK",null).show();
-                        });
-                    }catch(Exception e){a.runOnUiThread(()->{
-                        if(a.isFinishing())return;
-                        wait.dismiss();
-                        new AlertDialog.Builder(a).setTitle("Ошибка облака")
-                            .setMessage(e.getMessage()).setPositiveButton("OK",null).show();
-                    });}
-                });
-            });
+        if(google.connected()){
+            heading(a,panel,"Google Drive подключён",text,15);
+            subtitle(a,panel,google.email()
+                    +(google.pending()?" · ожидает синхронизации":""),muted);
+            if(google.lastSync()>0){
+                String time=new java.text.SimpleDateFormat("dd.MM HH:mm",
+                        java.util.Locale.getDefault())
+                        .format(new java.util.Date(google.lastSync()));
+                subtitle(a,panel,"Последняя синхронизация: "+time,muted);
+            }
+        }else if(fallback.connected()){
+            heading(a,panel,"Облачный документ подключён",text,15);
+            subtitle(a,panel,"Источник: "+fallback.location(),muted);
         }else{
-            subtitle(a,panel,"Связанные пары пока хранятся только на телефоне. "
-                    +"Подключи общий JSON на Google Диске, OneDrive или другом "
-                    +"доступном облачном провайдере.",muted);
+            heading(a,panel,"Сохраняй связи в Google Drive",text,15);
+            subtitle(a,panel,"Войди через Google, и GitHubble сам создаст "
+                    +"папку и реестр зеркал. Файлы GitHub не загружаются.",muted);
         }
-        Button setup=button(a,cloud.connected()?"Настройки облака":"Подключить облако",
-                accent,card,border,!cloud.connected());
+        Button setup=button(a,google.connected()||fallback.connected()?
+                "Управление облаком":"Войти через Google",
+                accent,card,border,!google.connected()&&!fallback.connected());
         LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,dp(a,44));
-        p.setMargins(0,dp(a,9),0,0);panel.addView(setup,p);
+        p.setMargins(0,dp(a,10),0,0);panel.addView(setup,p);
         setup.setOnClickListener(v->openCloudSettings.run());
         wrap(a,host,panel,card,border);
     }

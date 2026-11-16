@@ -10,6 +10,7 @@ import android.widget.TextView;
 import app.githubble.mobile.auth.GitHubAccountStore;
 import app.githubble.mobile.mirror.MirrorManager;
 import app.githubble.mobile.mirror.MirrorCloudStore;
+import app.githubble.mobile.mirror.GoogleMirrorCloudStore;
 import java.util.concurrent.Executor;
 import java.util.function.Consumer;
 
@@ -20,7 +21,8 @@ public final class MirrorSetupWizardScreen {
     public static void render(Activity activity,LinearLayout host,MirrorManager manager,
             GitHubAccountStore accounts,int card,int text,int muted,int accent,int border,
             Executor background,Runnable reload,Consumer<String> openUrl,Runnable done,
-            Runnable cloudCreate,Runnable cloudOpen,Runnable cloudSync,Runnable cloudDisconnect){
+            Runnable cloudCreate,Runnable cloudOpen,Runnable cloudSync,Runnable cloudDisconnect,
+            Runnable googleConnect,Runnable googleSync,Runnable googleDisconnect,Runnable googleOpenFolder){
         LinearLayout panel=new LinearLayout(activity);
         panel.setOrientation(LinearLayout.VERTICAL);
         panel.setPadding(dp(activity,16),dp(activity,18),dp(activity,16),dp(activity,18));
@@ -61,37 +63,58 @@ public final class MirrorSetupWizardScreen {
                 +"даже после удаления временного workflow. Исходные пользовательские файлы "
                 +"не перезаписываются. Работа с защищённой default branch может потребовать "
                 +"изменения правил репозитория.",muted);
-        title(activity,panel,"4. Облачный реестр зеркал",16,text);
+        title(activity,panel,"4. Google Drive · нативная синхронизация",16,text);
+        GoogleMirrorCloudStore google=manager.googleCloud();
+        if(google.connected()){
+            info(activity,panel,"✓ Подключён Google-аккаунт: "+google.email(),accent);
+            String folder=google.folderLink();
+            if(!folder.isEmpty())info(activity,panel,"Папка GitHubble создана на Google Диске.",muted);
+            if(google.lastSync()>0){
+                String when=new java.text.SimpleDateFormat("dd.MM.yyyy HH:mm",
+                        java.util.Locale.getDefault()).format(new java.util.Date(google.lastSync()));
+                info(activity,panel,"Последняя синхронизация: "+when
+                        +(google.pending()?" · ожидает обновления":""),muted);
+            }
+            if(!google.error().isEmpty())info(activity,panel,google.error(),muted);
+            action(activity,panel,"Синхронизировать Google Drive",accent,googleSync);
+            action(activity,panel,"Открыть папку GitHubble",accent,googleOpenFolder);
+            action(activity,panel,"Выбрать другой Google-аккаунт",accent,googleConnect);
+            action(activity,panel,"Отключить Google Drive",accent,()->
+                    new AlertDialog.Builder(activity).setTitle("Отключить Google Drive?")
+                        .setMessage("Связи на телефоне и файлы на Google Диске останутся. "
+                                +"GitHubble перестанет синхронизировать их с этим аккаунтом.")
+                        .setNegativeButton("Отмена",null)
+                        .setPositiveButton("Отключить",(d,w)->googleDisconnect.run()).show());
+        }else{
+            info(activity,panel,"Войди в Google один раз. GitHubble сам создаст "
+                    +"папку «GitHubble» в «Моём диске» и файл mirror-registry.json. "
+                    +"Никакого выбора файла или API-ключа не потребуется.",muted);
+            action(activity,panel,"Войти через Google и подключить Drive",accent,googleConnect);
+        }
+        info(activity,panel,"Разрешение Google: только файлы, созданные GitHubble "
+                +"(drive.file). Имя Google-аккаунта не связано с текущим GitHub-аккаунтом. "
+                +"Google-токены и пароли не записываются в облачный реестр.",muted);
+
+        title(activity,panel,"5. Другие облака · через системный выбор файла",16,text);
         MirrorCloudStore cloud=manager.cloud();
         if(cloud.connected()){
-            info(activity,panel,"Облачный документ подключён: "+cloud.location(),accent);
+            info(activity,panel,"Дополнительный JSON подключён: "+cloud.location(),accent);
             if(cloud.lastSync()>0){
                 String time=new java.text.SimpleDateFormat("dd.MM.yyyy HH:mm",
                         java.util.Locale.getDefault()).format(new java.util.Date(cloud.lastSync()));
-                info(activity,panel,"Последняя успешная синхронизация: "+time
-                        +(cloud.pending()?" · Есть несинхронизированные изменения":""),muted);
+                info(activity,panel,"Последняя синхронизация: "+time,muted);
             }
             if(!cloud.lastError().isEmpty())info(activity,panel,cloud.lastError(),muted);
         }else{
-            info(activity,panel,"Облачный реестр пока не подключён. Он хранит только связи "
-                    +"между репозиториями, без GitHub-токенов, исходников или секретов.",muted);
+            info(activity,panel,"OneDrive или Яндекс Диск можно использовать через "
+                    +"системный проводник Android, если приложение облака предоставляет "
+                    +"чтение и запись документов. Это дополнительный вариант.",muted);
         }
-        info(activity,panel,"Выбирай файл на Google Диске, OneDrive или в другом сервисе, "
-                +"который доступен в системном проводнике Android. Поддержка Яндекс Диска "
-                +"зависит от того, предоставляет ли установленное приложение доступ к файлам "
-                +"через Android DocumentsProvider. Сам файл JSON не зашифрован, поэтому "
-                +"его имена репозиториев будут видны владельцу облачного хранилища.",muted);
-        action(activity,panel,"Создать облачный реестр JSON",accent,cloudCreate);
-        action(activity,panel,"Подключить существующий JSON",accent,cloudOpen);
+        action(activity,panel,"Создать JSON в другом облаке",accent,cloudCreate);
+        action(activity,panel,"Выбрать существующий JSON",accent,cloudOpen);
         if(cloud.connected()){
-            action(activity,panel,"Синхронизировать сейчас",accent,cloudSync);
-            action(activity,panel,"Отключить облако (связи сохранятся)",accent,
-                    ()->new AlertDialog.Builder(activity)
-                            .setTitle("Отключить облачный реестр?")
-                            .setMessage("Локальные связи и история Mirror Manager сохранятся. "
-                                    +"Доступ к облачному файлу будет отозван только для GitHubble.")
-                            .setNegativeButton("Отмена",null)
-                            .setPositiveButton("Отключить",(d,w)->cloudDisconnect.run()).show());
+            action(activity,panel,"Синхронизировать другое облако",accent,cloudSync);
+            action(activity,panel,"Отключить файл другого облака",accent,cloudDisconnect);
         }
         action(activity,panel,"Закрыть мастер",accent,done);
     }
