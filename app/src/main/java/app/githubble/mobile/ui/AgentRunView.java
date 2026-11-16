@@ -59,8 +59,8 @@ public final class AgentRunView extends LinearLayout {
     setBackground(background);
     LinearLayout header = new LinearLayout(activity);
     header.setGravity(Gravity.CENTER_VERTICAL);
-    header.setMinimumHeight(dp(34));
-    heading = label("", 12, text);
+    header.setMinimumHeight(dp(26));
+    heading = label("", 11, text);
     heading.setTypeface(null, Typeface.BOLD);
     heading.setMaxLines(2);
     header.addView(heading, new LinearLayout.LayoutParams(0, -2, 1));
@@ -73,14 +73,14 @@ public final class AgentRunView extends LinearLayout {
     body.setOrientation(VERTICAL);
     addView(body);
     stage = label("", 11, muted);
-    stage.setPadding(dp(2), 0, dp(2), dp(4));
+    stage.setPadding(dp(2), 0, dp(2), dp(2));
     body.addView(stage);
     taskLine = label("", 11, muted);
-    taskLine.setPadding(dp(2), 0, dp(2), dp(7));
+    taskLine.setPadding(dp(2), 0, dp(2), dp(2));
     body.addView(taskLine);
     readHeading = label("", 12, muted);
     readHeading.setGravity(Gravity.CENTER_VERTICAL);
-    readHeading.setMinHeight(dp(48));
+    readHeading.setMinHeight(dp(28));
     body.addView(readHeading);
     reads = new LinearLayout(activity);
     reads.setOrientation(VERTICAL);
@@ -94,7 +94,7 @@ public final class AgentRunView extends LinearLayout {
     resume = label("↻ Продолжить с контекстом", 12, accent);
     resume.setTypeface(null, Typeface.BOLD);
     resume.setGravity(Gravity.CENTER_VERTICAL);
-    resume.setMinHeight(dp(48));
+    resume.setMinHeight(dp(32));
     resume.setVisibility(GONE);
     resume.setOnClickListener(
         v -> {
@@ -189,8 +189,10 @@ public final class AgentRunView extends LinearLayout {
     String line =
         app.githubble.mobile.agent.AgentTaskLabels.line(
             value.optString("task_state"), value.optString("mode"));
+    boolean quiet = "succeeded".equals(state) && !attention(value);
     taskLine.setText(line);
-    taskLine.setVisibility(line.isEmpty() ? GONE : VISIBLE);
+    taskLine.setVisibility(line.isEmpty() || quiet ? GONE : VISIBLE);
+    stage.setVisibility(quiet || stage.getText().length() == 0 ? GONE : VISIBLE);
     updateResume();
     updateHeading();
     tick();
@@ -330,7 +332,7 @@ public final class AgentRunView extends LinearLayout {
     parent.addView(directory);
     LinearLayout row = new LinearLayout(activity);
     row.setGravity(Gravity.CENTER_VERTICAL);
-    row.setMinimumHeight(dp(48));
+    row.setMinimumHeight(dp(36));
     TextView icon = label("create".equals(f.optString("kind")) ? "＋" : "✏️", 17, accent);
     row.addView(icon, new LayoutParams(dp(28), -2));
     TextView name = label(path.substring(path.lastIndexOf('/') + 1), 13, text);
