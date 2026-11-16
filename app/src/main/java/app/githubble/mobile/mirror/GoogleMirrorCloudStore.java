@@ -13,6 +13,8 @@ import androidx.work.PeriodicWorkRequest;
 import androidx.work.WorkManager;
 import com.google.android.gms.auth.api.identity.AuthorizationRequest;
 import com.google.android.gms.common.api.Scope;
+import app.githubble.mobile.agent.ConnectionsCloud;
+import app.githubble.mobile.agent.ConnectionsSnapshot;
 import java.io.IOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -49,6 +51,8 @@ public final class GoogleMirrorCloudStore {
     private static final String USERINFO="https://www.googleapis.com/oauth2/v3/userinfo";
     private static final String FOLDER="GitHubble";
     private static final String REGISTRY="mirror-registry.json";
+    private static final String SETTINGS="settings.json";
+    private static final String KEY_SETTINGS_ERROR="settings_error";
     private static final int MAX_BYTES=2*1024*1024;
     private static final MediaType JSON=MediaType.parse("application/json; charset=utf-8");
 
@@ -65,6 +69,8 @@ public final class GoogleMirrorCloudStore {
         public int total, imported;
         public boolean uploaded;
         public long synchronizedAt;
+        /** What happened to settings.json (connections), in words. */
+        public String settings="";
     }
 
     private static final class User {
@@ -97,6 +103,7 @@ public final class GoogleMirrorCloudStore {
     public long lastSync(){return prefs.getLong(KEY_SYNC,0);}
     public boolean pending(){return prefs.getBoolean(KEY_PENDING,false);}
     public String error(){return prefs.getString(KEY_ERROR,"");}
+    public String settingsError(){return prefs.getString(KEY_SETTINGS_ERROR,"");}
     public String folderLink(){
         String id=prefs.getString(KEY_FOLDER,"");
         return id.isEmpty()?"":"https://drive.google.com/drive/folders/"+id;
@@ -202,6 +209,54 @@ public final class GoogleMirrorCloudStore {
                 token,payload);
     }
 
+    private String settingsFile(String token,String folderId)throws Exception{
+        String id=find(token,folderId,SETTINGS,"application/json");
+        if(!id.isEmpty())return id;
+        return create(token,new JSONObject()
+                .put("name",SETTINGS)
+                .put("mimeType","application/json")
+                .put("parents",new JSONArray().put(folderId))
+                .put("appProperties",new JSONObject().put("application","GitHubble")
+                        .put("type","settings")));
+    }
+
+    /**
+     * Keeps connections (services, endpoints, models, favourites) in Drive/GitHubble/settings.json.
+     * API keys never enter the file. A failure here is reported but never breaks the mirror registry sync.
+     */
+    private String syncSettings(String token,String folderId,boolean first){
+        try{
+            String fileId=settingsFile(token,folderId);
+            String url=GOOGLE_DRIVE+"/"+enc(fileId)+"?alt=media";
+            ConnectionsCloud connections=new ConnectionsCloud(app);
+            ConnectionsCloud.Plan plan=connections.reconcile(request("GET",url,token,null),first);
+            if(plan.payload!=null){
+                request("PATCH",GOOGLE_UPLOAD+"/"+enc(fileId)+"?uploadType=media&fields=id",token,plan.payload);
+                ConnectionsSnapshot back=ConnectionsSnapshot.parse(request("GET",url,token,null));
+                if(back==null||!back.sameContent(ConnectionsSnapshot.parse(plan.payload)))
+                    throw new IOException("Google Drive не подтвердил запись settings.json");
+            }
+            connections.commit(plan);
+            prefs.edit().remove(KEY_SETTINGS_ERROR).apply();
+            return connections.lastNote();
+        }catch(IllegalArgumentException foreign){
+            String message=foreign.getMessage()==null?"Некорректный settings.json":foreign.getMessage();
+            prefs.edit().putString(KEY_SETTINGS_ERROR,message).apply();
+            return message;
+        }catch(Exception problem){
+            String message="Настройки не синхронизированы: "+(problem instanceof SecurityException
+                    ?"нет доступа к Google Drive":"ошибка сети или Google Drive");
+            prefs.edit().putString(KEY_SETTINGS_ERROR,message).apply();
+            return message;
+        }
+    }
+
+    /** Queues a background run only when connections changed since the last upload. */
+    public void queueIfSettingsChanged(){
+        if(!connected())return;
+        try{if(new ConnectionsCloud(app).dirty())queue();}catch(RuntimeException ignored){}
+    }
+
     /** Triggered by a user-consented Play Services authorization response. */
     public synchronized Result connect(String token)throws Exception{
         User selected=user(token);
@@ -219,6 +274,7 @@ public final class GoogleMirrorCloudStore {
                     .putString(KEY_ERROR,"").commit())
                 throw new IOException("Не удалось сохранить настройки Google Drive");
             schedule();
+            result.settings=syncSettings(token,folder,true);
             return result;
         }catch(Exception error){
             remember(error);
@@ -272,6 +328,7 @@ public final class GoogleMirrorCloudStore {
                     .putString(KEY_FILE,resultHolderFile)
                     .putLong(KEY_SYNC,outcome.synchronizedAt)
                     .putBoolean(KEY_PENDING,false).putString(KEY_ERROR,"").commit();
+            outcome.settings=syncSettings(token,resultHolderFolder,false);
             return outcome;
         }catch(Exception error){
             remember(error);throw error;

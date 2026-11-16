@@ -380,4 +380,55 @@ public final class OmniChatConnectionStore {
         synchronized (NAMES) { NAMES.remove(provider); }
         try { saveCustomProviders(); } catch (org.json.JSONException e) { throw new IllegalStateException(e); }
     }
+
+    // ------------------------------------------------------------------ cloud restore (never touches secrets)
+
+    /** The endpoint the user saved for a service, or null when the catalog default is in use. */
+    public synchronized org.json.JSONObject rawConfiguration(String account, String provider) {
+        checkProvider(provider);
+        if (isCustom(provider)) return null;
+        try {
+            String raw = prefs.getString(namespace(account) + "_config_" + provider, "");
+            return raw.isEmpty() ? null : new org.json.JSONObject(raw);
+        } catch (Exception damaged) { return null; }
+    }
+
+    /** Creates or updates a user-defined service under its original id. Invalid data is skipped. */
+    public synchronized boolean restoreCustomProvider(String id, String name, String baseUrl, String protocol, boolean keyless) {
+        try {
+            if (!CUSTOM_ID.matcher(id == null ? "" : id).matches()) return false;
+            String title = name == null ? "" : name.trim();
+            if (title.isEmpty() || title.length() > 40) return false;
+            String base = validateBase(baseUrl), wire = validateProtocol(protocol);
+            app.githubble.mobile.network.NativeProviderCatalog.registerCustom(id, title, base, wire, keyless);
+            synchronized (NAMES) { NAMES.put(id, title); }
+            saveCustomProviders();
+            return true;
+        } catch (Exception invalid) { return false; }
+    }
+
+    /** Puts the model and endpoint decided by the merge into place; keys stay empty until entered. */
+    public synchronized void restoreProvider(String account, String provider, String model, String base, String protocol, String scope) {
+        if (!supported().containsKey(provider) || !poolable(provider)) return;
+        SharedPreferences.Editor edit = prefs.edit();
+        String ns = namespace(account);
+        String name = model == null ? "" : model.trim();
+        if (!name.isEmpty() && name.length() <= 160)
+            edit.putString(ns + "_model_" + provider, name);
+        if (!isCustom(provider) && base != null && !base.isEmpty()) {
+            try {
+                String checked = validateBase(base), wire = validateProtocol(protocol);
+                edit.putString(ns + "_config_" + provider, new org.json.JSONObject().put("base_url", checked)
+                        .put("protocol", wire).put("auth_scope", scope == null ? "" : scope.trim()).toString());
+            } catch (Exception invalid) { /* an unsafe address from the cloud is ignored */ }
+        }
+        edit.apply();
+    }
+
+    /** Selects the service only when it is usable on this device (a key is entered). */
+    public synchronized void restoreSelected(String account, String provider) {
+        if (provider == null || provider.isEmpty() || !supported().containsKey(provider)) return;
+        if (!isConfigured(account, provider)) return;
+        prefs.edit().putString(namespace(account) + "_provider", provider).apply();
+    }
 }

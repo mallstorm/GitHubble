@@ -252,6 +252,8 @@ public class MainActivity extends Activity {
     private static final int REQUEST_MIRROR_CLOUD_OPEN = 2741;
     private static final int REQUEST_MIRROR_GOOGLE_AUTH = 2742;
     private boolean mirrorGoogleConnectRequest=false;
+    /** Where to return after a Google sign-in started outside the mirror wizard (e.g. the connections hub). */
+    private Runnable mirrorGoogleReturn=null;
     private static final int REQUEST_IMPORT_PORTABLE = 2702;
     private static final int REQUEST_EXPORT_USER_DATA = 2703;
     private static final int REQUEST_REPOSITORY_FOLDER = 2710;
@@ -380,6 +382,7 @@ public class MainActivity extends Activity {
     @Override protected void onPause() {
         app.githubble.mobile.agent.AgentUiSession.foreground(false);
         super.onPause();
+        if (mirrorManager != null && io != null) io.execute(() -> mirrorManager.googleCloud().queueIfSettingsChanged());
         if (registrationCustomTabActive) registrationCustomTabWasPaused = true;
         if (repositoryAccessBrowserActive) repositoryAccessBrowserWasPaused = true;
         if (githubAppInstallBrowserActive) githubAppInstallBrowserWasPaused = true;
@@ -1130,6 +1133,7 @@ public class MainActivity extends Activity {
     }
 
     private ProviderHubScreen hubScreen(String owner) {
+        app.githubble.mobile.agent.ConnectionsCloud.track(this, owner);
         final LinearLayout destination = content;
         return new ProviderHubScreen(this, content, settingsPalette(), owner, aiConnections, aiChatClient, io,
                 new ProviderHubScreen.Host() {
@@ -1144,6 +1148,17 @@ public class MainActivity extends Activity {
             @Override public void openUsage() { navigate(() -> agentShowUsage(owner)); }
             @Override public void selectionChanged() { agentRefreshIfCurrent(owner); }
             @Override public void refreshCurrentScreen() { if (currentScreen != null) currentScreen.run(); }
+            @Override public boolean cloudConnected() { return mirrorManager.googleCloud().connected(); }
+            @Override public String cloudEmail() { return mirrorManager.googleCloud().email(); }
+            @Override public long cloudLastSync() { return mirrorManager.googleCloud().lastSync(); }
+            @Override public String cloudNote() {
+                String failure = mirrorManager.googleCloud().settingsError();
+                return failure.isEmpty() ? new app.githubble.mobile.agent.ConnectionsCloud(MainActivity.this, aiConnections).lastNote() : failure;
+            }
+            @Override public boolean cloudFailed() { return !mirrorManager.googleCloud().settingsError().isEmpty(); }
+            @Override public void cloudConnect() { mirrorGoogleReturn = () -> agentShowConnections(owner); connectMirrorGoogle(); }
+            @Override public void cloudSync() { mirrorGoogleReturn = () -> agentShowConnections(owner); syncMirrorGoogle(); }
+            @Override public void cloudOpenFolder() { openMirrorGoogleFolder(); }
         });
     }
 
@@ -5059,6 +5074,7 @@ public class MainActivity extends Activity {
 
     private void authorizeMirrorGoogle(boolean connect){
         mirrorGoogleConnectRequest=connect;
+        app.githubble.mobile.agent.ConnectionsCloud.track(this,accountStore.activeCacheKey());
         String email=connect?"":mirrorManager.googleCloud().email();
         com.google.android.gms.auth.api.identity.AuthorizationRequest request=
                 GoogleMirrorCloudStore.request(connect,email);
@@ -5097,12 +5113,14 @@ public class MainActivity extends Activity {
                         mirrorManager.googleCloud().sync(token);
                 runOnUiThread(()->{
                     if(isFinishing())return;
-                    showMirrorSetupWizard();
+                    Runnable back=mirrorGoogleReturn;mirrorGoogleReturn=null;
+                    if(back!=null)back.run();else showMirrorSetupWizard();
                     new AlertDialog.Builder(this)
                             .setTitle("Google Drive подключён")
                             .setMessage("Аккаунт: "+out.email
                                     +"\nПапка: Мой диск / GitHubble"
-                                    +"\nФайл: mirror-registry.json"
+                                    +"\nФайлы: mirror-registry.json, settings.json"
+                                    +"\nПодключения: "+out.settings
                                     +"\nСвязанных пар: "+out.total
                                     +"\nИмпортировано: "+out.imported
                                     +"\nОбновление Google Диска: "+(out.uploaded?"да":"не требовалось"))
@@ -5110,6 +5128,7 @@ public class MainActivity extends Activity {
                 });
             }catch(Exception e){
                 runOnUiThread(()->{
+                    mirrorGoogleReturn=null;
                     if(!isFinishing())errorDialog("Google Drive",e.getMessage());
                 });
             }
@@ -9505,7 +9524,7 @@ public class MainActivity extends Activity {
                 }catch(com.google.android.gms.common.api.ApiException ignored){
                     errorDialog("Google Drive","Google не подтвердил разрешение на доступ к Диску");
                 }
-            }else toast("Вход через Google отменён");
+            }else{mirrorGoogleReturn=null;toast("Вход через Google отменён");}
             return;
         }
         if(agentFeatures!=null&&agentFeatures.result(requestCode,resultCode,data))return;
