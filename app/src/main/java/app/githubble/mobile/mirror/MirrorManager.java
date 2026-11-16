@@ -263,7 +263,8 @@ public final class MirrorManager {
         for(Job existing:list())
             if(SYNC.equals(existing.mode) && copyId.equals(existing.linkedCopyId)
                     && (PREPARING.equals(existing.state)||DISPATCHED.equals(existing.state)
-                        ||RUNNING.equals(existing.state)||UNKNOWN.equals(existing.state)))
+                        ||RUNNING.equals(existing.state)||UNKNOWN.equals(existing.state)
+                        ||existing.cleanupPending))
                 throw new IllegalStateException("Обновление этого зеркала уже выполняется");
         GitHubAccountStore.Account sa=account(previous.sourceAccountId);
         GitHubAccountStore.Account da=account(previous.destinationAccountId);
@@ -303,8 +304,9 @@ public final class MirrorManager {
         for(Job existing:list())
             if(RETURN.equals(existing.mode) && copyId.equals(existing.linkedCopyId)
                     && (PREPARING.equals(existing.state)||DISPATCHED.equals(existing.state)
-                        ||RUNNING.equals(existing.state)||UNKNOWN.equals(existing.state)))
-                throw new IllegalStateException("Возврат уже выполняется для этого зеркала");
+                        ||RUNNING.equals(existing.state)||UNKNOWN.equals(existing.state)
+                        ||PR_READY.equals(existing.state)||existing.cleanupPending))
+                throw new IllegalStateException("Для этого зеркала уже есть незакрытый возврат или ожидает очистка");
         GitHubAccountStore.Account sa=account(previous.destinationAccountId);
         GitHubAccountStore.Account da=account(previous.sourceAccountId);
         requireOwner(sa,previous.destination);requireOwner(da,previous.source);
@@ -467,6 +469,7 @@ public final class MirrorManager {
         }
         job.prNumber=pr.optLong("number");
         job.prUrl=pr.optString("html_url","");
+        job.error="";
         updatePrFromData(job,pr);
         save(job);
     }
