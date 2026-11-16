@@ -98,6 +98,8 @@ dependencies {
     implementation 'org.commonmark:commonmark-ext-gfm-strikethrough:0.24.0'
     implementation 'org.commonmark:commonmark-ext-autolink:0.24.0'
     implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+    // Native Google account authorization; no embedded client secret or refresh token.
+    implementation 'com.google.android.gms:play-services-auth:22.0.0'
     // GitHub repository secrets: libsodium sealed-box encryption on-device.
     implementation 'com.goterl:lazysodium-android:5.2.0@aar'
     implementation 'net.java.dev.jna:jna:5.17.0@aar'

@@ -32,6 +32,7 @@ public final class MirrorManager {
     private final GitHubAccountStore accounts;
     private final MirrorLinkRegistry linkRegistry;
     private final MirrorCloudStore cloudStore;
+    private final GoogleMirrorCloudStore googleCloudStore;
     private final Context applicationContext;
     private final SharedPreferences prefs;
     private final Object lock=new Object();
@@ -40,13 +41,17 @@ public final class MirrorManager {
         this.accounts=accounts;
         this.linkRegistry=new MirrorLinkRegistry(context);
         this.cloudStore=new MirrorCloudStore(context);
+        this.googleCloudStore=new GoogleMirrorCloudStore(context);
         this.applicationContext=context.getApplicationContext();
         this.cloudStore.schedulePeriodic();
         if(this.cloudStore.connected())this.cloudStore.queue();
+        this.googleCloudStore.schedule();
+        if(this.googleCloudStore.connected())this.googleCloudStore.queue();
         this.prefs=applicationContext.getSharedPreferences(PREFS,Context.MODE_PRIVATE);
     }
     private Context prefsContext(){return applicationContext;}
     public MirrorCloudStore cloud(){return cloudStore;}
+    public GoogleMirrorCloudStore googleCloud(){return googleCloudStore;}
 
     public static final class Job {
         public String id="",requestId="",source="",destination="",sourceAccountId="",destinationAccountId="";
@@ -330,6 +335,7 @@ public final class MirrorManager {
                 +"Git-история. Связь не создана: нужно отдельно проверить происхождение репозиториев.");
         MirrorLinkRegistry.Link linked=linkRegistry.remember(left,right,left,"");
         cloudStore.queue();
+        googleCloudStore.queue();
         return linked;
     }
 
@@ -735,6 +741,7 @@ public final class MirrorManager {
             // Persistent bidirectional pair survives independent OneShot journal pruning.
             linkRegistry.remember(job.source,job.destination,job.source,job.id);
             cloudStore.queue();
+            googleCloudStore.queue();
         }
         job.cleanupPending=job.secretInstalled||job.workflowInstalled;
         save(job);
