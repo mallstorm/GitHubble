@@ -26,12 +26,16 @@ import app.githubble.mobile.agent.OmniChatConnectionStore;
 import app.githubble.mobile.agent.PoolPolicy;
 import app.githubble.mobile.agent.ProviderPool;
 import app.githubble.mobile.agent.QuotaProbe;
+import app.githubble.mobile.network.AiNetworkFetcher;
+import app.githubble.mobile.network.EndpointDirectory;
+import app.githubble.mobile.network.EndpointProbe;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import org.json.JSONObject;
 
 /**
@@ -413,7 +417,9 @@ public final class ProviderHubScreen {
         LinearLayout words = column();
         words.addView(label(name, 15, palette.text, true));
         int keys = pool().slots(owner, id).size();
-        words.addView(label(keys > 0 ? "Подключён · ключей: " + keys : "Добавить ключ", 12, keys > 0 ? palette.green : palette.muted, false));
+        String defaultBase = EndpointDirectory.base(id);
+        String where = defaultBase.isEmpty() ? "нужен свой адрес" : defaultBase.replace("https://", "").replace("http://", "");
+        words.addView(label(keys > 0 ? "Подключён · ключей: " + keys + " · " + where : where, 12, keys > 0 ? palette.green : palette.muted, false));
         row.addView(words, params(0, -2, 1, 0, 0, 0, 0));
         row.addView(label("›", 24, palette.muted, false));
         row.setOnClickListener(v -> {
@@ -429,7 +435,7 @@ public final class ProviderHubScreen {
         return new GitAgentUi(activity, palette.background, palette.card, palette.text, palette.muted, palette.green, palette.border);
     }
 
-    /** Add (slot == null) or edit one key: label, secret, optional limits and reset period. */
+    /** Add (slot == null) or edit one key: label, secret, endpoint with check, limits and reset period. */
     private void keySheet(String provider, PoolPolicy.Slot slot) {
         boolean keyless = app.githubble.mobile.network.NativeProviderCatalog.keyless(provider);
         GitAgentUi ui = ui();
@@ -441,13 +447,23 @@ public final class ProviderHubScreen {
         EditText requests = field("Квота запросов, например 500", slot == null || slot.quotaRequests == 0 ? "" : String.valueOf(slot.quotaRequests), false, true);
         body.addView(fieldLabel("Название")); body.addView(name, params(-1, 48, 0, 0, 0, 12));
         body.addView(fieldLabel("Ключ")); body.addView(secret, params(-1, 48, 0, 0, 0, 12));
+
+        JSONObject config = store.configuration(owner, provider);
+        EndpointBlock endpoint = new EndpointBlock(provider, config.optString("base_url"), config.optString("protocol", "openai-chat"),
+                config.optString("auth_scope"), () -> {
+                    String typed = secret.getText().toString().trim();
+                    if (!typed.isEmpty() || slot == null) return typed;
+                    return pool().secret(owner, provider, slot.id);
+                }, keyless);
+        body.addView(endpoint.view, params(-1, -2, 0, 0, 0, 12));
+
         body.addView(fieldLabel("Квота токенов за период (0 — без лимита)")); body.addView(tokens, params(-1, 48, 0, 0, 0, 12));
         body.addView(fieldLabel("Квота запросов за период (0 — без лимита)")); body.addView(requests, params(-1, 48, 0, 0, 0, 12));
         final int[] reset = {slot == null ? PoolPolicy.RESET_NEVER : slot.resetMode};
         body.addView(fieldLabel("Сброс счётчика периода"));
         body.addView(chips(new String[]{"Никогда", "Раз в день", "Раз в месяц"}, reset[0], i -> reset[0] = i), params(-1, -2, 0, 0, 0, 14));
         body.addView(label("Лимиты — ваши собственные: приложение считает расход и исключает ключ из ротации, когда лимит достигнут. "
-                + "Они не заменяют реальный баланс у провайдера.", 11, palette.muted, false), params(-1, -2, 0, 0, 0, 14));
+                + "Они не заменяют реальный баланс у провайдера. Endpoint общий для всех ключей сервиса.", 11, palette.muted, false), params(-1, -2, 0, 0, 0, 14));
         final Dialog[] dialog = {null};
         LinearLayout buttons = new LinearLayout(activity);
         buttons.addView(button("Отмена", false, v -> dialog[0].dismiss()), params(0, 48, 1, 0, 0, 0, 0));
@@ -455,6 +471,7 @@ public final class ProviderHubScreen {
             try {
                 long tokenLimit = parseCount(tokens.getText().toString()), requestLimit = parseCount(requests.getText().toString());
                 String value = secret.getText().toString().trim();
+                endpoint.save(provider);
                 String id;
                 if (slot == null) {
                     if (value.isEmpty() && keyless) value = SENTINEL;
@@ -469,7 +486,7 @@ public final class ProviderHubScreen {
                 host.selectionChanged();
                 boolean first = slot == null && store.model(owner, provider).isEmpty();
                 reload();
-                if (first) discover(provider);
+                if (first || endpoint.changed) discover(provider);
                 else toast("Сохранено");
             } catch (RuntimeException error) {
                 toast(error.getMessage() == null ? "Не удалось сохранить" : error.getMessage());
@@ -501,24 +518,18 @@ public final class ProviderHubScreen {
         GitAgentUi ui = ui();
         LinearLayout body = ui.body("Endpoint", true);
         EditText name = field("Название", store.displayName(provider), false, false);
-        EditText url = field("https://api.example.com/v1", config.optString("base_url"), false, false);
-        url.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
-        EditText scope = field("Folder / Account ID при необходимости", config.optString("auth_scope"), false, false);
         if (custom) { body.addView(fieldLabel("Название")); body.addView(name, params(-1, 48, 0, 0, 0, 12)); }
-        body.addView(fieldLabel("Адрес API"));
-        body.addView(url, params(-1, 48, 0, 0, 0, 6));
-        body.addView(label("Для OpenAI-совместимых сервисов адрес обычно заканчивается на /v1. HTTP допускается только для localhost.", 11, palette.muted, false), params(-1, -2, 0, 0, 0, 12));
-        final int[] protocol = {indexOf(PROTOCOL_IDS, config.optString("protocol", "openai-chat"))};
-        body.addView(fieldLabel("Протокол"));
-        body.addView(chips(PROTOCOL_NAMES, protocol[0], i -> protocol[0] = i), params(-1, -2, 0, 0, 0, 12));
-        if (!custom) { body.addView(fieldLabel("Scope")); body.addView(scope, params(-1, 48, 0, 0, 0, 12)); }
+        EndpointBlock endpoint = new EndpointBlock(provider, config.optString("base_url"), config.optString("protocol", "openai-chat"),
+                config.optString("auth_scope"), () -> store.hasKey(owner, provider) ? store.credential(owner, provider) : "",
+                app.githubble.mobile.network.NativeProviderCatalog.keyless(provider));
+        body.addView(endpoint.view, params(-1, -2, 0, 0, 0, 12));
         final Dialog[] dialog = {null};
         LinearLayout buttons = new LinearLayout(activity);
         buttons.addView(button("Отмена", false, v -> dialog[0].dismiss()), params(0, 48, 1, 0, 0, 0, 0));
         buttons.addView(button("Сохранить", true, v -> {
             try {
-                if (custom) store.updateCustomProvider(provider, name.getText().toString(), url.getText().toString(), PROTOCOL_IDS[Math.max(0, protocol[0])]);
-                else store.configure(owner, provider, url.getText().toString(), PROTOCOL_IDS[Math.max(0, protocol[0])], scope.getText().toString());
+                if (custom) endpoint.saveCustom(provider, name.getText().toString());
+                else endpoint.save(provider);
                 dialog[0].dismiss();
                 host.selectionChanged();
                 reload();
@@ -531,23 +542,18 @@ public final class ProviderHubScreen {
         dialog[0] = ui.present(body, true);
     }
 
-    /** New user-defined service: own endpoint, protocol and first key. */
+    /** New user-defined service: own endpoint (found by the check if needed), protocol and first key. */
     private void customServiceSheet() {
         GitAgentUi ui = ui();
         LinearLayout body = ui.body("Свой сервис", true);
-        body.addView(label("Например Keydealer.ru или Claudy.shop: укажите адрес их API и ключ. Позже можно добавить любое число ключей.", 13, palette.muted, false), params(-1, -2, 0, 0, 0, 12));
+        body.addView(label("Например Keydealer.ru или Claudy.shop: введите домен, ключ и нажмите «Найти endpoint» — адрес и протокол подставятся сами.", 13, palette.muted, false), params(-1, -2, 0, 0, 0, 12));
         EditText name = field("Название сервиса", "", false, false);
-        EditText url = field("https://api.example.com/v1", "", false, false);
-        url.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
         EditText secret = field("API-ключ", "", true, false);
         body.addView(fieldLabel("Название")); body.addView(name, params(-1, 48, 0, 0, 0, 12));
-        body.addView(fieldLabel("Адрес API (endpoint)")); body.addView(url, params(-1, 48, 0, 0, 0, 12));
-        final int[] protocol = {0};
-        body.addView(fieldLabel("Протокол"));
-        body.addView(chips(PROTOCOL_NAMES, 0, i -> protocol[0] = i), params(-1, -2, 0, 0, 0, 12));
-        body.addView(label("OpenAI Chat подходит большинству перепродавцов; для Claude-совместимых шлюзов выберите Anthropic.", 11, palette.muted, false), params(-1, -2, 0, 0, 0, 12));
         body.addView(fieldLabel("Ключ")); body.addView(secret, params(-1, 48, 0, 0, 0, 12));
         final boolean[] keyless = {false};
+        EndpointBlock endpoint = new EndpointBlock(null, "", "openai-chat", "", () -> keyless[0] ? "" : secret.getText().toString().trim(), false);
+        body.addView(endpoint.view, params(-1, -2, 0, 0, 0, 12));
         LinearLayout keylessRow = new LinearLayout(activity);
         keylessRow.setGravity(Gravity.CENTER_VERTICAL);
         keylessRow.addView(label("Без ключа (локальный или открытый сервер)", 13, palette.text, false), params(0, -2, 1, 0, 0, 0, 0));
@@ -561,7 +567,8 @@ public final class ProviderHubScreen {
             try {
                 String value = secret.getText().toString().trim();
                 if (!keyless[0] && value.isEmpty()) throw new IllegalArgumentException("Введите ключ или включите «Без ключа»");
-                createdId = store.createCustomProvider(name.getText().toString(), url.getText().toString(), PROTOCOL_IDS[Math.max(0, protocol[0])], keyless[0]);
+                String base = endpoint.normalizedUrl();
+                createdId = store.createCustomProvider(name.getText().toString(), base, endpoint.protocolId(), keyless[0]);
                 pool().addKey(owner, createdId, keyless[0] ? "Без ключа" : "Ключ 1", keyless[0] ? SENTINEL : value);
                 store.saveApiConnection(owner, createdId, "", "");
                 dialog[0].dismiss();
@@ -575,6 +582,212 @@ public final class ProviderHubScreen {
         }), params(0, 48, 1, 8, 0, 0, 0));
         body.addView(buttons);
         dialog[0] = ui.present(body, true);
+    }
+
+    // ================================================================== endpoint block
+
+    /**
+     * Address field with the known endpoints of the service, protocol chips and the endpoint check that
+     * finds every working address for the key and fills the field automatically.
+     */
+    private final class EndpointBlock {
+        final LinearLayout view;
+        final EditText url, scope;
+        final ChipRow protocol;
+        final TextView status;
+        final LinearLayout results;
+        final String provider;          // null for a service that is being created
+        final String probeId;
+        final String startBase, startProtocol, startScope;
+        final java.util.function.Supplier<String> key;
+        final boolean keyless;
+        boolean changed;
+        private EndpointProbe.Report lastReport;
+
+        EndpointBlock(String provider, String base, String protocolId, String scopeValue,
+                      java.util.function.Supplier<String> key, boolean keyless) {
+            this.provider = provider;
+            this.probeId = provider == null ? "custom" : provider;
+            this.startBase = base == null ? "" : base;
+            this.startProtocol = protocolId == null || protocolId.isEmpty() ? "openai-chat" : protocolId;
+            this.startScope = scopeValue == null ? "" : scopeValue;
+            this.key = key;
+            this.keyless = keyless;
+            view = column();
+            boolean cloudflare = "cloudflare".equals(provider);
+
+            view.addView(fieldLabel(cloudflare ? "Cloudflare Account ID" : "Адрес API (endpoint)"));
+            url = field(EndpointDirectory.hint(probeId), startBase, false, false);
+            url.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
+            scope = field("Account ID", startScope, false, false);
+            if (cloudflare) view.addView(scope, params(-1, 48, 0, 0, 0, 8));
+            else view.addView(url, params(-1, 48, 0, 0, 0, 6));
+
+            List<EndpointDirectory.Candidate> known = EndpointDirectory.candidates(probeId);
+            if (known.size() > 1 && !cloudflare) {
+                view.addView(label("Известные адреса сервиса", 11, palette.muted, false), params(-1, -2, 2, 0, 0, 4));
+                for (EndpointDirectory.Candidate candidate : known) view.addView(knownRow(candidate), params(-1, -2, 0, 0, 0, 4));
+            }
+            if (!cloudflare) {
+                view.addView(label(EndpointDirectory.personal(probeId) && provider != null && !OmniChatConnectionStore.isCustom(provider)
+                        ? "Адрес зависит от вашего аккаунта — введите его или домен и нажмите «Найти endpoint»."
+                        : "Достаточно домена: например keydealer.ru. Хвосты /chat/completions и страницы /check убираются сами.", 11, palette.muted, false),
+                        params(-1, -2, 2, 0, 0, 10));
+                view.addView(fieldLabel("Протокол"));
+                protocol = new ChipRow(PROTOCOL_NAMES, indexOf(PROTOCOL_IDS, startProtocol), i -> { });
+                view.addView(protocol.view, params(-1, -2, 0, 0, 0, 10));
+                view.addView(button("⌕  Найти endpoint по ключу", false, v -> check()), params(-1, 46, 0, 0, 0, 6));
+                status = label("", 12, palette.muted, false);
+                status.setVisibility(View.GONE);
+                view.addView(status, params(-1, -2, 2, 2, 0, 4));
+                results = column();
+                view.addView(results, params(-1, -2, 0, 0, 0, 0));
+            } else {
+                protocol = new ChipRow(PROTOCOL_NAMES, 1, i -> { });
+                status = label("", 12, palette.muted, false);
+                results = column();
+                view.addView(label("Адрес собирается из Account ID: api.cloudflare.com/client/v4/accounts/<ID>/ai/v1.", 11, palette.muted, false), params(-1, -2, 2, 0, 0, 4));
+            }
+        }
+
+        private View knownRow(EndpointDirectory.Candidate candidate) {
+            TextView row = label(candidate.base.replace("https://", "") + "  ·  " + protocolName(candidate.protocol), 12, palette.green, false);
+            row.setSingleLine(true);
+            row.setEllipsize(TextUtils.TruncateAt.MIDDLE);
+            row.setPadding(dp(12), dp(8), dp(12), dp(8));
+            row.setBackground(round(blend(palette.card, palette.green, 0.08f), 10, 0, 0));
+            row.setOnClickListener(v -> { url.setText(candidate.base); protocol.select(indexOf(PROTOCOL_IDS, candidate.protocol)); });
+            return row;
+        }
+
+        String protocolId() { return PROTOCOL_IDS[Math.max(0, protocol.selected)]; }
+
+        /** Cleaned address; throws a readable message when the field cannot be an API address. */
+        String normalizedUrl() {
+            String typed = url.getText().toString();
+            if (typed.trim().isEmpty()) throw new IllegalArgumentException("Укажите адрес API или нажмите «Найти endpoint»");
+            String clean = EndpointProbe.normalize(typed);
+            if (clean.isEmpty()) throw new IllegalArgumentException("Нужен HTTPS-адрес без параметров и пароля (HTTP — только для localhost)");
+            return clean;
+        }
+
+        /** Stores the endpoint of an existing catalog service; marks {@link #changed} when it differs. */
+        void save(String id) {
+            if ("cloudflare".equals(id)) {
+                String account = scope.getText().toString().trim();
+                if (!account.equals(startScope)) { store.configure(owner, id, "", "openai-responses", account); changed = true; }
+                return;
+            }
+            String base = normalizedUrl();
+            String wire = protocolId();
+            String scopeValue = scope.getText().toString().trim().isEmpty() ? startScope : scope.getText().toString().trim();
+            if (!base.equals(startBase) || !wire.equals(startProtocol)) {
+                store.configure(owner, id, base, wire, scopeValue);
+                changed = true;
+            }
+        }
+
+        void saveCustom(String id, String name) {
+            String base = normalizedUrl();
+            String wire = protocolId();
+            store.updateCustomProvider(id, name, base, wire);
+            changed = !base.equals(startBase) || !wire.equals(startProtocol);
+        }
+
+        private void check() {
+            String secret = key.get();
+            if (secret.isEmpty() && !keyless) { toast("Сначала введите ключ"); return; }
+            String typed = url.getText().toString().trim();
+            if (typed.isEmpty() && EndpointDirectory.personal(probeId)) { toast("Введите адрес или хотя бы домен сервиса"); return; }
+            if (!typed.isEmpty() && EndpointProbe.normalize(typed).isEmpty()) { toast("Нужен HTTPS-адрес без параметров и пароля"); return; }
+            status.setVisibility(View.VISIBLE);
+            status.setTextColor(palette.muted);
+            status.setText("Проверяем адреса и протоколы…");
+            results.removeAllViews();
+            io.execute(() -> {
+                ExecutorService pool = Executors.newFixedThreadPool(8);
+                EndpointProbe.Report report;
+                try {
+                    report = EndpointProbe.run(probeId, typed, secret, new AiNetworkFetcher(), pool, 25000);
+                } finally {
+                    pool.shutdownNow();
+                }
+                final EndpointProbe.Report done = report;
+                activity.runOnUiThread(() -> show(done));
+            });
+        }
+
+        private void show(EndpointProbe.Report report) {
+            if (!host.isCurrent(owner) || !view.isAttachedToWindow()) return;
+            lastReport = report;
+            results.removeAllViews();
+            EndpointProbe.Hit best = report.best();
+            if (best != null) {
+                apply(best);
+                String gateway = best.gateway.isEmpty() ? "" : " · " + best.gateway;
+                status.setTextColor(palette.green);
+                status.setText("✓ Найден рабочий endpoint · моделей: " + best.models.size()
+                        + (best.millis > 0 ? " · " + best.millis + " мс" : "") + gateway + ". Адрес и протокол подставлены.");
+                List<EndpointProbe.Hit> working = report.working();
+                if (working.size() > 1) {
+                    results.addView(label("Все найденные адреса", 11, palette.muted, true), params(-1, -2, 2, 6, 0, 4));
+                    for (EndpointProbe.Hit hit : working) results.addView(hitRow(hit), params(-1, -2, 0, 0, 0, 4));
+                }
+                results.addView(button("Тест-запрос (1 токен)", false, v -> ping(best)), params(-1, 42, 0, 6, 0, 0));
+                return;
+            }
+            List<EndpointProbe.Hit> rejected = report.rejected();
+            if (!rejected.isEmpty()) {
+                EndpointProbe.Hit first = rejected.get(0);
+                apply(first);
+                status.setTextColor(warn);
+                status.setText("Адрес найден (" + first.candidate.base + "), но ключ отклонён (HTTP " + first.status
+                        + "). Адрес подставлен — проверьте ключ.");
+                return;
+            }
+            status.setTextColor(danger);
+            status.setText(!report.failure.isEmpty()
+                    ? report.failure + ". Проверено вариантов: " + report.tried + "."
+                    : "Рабочий endpoint не найден. Проверено вариантов: " + report.tried + (report.timedOut ? " (часть не ответила вовремя)" : "")
+                    + ". Уточните домен у сервиса или введите адрес вручную.");
+        }
+
+        private void apply(EndpointProbe.Hit hit) {
+            url.setText(hit.candidate.base);
+            String wire = hit.candidate.protocol;
+            // /models cannot tell Chat from Responses: keep the service's own choice when both are OpenAI wires.
+            if ("openai-chat".equals(wire) && protocolId().startsWith("openai") && provider != null
+                    && !EndpointDirectory.personal(probeId) && "openai-responses".equals(EndpointDirectory.protocol(probeId))) return;
+            protocol.select(indexOf(PROTOCOL_IDS, wire));
+        }
+
+        private View hitRow(EndpointProbe.Hit hit) {
+            TextView row = label(hit.candidate.base.replace("https://", "") + "  ·  " + protocolName(hit.candidate.protocol)
+                    + "  ·  " + hit.models.size() + " мод.", 12, palette.text, false);
+            row.setSingleLine(true);
+            row.setEllipsize(TextUtils.TruncateAt.MIDDLE);
+            row.setPadding(dp(12), dp(9), dp(12), dp(9));
+            row.setBackground(round(palette.subtle, 10, palette.border, 1));
+            row.setOnClickListener(v -> { apply(hit); toast("Подставлено"); });
+            return row;
+        }
+
+        private void ping(EndpointProbe.Hit hit) {
+            String model = EndpointProbe.pickPingModel(hit.models);
+            if (model.isEmpty()) { toast("В каталоге нет моделей для теста"); return; }
+            status.setTextColor(palette.muted);
+            status.setText("Тест-запрос к модели " + model + "…");
+            final String secret = key.get();
+            io.execute(() -> {
+                EndpointProbe.Ping result = EndpointProbe.ping(hit.candidate, secret, model, new AiNetworkFetcher());
+                activity.runOnUiThread(() -> {
+                    if (!view.isAttachedToWindow()) return;
+                    status.setTextColor(result.ok ? palette.green : warn);
+                    status.setText((result.ok ? "✓ " : "⚠ ") + result.message + " · " + model
+                            + (result.millis > 0 ? " · " + result.millis + " мс" : "") + (result.status > 0 && !result.ok ? " (HTTP " + result.status + ")" : ""));
+                });
+            });
+        }
     }
 
     // ================================================================== operations
@@ -836,27 +1049,42 @@ public final class ProviderHubScreen {
         return toggle;
     }
 
-    /** Single-choice chips in a horizontally scrollable row. */
-    private View chips(String[] names, int selected, java.util.function.IntConsumer change) {
-        HorizontalScrollView scroll = new HorizontalScrollView(activity);
-        scroll.setHorizontalScrollBarEnabled(false);
-        LinearLayout row = new LinearLayout(activity);
-        final List<TextView> views = new ArrayList<>();
-        for (int i = 0; i < names.length; i++) {
-            final int index = i;
-            TextView chip = label(names[i], 13, palette.text, true);
-            chip.setGravity(Gravity.CENTER);
-            chip.setPadding(dp(14), 0, dp(14), 0);
-            chip.setOnClickListener(v -> {
-                change.accept(index);
-                for (int j = 0; j < views.size(); j++) styleChip(views.get(j), j == index);
-            });
-            views.add(chip);
-            styleChip(chip, i == selected);
-            row.addView(chip, params(-2, 40, 0, i == 0 ? 0 : 8, 0, 0, 0));
+    /** Single-choice chips in a horizontally scrollable row that can also be driven from code. */
+    private final class ChipRow {
+        final HorizontalScrollView view;
+        final List<TextView> items = new ArrayList<>();
+        final java.util.function.IntConsumer change;
+        int selected;
+
+        ChipRow(String[] names, int selected, java.util.function.IntConsumer change) {
+            this.selected = selected;
+            this.change = change;
+            view = new HorizontalScrollView(activity);
+            view.setHorizontalScrollBarEnabled(false);
+            LinearLayout row = new LinearLayout(activity);
+            for (int i = 0; i < names.length; i++) {
+                final int index = i;
+                TextView chip = label(names[i], 13, palette.text, true);
+                chip.setGravity(Gravity.CENTER);
+                chip.setPadding(dp(14), 0, dp(14), 0);
+                chip.setOnClickListener(v -> select(index));
+                items.add(chip);
+                styleChip(chip, i == selected);
+                row.addView(chip, params(-2, 40, 0, i == 0 ? 0 : 8, 0, 0, 0));
+            }
+            view.addView(row);
         }
-        scroll.addView(row);
-        return scroll;
+
+        void select(int index) {
+            if (index < 0 || index >= items.size()) return;
+            selected = index;
+            change.accept(index);
+            for (int j = 0; j < items.size(); j++) styleChip(items.get(j), j == index);
+        }
+    }
+
+    private View chips(String[] names, int selected, java.util.function.IntConsumer change) {
+        return new ChipRow(names, selected, change).view;
     }
 
     private void styleChip(TextView chip, boolean on) {
