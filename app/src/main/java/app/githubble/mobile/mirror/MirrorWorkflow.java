@@ -178,7 +178,8 @@ jobs:
               esac
             done <"$RUNNER_TEMP/oneshot-before.tsv"
             git lfs push --all "$DST_URL"
-            git push "$DST_URL" 'refs/heads/*:refs/heads/*' 'refs/tags/*:refs/tags/*'
+            # GitHub supports atomic multi-ref updates: fail completely if any ref fails.
+            git push --atomic "$DST_URL" 'refs/heads/*:refs/heads/*' 'refs/tags/*:refs/tags/*'
             git show-ref --heads --tags >"$RUNNER_TEMP/oneshot-source.tsv"
             git ls-remote --heads --tags "$DST_URL" >"$RUNNER_TEMP/oneshot-target.tsv"
           else
