@@ -31,17 +31,19 @@ public final class GitHubReadLoop {
             return "GitHub подключён: @"+identity.optString("login")+". "+
                 "Данные получены напрямую через авторизованный GitHub API, не из ответа модели.";
         }
+        boolean countOnly=question!=null&&(question.toLowerCase(Locale.ROOT).contains("сколько")
+            ||question.toLowerCase(Locale.ROOT).contains("how many"))
+            &&!question.toLowerCase(Locale.ROOT).contains("покажи")&&!question.toLowerCase(Locale.ROOT).contains("список");
+        if(github.connectedAccounts(owner).optInt("count")>1)return allAccountsAnswer(github.listAllRepositories(owner),countOnly);
         JSONObject data=github.listAccessibleRepositories(owner);
         JSONArray repos=data.getJSONArray("repositories");
-        boolean countOnly=question!=null&&(question.toLowerCase(Locale.ROOT).contains("сколько")
-            ||question.toLowerCase(Locale.ROOT).contains("how many"));
         StringBuilder answer=new StringBuilder();
         answer.append("GitHub @").append(data.optString("account"))
             .append(": доступно ").append(data.optInt("count")).append(" репозиториев");
         if(data.optBoolean("truncated"))answer.append(" (показаны первые 1000; список неполный)");
         answer.append(".\n");
         if(!countOnly){
-            int show=Math.min(45,repos.length());
+            int show=Math.min(80,repos.length());
             for(int i=0;i<show;i++){
                 JSONObject repo=repos.getJSONObject(i);
                 answer.append("\n").append(i+1).append(". ").append(repo.optString("full_name"))
@@ -52,6 +54,28 @@ public final class GitHubReadLoop {
         }
         answer.append("\nИсточник: GitHub API активного аккаунта. Видимость зависит от OAuth-разрешений.");
         return answer.toString();
+    }
+
+    /** Every connected account with its real repository names (never a profile estimate). */
+    static String allAccountsAnswer(JSONObject all,boolean countOnly)throws Exception{
+        JSONArray accounts=all.getJSONArray("accounts");
+        StringBuilder out=new StringBuilder("Подключено аккаунтов GitHub: ").append(accounts.length())
+            .append(", репозиториев всего: ").append(all.optInt("total_repositories")).append(".\n");
+        for(int a=0;a<accounts.length();a++){
+            JSONObject account=accounts.getJSONObject(a);
+            out.append("\n@").append(account.optString("login")).append(account.optBoolean("active")?" (активный)":"");
+            if(account.has("error")){out.append(" — ").append(account.optString("error")).append("\n");continue;}
+            out.append(" — ").append(account.optInt("count")).append(account.optBoolean("truncated")?"+ (список неполный)":"").append(":\n");
+            if(countOnly)continue;
+            JSONArray repos=account.optJSONArray("repositories");
+            int show=repos==null?0:Math.min(40,repos.length());
+            for(int i=0;i<show;i++){
+                JSONObject repo=repos.getJSONObject(i);
+                out.append("• ").append(repo.optString("full_name")).append(repo.optBoolean("private")?" · приватный":" · публичный").append("\n");
+            }
+            if(repos!=null&&repos.length()>show)out.append("… ещё ").append(repos.length()-show).append("\n");
+        }
+        return out.append("\nИсточник: GitHub API каждого подключённого аккаунта; полный список — в разделе «Репозитории».").toString();
     }
 
     /**

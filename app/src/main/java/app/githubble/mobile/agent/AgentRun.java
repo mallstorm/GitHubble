@@ -107,6 +107,7 @@ public final class AgentRun {
       current = UUID.randomUUID().toString();
       String target =
           args.optString("path", args.optString("repository", args.optString("query", "")));
+      if (args.has("method") && args.has("path")) target = args.optString("method") + " " + target;
       JSONObject op =
           new JSONObject()
               .put("id", current)
@@ -139,19 +140,22 @@ public final class AgentRun {
     if (op == null) return;
     boolean uncertain = op.optBoolean("remote_dispatched") && !"succeeded".equals(status);
     try {
+      boolean ok = "succeeded".equals(status);
       op.put("state", uncertain ? "unknown" : status)
           .put("elapsed_ms", Math.max(0, clock.getAsLong() - op.optLong("started")))
           .put(
               "error",
               uncertain
                   ? "Результат отправленного запроса неизвестен. Проверьте GitHub перед повтором."
-                  : clip(error, 400));
+                  : ok ? "" : clip(error, 400));
+      // The shell-like log of what the tool returned (already redacted); not part of the durable journal.
+      if (ok && error != null && !error.isEmpty()) op.put("output", clip(error, 1200));
       current = "";
       state = "running";
       stage = "Продолжаю задачу";
       if (journal != null)
         try {
-          journal.toolResult(opId, status, error);
+          journal.toolResult(opId, status, ok ? "" : error);
         } catch (RuntimeException ignored) {
           journal = null;
         }

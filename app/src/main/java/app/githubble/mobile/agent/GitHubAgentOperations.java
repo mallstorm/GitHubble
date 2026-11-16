@@ -141,7 +141,8 @@ public final class GitHubAgentOperations {
         if("github_profile".equals(name)){
             JSONObject profile=api.getJson("https://api.github.com/user");
             return pick(profile,"login","name","bio","company","location","blog","hireable",
-                "public_repos","total_private_repos","followers","following","plan","created_at","updated_at");
+                "public_repos","total_private_repos","followers","following","plan","created_at","updated_at")
+                .put("note","Repository counters are GitHub estimates; for the actual list call list_repositories.");
         }
         if("github_rate_limit".equals(name))return api.getJson("https://api.github.com/rate_limit");
         if("github_capabilities".equals(name)){

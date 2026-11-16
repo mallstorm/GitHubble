@@ -26,6 +26,7 @@ public final class AgentRunView extends LinearLayout {
   private final TextView readHeading, taskLine, resume;
   private Runnable resumeHandler;
   private final Map<String, TextView> operationTimers = new LinkedHashMap<>();
+  private final java.util.Set<String> openOps = new java.util.HashSet<>();
   private boolean expanded, readsExpanded;
   private boolean manuallyExpanded;
   private String fingerprint = "";
@@ -50,15 +51,15 @@ public final class AgentRunView extends LinearLayout {
     this.border = border;
     this.openDiff = openDiff;
     setOrientation(VERTICAL);
-    setPadding(dp(11), dp(3), dp(11), dp(7));
+    setPadding(dp(11), dp(0), dp(11), dp(4));
     GradientDrawable background = new GradientDrawable();
     background.setColor(soft);
-    background.setCornerRadius(dp(16));
+    background.setCornerRadius(dp(14));
     background.setStroke(dp(1), border);
     setBackground(background);
     LinearLayout header = new LinearLayout(activity);
     header.setGravity(Gravity.CENTER_VERTICAL);
-    header.setMinimumHeight(dp(48));
+    header.setMinimumHeight(dp(34));
     heading = label("", 12, text);
     heading.setTypeface(null, Typeface.BOLD);
     heading.setMaxLines(2);
@@ -72,7 +73,7 @@ public final class AgentRunView extends LinearLayout {
     body.setOrientation(VERTICAL);
     addView(body);
     stage = label("", 11, muted);
-    stage.setPadding(dp(2), dp(2), dp(2), dp(7));
+    stage.setPadding(dp(2), 0, dp(2), dp(4));
     body.addView(stage);
     taskLine = label("", 11, muted);
     taskLine.setPadding(dp(2), 0, dp(2), dp(7));
@@ -213,7 +214,7 @@ public final class AgentRunView extends LinearLayout {
         live(value)
             ? ("approval".equals(state)
                 ? "Ожидает подтверждения"
-                : "Работаю · итерация " + Math.max(1, value.optInt("iteration")))
+                : "Работаю")
             : "succeeded".equals(state)
                 ? (attention(value) ? "Завершено · есть ошибки" : "Готово")
                 : "cancelled".equals(state)
@@ -223,7 +224,7 @@ public final class AgentRunView extends LinearLayout {
     heading.setText(
         (expanded ? "▾ " : "▸ ")
             + title
-            + (ops != null && ops.length() > 0 ? " · действий: " + ops.length() : ""));
+            + (!live(value) && ops != null && ops.length() > 0 ? " · действий: " + ops.length() : ""));
     body.setVisibility(expanded ? VISIBLE : GONE);
     setContentDescription(title + ". Время " + AgentRun.time(baseElapsed));
   }
@@ -246,54 +247,70 @@ public final class AgentRunView extends LinearLayout {
       String name = op.optString("name"), state = op.optString("state");
       boolean group = AgentRun.read(name) && "succeeded".equals(state);
       LinearLayout parent = group ? reads : other;
-      if (!group && op.optInt("iteration") != lastIteration) {
-        lastIteration = op.optInt("iteration");
-        TextView iteration = label("Итерация " + Math.max(1, lastIteration), 10, muted);
-        iteration.setPadding(0, dp(6), 0, dp(3));
-        parent.addView(iteration);
-      }
+      String output = op.optString("error").isEmpty() ? op.optString("output") : op.optString("error");
+      String opId = op.optString("id");
+      boolean failed = "failed".equals(state);
+      TextView detail = label(output.isEmpty() ? "(нет вывода)" : output, 11, text);
+      detail.setTypeface(Typeface.MONOSPACE);
+      detail.setTextIsSelectable(true);
+      detail.setPadding(dp(10), dp(7), dp(10), dp(7));
+      GradientDrawable box = new GradientDrawable();
+      box.setColor(0x14808080);
+      box.setCornerRadius(dp(8));
+      detail.setBackground(box);
+      detail.setVisibility(openOps.contains(opId) || (failed && !output.isEmpty()) ? VISIBLE : GONE);
       LinearLayout row = new LinearLayout(activity);
       row.setGravity(Gravity.CENTER_VERTICAL);
-      row.setMinimumHeight(dp(40));
-      TextView icon = label(AgentRun.icon(name), 16, muted);
-      row.addView(icon, new LayoutParams(dp(28), -2));
-      LinearLayout labels = new LinearLayout(activity);
-      labels.setOrientation(VERTICAL);
-      TextView label = label(AgentRun.label(name), 12, text);
-      labels.addView(label);
-      String target = op.optString("target");
-      if (!target.isEmpty()) {
-        TextView path = label(target, 11, muted);
-        path.setSingleLine();
-        path.setEllipsize(TextUtils.TruncateAt.MIDDLE);
-        path.setContentDescription(target);
-        labels.addView(path);
-      }
-      row.addView(labels, new LayoutParams(0, -2, 1));
-      TextView time = label(AgentRun.time(op.optLong("elapsed_ms")), 10, muted);
-      time.setPadding(dp(5), 0, dp(5), 0);
-      time.setFontFeatureSettings("tnum");
-      row.addView(time);
-      operationTimers.put(op.optString("id"), time);
+      row.setMinimumHeight(dp(30));
       TextView mark =
           label(
               "succeeded".equals(state)
                   ? "✓"
-                  : "failed".equals(state)
-                      ? "!"
+                  : failed
+                      ? "✕"
                       : "cancelled".equals(state) || "interrupted".equals(state)
                           ? "−"
-                          : "unknown".equals(state) ? "?" : "⋯",
-              13,
-              "failed".equals(state) ? 0xFFC75B66 : accent);
-      row.addView(mark);
+                          : "unknown".equals(state) ? "?" : "●",
+              12,
+              failed ? 0xFFC75B66 : accent);
+      mark.setTypeface(null, Typeface.BOLD);
+      mark.setGravity(Gravity.CENTER);
+      row.addView(mark, new LayoutParams(dp(20), -2));
+      TextView chip = label(AgentRun.label(name), 10, muted);
+      GradientDrawable chipBackground = new GradientDrawable();
+      chipBackground.setColor(0x14808080);
+      chipBackground.setCornerRadius(dp(6));
+      chip.setBackground(chipBackground);
+      chip.setPadding(dp(6), dp(1), dp(6), dp(1));
+      chip.setSingleLine();
+      chip.setEllipsize(TextUtils.TruncateAt.END);
+      LayoutParams chipParams = new LayoutParams(-2, -2);
+      chipParams.leftMargin = dp(3);
+      chipParams.rightMargin = dp(6);
+      row.addView(chip, chipParams);
+      String target = op.optString("target");
+      TextView path = label(target, 11, text);
+      path.setTypeface(Typeface.MONOSPACE);
+      path.setSingleLine();
+      path.setEllipsize(TextUtils.TruncateAt.MIDDLE);
+      path.setContentDescription(target);
+      row.addView(path, new LayoutParams(0, -2, 1));
+      TextView time = label(AgentRun.time(op.optLong("elapsed_ms")), 10, muted);
+      time.setPadding(dp(5), 0, 0, 0);
+      time.setFontFeatureSettings("tnum");
+      row.addView(time);
+      operationTimers.put(opId, time);
+      row.setOnClickListener(
+          v -> {
+            boolean show = detail.getVisibility() != VISIBLE;
+            detail.setVisibility(show ? VISIBLE : GONE);
+            if (show) openOps.add(opId);
+            else openOps.remove(opId);
+          });
       parent.addView(row);
-      String error = op.optString("error");
-      if (!error.isEmpty()) {
-        TextView failure = label(error, 11, 0xFFC75B66);
-        failure.setPadding(dp(28), 0, 0, dp(5));
-        parent.addView(failure);
-      }
+      LayoutParams detailParams = new LayoutParams(-1, -2);
+      detailParams.bottomMargin = dp(4);
+      parent.addView(detail, detailParams);
       JSONArray files = op.optJSONArray("files");
       for (int j = 0; files != null && j < files.length(); j++) {
         JSONObject f = files.optJSONObject(j);
