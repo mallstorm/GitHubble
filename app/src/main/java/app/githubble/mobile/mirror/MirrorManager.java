@@ -22,10 +22,11 @@ import org.json.JSONObject;
  * after the run completes. Never persist destination tokens, or expose them in inputs/logs.
  */
 public final class MirrorManager {
-    public static final String COPY="copy",MANAGED="managed",FORK="fork";
+    public static final String COPY="copy",SYNC="sync",RETURN="return",MANAGED="managed",FORK="fork";
     public static final String PREPARING="preparing",DEST_CREATED="destination_created",
             DISPATCHED="dispatched",RUNNING="running",VERIFIED="verified",
-            FAILED="failed",DIVERGED="diverged",UNKNOWN="unknown",CLEANUP_PENDING="cleanup_pending";
+            FAILED="failed",DIVERGED="diverged",UNKNOWN="unknown",CLEANUP_PENDING="cleanup_pending",
+            PR_READY="pr_ready",PR_MERGED="pr_merged",PR_CLOSED="pr_closed";
     private static final String API="https://api.github.com/repos/";
     private static final String PREFS="githubble_mirror_manager", KEY_JOBS="jobs";
     private final GitHubAccountStore accounts;
@@ -43,8 +44,9 @@ public final class MirrorManager {
     public static final class Job {
         public String id="",requestId="",source="",destination="",sourceAccountId="",destinationAccountId="";
         public String sourceDefault="",baselineSha="",mode=COPY,state=PREPARING,error="",runUrl="",targetDigest="";
+        public String destinationDefault="",targetBaselineSha="",reviewBranch="",linkedCopyId="",prUrl="";
         public boolean privateSource,secretInstalled,workflowInstalled,cleanupPending;
-        public long runId,createdAt,updatedAt;
+        public long runId,createdAt,updatedAt,prNumber;
         public boolean isManaged(){return false;}
         public JSONObject json(){
             JSONObject o=new JSONObject();
@@ -58,6 +60,9 @@ public final class MirrorManager {
                 o.put("privateSource",privateSource);o.put("secretInstalled",secretInstalled);
                 o.put("workflowInstalled",workflowInstalled);o.put("cleanupPending",cleanupPending);
                 o.put("runId",runId);o.put("createdAt",createdAt);o.put("updatedAt",updatedAt);
+                o.put("destinationDefault",destinationDefault);o.put("targetBaselineSha",targetBaselineSha);
+                o.put("reviewBranch",reviewBranch);o.put("linkedCopyId",linkedCopyId);
+                o.put("prUrl",prUrl);o.put("prNumber",prNumber);
             }catch(Exception ignored){}
             return o;
         }
@@ -77,7 +82,14 @@ public final class MirrorManager {
             j.workflowInstalled=o.optBoolean("workflowInstalled");
             j.cleanupPending=o.optBoolean("cleanupPending");
             j.runId=o.optLong("runId");j.createdAt=o.optLong("createdAt");
-            j.updatedAt=o.optLong("updatedAt");return j;
+            j.updatedAt=o.optLong("updatedAt");
+            j.destinationDefault=o.optString("destinationDefault","");
+            j.targetBaselineSha=o.optString("targetBaselineSha","");
+            j.reviewBranch=o.optString("reviewBranch","");
+            j.linkedCopyId=o.optString("linkedCopyId","");
+            j.prUrl=o.optString("prUrl","");
+            j.prNumber=o.optLong("prNumber");
+            return j;
         }
     }
 
@@ -226,31 +238,7 @@ public final class MirrorManager {
                 throw new SecurityException("Назначение не соответствует согласованным настройкам");
             job.state=DEST_CREATED;save(job);
 
-            // OneShot source workflow MUST be created on the source default branch.
-            String path=MirrorWorkflow.path(job.requestId);
-            JSONObject workflow=new JSONObject().put("message","chore(mirror): temporary GitHubble OneShot runner")
-                    .put("branch",defaultBranch)
-                    .put("content",Base64.getEncoder().encodeToString(
-                            MirrorWorkflow.yaml().getBytes(StandardCharsets.UTF_8)));
-            source.putJson(API+sourceFull+"/contents/"+path,workflow);
-            job.workflowInstalled=true;save(job);
-
-            // Put only the TARGET token, encrypted with GitHub's repository secret public key.
-            // Never write the token to the app preferences, workflow input or source.
-            MirrorSecrets.put(source,sourceFull,job.requestId,accounts.tokenForAccount(targetAccountId));
-            job.secretInstalled=true;save(job);
-            JSONObject dispatch=new JSONObject().put("ref",defaultBranch)
-                    .put("inputs",new JSONObject().put("destination",destination)
-                            .put("source_default",defaultBranch)
-                            .put("baseline_sha",baseline)
-                            .put("request_id",job.requestId));
-            source.executeText("POST",API+sourceFull+"/actions/workflows/"
-                    +enc(path.substring(path.lastIndexOf('/')+1))+"/dispatches",
-                    dispatch.toString(),true);
-            job.state=DISPATCHED;
-            job.runUrl="https://github.com/"+sourceFull+"/actions";
-            save(job);
-            enqueueRecovery(prefsContext(),job.id);
+            stageAndDispatch(source,job,targetAccountId);
             return job;
         }catch(Exception error){
             job.error=safeError(error);
@@ -264,6 +252,152 @@ public final class MirrorManager {
             save(job);
             throw error;
         }
+    }
+
+    /** Fast-forward already existing linked mirror. Does not create or overwrite another repo. */
+    public Job updateMirror(String copyId)throws Exception {
+        Job previous=find(copyId);
+        if(previous==null || !COPY.equals(previous.mode) || !VERIFIED.equals(previous.state)
+                || previous.cleanupPending)
+            throw new IllegalStateException("Обновление доступно только для проверенного OneShot зеркала");
+        for(Job existing:list())
+            if(SYNC.equals(existing.mode) && copyId.equals(existing.linkedCopyId)
+                    && (PREPARING.equals(existing.state)||DISPATCHED.equals(existing.state)
+                        ||RUNNING.equals(existing.state)||UNKNOWN.equals(existing.state)))
+                throw new IllegalStateException("Обновление этого зеркала уже выполняется");
+        GitHubAccountStore.Account sa=account(previous.sourceAccountId);
+        GitHubAccountStore.Account da=account(previous.destinationAccountId);
+        requireOwner(sa,previous.source);requireOwner(da,previous.destination);
+        GitHubApiClient source=api(sa),target=api(da);
+        JSONObject sourceRepo=source.getJsonFresh(API+previous.source);
+        JSONObject targetRepo=target.getJsonFresh(API+previous.destination);
+        if(sourceRepo.optBoolean("fork")||targetRepo.optBoolean("fork"))
+            throw new IllegalArgumentException("Нельзя обновлять Fork как независимое зеркало");
+        String sourceBranch=sourceRepo.optString("default_branch","");
+        String targetBranch=targetRepo.optString("default_branch","");
+        requireBranch(sourceBranch);requireBranch(targetBranch);
+        if(!sourceBranch.equals(targetBranch))
+            throw new IllegalStateException("Основные ветки отличаются; автоматическое обновление отключено");
+        Job job=new Job();
+        job.id=UUID.randomUUID().toString().replace("-","");
+        job.requestId=job.id;job.mode=SYNC;job.linkedCopyId=previous.id;
+        job.source=previous.source;job.destination=previous.destination;
+        job.sourceAccountId=sa.id;job.destinationAccountId=da.id;
+        job.sourceDefault=sourceBranch;job.destinationDefault=targetBranch;
+        job.baselineSha=head(source,job.source,sourceBranch);
+        job.targetBaselineSha=head(target,job.destination,targetBranch);
+        job.privateSource=sourceRepo.optBoolean("private",false);
+        job.createdAt=System.currentTimeMillis();save(job);
+        try{stageAndDispatch(source,job,da.id);return job;}
+        catch(Exception error){handleStartFailure(source,job,error);throw error;}
+    }
+
+    /** Reverse changes by opening a draft pull request in the original repository.
+     * Only an isolated review branch is pushed; destination main is never replaced.
+     */
+    public Job returnChanges(String copyId)throws Exception {
+        Job previous=find(copyId);
+        if(previous==null || !COPY.equals(previous.mode) || !VERIFIED.equals(previous.state)
+                ||previous.cleanupPending)
+            throw new IllegalStateException("Возврат доступен только для проверенного OneShot зеркала");
+        for(Job existing:list())
+            if(RETURN.equals(existing.mode) && copyId.equals(existing.linkedCopyId)
+                    && (PREPARING.equals(existing.state)||DISPATCHED.equals(existing.state)
+                        ||RUNNING.equals(existing.state)||UNKNOWN.equals(existing.state)))
+                throw new IllegalStateException("Возврат уже выполняется для этого зеркала");
+        GitHubAccountStore.Account sa=account(previous.destinationAccountId);
+        GitHubAccountStore.Account da=account(previous.sourceAccountId);
+        requireOwner(sa,previous.destination);requireOwner(da,previous.source);
+        GitHubApiClient source=api(sa),target=api(da);
+        JSONObject sourceRepo=source.getJsonFresh(API+previous.destination);
+        JSONObject targetRepo=target.getJsonFresh(API+previous.source);
+        if(sourceRepo.optBoolean("fork")||targetRepo.optBoolean("fork"))
+            throw new IllegalArgumentException("Fork не поддерживается как независимое зеркало");
+        String sourceBranch=sourceRepo.optString("default_branch","");
+        String targetBranch=targetRepo.optString("default_branch","");
+        requireBranch(sourceBranch);requireBranch(targetBranch);
+        String srcSha=head(source,previous.destination,sourceBranch);
+        String dstSha=head(target,previous.source,targetBranch);
+        String srcTree=source.getJsonFresh(API+previous.destination+"/git/commits/"+srcSha)
+                .getJSONObject("tree").optString("sha","");
+        String dstTree=target.getJsonFresh(API+previous.source+"/git/commits/"+dstSha)
+                .getJSONObject("tree").optString("sha","");
+        if(srcTree.isEmpty()||dstTree.isEmpty())throw new SecurityException("Не удалось проверить дерево Git");
+        if(srcTree.equals(dstTree))
+            throw new IllegalStateException("Файлы обоих репозиториев совпадают. Возвращать пока нечего.");
+        Job job=new Job();
+        job.id=UUID.randomUUID().toString().replace("-","");
+        job.requestId=job.id;job.mode=RETURN;job.linkedCopyId=previous.id;
+        job.source=previous.destination;job.destination=previous.source;
+        job.sourceAccountId=sa.id;job.destinationAccountId=da.id;
+        job.sourceDefault=sourceBranch;job.destinationDefault=targetBranch;
+        job.baselineSha=srcSha;job.targetBaselineSha=dstSha;
+        job.reviewBranch="mirror-return/"+job.requestId;
+        job.privateSource=sourceRepo.optBoolean("private",false);
+        job.createdAt=System.currentTimeMillis();save(job);
+        try{stageAndDispatch(source,job,da.id);return job;}
+        catch(Exception error){handleStartFailure(source,job,error);throw error;}
+    }
+
+    private static void requireOwner(GitHubAccountStore.Account account,String repo){
+        if(repo==null || !repo.contains("/")
+                || !repo.substring(0,repo.indexOf('/')).equalsIgnoreCase(account.login))
+            throw new SecurityException("Аккаунт репозитория изменён; повторите авторизацию");
+    }
+    private static void requireBranch(String branch){
+        if(branch==null || !branch.matches("[A-Za-z0-9_./-]{1,250}")
+                || branch.contains("..")||branch.startsWith("/")||branch.endsWith("/"))
+            throw new IllegalArgumentException("Неподдерживаемое имя основной ветки");
+    }
+    private static String head(GitHubApiClient api,String repo,String branch)throws Exception{
+        JSONObject ref=api.getJsonFresh(API+repo+"/git/ref/heads/"+enc(branch));
+        JSONObject object=ref.optJSONObject("object");
+        String sha=object==null?"":object.optString("sha","");
+        if(!sha.matches("[0-9a-f]{40}"))throw new SecurityException("Некорректный Git commit SHA");
+        return sha;
+    }
+
+    /** Shared only-by-request runner for first copy, safe fast-forward sync and return PR. */
+    private void stageAndDispatch(GitHubApiClient source,Job job,String targetAccountId)throws Exception{
+        String path=MirrorWorkflow.path(job.requestId);
+        JSONObject file=new JSONObject()
+                .put("message","chore(mirror): temporary GitHubble OneShot runner")
+                .put("branch",job.sourceDefault)
+                .put("content",Base64.getEncoder().encodeToString(
+                        MirrorWorkflow.yaml().getBytes(StandardCharsets.UTF_8)));
+        source.putJson(API+job.source+"/contents/"+path,file);
+        job.workflowInstalled=true;save(job);
+        MirrorSecrets.put(source,job.source,job.requestId,accounts.tokenForAccount(targetAccountId));
+        job.secretInstalled=true;save(job);
+        JSONObject dispatch=new JSONObject().put("ref",job.sourceDefault)
+                .put("inputs",new JSONObject()
+                        .put("destination",job.destination)
+                        .put("source_default",job.sourceDefault)
+                        .put("baseline_sha",job.baselineSha)
+                        .put("request_id",job.requestId)
+                        .put("operation",job.mode)
+                        .put("destination_base",job.destinationDefault)
+                        .put("target_sha",job.targetBaselineSha));
+        source.executeText("POST",API+job.source+"/actions/workflows/"
+                +enc(path.substring(path.lastIndexOf('/')+1))+"/dispatches",
+                dispatch.toString(),true);
+        job.state=DISPATCHED;
+        job.runUrl="https://github.com/"+job.source+"/actions";
+        save(job);
+        enqueueRecovery(prefsContext(),job.id);
+    }
+
+    private void handleStartFailure(GitHubApiClient source,Job job,Exception error){
+        job.error=safeError(error);
+        job.state=error instanceof GitHubApiClient.MutationOutcomeUnknownException?UNKNOWN:FAILED;
+        if(!UNKNOWN.equals(job.state)){
+            try{cleanup(source,job);}
+            catch(Exception problem){
+                job.cleanupPending=true;
+                job.error+="; очистка: "+safeError(problem);
+            }
+        }else job.cleanupPending=true;
+        save(job);
     }
 
     private void cleanup(GitHubApiClient source,Job job)throws Exception{
@@ -294,6 +428,65 @@ public final class MirrorManager {
         job.cleanupPending=false;save(job);
     }
 
+    /** Create/recover a draft PR after the cloud runner has verified the review branch. */
+    private void ensureReturnPullRequest(Job job)throws Exception {
+        GitHubApiClient target=api(account(job.destinationAccountId));
+        JSONObject ref=target.getJsonFresh(API+job.destination+"/git/ref/heads/"+job.reviewBranch);
+        JSONObject object=ref.optJSONObject("object");
+        if(object==null || !job.baselineSha.equals(object.optString("sha","")))
+            throw new SecurityException("Ветка возврата отсутствует или её SHA изменился");
+        String current=head(target,job.destination,job.destinationDefault);
+        if(!current.equals(job.targetBaselineSha))
+            throw new IllegalStateException("Основная ветка назначения изменилась после запуска. "
+                    +"Ветка возврата сохранена, но PR не создан.");
+        String owner=job.destination.substring(0,job.destination.indexOf('/'));
+        JSONArray found=target.getArray(API+job.destination+"/pulls?state=all&head="
+                +enc(owner+":"+job.reviewBranch)+"&per_page=100");
+        JSONObject pr=null;
+        for(int i=0;i<found.length();i++){
+            JSONObject value=found.optJSONObject(i);if(value==null)continue;
+            JSONObject h=value.optJSONObject("head"),base=value.optJSONObject("base");
+            if(h!=null&&base!=null&&job.reviewBranch.equals(h.optString("ref",""))
+                    &&job.destinationDefault.equals(base.optString("ref",""))){
+                pr=value;break;
+            }
+        }
+        if(pr==null){
+            JSONObject request=new JSONObject()
+                    .put("title","Вернуть изменения: "+job.source+" → "+job.destination)
+                    .put("head",job.reviewBranch)
+                    .put("base",job.destinationDefault)
+                    .put("draft",true)
+                    .put("body","GitHubble OneShot: безопасный обратный перенос.\n\n"
+                            +"Источник: "+job.source+"\n"
+                            +"Назначение: "+job.destination+"\n"
+                            +"Snapshot: "+job.baselineSha+"\n\n"
+                            +"Основная ветка назначения не перезаписывалась. "
+                            +"Проверьте изменения и конфликты перед Merge.");
+            pr=target.postJson(API+job.destination+"/pulls",request,true);
+        }
+        job.prNumber=pr.optLong("number");
+        job.prUrl=pr.optString("html_url","");
+        updatePrFromData(job,pr);
+        save(job);
+    }
+
+    private void updatePrFromData(Job job,JSONObject pr){
+        if(!pr.isNull("merged_at"))job.state=PR_MERGED;
+        else if("closed".equals(pr.optString("state","")))job.state=PR_CLOSED;
+        else job.state=PR_READY;
+    }
+
+    private Job refreshPullRequest(Job job)throws Exception {
+        if(job.prNumber<=0)return job;
+        GitHubApiClient target=api(account(job.destinationAccountId));
+        JSONObject pr=target.getJsonFresh(API+job.destination+"/pulls/"+job.prNumber);
+        updatePrFromData(job,pr);
+        job.prUrl=pr.optString("html_url",job.prUrl);
+        save(job);
+        return job;
+    }
+
     /** Detect a completed run by opaque request ID, verify refs, then delete temporary credentials. */
     public Job refresh(String id)throws Exception{
         Job job=find(id);if(job==null)throw new IllegalArgumentException("OneShot job не найден");
@@ -306,7 +499,10 @@ public final class MirrorManager {
             catch(Exception e){job.error="Осталась очистка: "+safeError(e);save(job);}
             return job;
         }
-        if(VERIFIED.equals(job.state)&&!job.cleanupPending)return job;
+        if(RETURN.equals(job.mode) && job.prNumber>0 && !job.cleanupPending)
+            return refreshPullRequest(job);
+        if((VERIFIED.equals(job.state)||PR_MERGED.equals(job.state)||PR_CLOSED.equals(job.state))
+                &&!job.cleanupPending)return job;
         JSONObject result=source.getJsonFresh(API+job.source+"/actions/runs?event=workflow_dispatch&per_page=100");
         JSONArray runs=result.optJSONArray("workflow_runs");
         JSONObject found=null;
@@ -330,12 +526,19 @@ public final class MirrorManager {
             job.state=FAILED;job.error="GitHub Actions: "+found.optString("conclusion","failure");
         }else{
             try{
+                if(RETURN.equals(job.mode)){
+                    ensureReturnPullRequest(job);
+                }else{
                 GitHubApiClient dst=api(account(job.destinationAccountId));
                 Map<String,String> srcRefs=refs(source,job.source);
                 srcRefs.put("refs/heads/"+job.sourceDefault,job.baselineSha);
                 Map<String,String> dstRefs=refs(dst,job.destination);
-                if(srcRefs.isEmpty()||!srcRefs.equals(dstRefs)){
-                    job.state=DIVERGED;job.error="SHA веток/тегов снимка не совпадают; см. Actions";
+                boolean matches=!srcRefs.isEmpty();
+                for(Map.Entry<String,String> ref:srcRefs.entrySet())
+                    if(!ref.getValue().equals(dstRefs.get(ref.getKey())))matches=false;
+                if(COPY.equals(job.mode)&&srcRefs.size()!=dstRefs.size())matches=false;
+                if(!matches){
+                    job.state=DIVERGED;job.error="SHA веток/тегов источника не совпадают; см. Actions";
                 }else{
                     job.state=VERIFIED;job.error="";
                     String actualDefault=dst.getJsonFresh(API+job.destination).optString("default_branch","");
@@ -343,8 +546,9 @@ public final class MirrorManager {
                         dst.patch(API+job.destination,new JSONObject().put("default_branch",job.sourceDefault));
                     }
                 }
+                }
             }catch(Exception e){
-                job.state=UNKNOWN;job.error="Проверка refs: "+safeError(e);
+                job.state=UNKNOWN;job.error="Проверка и подготовка PR: "+safeError(e);
             }
         }
         job.cleanupPending=job.secretInstalled||job.workflowInstalled;
@@ -354,8 +558,9 @@ public final class MirrorManager {
         return job;
     }
 
-    public Job sync(String ignored)throws Exception{
-        throw new UnsupportedOperationException("OneShot — только разовое копирование. Синхронизация отключена.");
+    /** Public compatibility entrypoint: safely update an existing linked mirror. */
+    public Job sync(String copyId)throws Exception{
+        return updateMirror(copyId);
     }
     public Job retry(String ignored)throws Exception{
         throw new UnsupportedOperationException("Создайте новый план с другим именем назначения.");

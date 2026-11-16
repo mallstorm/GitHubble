@@ -1,34 +1,38 @@
-# GitHubble Mirror Manager OneShot
+# GitHubble Mirror Manager — OneShot, update, return
 
-Режим: одноразовый независимый Git snapshot source → destination через временный GitHub Actions workflow **в исходном репозитории**. Без Fork, без общего Mirror Controller, без GitHub App PEM, без ручного Client ID. Аккаунты источника/назначения выбираются независимо друг от друга.
+This module supports three account-scoped Git transfers through a temporary GitHub Actions workflow in the current source repository. It does not use Fork or a permanent controller.
 
-## Вход
+## Modes
 
-Настройки → Аккаунт и GitHub → Мастер настройки зеркалирования: краткая информация о подключённых аккаунтах и необходимых разрешениях. Репозитории → репозиторий источника → Mirror Manager: непосредственное копирование. Выбор и создание выполняются только после подтверждения.
+1. COPY. Create a NEW independent empty repository on another connected account. Transfer Git history, branches, tags and LFS. Refuse if destination already exists.
+2. SYNC. From History, select Update mirror on a VERIFIED copy. The original source and destination are reused. Git refs and LFS are transferred to the existing independent destination only with fast-forward branch pushes. Existing destination-only tags and branches remain untouched; conflicting common tags or non-fast-forward common branches cause failure. Force, prune, destructive reset and deletions are forbidden. Verify every source ref is present at the identical SHA after transfer.
+3. RETURN. From History, select Return changes on a VERIFIED copy. Source becomes its existing mirror and destination becomes the former original. If Git trees have not changed, refuse the unnecessary operation. Push only a new review branch in the destination named mirror-return/<requestId> and create a DRAFT pull request against its default branch. GitHub checks conflicts. No automatic merge or modification of the destination default branch. Users explicitly review and merge on GitHub.
 
-## Требования к токенам
+## Permissions
 
-- Источник (GitHub App user OAuth): Contents:write, Workflows:write, Secrets:write и Actions:write; право вносить изменения в default branch. GitHub App installation должна включать исходный репозиторий.
-- Назначение (другой user OAuth): право создания репозитория (для GitHub App user token необходимы соответствующие user/repository permissions), Contents:write и Workflows:write для новых `.github/workflows` в зеркале. При недостаточных полномочиях исходник не передаётся на телефон.
-- Не требуется держать аккаунт mallstorm авторизованным, если переносятся, например, marwell4 → Digger401.
+Source: Contents:write, Workflows:write, Secrets:write, Actions:write, permission to write temporary workflow on the default branch.
+Destination: Contents:write and Workflows:write. COPY requires creating a repo. RETURN additionally requires Pull requests:read and write.
+The connected OAuth sessions are separate, even when the user has more than two GitHub accounts. No GitHub App PEM, Client ID or separate mallstorm controller is required.
 
-## Технический поток
+## Transfer security
 
-1. Создать новый пустой независимый destination с приватностью source. Существующие репозитории не трогаем.
-2. Сохранить исходный SHA default branch как snapshot baseline, создать временный `.github/workflows/githubble-oneshot-<requestId>.yml` в default branch источника (изменяет его историю одним коммитом).
-3. Получить публичный ключ Actions Secrets из исходного репозитория. Зашифровать целевой OAuth token на телефоне **libsodium crypto_box_seal**, записать в `GITHUBBLE_ONESHOT_DST_<requestId>` через API. Значение никогда не попадает в workflow source, JSON inputs, логи или SharedPreferences.
-4. `workflow_dispatch` запускает workflow внутри source repository. GITHUB_TOKEN предоставляет source read. Временный secret — запись в destination.
-5. Runner `git clone --bare`, `git lfs fetch --all`, возвращает default branch на исходный baseline SHA перед push, чтобы технический workflow-коммит не попал в destination; проверяет что destination пустой, выполняет `git lfs push --all` и Git push heads/tags без force.
-6. WorkManager сохраняет задание по непрозрачному requestId и после закрытия приложения продолжает опрашивать Actions. Сверить refs/tags. После того как GitHub подтвердил `completed`, приложение удаляет временный Secret и workflow. При долгой потере связи возможна задержка очистки. Удаление workflow добавляет второй технический коммит в default branch source; Git-история останется, хотя файл исчезнет.
-7. Журнал сохраняется в GitHubble с requestId, состояниями и URL Actions. При проблеме с очисткой покажет предупреждение; необходим повторный запуск проверки. Нет фонового серверного гарантированного удаления Secret при удалении приложения или полном исчезновении связи.
+- Before adding the temporary workflow, persist source and destination default branch SHA baselines.
+- The source's temporary Actions workflow is created and dispatched using source account authorization, with contents:read run permission. Its own workflow commit is not included in the transfer snapshot; local bare Git refs are reset to the pre-workflow SHA.
+- The destination OAuth credential is sealed with libsodium crypto_box_seal for the GitHub Actions Repository Secret public key. It must not be logged, placed in a workflow input, persisted to SharedPreferences, or included in the workflow source.
+- The runner compares existing destination refs before syncing and uses NO force, prune or deletion. When a target-only branch/tag exists, preserve it and verify the source ref subset afterward.
+- Return operations verify a shared Git ancestor, the destination default SHA and the new review branch commit. The app creates a draft PR after GitHub Actions reports successful completion.
+- After the run finishes, the app and WorkManager remove the temporary credential secret and workflow. Long network loss or uninstall can delay removal; manually use Check where necessary. Deleting the secret is not a token revocation.
+- Creating/removing a workflow produces two technical Git commits on the source default branch; subsequent syncs may carry earlier technical commits.
+- Branch protection, rulesets, LFS custom endpoints and resource limits can prevent an operation. The implementation stops without force.
 
-## Ограничения
+## Not included
 
-- Этот режим — **однократный снимок** (не ongoing mirroring). Для нового переноса создайте новое пустое назначение. Старый режим managed отключён.
-- Создание/удаление временного workflow требуют записи в default branch source. Branch protection и repository rules могут блокировать операцию.
-- Передача destination user access token через Secret требует особого доверия к source repository collaborators / GitHub Actions. Удаление Secret **не отзывает** сам токен. По возможности отдельный минимально-разрешённый токен назначения безопаснее.
-- При потере соединения во время запуска Secret остаётся до пользовательской проверки и очистки; серверная автоматическая очистка не гарантируется. `sweep` удаляет только OneShot secrets старше 6 ч на источнике, но запускается только при наличии исходной сессии и явном использовании функции.
-- GitHub LFS `.lfsconfig` на любой ветке/теге блокирует перенос до ручной проверки, чтобы токен не отправлялся на непроверенный LFS-host.
-- Если Git data больше доступного места runner, или GitHub rules / branch restrictions / LFS quotas не позволяют push, OneShot сообщит ошибку.
-- GitHub Issues/PR/Discussions/Wiki, Releases assets, Secrets/Variables, Actions logs, branch protection, collaborators не входят в Git snapshot.
-- Настоящий end-to-end перенос между двумя аккаунтами ещё не подтверждён до ручного теста.
+Issues, pull requests (other than the new review PR), Releases assets, Actions logs, GitHub secrets, branch protection, collaborators and non-Git project settings are not mirrored. RETURN stages only the default-branch snapshot, not all other refs.
+
+## Operation history
+
+The local journal records transfer direction, mode, linked original copy, SHA snapshots, Actions run, cleanup state, PR URL/number and merged/closed state. History is stored on-device (SharedPreferences), not in GitHub cloud or another permanent controller. Do not uninstall the app until pending secrets/workflows have been cleaned up.
+
+## Validation
+
+Android CI compiles the app and tests its workflow generation. Inter-account end-to-end testing of repeated synchronization and draft PR return is still required before declaring production readiness.

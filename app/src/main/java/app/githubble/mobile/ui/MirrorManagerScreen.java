@@ -33,8 +33,9 @@ public final class MirrorManagerScreen {
 
         LinearLayout intro=vertical(activity);
         eyebrow(activity,intro,"MIRROR MANAGER",accent);
-        heading(activity,intro,"Разовая копия репозитория",text,19);
-        subtitle(activity,intro,"Полная Git-история, ветки, теги и LFS. Без Fork и скачивания на телефон.",muted);
+        heading(activity,intro,"Зеркалирование репозиториев",text,19);
+        subtitle(activity,intro,"Создай копию, обнови существующее зеркало или верни доработки "
+                +"обратно через Pull Request. Без Fork и загрузки исходников на телефон.",muted);
         wrap(activity,host,intro,card,border);
 
         if(source!=null && source.contains("/")) {
@@ -147,6 +148,12 @@ public final class MirrorManagerScreen {
             boolean completed=MirrorManager.VERIFIED.equals(job.state)&&!job.cleanupPending;
             boolean failed=MirrorManager.FAILED.equals(job.state)||MirrorManager.DIVERGED.equals(job.state);
             boolean obsolete=MirrorManager.FORK.equals(job.mode)||MirrorManager.MANAGED.equals(job.mode);
+            String operation=MirrorManager.RETURN.equals(job.mode)?"ВОЗВРАТ ИЗМЕНЕНИЙ":
+                    MirrorManager.SYNC.equals(job.mode)?"ОБНОВЛЕНИЕ ЗЕРКАЛА":"РАЗОВАЯ КОПИЯ";
+            TextView operationText=body(activity,operation,muted,11);
+            operationText.setTypeface(null,Typeface.BOLD);
+            record.addView(operationText);
+            gap(activity,record,6);
             TextView state=body(activity,(completed?"✓  ":"")+
                     (obsolete?"Прежняя операция":status(job.state)),completed?accent:muted,12);
             state.setTypeface(null,Typeface.BOLD);
@@ -184,6 +191,44 @@ public final class MirrorManagerScreen {
             destination.setOnClickListener(v->openUrl.accept("https://github.com/"+job.destination));
             actions.addView(destination,new LinearLayout.LayoutParams(0,dp(activity,44),1));
             record.addView(actions);
+            if(MirrorManager.COPY.equals(job.mode) && completed){
+                gap(activity,record,8);
+                LinearLayout updates=new LinearLayout(activity);
+                updates.setOrientation(LinearLayout.HORIZONTAL);
+                Button sync=button(activity,"Обновить зеркало",accent,card,border,false);
+                updates.addView(sync,new LinearLayout.LayoutParams(0,dp(activity,46),1));
+                LinearLayout.LayoutParams actionSpacing=new LinearLayout.LayoutParams(0,dp(activity,46),1);
+                actionSpacing.setMargins(dp(activity,7),0,0,0);
+                Button reverse=button(activity,"Вернуть изменения",accent,card,border,false);
+                updates.addView(reverse,actionSpacing);
+                record.addView(updates);
+                sync.setOnClickListener(v->new AlertDialog.Builder(activity)
+                    .setTitle("Обновить существующее зеркало?")
+                    .setMessage(job.source+" → "+job.destination
+                            +"\n\nДобавим новые ветки, коммиты и теги в уже существующий "
+                            +"репозиторий. Обновление только fast-forward: никакого force push, "
+                            +"удаления или перезаписи самостоятельных изменений. "
+                            +"При конфликте операция остановится.")
+                    .setNegativeButton("Отмена",null)
+                    .setPositiveButton("Обновить",(d,w)->run(activity,background,"Обновление зеркала",
+                            ()->manager.updateMirror(job.id),reload)).show());
+                reverse.setOnClickListener(v->new AlertDialog.Builder(activity)
+                    .setTitle("Вернуть изменения?")
+                    .setMessage(job.destination+" → "+job.source
+                            +"\n\nСоздадим отдельную ветку возврата в исходном репозитории "
+                            +"и черновик Pull Request. Основная ветка НЕ будет перезаписана. "
+                            +"Ты сможешь проверить изменения и нажать Merge самостоятельно.")
+                    .setNegativeButton("Отмена",null)
+                    .setPositiveButton("Подготовить PR",(d,w)->run(activity,background,"Подготовка возврата",
+                            ()->manager.returnChanges(job.id),reload)).show());
+            }
+            if(!job.prUrl.isEmpty()){
+                Button pr=button(activity,"Открыть Pull Request ↗",accent,card,border,true);
+                LinearLayout.LayoutParams prParams=new LinearLayout.LayoutParams(-1,dp(activity,46));
+                prParams.setMargins(0,dp(activity,8),0,0);
+                record.addView(pr,prParams);
+                pr.setOnClickListener(v->openUrl.accept(job.prUrl));
+            }
             if(!job.runUrl.isEmpty()){
                 TextView logs=body(activity,"Журнал GitHub Actions  ↗",accent,13);
                 logs.setPadding(0,dp(activity,12),0,dp(activity,3));
@@ -193,9 +238,9 @@ public final class MirrorManagerScreen {
             wrap(activity,host,record,card,border);
         }
         LinearLayout foot=vertical(activity);
-        subtitle(activity,foot,"OneShot создаёт только новый репозиторий. "
-                +"Обратное обновление существующего проекта пока не поддерживается — "
-                +"для него нужна проверка расхождений Git-истории.",muted);
+        subtitle(activity,foot,"Обновление существующего зеркала выполняется без force push. "
+                +"Возврат изменений создаёт Draft Pull Request; слияние выполняется "
+                +"только после твоего подтверждения на GitHub.",muted);
         host.addView(foot);
     }
 
@@ -223,6 +268,9 @@ public final class MirrorManagerScreen {
         if(MirrorManager.DISPATCHED.equals(state))return "Запуск отправлен";
         if(MirrorManager.RUNNING.equals(state))return "Копирование в GitHub Actions";
         if(MirrorManager.VERIFIED.equals(state))return "Git-снимок совпадает";
+        if(MirrorManager.PR_READY.equals(state))return "Draft Pull Request готов";
+        if(MirrorManager.PR_MERGED.equals(state))return "Pull Request объединён";
+        if(MirrorManager.PR_CLOSED.equals(state))return "Pull Request закрыт";
         if(MirrorManager.FAILED.equals(state))return "Ошибка переноса";
         if(MirrorManager.DIVERGED.equals(state))return "Различаются Git-снимки";
         if(MirrorManager.UNKNOWN.equals(state))return "Требуется проверка";

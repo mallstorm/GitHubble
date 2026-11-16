@@ -26,6 +26,21 @@ public class MirrorWorkflowTest {
         assertEquals(".github/workflows/githubble-oneshot-0123456789abcdef0123456789abcdef.yml",
                 MirrorWorkflow.path("0123456789abcdef0123456789abcdef"));
     }
+    @Test public void supportsThreeSafeMirrorOperations(){
+        String y=MirrorWorkflow.yaml();
+        assertTrue(y.contains("options: [copy, sync, return]"));
+        assertTrue(y.contains("if [[ \"$OPERATION\" == \"return\" ]]".replace("\\\"","\"")));
+        assertTrue(y.contains("elif [[ \"$OPERATION\" == \"sync\" ]]".replace("\\\"","\"")));
+        assertTrue(y.contains("refs/heads/mirror-return/$REQUEST_ID"));
+        assertTrue(y.contains("git merge-base --is-ancestor"));
+        assertTrue(y.contains("Destination default changed"));
+        assertTrue(y.contains("Non-fast-forward branch"));
+        assertTrue(y.contains("Conflicting Git tag"));
+        assertFalse(y.contains("git push --force"));
+        assertFalse(y.contains("git push --mirror"));
+        assertFalse(y.contains("git push --prune"));
+    }
+
     @Test public void rejectsUnsafeId() {
         for(String id:new String[]{"../../x","a","","0123","abcdef0123456789abcdef0123456789;"}){
             try{MirrorWorkflow.path(id);fail(id);}catch(IllegalArgumentException expected){}

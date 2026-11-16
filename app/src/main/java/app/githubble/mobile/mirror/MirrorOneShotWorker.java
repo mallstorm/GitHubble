@@ -26,14 +26,20 @@ public final class MirrorOneShotWorker extends Worker {
         if(job==null)return Result.failure();
         if((MirrorManager.VERIFIED.equals(job.state)
                 ||MirrorManager.FAILED.equals(job.state)
-                ||MirrorManager.DIVERGED.equals(job.state))
+                ||MirrorManager.DIVERGED.equals(job.state)
+                ||MirrorManager.PR_READY.equals(job.state)
+                ||MirrorManager.PR_MERGED.equals(job.state)
+                ||MirrorManager.PR_CLOSED.equals(job.state))
                 &&!job.cleanupPending)return Result.success();
         try{
             MirrorManager.Job updated=mgr.refresh(id);
             if(updated.cleanupPending)return Result.retry();
             if(MirrorManager.VERIFIED.equals(updated.state)
                     ||MirrorManager.FAILED.equals(updated.state)
-                    ||MirrorManager.DIVERGED.equals(updated.state))return Result.success();
+                    ||MirrorManager.DIVERGED.equals(updated.state)
+                    ||MirrorManager.PR_READY.equals(updated.state)
+                    ||MirrorManager.PR_MERGED.equals(updated.state)
+                    ||MirrorManager.PR_CLOSED.equals(updated.state))return Result.success();
             return Result.retry();
         }catch(Exception error){
             // No token material or API responses are written to WorkManager logs.

@@ -49,7 +49,12 @@ jobs:
             abort "Do not use private environment secrets on GitHub Free" if job.key?("environment")
             abort "Expected 3 OneShot steps" unless job.fetch("steps").size>=3
             abort "Wrong GitHub Actions privileges" unless doc.fetch("permissions").fetch("contents")=="read"
-            puts "OneShot workflow YAML syntax valid"
+            job.fetch("steps").each do |step|
+              next unless step["shell"]=="bash"
+              File.write("/tmp/githubble-step.sh",step.fetch("run"))
+              abort "Invalid workflow shell script" unless system("bash","-n","/tmp/githubble-step.sh")
+            end
+            puts "OneShot workflow YAML and bash syntax valid"
           ' "$RUNNER_TEMP/oneshot.yml"
       - name: Unit tests and compile
         run: ./gradlew --no-daemon --max-workers=2 test assembleDebug lintRelease
