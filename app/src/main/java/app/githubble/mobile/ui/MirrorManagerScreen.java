@@ -62,9 +62,18 @@ public final class MirrorManagerScreen {
                 ArrayAdapter<String> adapter=new ArrayAdapter<>(activity,
                         android.R.layout.simple_spinner_dropdown_item,labels);
                 selector.setAdapter(adapter);
-                selector.setPadding(dp(activity,8),0,dp(activity,8),0);
-                bordered(activity,selector,card,border,12);
-                form.addView(selector,new LinearLayout.LayoutParams(-1,dp(activity,50)));
+                selector.setPadding(dp(activity,8),0,0,0);
+                selector.setBackground(null);
+                LinearLayout selectRow=new LinearLayout(activity);
+                selectRow.setOrientation(LinearLayout.HORIZONTAL);
+                selectRow.setGravity(Gravity.CENTER_VERTICAL);
+                selectRow.addView(selector,new LinearLayout.LayoutParams(0,-1,1));
+                TextView chevron=body(activity,"▾",muted,22);
+                chevron.setGravity(Gravity.CENTER);
+                chevron.setOnClickListener(v->selector.performClick());
+                selectRow.addView(chevron,new LinearLayout.LayoutParams(dp(activity,42),-1));
+                bordered(activity,selectRow,card,border,12);
+                form.addView(selectRow,new LinearLayout.LayoutParams(-1,dp(activity,50)));
                 gap(activity,form,12);
                 infoLabel(activity,form,"ИМЯ НОВОГО РЕПОЗИТОРИЯ",muted);
                 EditText name=new EditText(activity);
