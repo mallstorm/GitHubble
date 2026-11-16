@@ -380,7 +380,7 @@ public final class HomeScreen {
         row.addView(stat(R.drawable.ic_bell,data.notifications,"Уведомления",palette.green,actions::openActivity),
                 new LinearLayout.LayoutParams(0,-1,1));
         LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1,dp(75));
-        p.setMargins(0,0,0,dp(5));
+        p.setMargins(0,0,0,dp(DesignSystem.GAP_BLOCK));
         content.addView(row,p);
     }
 
@@ -430,7 +430,7 @@ public final class HomeScreen {
                     new Tile("Избранное","Сохранённые",R.drawable.ic_star,amber,actions::openFavorites)
                 },blue,false);
         LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1,-2);
-        p.setMargins(0,0,0,dp(5));
+        p.setMargins(0,0,0,dp(DesignSystem.GAP_BLOCK));
         content.addView(groups,p);
     }
 
@@ -446,12 +446,12 @@ public final class HomeScreen {
     private void addGroup(LinearLayout target,String name,Tile[] tiles,int accent,boolean first) {
         LinearLayout panel = new LinearLayout(activity);
         panel.setOrientation(LinearLayout.VERTICAL);
-        panel.setPadding(dp(5),dp(7),dp(5),dp(5));
+        panel.setPadding(dp(8),dp(9),dp(8),dp(8));
         panel.setBackground(round(blend(palette.card,accent,palette.dark?0.12f:0.055f),
                 13,blend(palette.border,accent,0.13f),1));
         TextView heading = text(name,10,true);
         heading.setTextColor(palette.dark?palette.text:blend(accent,Color.BLACK,0.24f));
-        heading.setPadding(dp(3),0,0,dp(5));
+        heading.setPadding(dp(3),0,0,dp(7));
         heading.setMaxLines(1);
         heading.setEllipsize(TextUtils.TruncateAt.END);
         panel.addView(heading);
@@ -461,7 +461,7 @@ public final class HomeScreen {
         for (Tile tile:tiles) renderTile(grid,tile);
         panel.addView(grid,new LinearLayout.LayoutParams(-1,-2));
         LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0,-2,1);
-        if(first)p.setMargins(0,0,dp(3),0);else p.setMargins(dp(3),0,0,0);
+        if(first)p.setMargins(0,0,dp(4),0);else p.setMargins(dp(4),0,0,0);
         target.addView(panel,p);
     }
 
@@ -519,7 +519,7 @@ public final class HomeScreen {
             }
         }
         LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1,-2);
-        p.setMargins(0,0,0,dp(4));
+        p.setMargins(0,0,0,dp(DesignSystem.GAP_BLOCK));
         content.addView(card,p);
     }
 

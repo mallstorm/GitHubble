@@ -50,6 +50,8 @@ import app.githubble.mobile.ui.HomeScreen;
 import app.githubble.mobile.ui.BottomNavigationBar;
 import app.githubble.mobile.ui.AgentChatScreen;
 import app.githubble.mobile.ui.GitAgentUi;
+import app.githubble.mobile.ui.ModelPickerSheet;
+import app.githubble.mobile.ui.ProviderHubScreen;
 import app.githubble.mobile.agent.AgentProjectStore;
 import app.githubble.mobile.agent.GitHubAgentBridge;
 import app.githubble.mobile.agent.AgentBuildArtifactController;
@@ -250,6 +252,8 @@ public class MainActivity extends Activity {
     private static final int REQUEST_MIRROR_CLOUD_OPEN = 2741;
     private static final int REQUEST_MIRROR_GOOGLE_AUTH = 2742;
     private boolean mirrorGoogleConnectRequest=false;
+    /** Where to return after a Google sign-in started outside the mirror wizard (e.g. the connections hub). */
+    private Runnable mirrorGoogleReturn=null;
     private static final int REQUEST_IMPORT_PORTABLE = 2702;
     private static final int REQUEST_EXPORT_USER_DATA = 2703;
     private static final int REQUEST_REPOSITORY_FOLDER = 2710;
@@ -378,6 +382,7 @@ public class MainActivity extends Activity {
     @Override protected void onPause() {
         app.githubble.mobile.agent.AgentUiSession.foreground(false);
         super.onPause();
+        if (mirrorManager != null && io != null) io.execute(() -> mirrorManager.googleCloud().queueIfSettingsChanged());
         if (registrationCustomTabActive) registrationCustomTabWasPaused = true;
         if (repositoryAccessBrowserActive) repositoryAccessBrowserWasPaused = true;
         if (githubAppInstallBrowserActive) githubAppInstallBrowserWasPaused = true;
@@ -663,7 +668,7 @@ public class MainActivity extends Activity {
         String provider=aiConnections.selectedProvider(owner);
         AgentProjectStore.Project project=agentProjects.project(owner);String title="";
         JSONArray list=agentProjects.listConversations(owner);for(int i=0;i<list.length();i++){JSONObject e=list.optJSONObject(i);if(e!=null&&thread.equals(e.optString("id"))){title=e.optString("title");break;}}
-        return provider+"\n"+(provider.isEmpty()?"":aiConnections.model(owner,provider))+"\n"+(!provider.isEmpty()&&aiConnections.isConfigured(owner,provider))+"\n"+project.name+"\n"+project.repository+"\n"+project.branch+"\n"+project.workspaceId+"\n"+title;
+        return provider+"\n"+(provider.isEmpty()?"":aiConnections.model(owner,provider))+"\n"+(!provider.isEmpty()&&aiConnections.isConfigured(owner,provider))+"\n"+(provider.isEmpty()||!OmniChatConnectionStore.poolable(provider)?"":aiConnections.pool().signature(owner,provider))+"\n"+project.name+"\n"+project.repository+"\n"+project.branch+"\n"+project.workspaceId+"\n"+title;
     }
     private boolean agentChatBusy(String owner,String thread){
         app.githubble.mobile.agent.AgentRun active=app.githubble.mobile.agent.AgentRunRegistry.current(owner);
@@ -1114,69 +1119,58 @@ public class MainActivity extends Activity {
                 }).setNegativeButton("Отмена", null).show();
     }
 
-    /** API-key connections are distinct from ChatGPT Subscription OAuth. */
+    /** API connections: all services with their key pools on one screen. */
     private void agentConfigureAiProvider(String expected) {
         if (!expected.equals(accountStore.activeCacheKey())) return;
-        java.util.List<String> ids = new java.util.ArrayList<>(OmniChatConnectionStore.apiSupported().keySet());
-        String[] names = new String[ids.size()];
-        for (int i = 0; i < ids.size(); i++) {
-            String id = ids.get(i);
-            names[i] = OmniChatConnectionStore.supported().get(id)
-                    + (aiConnections.isConfigured(expected, id) ? " · подключено" : "");
-        }
-        new AlertDialog.Builder(this).setTitle("Подключить Hubble Agent API")
-                .setItems(names, (d, item) -> agentEditAiProvider(expected, ids.get(item)))
-                .setNegativeButton("Отмена", null).show();
+        navigate(() -> agentShowConnections(expected));
     }
 
+    /** One service: statistics, keys with their own switches, endpoint, models. */
     private void agentEditAiProvider(String expected, String provider) {
-        LinearLayout fields = new LinearLayout(this);
-        fields.setOrientation(LinearLayout.VERTICAL);
-        fields.setPadding(dp(18), dp(4), dp(18), dp(4));
-        TextView instructions = text("Настройка " + aiConnections.displayName(provider)
-                + ". Ключ хранится зашифрованным для текущего AI-профиля.", 12, false);
-        fields.addView(instructions);
-        JSONObject config=aiConnections.configuration(expected,provider);
-        EditText endpoint=new EditText(this);endpoint.setSingleLine(true);endpoint.setTextColor(TEXT);
-        endpoint.setHint("API base URL · HTTPS или локальный HTTP");endpoint.setText(config.optString("base_url"));fields.addView(endpoint);
-        EditText protocol=new EditText(this);protocol.setSingleLine(true);protocol.setTextColor(TEXT);
-        protocol.setHint("openai-chat / openai-responses / anthropic / gemini / ollama");protocol.setText(config.optString("protocol","openai-chat"));fields.addView(protocol);
-        EditText scope=new EditText(this);scope.setSingleLine(true);scope.setTextColor(TEXT);
-        scope.setHint("Folder / Account ID / OAuth scope при необходимости");scope.setText(config.optString("auth_scope"));fields.addView(scope);
-        EditText model = new EditText(this);
-        model.setSingleLine(true);
-        model.setHint("ID модели · пусто — загрузить каталог сервера");
-        model.setTextColor(TEXT);
-        model.setText(aiConnections.model(expected, provider));
-        fields.addView(model);
-        EditText key = new EditText(this);
-        key.setSingleLine(true);
-        key.setHint(aiConnections.hasKey(expected, provider)
-                ? "Новый API-ключ (оставьте пустым, чтобы сохранить)" : "API-ключ провайдера");
-        key.setInputType(android.text.InputType.TYPE_CLASS_TEXT
-                | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        fields.addView(key);
-        AlertDialog dialog = new AlertDialog.Builder(this)
-                .setTitle("AI-подключение · " + provider)
-                .setView(fields).setPositiveButton("Сохранить", null)
-                .setNegativeButton("Отмена", null).create();
-        dialog.setOnShowListener(v -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(btn -> {
-            try {
-                if (!expected.equals(accountStore.activeCacheKey()))
-                    throw new IllegalStateException("GitHub-аккаунт изменился");
-                aiConnections.configure(expected,provider,endpoint.getText().toString(),protocol.getText().toString(),scope.getText().toString());
-                aiConnections.saveApiConnection(expected,provider,model.getText().toString(),key.getText().toString());
-                key.setText("");
-                dialog.dismiss();
-                toast("AI-подключение сохранено");
-                agentRefreshIfCurrent(expected);
-                agentDiscoverAiModels(expected);
-            } catch (Exception error) {
-                new AlertDialog.Builder(this).setTitle("Не удалось подключить AI")
-                        .setMessage(error.getMessage()).setPositiveButton("ОК", null).show();
+        if (!expected.equals(accountStore.activeCacheKey())) return;
+        if (!OmniChatConnectionStore.supported().containsKey(provider)) return;
+        navigate(() -> agentShowProvider(expected, provider));
+    }
+
+    private ProviderHubScreen hubScreen(String owner) {
+        app.githubble.mobile.agent.ConnectionsCloud.track(this, owner);
+        final LinearLayout destination = content;
+        return new ProviderHubScreen(this, content, settingsPalette(), owner, aiConnections, aiChatClient, io,
+                new ProviderHubScreen.Host() {
+            @Override public boolean isCurrent(String o) {
+                return o.equals(accountStore.activeCacheKey()) && content == destination && destination.isAttachedToWindow();
             }
-        }));
-        dialog.show();
+            @Override public void openProvider(String provider) { navigate(() -> agentShowProvider(owner, provider)); }
+            @Override public void openAddService() { navigate(() -> agentShowAddService(owner)); }
+            @Override public void openSubscriptions(boolean proxy) { agentShowSubscriptions(owner, proxy); }
+            @Override public void openNetwork() { agentFeatures(owner).network(); }
+            @Override public void openModelPicker() { agentChooseComposerModel(owner); }
+            @Override public void openUsage() { navigate(() -> agentShowUsage(owner)); }
+            @Override public void selectionChanged() { agentRefreshIfCurrent(owner); }
+            @Override public void refreshCurrentScreen() { if (currentScreen != null) currentScreen.run(); }
+        });
+    }
+
+    private void agentShowConnections(String owner) {
+        if (!owner.equals(accountStore.activeCacheKey())) return;
+        setCurrentScreen(() -> agentShowConnections(owner));
+        shell("Подключения", false);
+        hubScreen(owner).renderHub();
+    }
+
+    private void agentShowProvider(String owner, String provider) {
+        if (!owner.equals(accountStore.activeCacheKey())) return;
+        if (!OmniChatConnectionStore.supported().containsKey(provider)) { goBack(); return; }
+        setCurrentScreen(() -> agentShowProvider(owner, provider));
+        shell(aiConnections.displayName(provider), false);
+        hubScreen(owner).renderProvider(provider);
+    }
+
+    private void agentShowAddService(String owner) {
+        if (!owner.equals(accountStore.activeCacheKey())) return;
+        setCurrentScreen(() -> agentShowAddService(owner));
+        shell("Новый сервис", false);
+        hubScreen(owner).renderAddService();
     }
 
     private void agentSelectAiProvider(String expected) {
@@ -1483,6 +1477,7 @@ public class MainActivity extends Activity {
             ui.action(body,"Внешний CLIProxyAPI","Свой endpoint / bearer · модели загружаются с сервера",0xFF276D8A,()->{sheet[0].dismiss();agentEditAiProvider(owner,"proxy-external");});
             ui.action(body,"NVIDIA NIM","Отдельный ключ и каталог Subscription Proxy",0xFF276D8A,()->{sheet[0].dismiss();agentEditAiProvider(owner,"proxy-nvidia");});
         }else{
+            ui.action(body,"Все API-подключения","Любое число ключей на сервис · общая квота · свои endpoint",0xFF14846C,()->{sheet[0].dismiss();agentConfigureAiProvider(owner);});
             ui.section(body,"Аккаунты API-сервисов");
             for(String service:new String[]{"openrouter","polza","vsegpt","requesty","opencode-zen","opencode-go","cohere","cloudflare","nvidia","groq","mistral","anthropic","gigachat","yandex"}){
                 if(!OmniChatConnectionStore.supported().containsKey(service))continue;
@@ -1666,63 +1661,17 @@ public class MainActivity extends Activity {
 
     private void agentChooseComposerModel(String owner) {
         if (!owner.equals(accountStore.activeCacheKey())) return;
-        GitAgentUi ui=new GitAgentUi(this,BG,CARD,TEXT,MUTED,GREEN,BORDER);LinearLayout body=ui.body("Выбор модели",true);
-        final Dialog[] dialog={null};
-        ui.note(body,"Выберите модель или добавьте подключение. Для AI вход в GitHub не нужен.");
-        boolean any=false;
-        for(String id:OmniChatConnectionStore.supported().keySet())
-            if(aiConnections.isConfigured(owner,id))any=true;
-        ui.note(body,any?"Выберите подключённую модель":"Подключений пока нет. Выберите способ подключения.");
-        LinearLayout onboarding=ui.row();
-        ui.tile(onboarding,"Добавить API",R.drawable.ic_agent_link,0xFF2863B8,()->{
-            dialog[0].dismiss();agentConfigureAiProvider(owner);});
-        ui.tile(onboarding,"Добавить подписку",android.R.drawable.star_big_on,0xFF713CB3,
-                ()->{dialog[0].dismiss();agentShowSubscriptions(owner,false);});
-        ui.tile(onboarding,"Subscription proxy",R.drawable.ic_agent_public,0xFF14846C,
-                ()->{dialog[0].dismiss();agentShowSubscriptions(owner,true);});
-        body.addView(onboarding,new LinearLayout.LayoutParams(-1,ui.dp(112)));
-        if(any){
-            EditText search=new EditText(this);search.setSingleLine(true);search.setHint("Поиск моделей и подключений");
-            search.setTextColor(ui.text);search.setHintTextColor(ui.muted);search.setTextSize(14);body.addView(search);
-            final String[] filter={"Все"};LinearLayout filters=ui.row();
-            LinearLayout list=ui.column();final Runnable[] refresh={null};
-            refresh[0]=()->{
-                list.removeAllViews();String query=search.getText().toString().trim().toLowerCase(Locale.ROOT);
-                for(String provider:OmniChatConnectionStore.supported().keySet()){
-                    if(!aiConnections.isConfigured(owner,provider))continue;
-                    boolean subscription=OAuthSubscriptions.supports(provider)||provider.startsWith("proxy-");
-                    if("Подписки".equals(filter[0])&&!subscription || "API".equals(filter[0])&&subscription)continue;
-                    for(String model:aiConnections.models(owner,provider)){
-                        String category=aiConnections.modelGroup(owner,provider,model);
-                        if(java.util.Arrays.asList("Free","Pass","Billing").contains(filter[0])&&!filter[0].equals(category))continue;
-                        String label=aiConnections.displayName(provider)+" · "+model;
-                        if(!query.isEmpty()&&!label.toLowerCase(Locale.ROOT).contains(query))continue;
-                        boolean selected=provider.equals(aiConnections.selectedProvider(owner))
-                                &&model.equals(aiConnections.model(owner,provider));
-                        ui.action(list,(selected?"✓  ":"")+model,aiConnections.displayName(provider)+(category.isEmpty()?"":" · "+category),0xFF435B69,()->{
-                            if(!owner.equals(accountStore.activeCacheKey()))return;
-                            aiConnections.save(owner,provider,model,"");
-                            dialog[0].dismiss();agentRefreshIfCurrent(owner);
-                        });
-                    }
-                }
-                if(list.getChildCount()==0)ui.note(list,"Модели не найдены");
-            };
-            for(String scope:new String[]{"Все","API","Подписки","Free","Pass","Billing"})ui.chip(filters,scope,scope.equals(filter[0]),()->{
-                filter[0]=scope;for(int i=0;i<filters.getChildCount();i++){
-                    TextView chip=(TextView)filters.getChildAt(i);String value=new String[]{"Все","API","Подписки","Free","Pass","Billing"}[i];
-                    chip.setText((value.equals(scope)?"✓  ":"")+value);chip.setBackground(ui.shape(value.equals(scope)?(ui.dark?0xFF515963:0xFFE9EFF3):Color.TRANSPARENT,9,value.equals(scope)?0:ui.line));}
-                refresh[0].run();});
-            HorizontalScrollView priceScroll=new HorizontalScrollView(this);priceScroll.setHorizontalScrollBarEnabled(false);priceScroll.addView(filters);body.addView(priceScroll);body.addView(list);refresh[0].run();
-            search.addTextChangedListener(new android.text.TextWatcher(){
-                public void beforeTextChanged(CharSequence s,int st,int count,int after){}
-                public void onTextChanged(CharSequence s,int st,int before,int count){refresh[0].run();}
-                public void afterTextChanged(android.text.Editable s){}
-            });
-        }else ui.note(body,"После подключения здесь появятся модели с поиском и фильтрами.");
-        ui.action(body,"Обновить список моделей","Загрузить каталог выбранного API-подключения",0xFF2863B8,()->{
-            dialog[0].dismiss();agentDiscoverAiModels(owner);});
-        dialog[0]=ui.present(body,true);
+        ModelPickerSheet.show(this, settingsPalette(), owner, aiConnections, prefs, new ModelPickerSheet.Host() {
+            @Override public boolean isCurrent(String o) { return o.equals(accountStore.activeCacheKey()); }
+            @Override public void picked(String provider, String model) {
+                if (!owner.equals(accountStore.activeCacheKey())) return;
+                aiConnections.save(owner, provider, model, "");
+                agentRefreshIfCurrent(owner);
+            }
+            @Override public void openConnections() { agentConfigureAiProvider(owner); }
+            @Override public void openProvider(String provider) { agentEditAiProvider(owner, provider); }
+            @Override public void refreshCatalog() { agentDiscoverAiModels(owner); }
+        });
     }
 
     private Uri agentCameraUri;
@@ -5114,6 +5063,7 @@ public class MainActivity extends Activity {
 
     private void authorizeMirrorGoogle(boolean connect){
         mirrorGoogleConnectRequest=connect;
+        app.githubble.mobile.agent.ConnectionsCloud.track(this,accountStore.activeCacheKey());
         String email=connect?"":mirrorManager.googleCloud().email();
         com.google.android.gms.auth.api.identity.AuthorizationRequest request=
                 GoogleMirrorCloudStore.request(connect,email);
@@ -5152,12 +5102,16 @@ public class MainActivity extends Activity {
                         mirrorManager.googleCloud().sync(token);
                 runOnUiThread(()->{
                     if(isFinishing())return;
-                    showMirrorSetupWizard();
+                    reloadUiPreferences();
+                    if(!prefs.getString("theme","light").equals(activeTheme)){applyTheme();switchLauncherIcon(activeTheme);}
+                    Runnable back=mirrorGoogleReturn;mirrorGoogleReturn=null;
+                    if(back!=null)back.run();else showMirrorSetupWizard();
                     new AlertDialog.Builder(this)
                             .setTitle("Google Drive подключён")
                             .setMessage("Аккаунт: "+out.email
                                     +"\nПапка: Мой диск / GitHubble"
-                                    +"\nФайл: mirror-registry.json"
+                                    +"\nФайлы: mirror-registry.json, settings.json"
+                                    +"\nНастройки и подключения: "+out.settings
                                     +"\nСвязанных пар: "+out.total
                                     +"\nИмпортировано: "+out.imported
                                     +"\nОбновление Google Диска: "+(out.uploaded?"да":"не требовалось"))
@@ -5165,6 +5119,7 @@ public class MainActivity extends Activity {
                 });
             }catch(Exception e){
                 runOnUiThread(()->{
+                    mirrorGoogleReturn=null;
                     if(!isFinishing())errorDialog("Google Drive",e.getMessage());
                 });
             }
@@ -8463,6 +8418,8 @@ public class MainActivity extends Activity {
                 (provider.isEmpty()?"Модель не выбрана":"Модель: "+aiConnections.displayName(provider))
                         +" · подписки, Workspace, сеть",
                 accent[1],()->navigate(this::showSettingsGitAgentWorkspace),settingsAgentSections(owner)));
+        categories.add(new SettingsScreen.Category(R.drawable.ic_history,"Облако и синхронизация",
+                settingsCloudSubtitle(),accent[5],()->navigate(this::showSettingsCloud),settingsCloudSections()));
         categories.add(new SettingsScreen.Category(R.drawable.ic_settings,"О приложении",
                 "Версия "+BuildConfig.VERSION_NAME+" · диагностика",
                 accent[7],()->navigate(this::showSettingsAbout),settingsAboutSections()));
@@ -8475,6 +8432,79 @@ public class MainActivity extends Activity {
                 signedIn?()->navigate(this::showProfile):this::startSmartLogin);
         new SettingsScreen(this,content,settingsPalette())
                 .renderRoot(header,categories,settingsQuery,query->settingsQuery=query);
+    }
+
+    private String settingsCloudSubtitle(){
+        GoogleMirrorCloudStore google=mirrorManager.googleCloud();
+        if(!google.connected())return "Вход через Google · зеркала, подключения и настройки на всех устройствах";
+        String when=google.lastSync()>0?" · "+new java.text.SimpleDateFormat("dd.MM HH:mm",java.util.Locale.getDefault())
+                .format(new java.util.Date(google.lastSync())):"";
+        return google.email()+when;
+    }
+
+    private void showSettingsCloud(){
+        setCurrentScreen(this::showSettingsCloud);
+        shell("Облако и синхронизация",false);
+        new SettingsScreen(this,content,settingsPalette()).renderPage(null,tileColors[5],settingsCloudSections());
+    }
+
+    /** One Google sign-in keeps Mirror Manager links, AI connections and app settings in Drive/GitHubble. */
+    private List<SettingsScreen.Section> settingsCloudSections(){
+        List<SettingsScreen.Section> sections=new ArrayList<>();
+        GoogleMirrorCloudStore google=mirrorManager.googleCloud();
+        String keywords="облако google drive диск синхронизация резервная копия бэкап mirror настройки";
+        SettingsScreen.Section account=new SettingsScreen.Section("Google Drive");
+        if(google.connected()){
+            account.add(SettingsScreen.Item.info(R.drawable.ic_profile,"Аккаунт",google.email(),keywords));
+            account.add(SettingsScreen.Item.info(R.drawable.ic_history,"Последняя синхронизация",
+                    google.lastSync()>0?formatEpoch(google.lastSync()):"ещё не выполнялась"+(google.pending()?" · ожидает":""),keywords));
+            app.githubble.mobile.agent.ConnectionsCloud connections=
+                    new app.githubble.mobile.agent.ConnectionsCloud(this,aiConnections);
+            String note=google.settingsError().isEmpty()?connections.lastNote():google.settingsError();
+            if(!note.isEmpty())account.add(SettingsScreen.Item.info(R.drawable.ic_repository,
+                    google.settingsError().isEmpty()?"Настройки и подключения":"Проблема с настройками",note,keywords));
+            if(!google.error().isEmpty())account.add(SettingsScreen.Item.info(R.drawable.ic_lock,
+                    "Mirror Manager",google.error(),keywords));
+            account.add(SettingsScreen.Item.action(R.drawable.ic_history,"Синхронизировать сейчас",
+                    "Зеркала, подключения AI и настройки приложения",keywords+" обновить",()->{
+                        mirrorGoogleReturn=this::showSettingsCloud;syncMirrorGoogle();}));
+            account.add(SettingsScreen.Item.action(R.drawable.ic_repository,"Открыть папку на Диске",
+                    "Мой диск / GitHubble",keywords+" папка",this::openMirrorGoogleFolder));
+            account.add(SettingsScreen.Item.action(R.drawable.ic_profile,"Сменить Google-аккаунт",
+                    "Данные из текущего аккаунта будут сохранены в новый Диск",keywords+" другой аккаунт",()->{
+                        mirrorGoogleReturn=this::showSettingsCloud;connectMirrorGoogle();}));
+            account.add(SettingsScreen.Item.danger(R.drawable.ic_back,"Отключить Google Drive",
+                    "Файлы на Диске и данные на устройстве остаются",keywords+" выйти отключить",()->
+                    new AlertDialog.Builder(this).setTitle("Отключить Google Drive?")
+                            .setMessage("Синхронизация остановится. Файлы в папке GitHubble не удаляются, "
+                                    +"связи, подключения и настройки на этом устройстве сохраняются.")
+                            .setNegativeButton("Отмена",null)
+                            .setPositiveButton("Отключить",(d,w)->{
+                                mirrorManager.googleCloud().disconnect();showSettingsCloud();
+                                toast("Google Диск отключён");}).show()));
+        }else{
+            account.add(SettingsScreen.Item.action(R.drawable.ic_profile,"Войти через Google",
+                    "GitHubble сам создаст папку GitHubble на вашем Диске",keywords+" вход войти",()->{
+                        mirrorGoogleReturn=this::showSettingsCloud;connectMirrorGoogle();}));
+            account.note("Один вход для всего: зеркала репозиториев, подключения AI и основные настройки.");
+        }
+        sections.add(account);
+        SettingsScreen.Section stored=new SettingsScreen.Section("Что хранится в облаке");
+        stored.add(SettingsScreen.Item.info(R.drawable.ic_repository,"mirror-registry.json",
+                "Связанные пары репозиториев Mirror Manager",keywords));
+        stored.add(SettingsScreen.Item.info(R.drawable.ic_agent_link,"settings.json · подключения",
+                "Сервисы, свои endpoint, модели, протоколы, избранное моделей",keywords));
+        stored.add(SettingsScreen.Item.info(R.drawable.ic_tools,"settings.json · приложение",
+                "Тема, карточки, diff, перевод, наблюдение, избранные репозитории",keywords));
+        stored.note("API-ключи, токены GitHub, пароли и содержимое репозиториев в облако не попадают. "
+                +"На новом устройстве после входа вернутся все настройки, а ключи придётся ввести заново.");
+        sections.add(stored);
+        SettingsScreen.Section other=new SettingsScreen.Section("Другое хранилище");
+        other.add(SettingsScreen.Item.action(R.drawable.ic_lock,"Облачный JSON-файл",
+                "OneDrive и другие провайдеры через выбор файла (только реестр зеркал)",keywords+" onedrive saf",
+                ()->navigate(this::showMirrorSetupWizard)));
+        sections.add(other);
+        return sections;
     }
 
     /** Account rows the root search can find; the account screen itself also shows live quotas. */
@@ -9006,7 +9036,7 @@ public class MainActivity extends Activity {
 
         SettingsScreen.Section connections=new SettingsScreen.Section("Подключения и подписки");
         connections.add(SettingsScreen.Item.action(R.drawable.ic_agent_link,"Подключения API",
-                "Добавить, изменить и отключить API-провайдеры","api ключ провайдер подключение",
+                "Сервисы, любое число ключей, общая квота и свои endpoint","api ключ провайдер подключение квота endpoint",
                 ()->agentConfigureAiProvider(owner)));
         connections.add(SettingsScreen.Item.action(R.drawable.ic_profile,"Аккаунты и подписки",
                 "OpenAI, Cline, Gemini, Grok, Claude и другие","подписки аккаунты oauth",
@@ -9560,7 +9590,7 @@ public class MainActivity extends Activity {
                 }catch(com.google.android.gms.common.api.ApiException ignored){
                     errorDialog("Google Drive","Google не подтвердил разрешение на доступ к Диску");
                 }
-            }else toast("Вход через Google отменён");
+            }else{mirrorGoogleReturn=null;toast("Вход через Google отменён");}
             return;
         }
         if(agentFeatures!=null&&agentFeatures.result(requestCode,resultCode,data))return;

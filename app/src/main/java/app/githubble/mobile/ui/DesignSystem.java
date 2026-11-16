@@ -6,6 +6,8 @@ public final class DesignSystem {
   public static final int RADIUS_CONTROL = 10;
   public static final int GAP = 8;
   public static final int GAP_MIN = 6;
+  /** Vertical gap between two stacked blocks (cards, button rows, grouped lists), dp. */
+  public static final int GAP_BLOCK = 10;
 
   private DesignSystem() {}
 
