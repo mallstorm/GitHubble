@@ -393,6 +393,11 @@ public final class MirrorManager {
                         +"Сначала проверьте или закройте предыдущий PR.");
         }
         PairState state=inspect(source,target,fromRepo,toRepo);
+        if("identical".equals(state.relation)
+                &&refs(source,fromRepo).equals(refs(target,toRepo))){
+            throw new IllegalStateException("Изменений для передачи нет: Git refs обоих "
+                    +"репозиториев совпадают. Новые служебные коммиты не создавались.");
+        }
         if("identical".equals(state.relation)&&!state.contentsDiffer){
             // Tags and non-default branches may differ; a non-destructive sync verifies them.
         }else if(("behind".equals(state.relation)||"diverged".equals(state.relation)
