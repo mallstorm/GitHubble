@@ -45,6 +45,8 @@ import app.githubble.mobile.ui.HomeScreen;
 import app.githubble.mobile.ui.BottomNavigationBar;
 import app.githubble.mobile.ui.AgentChatScreen;
 import app.githubble.mobile.ui.GitAgentUi;
+import app.githubble.mobile.ui.ModelPickerSheet;
+import app.githubble.mobile.ui.ProviderHubScreen;
 import app.githubble.mobile.agent.AgentProjectStore;
 import app.githubble.mobile.agent.GitHubAgentBridge;
 import app.githubble.mobile.agent.AgentBuildArtifactController;
@@ -646,7 +648,7 @@ public class MainActivity extends Activity {
         String provider=aiConnections.selectedProvider(owner);
         AgentProjectStore.Project project=agentProjects.project(owner);String title="";
         JSONArray list=agentProjects.listConversations(owner);for(int i=0;i<list.length();i++){JSONObject e=list.optJSONObject(i);if(e!=null&&thread.equals(e.optString("id"))){title=e.optString("title");break;}}
-        return provider+"\n"+(provider.isEmpty()?"":aiConnections.model(owner,provider))+"\n"+(!provider.isEmpty()&&aiConnections.isConfigured(owner,provider))+"\n"+project.name+"\n"+project.repository+"\n"+project.branch+"\n"+project.workspaceId+"\n"+title;
+        return provider+"\n"+(provider.isEmpty()?"":aiConnections.model(owner,provider))+"\n"+(!provider.isEmpty()&&aiConnections.isConfigured(owner,provider))+"\n"+(provider.isEmpty()||!OmniChatConnectionStore.poolable(provider)?"":aiConnections.pool().signature(owner,provider))+"\n"+project.name+"\n"+project.repository+"\n"+project.branch+"\n"+project.workspaceId+"\n"+title;
     }
     private boolean agentChatBusy(String owner,String thread){
         app.githubble.mobile.agent.AgentRun active=app.githubble.mobile.agent.AgentRunRegistry.current(owner);
@@ -1181,69 +1183,57 @@ public class MainActivity extends Activity {
                 }).setNegativeButton("Отмена", null).show();
     }
 
-    /** API-key connections are distinct from ChatGPT Subscription OAuth. */
+    /** API connections: all services with their key pools on one screen. */
     private void agentConfigureAiProvider(String expected) {
         if (!expected.equals(accountStore.activeCacheKey())) return;
-        java.util.List<String> ids = new java.util.ArrayList<>(OmniChatConnectionStore.apiSupported().keySet());
-        String[] names = new String[ids.size()];
-        for (int i = 0; i < ids.size(); i++) {
-            String id = ids.get(i);
-            names[i] = OmniChatConnectionStore.supported().get(id)
-                    + (aiConnections.isConfigured(expected, id) ? " · подключено" : "");
-        }
-        new AlertDialog.Builder(this).setTitle("Подключить Hubble Agent API")
-                .setItems(names, (d, item) -> agentEditAiProvider(expected, ids.get(item)))
-                .setNegativeButton("Отмена", null).show();
+        navigate(() -> agentShowConnections(expected));
     }
 
+    /** One service: statistics, keys with their own switches, endpoint, models. */
     private void agentEditAiProvider(String expected, String provider) {
-        LinearLayout fields = new LinearLayout(this);
-        fields.setOrientation(LinearLayout.VERTICAL);
-        fields.setPadding(dp(18), dp(4), dp(18), dp(4));
-        TextView instructions = text("Настройка " + aiConnections.displayName(provider)
-                + ". Ключ хранится зашифрованным для текущего AI-профиля.", 12, false);
-        fields.addView(instructions);
-        JSONObject config=aiConnections.configuration(expected,provider);
-        EditText endpoint=new EditText(this);endpoint.setSingleLine(true);endpoint.setTextColor(TEXT);
-        endpoint.setHint("API base URL · HTTPS или локальный HTTP");endpoint.setText(config.optString("base_url"));fields.addView(endpoint);
-        EditText protocol=new EditText(this);protocol.setSingleLine(true);protocol.setTextColor(TEXT);
-        protocol.setHint("openai-chat / openai-responses / anthropic / gemini / ollama");protocol.setText(config.optString("protocol","openai-chat"));fields.addView(protocol);
-        EditText scope=new EditText(this);scope.setSingleLine(true);scope.setTextColor(TEXT);
-        scope.setHint("Folder / Account ID / OAuth scope при необходимости");scope.setText(config.optString("auth_scope"));fields.addView(scope);
-        EditText model = new EditText(this);
-        model.setSingleLine(true);
-        model.setHint("ID модели · пусто — загрузить каталог сервера");
-        model.setTextColor(TEXT);
-        model.setText(aiConnections.model(expected, provider));
-        fields.addView(model);
-        EditText key = new EditText(this);
-        key.setSingleLine(true);
-        key.setHint(aiConnections.hasKey(expected, provider)
-                ? "Новый API-ключ (оставьте пустым, чтобы сохранить)" : "API-ключ провайдера");
-        key.setInputType(android.text.InputType.TYPE_CLASS_TEXT
-                | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        fields.addView(key);
-        AlertDialog dialog = new AlertDialog.Builder(this)
-                .setTitle("AI-подключение · " + provider)
-                .setView(fields).setPositiveButton("Сохранить", null)
-                .setNegativeButton("Отмена", null).create();
-        dialog.setOnShowListener(v -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(btn -> {
-            try {
-                if (!expected.equals(accountStore.activeCacheKey()))
-                    throw new IllegalStateException("GitHub-аккаунт изменился");
-                aiConnections.configure(expected,provider,endpoint.getText().toString(),protocol.getText().toString(),scope.getText().toString());
-                aiConnections.saveApiConnection(expected,provider,model.getText().toString(),key.getText().toString());
-                key.setText("");
-                dialog.dismiss();
-                toast("AI-подключение сохранено");
-                agentRefreshIfCurrent(expected);
-                agentDiscoverAiModels(expected);
-            } catch (Exception error) {
-                new AlertDialog.Builder(this).setTitle("Не удалось подключить AI")
-                        .setMessage(error.getMessage()).setPositiveButton("ОК", null).show();
+        if (!expected.equals(accountStore.activeCacheKey())) return;
+        if (!OmniChatConnectionStore.supported().containsKey(provider)) return;
+        navigate(() -> agentShowProvider(expected, provider));
+    }
+
+    private ProviderHubScreen hubScreen(String owner) {
+        final LinearLayout destination = content;
+        return new ProviderHubScreen(this, content, settingsPalette(), owner, aiConnections, aiChatClient, io,
+                new ProviderHubScreen.Host() {
+            @Override public boolean isCurrent(String o) {
+                return o.equals(accountStore.activeCacheKey()) && content == destination && destination.isAttachedToWindow();
             }
-        }));
-        dialog.show();
+            @Override public void openProvider(String provider) { navigate(() -> agentShowProvider(owner, provider)); }
+            @Override public void openAddService() { navigate(() -> agentShowAddService(owner)); }
+            @Override public void openSubscriptions(boolean proxy) { agentShowSubscriptions(owner, proxy); }
+            @Override public void openNetwork() { agentFeatures(owner).network(); }
+            @Override public void openModelPicker() { agentChooseComposerModel(owner); }
+            @Override public void openUsage() { navigate(() -> agentShowUsage(owner)); }
+            @Override public void selectionChanged() { agentRefreshIfCurrent(owner); }
+            @Override public void refreshCurrentScreen() { if (currentScreen != null) currentScreen.run(); }
+        });
+    }
+
+    private void agentShowConnections(String owner) {
+        if (!owner.equals(accountStore.activeCacheKey())) return;
+        setCurrentScreen(() -> agentShowConnections(owner));
+        shell("Подключения", false);
+        hubScreen(owner).renderHub();
+    }
+
+    private void agentShowProvider(String owner, String provider) {
+        if (!owner.equals(accountStore.activeCacheKey())) return;
+        if (!OmniChatConnectionStore.supported().containsKey(provider)) { goBack(); return; }
+        setCurrentScreen(() -> agentShowProvider(owner, provider));
+        shell(aiConnections.displayName(provider), false);
+        hubScreen(owner).renderProvider(provider);
+    }
+
+    private void agentShowAddService(String owner) {
+        if (!owner.equals(accountStore.activeCacheKey())) return;
+        setCurrentScreen(() -> agentShowAddService(owner));
+        shell("Новый сервис", false);
+        hubScreen(owner).renderAddService();
     }
 
     private void agentSelectAiProvider(String expected) {
@@ -1564,6 +1554,7 @@ public class MainActivity extends Activity {
             ui.action(body,"Внешний CLIProxyAPI","Свой endpoint / bearer · модели загружаются с сервера",0xFF276D8A,()->{sheet[0].dismiss();agentEditAiProvider(owner,"proxy-external");});
             ui.action(body,"NVIDIA NIM","Отдельный ключ и каталог Subscription Proxy",0xFF276D8A,()->{sheet[0].dismiss();agentEditAiProvider(owner,"proxy-nvidia");});
         }else{
+            ui.action(body,"Все API-подключения","Любое число ключей на сервис · общая квота · свои endpoint",0xFF14846C,()->{sheet[0].dismiss();agentConfigureAiProvider(owner);});
             ui.section(body,"Аккаунты API-сервисов");
             for(String service:new String[]{"openrouter","polza","vsegpt","requesty","opencode-zen","opencode-go","cohere","cloudflare","nvidia","groq","mistral","anthropic","gigachat","yandex"}){
                 if(!OmniChatConnectionStore.supported().containsKey(service))continue;
@@ -1883,63 +1874,17 @@ public class MainActivity extends Activity {
 
     private void agentChooseComposerModel(String owner) {
         if (!owner.equals(accountStore.activeCacheKey())) return;
-        GitAgentUi ui=new GitAgentUi(this,BG,CARD,TEXT,MUTED,GREEN,BORDER);LinearLayout body=ui.body("Выбор модели",true);
-        final Dialog[] dialog={null};
-        ui.note(body,"Выберите модель или добавьте подключение. Для AI вход в GitHub не нужен.");
-        boolean any=false;
-        for(String id:OmniChatConnectionStore.supported().keySet())
-            if(aiConnections.isConfigured(owner,id))any=true;
-        ui.note(body,any?"Выберите подключённую модель":"Подключений пока нет. Выберите способ подключения.");
-        LinearLayout onboarding=ui.row();
-        ui.tile(onboarding,"Добавить API",R.drawable.ic_agent_link,0xFF2863B8,()->{
-            dialog[0].dismiss();agentConfigureAiProvider(owner);});
-        ui.tile(onboarding,"Добавить подписку",android.R.drawable.star_big_on,0xFF713CB3,
-                ()->{dialog[0].dismiss();agentShowSubscriptions(owner,false);});
-        ui.tile(onboarding,"Subscription proxy",R.drawable.ic_agent_public,0xFF14846C,
-                ()->{dialog[0].dismiss();agentShowSubscriptions(owner,true);});
-        body.addView(onboarding,new LinearLayout.LayoutParams(-1,ui.dp(112)));
-        if(any){
-            EditText search=new EditText(this);search.setSingleLine(true);search.setHint("Поиск моделей и подключений");
-            search.setTextColor(ui.text);search.setHintTextColor(ui.muted);search.setTextSize(14);body.addView(search);
-            final String[] filter={"Все"};LinearLayout filters=ui.row();
-            LinearLayout list=ui.column();final Runnable[] refresh={null};
-            refresh[0]=()->{
-                list.removeAllViews();String query=search.getText().toString().trim().toLowerCase(Locale.ROOT);
-                for(String provider:OmniChatConnectionStore.supported().keySet()){
-                    if(!aiConnections.isConfigured(owner,provider))continue;
-                    boolean subscription=OAuthSubscriptions.supports(provider)||provider.startsWith("proxy-");
-                    if("Подписки".equals(filter[0])&&!subscription || "API".equals(filter[0])&&subscription)continue;
-                    for(String model:aiConnections.models(owner,provider)){
-                        String category=aiConnections.modelGroup(owner,provider,model);
-                        if(java.util.Arrays.asList("Free","Pass","Billing").contains(filter[0])&&!filter[0].equals(category))continue;
-                        String label=aiConnections.displayName(provider)+" · "+model;
-                        if(!query.isEmpty()&&!label.toLowerCase(Locale.ROOT).contains(query))continue;
-                        boolean selected=provider.equals(aiConnections.selectedProvider(owner))
-                                &&model.equals(aiConnections.model(owner,provider));
-                        ui.action(list,(selected?"✓  ":"")+model,aiConnections.displayName(provider)+(category.isEmpty()?"":" · "+category),0xFF435B69,()->{
-                            if(!owner.equals(accountStore.activeCacheKey()))return;
-                            aiConnections.save(owner,provider,model,"");
-                            dialog[0].dismiss();agentRefreshIfCurrent(owner);
-                        });
-                    }
-                }
-                if(list.getChildCount()==0)ui.note(list,"Модели не найдены");
-            };
-            for(String scope:new String[]{"Все","API","Подписки","Free","Pass","Billing"})ui.chip(filters,scope,scope.equals(filter[0]),()->{
-                filter[0]=scope;for(int i=0;i<filters.getChildCount();i++){
-                    TextView chip=(TextView)filters.getChildAt(i);String value=new String[]{"Все","API","Подписки","Free","Pass","Billing"}[i];
-                    chip.setText((value.equals(scope)?"✓  ":"")+value);chip.setBackground(ui.shape(value.equals(scope)?(ui.dark?0xFF515963:0xFFE9EFF3):Color.TRANSPARENT,9,value.equals(scope)?0:ui.line));}
-                refresh[0].run();});
-            HorizontalScrollView priceScroll=new HorizontalScrollView(this);priceScroll.setHorizontalScrollBarEnabled(false);priceScroll.addView(filters);body.addView(priceScroll);body.addView(list);refresh[0].run();
-            search.addTextChangedListener(new android.text.TextWatcher(){
-                public void beforeTextChanged(CharSequence s,int st,int count,int after){}
-                public void onTextChanged(CharSequence s,int st,int before,int count){refresh[0].run();}
-                public void afterTextChanged(android.text.Editable s){}
-            });
-        }else ui.note(body,"После подключения здесь появятся модели с поиском и фильтрами.");
-        ui.action(body,"Обновить список моделей","Загрузить каталог выбранного API-подключения",0xFF2863B8,()->{
-            dialog[0].dismiss();agentDiscoverAiModels(owner);});
-        dialog[0]=ui.present(body,true);
+        ModelPickerSheet.show(this, settingsPalette(), owner, aiConnections, prefs, new ModelPickerSheet.Host() {
+            @Override public boolean isCurrent(String o) { return o.equals(accountStore.activeCacheKey()); }
+            @Override public void picked(String provider, String model) {
+                if (!owner.equals(accountStore.activeCacheKey())) return;
+                aiConnections.save(owner, provider, model, "");
+                agentRefreshIfCurrent(owner);
+            }
+            @Override public void openConnections() { agentConfigureAiProvider(owner); }
+            @Override public void openProvider(String provider) { agentEditAiProvider(owner, provider); }
+            @Override public void refreshCatalog() { agentDiscoverAiModels(owner); }
+        });
     }
 
     private Uri agentCameraUri;
@@ -9265,7 +9210,7 @@ public class MainActivity extends Activity {
 
         SettingsScreen.Section connections=new SettingsScreen.Section("Подключения и подписки");
         connections.add(SettingsScreen.Item.action(R.drawable.ic_agent_link,"Подключения API",
-                "Добавить, изменить и отключить API-провайдеры","api ключ провайдер подключение",
+                "Сервисы, любое число ключей, общая квота и свои endpoint","api ключ провайдер подключение квота endpoint",
                 ()->agentConfigureAiProvider(owner)));
         connections.add(SettingsScreen.Item.action(R.drawable.ic_profile,"Аккаунты и подписки",
                 "OpenAI, Cline, Gemini, Grok, Claude и другие","подписки аккаунты oauth",

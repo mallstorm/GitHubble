@@ -303,7 +303,9 @@ public final class SettingsScreen {
                 if (entry instanceof Item) {
                     if (group == null) {
                         group = group();
-                        content.addView(group, new LinearLayout.LayoutParams(-1, -2));
+                        LinearLayout.LayoutParams groupParams = new LinearLayout.LayoutParams(-1, -2);
+                        groupParams.setMargins(0, 0, 0, dp(DesignSystem.GAP_BLOCK));
+                        content.addView(group, groupParams);
                     } else {
                         group.addView(divider(64));
                     }
