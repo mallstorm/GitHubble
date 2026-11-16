@@ -31,6 +31,7 @@ public final class MirrorManager {
     private static final String PREFS="githubble_mirror_manager", KEY_JOBS="jobs";
     private final GitHubAccountStore accounts;
     private final MirrorLinkRegistry linkRegistry;
+    private final MirrorCloudStore cloudStore;
     private final Context applicationContext;
     private final SharedPreferences prefs;
     private final Object lock=new Object();
@@ -38,10 +39,14 @@ public final class MirrorManager {
     public MirrorManager(Context context,GitHubAccountStore accounts){
         this.accounts=accounts;
         this.linkRegistry=new MirrorLinkRegistry(context);
+        this.cloudStore=new MirrorCloudStore(context);
         this.applicationContext=context.getApplicationContext();
+        this.cloudStore.schedulePeriodic();
+        if(this.cloudStore.connected())this.cloudStore.queue();
         this.prefs=applicationContext.getSharedPreferences(PREFS,Context.MODE_PRIVATE);
     }
     private Context prefsContext(){return applicationContext;}
+    public MirrorCloudStore cloud(){return cloudStore;}
 
     public static final class Job {
         public String id="",requestId="",source="",destination="",sourceAccountId="",destinationAccountId="";
@@ -323,7 +328,9 @@ public final class MirrorManager {
         }
         if(!shared)throw new IllegalStateException("В первых 500 коммитах не найдена общая "
                 +"Git-история. Связь не создана: нужно отдельно проверить происхождение репозиториев.");
-        return linkRegistry.remember(left,right,left,"");
+        MirrorLinkRegistry.Link linked=linkRegistry.remember(left,right,left,"");
+        cloudStore.queue();
+        return linked;
     }
 
     public static final class PairState {
@@ -727,6 +734,7 @@ public final class MirrorManager {
         if(COPY.equals(job.mode)&&VERIFIED.equals(job.state)){
             // Persistent bidirectional pair survives independent OneShot journal pruning.
             linkRegistry.remember(job.source,job.destination,job.source,job.id);
+            cloudStore.queue();
         }
         job.cleanupPending=job.secretInstalled||job.workflowInstalled;
         save(job);

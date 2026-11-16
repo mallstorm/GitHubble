@@ -9,6 +9,7 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import app.githubble.mobile.auth.GitHubAccountStore;
 import app.githubble.mobile.mirror.MirrorManager;
+import app.githubble.mobile.mirror.MirrorCloudStore;
 import java.util.concurrent.Executor;
 import java.util.function.Consumer;
 
@@ -18,7 +19,8 @@ public final class MirrorSetupWizardScreen {
 
     public static void render(Activity activity,LinearLayout host,MirrorManager manager,
             GitHubAccountStore accounts,int card,int text,int muted,int accent,int border,
-            Executor background,Runnable reload,Consumer<String> openUrl,Runnable done){
+            Executor background,Runnable reload,Consumer<String> openUrl,Runnable done,
+            Runnable cloudCreate,Runnable cloudOpen,Runnable cloudSync,Runnable cloudDisconnect){
         LinearLayout panel=new LinearLayout(activity);
         panel.setOrientation(LinearLayout.VERTICAL);
         panel.setPadding(dp(activity,16),dp(activity,18),dp(activity,16),dp(activity,18));
@@ -59,6 +61,38 @@ public final class MirrorSetupWizardScreen {
                 +"даже после удаления временного workflow. Исходные пользовательские файлы "
                 +"не перезаписываются. Работа с защищённой default branch может потребовать "
                 +"изменения правил репозитория.",muted);
+        title(activity,panel,"4. Облачный реестр зеркал",16,text);
+        MirrorCloudStore cloud=manager.cloud();
+        if(cloud.connected()){
+            info(activity,panel,"Облачный документ подключён: "+cloud.location(),accent);
+            if(cloud.lastSync()>0){
+                String time=new java.text.SimpleDateFormat("dd.MM.yyyy HH:mm",
+                        java.util.Locale.getDefault()).format(new java.util.Date(cloud.lastSync()));
+                info(activity,panel,"Последняя успешная синхронизация: "+time
+                        +(cloud.pending()?" · Есть несинхронизированные изменения":""),muted);
+            }
+            if(!cloud.lastError().isEmpty())info(activity,panel,cloud.lastError(),muted);
+        }else{
+            info(activity,panel,"Облачный реестр пока не подключён. Он хранит только связи "
+                    +"между репозиториями, без GitHub-токенов, исходников или секретов.",muted);
+        }
+        info(activity,panel,"Выбирай файл на Google Диске, OneDrive или в другом сервисе, "
+                +"который доступен в системном проводнике Android. Поддержка Яндекс Диска "
+                +"зависит от того, предоставляет ли установленное приложение доступ к файлам "
+                +"через Android DocumentsProvider. Сам файл JSON не зашифрован, поэтому "
+                +"его имена репозиториев будут видны владельцу облачного хранилища.",muted);
+        action(activity,panel,"Создать облачный реестр JSON",accent,cloudCreate);
+        action(activity,panel,"Подключить существующий JSON",accent,cloudOpen);
+        if(cloud.connected()){
+            action(activity,panel,"Синхронизировать сейчас",accent,cloudSync);
+            action(activity,panel,"Отключить облако (связи сохранятся)",accent,
+                    ()->new AlertDialog.Builder(activity)
+                            .setTitle("Отключить облачный реестр?")
+                            .setMessage("Локальные связи и история Mirror Manager сохранятся. "
+                                    +"Доступ к облачному файлу будет отозван только для GitHubble.")
+                            .setNegativeButton("Отмена",null)
+                            .setPositiveButton("Отключить",(d,w)->cloudDisconnect.run()).show());
+        }
         action(activity,panel,"Закрыть мастер",accent,done);
     }
     private static void title(Activity a,LinearLayout parent,String value,int size,int color){

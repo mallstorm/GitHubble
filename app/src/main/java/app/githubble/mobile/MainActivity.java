@@ -35,6 +35,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import app.githubble.mobile.auth.OAuthManager;
 import app.githubble.mobile.auth.GitHubAccountStore;
 import app.githubble.mobile.mirror.MirrorManager;
+import app.githubble.mobile.mirror.MirrorCloudStore;
 import app.githubble.mobile.ui.MirrorManagerScreen;
 import app.githubble.mobile.ui.MirrorSetupWizardScreen;
 import app.githubble.mobile.auth.GitHubAppInstallationGate;
@@ -244,6 +245,8 @@ public class MainActivity extends Activity {
     private static final String PREF_AUTH_JUST_COMPLETED = "github_auth_just_completed";
     private static final String EXTRA_OPEN_PROFILE_AFTER_AUTH = "open_profile_after_github_auth";
     private static final int REQUEST_EXPORT_PORTABLE = 2701;
+    private static final int REQUEST_MIRROR_CLOUD_CREATE = 2740;
+    private static final int REQUEST_MIRROR_CLOUD_OPEN = 2741;
     private static final int REQUEST_IMPORT_PORTABLE = 2702;
     private static final int REQUEST_EXPORT_USER_DATA = 2703;
     private static final int REQUEST_REPOSITORY_FOLDER = 2710;
@@ -5085,7 +5088,58 @@ public class MainActivity extends Activity {
         MirrorSetupWizardScreen.render(this,content,mirrorManager,accountStore,
                 CARD,TEXT,MUTED,GREEN,BORDER,io,
                 this::showMirrorSetupWizard,this::openWeb,
-                ()->navigate(this::showSettingsAccount));
+                ()->navigate(this::showSettingsAccount),
+                this::startMirrorCloudCreate,this::startMirrorCloudOpen,
+                this::syncMirrorCloud,this::disconnectMirrorCloud);
+    }
+
+    private void startMirrorCloudCreate(){
+        Intent choose=new Intent(Intent.ACTION_CREATE_DOCUMENT);
+        choose.addCategory(Intent.CATEGORY_OPENABLE);
+        choose.setType("application/json");
+        choose.putExtra(Intent.EXTRA_TITLE,"GitHubble-Mirror-Registry.json");
+        choose.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
+                |Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                |Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+        try{startActivityForResult(choose,REQUEST_MIRROR_CLOUD_CREATE);}
+        catch(Exception e){errorDialog("Облачный реестр",e.getMessage());}
+    }
+
+    private void startMirrorCloudOpen(){
+        Intent choose=new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        choose.addCategory(Intent.CATEGORY_OPENABLE);
+        choose.setType("*/*"); // some providers label .json as application/octet-stream
+        choose.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
+                |Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                |Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+        try{startActivityForResult(choose,REQUEST_MIRROR_CLOUD_OPEN);}
+        catch(Exception e){errorDialog("Облачный реестр",e.getMessage());}
+    }
+
+    private void syncMirrorCloud(){
+        io.execute(()->{
+            try{
+                MirrorCloudStore.Result result=mirrorManager.cloud().sync();
+                runOnUiThread(()->{
+                    if(isFinishing())return;
+                    showMirrorSetupWizard();
+                    new AlertDialog.Builder(this).setTitle("Облачный реестр синхронизирован")
+                        .setMessage("Всего связанных пар: "+result.merged
+                                +"\nИмпортировано обновлений: "+result.imported
+                                +"\nЗаписан облачный файл: "+(result.wrote?"да":"изменений нет"))
+                        .setPositiveButton("OK",null).show();
+                });
+            }catch(Exception e){runOnUiThread(()->errorDialog("Не удалось синхронизировать реестр",
+                    e.getMessage()));}
+        });
+    }
+
+    private void disconnectMirrorCloud(){
+        try{
+            mirrorManager.cloud().disconnect();
+            showMirrorSetupWizard();
+            toast("Облачный реестр отключён; локальные связи сохранены");
+        }catch(Exception e){errorDialog("Отключение облака",e.getMessage());}
     }
 
     private void showMirrorManager(String full){
@@ -5094,7 +5148,8 @@ public class MainActivity extends Activity {
         setCurrentScreen(()->showMirrorManager(source));
         shell("Mirror Manager",true);
         MirrorManagerScreen.render(this,content,mirrorManager,accountStore,source,
-                CARD,TEXT,MUTED,GREEN,BORDER,io,()->showMirrorManager(source),this::openWeb);
+                CARD,TEXT,MUTED,GREEN,BORDER,io,()->showMirrorManager(source),
+                this::openWeb,this::showMirrorSetupWizard);
     }
 
     private void showCreateRepositoryDialog(){
@@ -9407,6 +9462,33 @@ public class MainActivity extends Activity {
     @Override protected void onActivityResult(int requestCode,int resultCode,Intent data){
         super.onActivityResult(requestCode,resultCode,data);
         if(agentFeatures!=null&&agentFeatures.result(requestCode,resultCode,data))return;
+        if(requestCode==REQUEST_MIRROR_CLOUD_CREATE||requestCode==REQUEST_MIRROR_CLOUD_OPEN){
+            if(resultCode==RESULT_OK&&data!=null&&data.getData()!=null){
+                Uri uri=data.getData();
+                int flags=data.getFlags();
+                io.execute(()->{
+                    try{
+                        MirrorCloudStore.Result outcome=mirrorManager.cloud().attach(uri,flags);
+                        runOnUiThread(()->{
+                            if(isFinishing())return;
+                            showMirrorSetupWizard();
+                            new AlertDialog.Builder(this)
+                                .setTitle("Облачный реестр подключён")
+                                .setMessage("Связанных пар: "+outcome.merged
+                                        +"\nИмпортировано изменений: "+outcome.imported
+                                        +"\nФайл синхронизирован: "+(outcome.wrote?"да":"без записи")
+                                        +"\n\nАвтоматическая проверка выполняется периодически.")
+                                .setPositiveButton("OK",null).show();
+                        });
+                    }catch(Exception e){
+                        runOnUiThread(()->errorDialog("Не удалось подключить облачный документ",
+                                e.getMessage()));
+                    }
+                });
+            }
+            return;
+        }
+
         if(requestCode==REQUEST_AGENT_EXPORT_MEDIA){
             String path=agentMediaExportPath,owner=agentMediaExportOwner,thread=agentMediaExportThread;
             agentMediaExportPath="";agentMediaExportOwner="";agentMediaExportThread="";
