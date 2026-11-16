@@ -14,7 +14,7 @@ GitHubble can store its **linked repository pair registry** in ONE user-selected
 1. Settings → Account and GitHub → Mirror setup → Cloud registry.
 2. Tap **Create cloud registry JSON** to choose a provider and create GitHubble-Mirror-Registry.json, or **Connect existing JSON** on another device.
 3. Android grants long-lived URI read/write permission to this exact selected file only. GitHubble immediately merges local and cloud links.
-4. Tap **Synchronize now** any time in Settings or Mirror Manager. Background WorkManager sync retries after new links and periodically (6 hours), subject to Android/provider availability.
+4. Tap **Synchronize now** any time in Settings or Mirror Manager. Background WorkManager sync retries after new links and periodically (about 1 hour), subject to Android/provider availability.
 5. Disconnect to release the document grant; connected repositories and local links remain untouched.
 
 ## Data model
