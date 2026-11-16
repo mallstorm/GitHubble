@@ -64,8 +64,7 @@ public final class AgentController {
                 return host.executeFromBroker(name,args);
             },new ToolBroker.Journal() {
                 public String started(String name,JSONObject args) { return run.begin(name,args); }
-                public void completed(String id,String state,String detail) { run.result(id,state,
-                    "succeeded".equals(state)?"":AgentLogRedactor.redact(detail)); }
+                public void completed(String id,String state,String detail) { run.result(id,state,AgentLogRedactor.redact(detail)); }
             });
             ToolCatalog.install(broker);
             host.registerPlugins(broker);
