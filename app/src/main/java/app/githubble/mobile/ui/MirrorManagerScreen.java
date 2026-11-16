@@ -17,6 +17,7 @@ import android.widget.Spinner;
 import android.widget.TextView;
 import app.githubble.mobile.auth.GitHubAccountStore;
 import app.githubble.mobile.mirror.MirrorManager;
+import app.githubble.mobile.mirror.MirrorLinkRegistry;
 import app.githubble.mobile.mirror.MirrorPolicy;
 import java.util.ArrayList;
 import java.util.List;
@@ -37,6 +38,9 @@ public final class MirrorManagerScreen {
         subtitle(activity,intro,"Создай копию, обнови существующее зеркало или верни доработки "
                 +"обратно через Pull Request. Без Fork и загрузки исходников на телефон.",muted);
         wrap(activity,host,intro,card,border);
+
+        showLinkedPairs(activity,host,manager,source,card,text,muted,accent,border,
+                background,reload,openUrl);
 
         if(source!=null && source.contains("/")) {
             GitHubAccountStore.Account active=null;
@@ -91,6 +95,29 @@ public final class MirrorManagerScreen {
                         +"Существующие проекты не перезаписываются.",muted);
                 Button start=button(activity,"Создать копию  →",accent,card,border,true);
                 form.addView(start,new LinearLayout.LayoutParams(-1,dp(activity,48)));
+                Button restore=button(activity,"Связать существующие репозитории",accent,card,border,false);
+                LinearLayout.LayoutParams recoverParams=new LinearLayout.LayoutParams(-1,dp(activity,44));
+                recoverParams.setMargins(0,dp(activity,8),0,0);
+                form.addView(restore,recoverParams);
+                restore.setOnClickListener(v->{
+                    int index=selector.getSelectedItemPosition();
+                    if(index<0||index>=targets.size())return;
+                    String repoName=name.getText().toString().trim();
+                    try{MirrorPolicy.requireName(repoName);}
+                    catch(Exception invalid){name.setError(invalid.getMessage());return;}
+                    String existing=targets.get(index).login+"/"+repoName;
+                    new AlertDialog.Builder(activity)
+                        .setTitle("Связать существующие репозитории?")
+                        .setMessage(source+" ↔ "+existing
+                                +"\n\nНикакие файлы, ветки и настройки репозиториев не меняются. "
+                                +"GitHubble проверит общую историю коммитов и сохранит "
+                                +"связанную пару только при подтверждённом совпадении. "
+                                +"Обе учётные записи должны быть подключены.")
+                        .setNegativeButton("Отмена",null)
+                        .setPositiveButton("Проверить связь",(d,w)->runLink(activity,background,
+                                "Проверка общей Git-истории",()->manager.recoverLink(source,existing),
+                                reload)).show();
+                });
                 start.setOnClickListener(v->{
                     int index=selector.getSelectedItemPosition();
                     if(index<0||index>=targets.size())return;
@@ -122,7 +149,11 @@ public final class MirrorManagerScreen {
             wrap(activity,host,noSource,card,border);
         }
 
-        List<MirrorManager.Job> jobs=manager.list();
+        List<MirrorManager.Job> jobs=new ArrayList<>();
+        for(MirrorManager.Job j:manager.list())
+            if(source==null||!source.contains("/")
+                    ||j.source.equalsIgnoreCase(source)||j.destination.equalsIgnoreCase(source))
+                jobs.add(j);
         LinearLayout historyHeader=new LinearLayout(activity);
         historyHeader.setOrientation(LinearLayout.HORIZONTAL);
         historyHeader.setGravity(Gravity.CENTER_VERTICAL);
@@ -191,37 +222,6 @@ public final class MirrorManagerScreen {
             destination.setOnClickListener(v->openUrl.accept("https://github.com/"+job.destination));
             actions.addView(destination,new LinearLayout.LayoutParams(0,dp(activity,44),1));
             record.addView(actions);
-            if(MirrorManager.COPY.equals(job.mode) && completed){
-                gap(activity,record,8);
-                LinearLayout updates=new LinearLayout(activity);
-                updates.setOrientation(LinearLayout.HORIZONTAL);
-                Button sync=button(activity,"Обновить зеркало",accent,card,border,false);
-                updates.addView(sync,new LinearLayout.LayoutParams(0,dp(activity,46),1));
-                LinearLayout.LayoutParams actionSpacing=new LinearLayout.LayoutParams(0,dp(activity,46),1);
-                actionSpacing.setMargins(dp(activity,7),0,0,0);
-                Button reverse=button(activity,"Вернуть изменения",accent,card,border,false);
-                updates.addView(reverse,actionSpacing);
-                record.addView(updates);
-                sync.setOnClickListener(v->new AlertDialog.Builder(activity)
-                    .setTitle("Обновить существующее зеркало?")
-                    .setMessage(job.source+" → "+job.destination
-                            +"\n\nДобавим новые ветки, коммиты и теги в уже существующий "
-                            +"репозиторий. Обновление только fast-forward: никакого force push, "
-                            +"удаления или перезаписи самостоятельных изменений. "
-                            +"При конфликте операция остановится.")
-                    .setNegativeButton("Отмена",null)
-                    .setPositiveButton("Обновить",(d,w)->run(activity,background,"Обновление зеркала",
-                            ()->manager.updateMirror(job.id),reload)).show());
-                reverse.setOnClickListener(v->new AlertDialog.Builder(activity)
-                    .setTitle("Вернуть изменения?")
-                    .setMessage(job.destination+" → "+job.source
-                            +"\n\nСоздадим отдельную ветку возврата в исходном репозитории "
-                            +"и черновик Pull Request. Основная ветка НЕ будет перезаписана. "
-                            +"Ты сможешь проверить изменения и нажать Merge самостоятельно.")
-                    .setNegativeButton("Отмена",null)
-                    .setPositiveButton("Подготовить PR",(d,w)->run(activity,background,"Подготовка возврата",
-                            ()->manager.returnChanges(job.id),reload)).show());
-            }
             if(!job.prUrl.isEmpty()){
                 Button pr=button(activity,"Открыть Pull Request ↗",accent,card,border,true);
                 LinearLayout.LayoutParams prParams=new LinearLayout.LayoutParams(-1,dp(activity,46));
@@ -238,10 +238,140 @@ public final class MirrorManagerScreen {
             wrap(activity,host,record,card,border);
         }
         LinearLayout foot=vertical(activity);
-        subtitle(activity,foot,"Обновление существующего зеркала выполняется без force push. "
-                +"Возврат изменений создаёт Draft Pull Request; слияние выполняется "
-                +"только после твоего подтверждения на GitHub.",muted);
+        subtitle(activity,foot,"Связь работает в обе стороны независимо от активного аккаунта. "
+                +"Fast-forward обновляет существующее зеркало без force push. "
+                +"При расхождении Git-истории создаётся Draft Pull Request для проверки.",muted);
         host.addView(foot);
+    }
+
+    private static void showLinkedPairs(Activity a,LinearLayout host,MirrorManager manager,
+            String source,int card,int text,int muted,int accent,int border,
+            Executor background,Runnable reload,Consumer<String> openUrl){
+        List<MirrorLinkRegistry.Link> pairs=(source!=null&&source.contains("/"))
+                ?manager.linksFor(source):manager.listLinks();
+        if(pairs.isEmpty())return;
+        LinearLayout sectionTitle=vertical(a);
+        heading(a,sectionTitle,"Связанные репозитории",text,17);
+        subtitle(a,sectionTitle,"Отправляй или принимай изменения с любого из подключённых аккаунтов.",muted);
+        host.addView(sectionTitle);
+        for(MirrorLinkRegistry.Link link:pairs){
+            String current=(source!=null&&link.contains(source))?source:link.original;
+            String partner=link.partner(current);
+            LinearLayout panel=vertical(a);
+            eyebrow(a,panel,"СВЯЗАННАЯ ПАРА",accent);
+            TextView currentName=body(a,current,text,15);
+            currentName.setTypeface(null,Typeface.BOLD);
+            panel.addView(currentName);
+            TextView arrow=body(a,"⇄  "+partner,muted,14);
+            arrow.setPadding(0,dp(a,6),0,dp(a,7));
+            panel.addView(arrow);
+            subtitle(a,panel,"Направление выбирается автоматически. "
+                    +"При конфликте создаётся ветка для проверки и черновик Pull Request.",muted);
+            gap(a,panel,12);
+            LinearLayout controls=new LinearLayout(a);
+            controls.setOrientation(LinearLayout.HORIZONTAL);
+            Button send=button(a,"Отправить",accent,card,border,true);
+            Button receive=button(a,"Получить",accent,card,border,false);
+            LinearLayout.LayoutParams left=new LinearLayout.LayoutParams(0,dp(a,46),1);
+            left.setMargins(0,0,dp(a,6),0);
+            controls.addView(send,left);
+            controls.addView(receive,new LinearLayout.LayoutParams(0,dp(a,46),1));
+            panel.addView(controls);
+            send.setOnClickListener(v->confirmTransfer(a,background,manager,link,
+                    current,partner,reload));
+            receive.setOnClickListener(v->confirmTransfer(a,background,manager,link,
+                    partner,current,reload));
+            LinearLayout misc=new LinearLayout(a);
+            misc.setOrientation(LinearLayout.HORIZONTAL);
+            Button inspect=button(a,"Сравнить",accent,card,border,false);
+            Button partnerButton=button(a,"Репозиторий ↗",accent,card,border,false);
+            LinearLayout.LayoutParams leftMinor=new LinearLayout.LayoutParams(0,dp(a,42),1);
+            leftMinor.setMargins(0,0,dp(a,6),0);
+            misc.addView(inspect,leftMinor);
+            misc.addView(partnerButton,new LinearLayout.LayoutParams(0,dp(a,42),1));
+            inspect.setOnClickListener(v->runInspect(a,background,manager,link.id,current));
+            partnerButton.setOnClickListener(v->openUrl.accept("https://github.com/"+partner));
+            gap(a,panel,8);
+            panel.addView(misc);
+            wrap(a,host,panel,card,border);
+        }
+    }
+
+    private static void confirmTransfer(Activity a,Executor executor,MirrorManager manager,
+            MirrorLinkRegistry.Link link,String from,String to,Runnable reload){
+        new AlertDialog.Builder(a)
+            .setTitle("Перенести изменения?")
+            .setMessage(from+"  →  "+to
+                    +"\n\nЕсли Git-история допускает fast-forward, существующий "
+                    +"репозиторий обновится без force push и удаления веток. "
+                    +"Если истории разошлись, вместо перезаписи будет создана "
+                    +"отдельная ветка и Draft Pull Request.\n\n"
+                    +"Оба репозитория останутся независимыми.")
+            .setNegativeButton("Отмена",null)
+            .setPositiveButton("Продолжить",(d,w)->run(a,executor,
+                    "Проверяем историю Git",()->manager.transferLinked(link.id,from),reload))
+            .show();
+    }
+
+    private static void runInspect(Activity a,Executor executor,MirrorManager manager,
+            String linkId,String from){
+        ProgressDialog progress=ProgressDialog.show(a,"Mirror Manager",
+                "Проверяем состояние двух репозиториев…",true,false);
+        executor.execute(()->{
+            try{
+                MirrorManager.PairState p=manager.inspectLink(linkId,from);
+                String relation;
+                switch(p.relation){
+                    case "ahead":relation="Источник впереди назначения";break;
+                    case "behind":relation="Источник отстаёт от назначения";break;
+                    case "identical":relation="Общий коммит совпадает";break;
+                    default:relation="Истории разошлись; нужен Pull Request";break;
+                }
+                String message=p.from+" → "+p.to+"\n\n"+relation
+                        +"\n"+p.fromBranch+": "+shortSha(p.fromSha)
+                        +"\n"+p.toBranch+": "+shortSha(p.toSha)
+                        +"\nФайлы: "+(p.contentsDiffer?"отличаются":"совпадают")
+                        +"\n\nПри конфликте основная ветка не переписывается.";
+                a.runOnUiThread(()->{
+                    if(a.isFinishing())return;
+                    progress.dismiss();
+                    new AlertDialog.Builder(a).setTitle("Сравнение Git-истории")
+                            .setMessage(message).setPositiveButton("Закрыть",null).show();
+                });
+            }catch(Exception error){a.runOnUiThread(()->{
+                if(a.isFinishing())return;
+                progress.dismiss();
+                new AlertDialog.Builder(a).setTitle("Не удалось сравнить")
+                        .setMessage(error.getMessage()).setPositiveButton("OK",null).show();
+            });}
+        });
+    }
+
+    private interface LinkTask{MirrorLinkRegistry.Link execute()throws Exception;}
+    private static void runLink(Activity a,Executor background,String label,LinkTask task,Runnable reload){
+        ProgressDialog progress=ProgressDialog.show(a,label,"Проверяем Git-историю…",true,false);
+        background.execute(()->{
+            try{
+                MirrorLinkRegistry.Link link=task.execute();
+                a.runOnUiThread(()->{
+                    if(a.isFinishing())return;
+                    progress.dismiss();
+                    reload.run();
+                    new AlertDialog.Builder(a).setTitle("Репозитории связаны")
+                            .setMessage(link.left+" ⇄ "+link.right
+                                    +"\n\nТеперь доступны «Отправить» и «Получить» с обеих сторон.")
+                            .setPositiveButton("OK",null).show();
+                });
+            }catch(Exception error){a.runOnUiThread(()->{
+                if(a.isFinishing())return;
+                progress.dismiss();
+                new AlertDialog.Builder(a).setTitle("Связь не создана")
+                        .setMessage(error.getMessage()).setPositiveButton("OK",null).show();
+            });}
+        });
+    }
+    private static String shortSha(String sha){
+        return sha==null?"":sha.substring(0,Math.min(10,sha.length()));
     }
 
     private interface Task{MirrorManager.Job execute()throws Exception;}

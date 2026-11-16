@@ -1,38 +1,29 @@
-# GitHubble Mirror Manager — OneShot, update, return
+# GitHubble Universal Mirror Manager
 
-This module supports three account-scoped Git transfers through a temporary GitHub Actions workflow in the current source repository. It does not use Fork or a permanent controller.
+Mirror Manager supports any two connected GitHub accounts, in either direction, without a fixed master account or a permanent mirror controller.
 
-## Modes
+## Pair-first experience
 
-1. COPY. Create a NEW independent empty repository on another connected account. Transfer Git history, branches, tags and LFS. Refuse if destination already exists.
-2. SYNC. From History, select Update mirror on a VERIFIED copy. The original source and destination are reused. Git refs and LFS are transferred to the existing independent destination only with fast-forward branch pushes. Existing destination-only tags and branches remain untouched; conflicting common tags or non-fast-forward common branches cause failure. Force, prune, destructive reset and deletions are forbidden. Verify every source ref is present at the identical SHA after transfer.
-3. RETURN. From History, select Return changes on a VERIFIED copy. Source becomes its existing mirror and destination becomes the former original. If Git trees have not changed, refuse the unnecessary operation. Push only a new review branch in the destination named mirror-return/<requestId> and create a DRAFT pull request against its default branch. GitHub checks conflicts. No automatic merge or modification of the destination default branch. Users explicitly review and merge on GitHub.
+- Open any repository and choose Mirror Manager. If in a known linked pair, the UI shows the counterpart with Send, Receive and Compare.
+- Send uses the opened repository as Git source. Receive uses its linked counterpart as Git source. Account identity is resolved from repository ownership, not the currently active account.
+- Multiple independent linked pairs can share one repo, e.g. mallstorm/OmniChat with marwell4/OmniChat and with ntl-nam/OmniChat. Pair IDs are direction-independent, based on case-normalized repository names.
+- Verified OneShot copy history is migrated into a separate local persistent pair registry. Deleting the operation journal does not delete links.
+- After deleting app data or reinstalling, use Link existing repositories: choose the second account and repository and verify at least one identical Git commit within the last 500 commits on both repos. This recovery does not mutate any remote repository.
+- The registry is local, NOT cloud-synced. We do not silently require Administration:write, alter repository topics or write metadata files into user projects just to remember pair membership.
 
-## Permissions
+## Transfer policy
 
-Source: Contents:write, Workflows:write, Secrets:write, Actions:write, permission to write temporary workflow on the default branch.
-Destination: Contents:write and Workflows:write. COPY requires creating a repo. RETURN additionally requires Pull requests:read and write.
-The connected OAuth sessions are separate, even when the user has more than two GitHub accounts. No GitHub App PEM, Client ID or separate mallstorm controller is required.
+- COPY: new independent repository with full Git heads, tags, LFS, no Fork.
+- SEND/RECEIVE when fast-forward: compare default Git commits and synchronize all source refs atomically without force or prune. Destination-only refs are kept, conflicting shared tags and non-fast-forward branches abort.
+- SEND/RECEIVE when divergent: create a new review branch mirror-return/requestId in the destination and a draft Pull Request. Destination default branch is never automatically overwritten. User reviews conflicts and merges manually.
+- Divergent histories with identical file trees do not create meaningless PRs. Tags/side branch-only differences may require a later dedicated workflow.
+- Each operation needs explicit confirmation and separate credentials for the two GitHub accounts.
 
-## Transfer security
+## History and security
 
-- Before adding the temporary workflow, persist source and destination default branch SHA baselines.
-- The source's temporary Actions workflow is created and dispatched using source account authorization, with contents:read run permission. Its own workflow commit is not included in the transfer snapshot; local bare Git refs are reset to the pre-workflow SHA.
-- The destination OAuth credential is sealed with libsodium crypto_box_seal for the GitHub Actions Repository Secret public key. It must not be logged, placed in a workflow input, persisted to SharedPreferences, or included in the workflow source.
-- The runner compares existing destination refs before syncing and uses NO force, prune or deletion. When a target-only branch/tag exists, preserve it and verify the source ref subset afterward.
-- Return operations verify a shared Git ancestor, the destination default SHA and the new review branch commit. The app creates a draft PR after GitHub Actions reports successful completion.
-- After the run finishes, the app and WorkManager remove the temporary credential secret and workflow. Long network loss or uninstall can delay removal; manually use Check where necessary. Deleting the secret is not a token revocation.
-- Creating/removing a workflow produces two technical Git commits on the source default branch; subsequent syncs may carry earlier technical commits.
-- Branch protection, rulesets, LFS custom endpoints and resource limits can prevent an operation. The implementation stops without force.
-
-## Not included
-
-Issues, pull requests (other than the new review PR), Releases assets, Actions logs, GitHub secrets, branch protection, collaborators and non-Git project settings are not mirrored. RETURN stages only the default-branch snapshot, not all other refs.
-
-## Operation history
-
-The local journal records transfer direction, mode, linked original copy, SHA snapshots, Actions run, cleanup state, PR URL/number and merged/closed state. History is stored on-device (SharedPreferences), not in GitHub cloud or another permanent controller. Do not uninstall the app until pending secrets/workflows have been cleaned up.
-
-## Validation
-
-Android CI compiles the app and tests its workflow generation. Inter-account end-to-end testing of repeated synchronization and draft PR return is still required before declaring production readiness.
+- Jobs retain linkPairId, original copy ID, source/target SHAs, direction, run URL, cleanup and optional PR state. The journal shows operations from either side.
+- No force push, prune, deletion or silent merge of an existing target.
+- Source permissions: Contents:write, Workflows:write, Secrets:write and Actions:write. Return PR additionally needs Pull requests:write on the destination. Branch rulesets can block temporary workflow commits.
+- The destination OAuth token is encrypted into a temporary GitHub Actions secret in the source repository. Worker removes it after completion. Secret deletion does not revoke OAuth credentials, so repository workflow writers must be trusted.
+- Temporary source workflows leave two technical commits in main even after cleanup.
+- Real end-to-end testing of the new pair-first send/receive and PR flow remains outstanding; Android CI validates compilation, tests and generated Actions workflow syntax.
