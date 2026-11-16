@@ -392,8 +392,6 @@ public final class AgentRun {
         return "Запрос к GitHub API";
       case "github_request":
         return "Изменение через GitHub API";
-      case "delete_repository":
-        return "Удаление репозитория";
       case "actions_cleanup":
         return "Очистка Actions";
       case "recent_build_runs":

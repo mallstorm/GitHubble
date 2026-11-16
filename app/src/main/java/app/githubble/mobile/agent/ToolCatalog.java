@@ -23,6 +23,8 @@ public final class ToolCatalog {
         if (props.has("files")) props.put("files", type("array").put("minItems",1).put("maxItems",12)
             .put("items",schema("path content expected_sha", "path content")));
         if (props.has("expect")) props.put("expect",schema("package version_code:integer version_name", ""));
+        if (props.has("options")) props.put("options",type("array").put("minItems",2).put("maxItems",6)
+            .put("items",schema("label description recommended:boolean","label")));
         if (props.has("method")) props.getJSONObject("method").put("enum",new JSONArray().put("POST").put("PATCH").put("PUT").put("DELETE"));
         if (props.has("kind")) props.getJSONObject("kind").put("enum",new JSONArray().put("caches").put("artifacts").put("runs"));
         if (props.has("path")&&props.has("method")) props.getJSONObject("path").put("maxLength",600);
@@ -38,6 +40,11 @@ public final class ToolCatalog {
     public static void install(ToolBroker b) throws org.json.JSONException {
         ToolBroker.Permission gh=ToolBroker.Permission.GITHUB_READ, fs=ToolBroker.Permission.FILE_READ,
             local=ToolBroker.Permission.LOCAL_WRITE, remote=ToolBroker.Permission.GITHUB_WRITE;
+        ToolBroker.Permission open=ToolBroker.Permission.PUBLIC_WEB;
+        add(b,"load_skill","name","name",open,false,false,false);
+        add(b,"ask_user","question options","question options",open,false,false,false);
+        add(b,"record_decision","title decision reason","title decision",local,true,false,false);
+        add(b,"propose_skill","name description tools body","name description body",local,true,true,false);
         add(b,"github_account","","",gh,false,false,false);
         add(b,"github_get","path account","path",gh,false,false,false);
         add(b,"github_request","method path body","method path",remote,true,false,false);

@@ -328,6 +328,7 @@ public class MainActivity extends Activity {
         new Thread(() -> app.githubble.mobile.agent.core.AgentRunJournal.recoverInterrupted(
             journalDir, System::currentTimeMillis), "agent-journal-recovery").start();
         agentMemory=new app.githubble.mobile.memory.MemoryHub(this);
+        app.githubble.mobile.agent.AgentSkills.decisions=(owner,workspace,chat,text)->agentMemory.add(owner,workspace,chat,text,"decision","",true,90);
         agentWorkspaces=new app.githubble.mobile.agent.WorkspaceHub(this);
         app.githubble.mobile.network.AiNetwork.initialize(this);
         aiGithub = new GitHubAgentBridge(accountStore, secureStore, api);
@@ -345,6 +346,7 @@ public class MainActivity extends Activity {
         repositoryController = new RepositoryController(api);
         repositoryAccess = new RepositoryAccessController(api);
         repositoryStore = new RepositoryStore(prefs);
+        app.githubble.mobile.agent.AgentSkills.install(this,prefs);
         app.githubble.mobile.agent.GatewayOps.onRepositoryDeleted=(accountId,full)->runOnUiThread(()->forgetDeletedRepository(accountId,full));
         accountOperations = new AccountOperationsController(api);
         profileController = new ProfileController(api);
@@ -985,6 +987,44 @@ public class MainActivity extends Activity {
     }
 
     /** Two-stage destructive operation; never executable from model/tool JSON. */
+    private String expandSkillCommand(String raw){
+        app.githubble.mobile.agent.AgentSkills skills=app.githubble.mobile.agent.AgentSkills.get();
+        String[] command=skills==null?null:skills.command(raw);
+        if(command==null)return raw;
+        return "Примени навык «"+command[0]+"» (load_skill). "+(command[1].isEmpty()?"Спроси, к чему его применить.":command[1]);
+    }
+    private void showAgentSkills(){
+        final app.githubble.mobile.agent.AgentSkills skills=app.githubble.mobile.agent.AgentSkills.get();
+        if(skills==null)return;
+        final java.util.List<app.githubble.mobile.agent.SkillDocument> all=skills.all();
+        String[] titles=new String[all.size()];boolean[] checked=new boolean[all.size()];
+        for(int i=0;i<titles.length;i++){app.githubble.mobile.agent.SkillDocument s=all.get(i);
+            titles[i]="/"+s.name+(s.builtin?"":" (свой)")+" — "+s.description;checked[i]=skills.enabled(s.name);}
+        new AlertDialog.Builder(this).setTitle("Навыки агента")
+            .setMultiChoiceItems(titles,checked,(d,w,on)->skills.setEnabled(all.get(w).name,on))
+            .setPositiveButton("Добавить",(d,w)->showAddSkill())
+            .setNeutralButton("Свои: экспорт / удалить",(d,w)->showOwnSkills())
+            .setNegativeButton("Закрыть",null).show();
+    }
+    private void showAddSkill(){
+        final android.widget.EditText input=new android.widget.EditText(this);input.setMinLines(8);input.setGravity(android.view.Gravity.TOP);
+        input.setHint("---\nname: my-skill\ndescription: когда применять\ntools: github_request\n---\nИнструкции навыка");
+        new AlertDialog.Builder(this).setTitle("Новый навык (SKILL.md)").setView(input)
+            .setPositiveButton("Сохранить",(d,w)->{
+                try{app.githubble.mobile.agent.AgentSkills.get().saveUser(app.githubble.mobile.agent.SkillDocument.parse(input.getText().toString(),false));toast("Навык сохранён");}
+                catch(Exception e){toast(e.getMessage()==null?"Не удалось сохранить навык":e.getMessage());}})
+            .setNegativeButton("Отмена",null).show();
+    }
+    private void showOwnSkills(){
+        final app.githubble.mobile.agent.AgentSkills skills=app.githubble.mobile.agent.AgentSkills.get();
+        final java.util.List<app.githubble.mobile.agent.SkillDocument> own=skills.user();
+        if(own.isEmpty()){toast("Своих навыков пока нет");return;}
+        String[] names=new String[own.size()];for(int i=0;i<names.length;i++)names[i]="Удалить /"+own.get(i).name;
+        new AlertDialog.Builder(this).setTitle("Свои навыки").setItems(names,(d,w)->{skills.deleteUser(own.get(w).name);toast("Удалено");})
+            .setPositiveButton("Экспорт (поделиться)",(d,w)->{Intent send=new Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT,skills.exportUser());
+                startActivity(Intent.createChooser(send,"Экспорт навыков"));})
+            .setNegativeButton("Закрыть",null).show();
+    }
     private void agentDeleteRepository(String expected,String suggested){
         if("guest".equals(expected)||!expected.equals(accountStore.activeCacheKey())||!isSignedIn()){
             toast("Подключите GitHub-аккаунт");return;
@@ -2106,7 +2146,8 @@ public class MainActivity extends Activity {
                 }).setNegativeButton("Закрыть", null).show();
     }
 
-    private void agentSend(String expected, String message, boolean ignoredLegacyMode) {
+    private void agentSend(String expected, String rawMessage, boolean ignoredLegacyMode) {
+        final String message=expandSkillCommand(rawMessage);
         final boolean agentMode=true;
         if (!expected.equals(accountStore.activeCacheKey())) { toast("Аккаунт проекта изменился"); return; }
         if(aiRequestsInFlight.contains(expected)){toast("Предыдущий запрос ещё выполняется");return;}
@@ -9094,6 +9135,8 @@ public class MainActivity extends Activity {
         rights.add(SettingsScreen.Item.toggle(R.drawable.ic_github_mark,"Чтение GitHub моделью",
                 "Список репозиториев, ветки и метаданные; OAuth-токен не передаётся. По умолчанию выключено",
                 "github чтение разрешение репозитории",settingsPreferenceToggle("ai_tool_github_read_"+owner,false)));
+        rights.add(SettingsScreen.Item.action(R.drawable.ic_lock,"Навыки агента",
+                "Встроенные и свои навыки: включить, добавить, экспорт. Вызов в чате: /имя","навыки skills агент команды",this::showAgentSkills));
         rights.add(SettingsScreen.Item.action(R.drawable.ic_github_mark,"Проверить GitHub-подключение",
                 "Аккаунт, видимые репозитории и доступ API","проверить подключение github",
                 ()->agentShowGitHubConnection(owner)));
