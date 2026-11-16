@@ -118,28 +118,28 @@ final class ActionsScreens {
     private final MainActivity a;
     ActionsScreens(MainActivity activity) { this.a = activity; }
 
-    private a.String billingUtcTime(long millis){
+    private String billingUtcTime(long millis){
         if(millis<=0)return "ещё не обновлялось";
         java.text.SimpleDateFormat f=new java.text.SimpleDateFormat("dd.MM.yyyy HH:mm",Locale.getDefault());
         f.setTimeZone(java.util.TimeZone.getTimeZone("UTC"));
         return f.format(new java.util.Date(millis))+" UTC";
     }
 
-    void showActionsRepositoryPicker(a.String title,java.util.function.Consumer<a.String> action){
+    void showActionsRepositoryPicker(String title,java.util.function.Consumer<String> action){
         if(!a.isSignedIn()){a.accountRequiredCard("Подключите GitHub для доступа к репозиториям.");return;}
         a.io.execute(()->{
             try{
-                LinkedHashSet<a.String> names=new LinkedHashSet<>();
+                LinkedHashSet<String> names=new LinkedHashSet<>();
                 for(int page=1;page<=5;page++){
                     JSONArray repos=a.api.getArray("https://api.github.com/user/repos?visibility=all&affiliation=owner,collaborator,organization_member&sort=updated&per_page=100&page="+page);
                     for(int i=0;i<repos.length();i++){
                         JSONObject item=repos.optJSONObject(i);
-                        a.String full=item==null?"":item.optString("full_name","");
+                        String full=item==null?"":item.optString("full_name","");
                         if(full.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+"))names.add(full);
                     }
                     if(repos.length()<100)break;
                 }
-                a.String[] values=names.toArray(new a.String[0]);
+                String[] values=names.toArray(new String[0]);
                 a.runOnUiThread(()->{
                     if(values.length==0){a.toast("Нет доступных репозиториев");return;}
                     new AlertDialog.Builder(a).setTitle(title)
@@ -150,22 +150,22 @@ final class ActionsScreens {
         });
     }
 
-    View labeledField(a.String label,View field){
+    View labeledField(String label,View field){
         LinearLayout box=new LinearLayout(a);box.setOrientation(LinearLayout.VERTICAL);
         TextView caption=a.text(label,12,true);caption.setTextColor(a.MUTED);box.addView(caption);box.addView(field);return box;
     }
 
-    EditText numberField(a.String hint,a.String value){
+    EditText numberField(String hint,String value){
         EditText field=new EditText(a);field.setSingleLine(true);field.setInputType(InputType.TYPE_CLASS_NUMBER);
         field.setHint(hint);field.setText(value);return field;
     }
 
     /** One form for the repository cache quotas (size and retention), shown only when GitHub allows them. */
-    void addCacheQuotaCard(a.String full,ActionsStorageManager manager){
+    void addCacheQuotaCard(String full,ActionsStorageManager manager){
         a.sectionTitle("Квоты кэша","Отдельно от артефактов. По умолчанию GitHub даёт 10 ГБ и 7 дней на репозиторий.");
         final long generation=a.screenGeneration.get();
         final LinearLayout host=a.content;
-        final a.String account=a.currentAccountId();
+        final String account=a.currentAccountId();
         LinearLayout box=new LinearLayout(a);box.setOrientation(LinearLayout.VERTICAL);
         TextView status=a.text("Получаем настройки GitHub…",12,false);status.setTextColor(a.MUTED);box.addView(status);
         EditText sizeInput=numberField("10","");EditText daysInput=numberField("7","");
@@ -179,15 +179,15 @@ final class ActionsScreens {
         a.card(box);
         final int[] loaded={-1,-1};
         final Runnable load=()->a.io.execute(()->{
-            int size=-1,days=-1;a.String sizeError="",daysError="";
+            int size=-1,days=-1;String sizeError="",daysError="";
             try{size=manager.loadCacheStorageLimitGb(full);}catch(Exception e){sizeError=e.getMessage();}
             try{days=manager.loadCacheRetentionDays(full);}catch(Exception e){daysError=e.getMessage();}
-            final int sizeValue=size,daysValue=days;final a.String sizeFailure=sizeError,daysFailure=daysError;
+            final int sizeValue=size,daysValue=days;final String sizeFailure=sizeError,daysFailure=daysError;
             a.runOnUiThread(()->{
                 if(generation!=a.screenGeneration.get()||host!=a.content||!account.equals(a.currentAccountId()))return;
                 loaded[0]=sizeValue;loaded[1]=daysValue;
-                if(sizeValue>0)sizeInput.setText(a.String.valueOf(sizeValue));
-                if(daysValue>0)daysInput.setText(a.String.valueOf(daysValue));
+                if(sizeValue>0)sizeInput.setText(String.valueOf(sizeValue));
+                if(daysValue>0)daysInput.setText(String.valueOf(daysValue));
                 sizeInput.setEnabled(sizeValue>0);daysInput.setEnabled(daysValue>0);
                 save.setEnabled(sizeValue>0||daysValue>0);
                 if(sizeValue>0||daysValue>0)status.setText("Текущие значения GitHub: "+(sizeValue>0?sizeValue+" ГБ":"размер недоступен")+" · "+(daysValue>0?daysValue+" дн.":"срок недоступен"));
@@ -208,7 +208,7 @@ final class ActionsScreens {
                     StringBuilder problems=new StringBuilder();
                     if(sizeChanged)try{manager.setCacheStorageLimitGb(full,size);}catch(Exception e){problems.append("Размер: ").append(app.githubble.mobile.build.ActionsErrorText.describe(e.getMessage())).append('\n');}
                     if(daysChanged)try{manager.setCacheRetentionDays(full,days);}catch(Exception e){problems.append("Срок: ").append(app.githubble.mobile.build.ActionsErrorText.describe(e.getMessage())).append('\n');}
-                    final a.String failure=problems.toString().trim();
+                    final String failure=problems.toString().trim();
                     a.runOnUiThread(()->{
                         if(generation!=a.screenGeneration.get()||host!=a.content)return;
                         save.setEnabled(true);
@@ -226,7 +226,7 @@ final class ActionsScreens {
         load.run();
     }
 
-    void showActionsBillingCost(a.String full){
+    void showActionsBillingCost(String full){
         if(!full.isEmpty()&&!full.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")){
             a.errorDialog("Billing","Некорректный репозиторий");return;
         }
@@ -235,7 +235,7 @@ final class ActionsScreens {
         a.settingsPanelHeader("Оплата GitHub","Расходы, бюджеты и источники данных",R.drawable.ic_settings);
         if(!a.isSignedIn()){a.accountRequiredCard("Подключите GitHub для просмотра Billing.");return;}
         final long generation=a.screenGeneration.get();
-        final a.String account=a.currentAccountId();
+        final String account=a.currentAccountId();
         final LinearLayout host=a.content;
 
         a.sectionTitle("Расходы на GitHub Actions",null);
@@ -317,12 +317,12 @@ final class ActionsScreens {
         a.io.execute(()->{
             try{
                 JSONObject profile=a.api.getJsonFresh("https://api.github.com/user");
-                a.String login=profile.optString("login","");
+                String login=profile.optString("login","");
                 JSONObject planJson=profile.optJSONObject("plan");
-                a.String planName=planJson==null?"":app.githubble.mobile.ui.JsonText.of(planJson,"name","");
+                String planName=planJson==null?"":app.githubble.mobile.ui.JsonText.of(planJson,"name","");
                 if(!login.matches("[A-Za-z0-9-]+"))throw new IllegalStateException("Не удалось определить аккаунт GitHub");
                 java.time.LocalDate month=java.time.LocalDate.now(java.time.ZoneOffset.UTC);
-                a.String url="https://api.github.com/users/"+login+"/settings/billing/usage/summary?year="+month.getYear()
+                String url="https://api.github.com/users/"+login+"/settings/billing/usage/summary?year="+month.getYear()
                         +"&month="+month.getMonthValue()+"&product=Actions"
                         +(full.isEmpty()?"":"&repository="+Uri.encode(full));
                 JSONObject report=a.api.getJson(url);
@@ -342,17 +342,17 @@ final class ActionsScreens {
                 }
                 final boolean totalsComplete=complete;
                 final double grossFinal=gross,discountFinal=discount,netFinal=net;
-                final a.String plan=planName;
-                final a.String periodText=month.getYear()+"-"+a.String.format(Locale.US,"%02d",month.getMonthValue());
+                final String plan=planName;
+                final String periodText=month.getYear()+"-"+String.format(Locale.US,"%02d",month.getMonthValue());
                 a.runOnUiThread(()->{
                     if(generation!=a.screenGeneration.get()||host!=a.content||!account.equals(a.currentAccountId()))return;
                     period.setText("Период: "+periodText+" UTC · Тариф: "+(plan.isEmpty()?"—":plan));
                     billingState.setText("Доступен");billingState.setTextColor(a.GREEN);
                     planState.setText(plan.isEmpty()?"Read":"Read · "+plan);planState.setTextColor(a.GREEN);
                     if(totalsComplete){
-                        grossValue.setText("$"+a.String.format(Locale.US,"%.4f",grossFinal));
-                        discountValue.setText((discountFinal>0?"−":"")+"$"+a.String.format(Locale.US,"%.4f",Math.abs(discountFinal)));
-                        netValue.setText("$"+a.String.format(Locale.US,"%.4f",netFinal));
+                        grossValue.setText("$"+String.format(Locale.US,"%.4f",grossFinal));
+                        discountValue.setText((discountFinal>0?"−":"")+"$"+String.format(Locale.US,"%.4f",Math.abs(discountFinal)));
+                        netValue.setText("$"+String.format(Locale.US,"%.4f",netFinal));
                     }else{
                         grossValue.setText("Неполно");discountValue.setText("Неполно");netValue.setText("Неполно");
                     }
@@ -379,7 +379,7 @@ final class ActionsScreens {
         a.settingsPanelHeader("Хранилище Actions","Артефакты, cache и очистка",R.drawable.ic_repository);
         if(!a.isSignedIn()){a.accountRequiredCard("Подключите GitHub для управления хранилищем.");return;}
         final long generation=a.screenGeneration.get();
-        final a.String account=a.currentAccountId();
+        final String account=a.currentAccountId();
         final LinearLayout host=a.content;
 
         a.sectionTitle("Использование хранилища",null);
@@ -534,7 +534,7 @@ final class ActionsScreens {
         });
     }
 
-    void showActionsStorage(a.String full){
+    void showActionsStorage(String full){
         if(!full.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")){
             a.errorDialog("Хранилище","Некорректное имя репозитория");return;
         }
@@ -545,19 +545,19 @@ final class ActionsScreens {
         if(!a.isSignedIn()){a.accountRequiredCard("Подключите GitHub для управления Actions.");return;}
         final ActionsStorageManager manager=new ActionsStorageManager(a.api,a.prefs);
         final long generation=a.screenGeneration.get();
-        final a.String account=a.currentAccountId();
+        final String account=a.currentAccountId();
         final LinearLayout host=a.content;
         ActionsStorageManager.Policy policy=manager.loadPolicy(full);
         EditText keepInput=new EditText(a);keepInput.setSingleLine(true);
         keepInput.setInputType(InputType.TYPE_CLASS_NUMBER);
-        keepInput.setHint("Сохранять последних артефактов");keepInput.setText(a.String.valueOf(policy.keepLatest));
+        keepInput.setHint("Сохранять последних артефактов");keepInput.setText(String.valueOf(policy.keepLatest));
         EditText ageInput=new EditText(a);ageInput.setSingleLine(true);
         ageInput.setInputType(InputType.TYPE_CLASS_NUMBER);
-        ageInput.setHint("Удалять после, дней");ageInput.setText(a.String.valueOf(policy.minAgeDays));
+        ageInput.setHint("Удалять после, дней");ageInput.setText(String.valueOf(policy.minAgeDays));
         EditText limitInput=new EditText(a);limitInput.setSingleLine(true);
         limitInput.setInputType(InputType.TYPE_CLASS_NUMBER);
         limitInput.setHint("Целевой размер, МБ · 0 = все старые");
-        limitInput.setText(a.String.valueOf(policy.softLimitMb));
+        limitInput.setText(String.valueOf(policy.softLimitMb));
         TextView warning=a.text("Срок хранения GitHub действует для новых файлов. Мягкий лимит и правила очистки на телефоне не являются квотой GitHub и не останавливают платное использование.",12,false);
         warning.setTextColor(a.MUTED);a.card(warning);
         a.sectionTitle("Артефакты","APK/ZIP · скачать или удалить прямо здесь");
@@ -644,7 +644,7 @@ final class ActionsScreens {
                                     .setPositiveButton("Удалить",(dialog,which)->{
                                         deleteSelected.setEnabled(false);
                                         a.io.execute(()->{
-                                            int done=0,failed=0;a.String lastError="";
+                                            int done=0,failed=0;String lastError="";
                                             for(int i=0;i<chosen.size();i++){
                                                 final int number=i+1;
                                                 a.runOnUiThread(()->pickedInfo.setText("Удаляем "+number+" из "+chosen.size()+"…"));
@@ -652,7 +652,7 @@ final class ActionsScreens {
                                                 catch(Exception ex){failed++;lastError=ex.getMessage();}
                                             }
                                             final int deleted=done,errors=failed;
-                                            final a.String explanation=lastError;
+                                            final String explanation=lastError;
                                             a.runOnUiThread(()->{
                                                 if(generation!=a.screenGeneration.get()||host!=a.content)return;
                                                 new AlertDialog.Builder(a).setTitle("Результат удаления")
@@ -726,13 +726,13 @@ final class ActionsScreens {
                                     .setPositiveButton("Удалить",(dialog,which)->{
                                         preview.setEnabled(false);
                                         a.io.execute(()->{
-                                            int done=0,failed=0;a.String lastError="";
+                                            int done=0,failed=0;String lastError="";
                                             for(ActionsStorageManager.Artifact item:selected){
                                                 try{manager.deleteArtifact(full,item.id);done++;}
                                                 catch(Exception ex){failed++;lastError=ex.getMessage();}
                                             }
                                             final int deleted=done,errors=failed;
-                                            final a.String explanation=lastError;
+                                            final String explanation=lastError;
                                             a.runOnUiThread(()->{
                                                 if(generation!=a.screenGeneration.get()||host!=a.content)return;
                                                 new AlertDialog.Builder(a).setTitle("Результат очистки")
@@ -759,7 +759,7 @@ final class ActionsScreens {
         Button retentionButton=a.button("Изменить срок хранения");
         retentionButton.setEnabled(false);
         retentionButton.setOnClickListener(v->{
-            a.String value=retentionStatus.getTag() instanceof a.String?(a.String)retentionStatus.getTag():"";
+            String value=retentionStatus.getTag() instanceof String?(String)retentionStatus.getTag():"";
             int max=400;
             try{max=Integer.parseInt(value);}catch(Exception ignored){}
             final int maxDays=max;
@@ -782,7 +782,7 @@ final class ActionsScreens {
                                 a.runOnUiThread(()->{
                                     if(generation!=a.screenGeneration.get()||host!=a.content||!account.equals(a.currentAccountId()))return;
                                     retentionStatus.setText("GitHub: "+updated.days+" дней · максимум "+updated.maxDays);
-                                    retentionStatus.setTag(a.String.valueOf(updated.maxDays));
+                                    retentionStatus.setTag(String.valueOf(updated.maxDays));
                                     retentionButton.setEnabled(true);
                                 });
                             }catch(Exception e){
@@ -802,7 +802,7 @@ final class ActionsScreens {
                 a.runOnUiThread(()->{
                     if(generation!=a.screenGeneration.get()||host!=a.content||!account.equals(a.currentAccountId()))return;
                     retentionStatus.setText("GitHub: "+current.days+" дней · максимум "+current.maxDays);
-                    retentionStatus.setTag(a.String.valueOf(current.maxDays));
+                    retentionStatus.setTag(String.valueOf(current.maxDays));
                     retentionButton.setEnabled(current.maxDays>0);
                 });
             }catch(Exception e){
@@ -835,7 +835,7 @@ final class ActionsScreens {
 
     }
 
-    void showActionsCleanup(a.String full){
+    void showActionsCleanup(String full){
         a.setCurrentScreen(()->showActionsCleanup(full));
         a.shell("Кэш Actions",false);
         a.repoSectionHeader(full,"Кэш Actions","Временные файлы сборок",R.drawable.ic_history);
@@ -861,7 +861,7 @@ final class ActionsScreens {
                     List<CheckBox> checks=new ArrayList<>();
                     for(AccountOperationsController.CleanupItem item:items){
                         CheckBox box=new CheckBox(a);
-                        a.String type="CACHE";
+                        String type="CACHE";
                         box.setText(type+" · "+item.name+"\n"+a.formatAccountBytes(item.sizeBytes)+(item.extra.isEmpty()?"":" · "+item.extra));
                         box.setTextColor(a.TEXT);box.setTextSize(13);box.setPadding(a.dp(6),a.dp(7),a.dp(6),a.dp(7));
                         checks.add(box);a.card(box);
@@ -885,7 +885,7 @@ final class ActionsScreens {
         });
     }
 
-    void deleteActionsItems(a.String full,List<AccountOperationsController.CleanupItem> selected){
+    void deleteActionsItems(String full,List<AccountOperationsController.CleanupItem> selected){
         ProgressDialog dialog=ProgressDialog.show(a,"Очистка Actions","Удаление выбранных объектов…",true,false);
         a.io.execute(()->{
             AccountOperationsController.DeleteResult result=a.accountOperations.deleteCleanupItems(selected);

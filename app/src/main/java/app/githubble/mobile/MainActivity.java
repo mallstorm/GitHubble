@@ -7375,7 +7375,7 @@ public class MainActivity extends Activity {
     }
 
 
-    private void openPrivateRepositoryAccess(){
+    void openPrivateRepositoryAccess(){
         repositoryAccessBrowserActive = true;
         repositoryAccessBrowserWasPaused = false;
         String url = prefs.getString(accountStateKey("repository_access_settings_url"), AccountOperationsController.INSTALLATIONS_PAGE);
