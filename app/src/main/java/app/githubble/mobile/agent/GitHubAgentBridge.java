@@ -224,8 +224,15 @@ public final class GitHubAgentBridge {
         AgentGitWorkspace workspace=new AgentGitWorkspace(accounts,secrets);
         AgentGitWorkspace.Snapshot snapshot=(other!=null&&!other.isEmpty()&&!isActiveLogin(other))
             ?workspace.inspect(scopedApi(expected),fullName,branch):workspace.inspect(expected,fullName,branch);
-        return new JSONObject().put("repository",fullName).put("branch",branch)
+        JSONObject out=new JSONObject().put("repository",fullName).put("branch",branch)
             .put("head",snapshot.head).put("files_overview",snapshot.overview);
+        try{ // other branches often hold the real project; show them so the agent never stops at a bare default branch
+            JSONArray list=scopedApi(expected).getArray("https://api.github.com/repos/"+fullName+"/branches?per_page=30");
+            JSONArray names=new JSONArray();
+            for(int i=0;list!=null&&i<list.length();i++){JSONObject b=list.optJSONObject(i);if(b!=null)names.put(b.optString("name"));}
+            out.put("branches",names).put("note","This is only branch '"+branch+"'. If it has few files, inspect other branches by passing branch.");
+        }catch(Exception ignored){}
+        return out;
     }
 
     /** Read-only GitHub -> local Workspace import, after explicit UI confirmation. */

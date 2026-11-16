@@ -81,15 +81,31 @@ public final class AgentGitWorkspace {
         if (includeNames) {
             JSONObject listing = api.getJson(endpoint + "/git/trees/" + treeSha + "?recursive=1");
             JSONArray entries = listing.optJSONArray("tree");
-            int shown = 0;
-            for (int i = 0; entries != null && i < entries.length() && shown < 85; i++) {
+            int shown = 0, total = 0;
+            java.util.Map<String, Integer> folders = new java.util.TreeMap<>();
+            for (int i = 0; entries != null && i < entries.length(); i++) {
                 JSONObject entry = entries.optJSONObject(i);
-                if (entry != null && "blob".equals(entry.optString("type"))) {
-                    names.append("- ").append(entry.optString("path")).append('\n');
+                if (entry == null || !"blob".equals(entry.optString("type"))) continue;
+                String path = entry.optString("path");
+                total++;
+                int slash = path.indexOf('/');
+                String top = slash < 0 ? "(корень)" : path.substring(0, slash) + "/";
+                folders.merge(top, 1, Integer::sum);
+                if (shown < 85) {
+                    names.append("- ").append(path).append('\n');
                     shown++;
                 }
             }
-            if (listing.optBoolean("truncated")) names.append("(частичный список)\n");
+            if (total > shown) names.append("… показано ").append(shown).append(" из ").append(total).append(" файлов\n");
+            if (listing.optBoolean("truncated")) names.append("(частичный список, дерево слишком большое)\n");
+            names.append("Файлов всего: ").append(total).append(". По папкам: ");
+            int n = 0;
+            for (java.util.Map.Entry<String, Integer> f : folders.entrySet()) {
+                if (n++ > 0) names.append(", ");
+                if (n > 30) { names.append("…"); break; }
+                names.append(f.getKey()).append(' ').append(f.getValue());
+            }
+            names.append('\n');
         }
         return new Snapshot(head, treeSha, names.toString());
     }
