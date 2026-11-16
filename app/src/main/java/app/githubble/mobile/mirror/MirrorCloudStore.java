@@ -136,6 +136,13 @@ public final class MirrorCloudStore {
         }
     }
 
+    private boolean emptyFile(Uri uri)throws Exception{
+        try(InputStream in=resolver.openInputStream(uri)){
+            if(in==null)throw new java.io.IOException("Облачный документ нельзя прочитать");
+            return in.read()==-1;
+        }
+    }
+
     private void write(Uri uri,List<MirrorLinkRegistry.Link> links)throws Exception{
         byte[] bytes=encode(links).getBytes(StandardCharsets.UTF_8);
         if(bytes.length>MAX_BYTES)throw new java.io.IOException("Реестр превышает 2 МБ");
@@ -215,7 +222,8 @@ public final class MirrorCloudStore {
         List<MirrorLinkRegistry.Link> merged=registry.list();
         result.merged=merged.size();
         result.exported=Math.max(0,merged.size()-remote.size());
-        if(!equalRegistry(merged,remote)){
+        // Initialize a newly created blank JSON file even before the first mirror exists.
+        if(!equalRegistry(merged,remote)||(remote.isEmpty()&&emptyFile(uri))){
             // Incorporate changes arriving between first read and writing.
             List<MirrorLinkRegistry.Link> latest=read(uri);
             if(!equalRegistry(latest,remote)){
@@ -258,7 +266,7 @@ public final class MirrorCloudStore {
             Constraints constraints=new Constraints.Builder()
                     .setRequiredNetworkType(NetworkType.CONNECTED).build();
             PeriodicWorkRequest work=new PeriodicWorkRequest.Builder(
-                    MirrorCloudWorker.class,6,TimeUnit.HOURS)
+                    MirrorCloudWorker.class,1,TimeUnit.HOURS)
                     .setConstraints(constraints).build();
             WorkManager.getInstance(app).enqueueUniquePeriodicWork(
                     PERIODIC,ExistingPeriodicWorkPolicy.KEEP,work);
