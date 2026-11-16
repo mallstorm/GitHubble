@@ -111,6 +111,38 @@ public final class AgentFeatureScreens {
     });}
 
     /** Durable conversation archive and export. Search is account-isolated and local-only. */
+    /** ("open"|"resume", conversationId); set by the host, which owns navigation and the agent loop. */
+    public java.util.function.BiConsumer<String,String> taskAction;
+
+    /** All agent tasks of the account, newest first, with open/continue actions. */
+    public void tasks(){run(()->{
+        LinearLayout body=ui.body("Задачи агента",true);final Dialog[] d={null};
+        JSONArray all=projects.tasks.list(owner,null);
+        java.util.List<JSONObject> rows=new java.util.ArrayList<>();
+        for(int i=0;i<all.length();i++)rows.add(all.getJSONObject(i));
+        java.util.Collections.sort(rows,(x,y)->Long.compare(y.optLong("updatedAt"),x.optLong("updatedAt")));
+        ui.note(body,"Задач: "+rows.size()+". «Продолжить» запускает задачу заново по её журналу: успешные записи не повторяются, "+
+            "операции с неясным исходом сначала сверяются с GitHub.");
+        for(int i=0;i<Math.min(60,rows.size());i++){
+            final JSONObject t=rows.get(i);final String id=t.optString("conversationId",t.optString("taskId"));
+            String state=t.optString("state"),when=t.optLong("updatedAt")>0
+                ?new java.text.SimpleDateFormat("dd.MM HH:mm",java.util.Locale.getDefault()).format(new java.util.Date(t.optLong("updatedAt"))):"";
+            String note=t.optString("recoveryNote","");
+            ui.action(body,t.optString("title","Задача"),AgentTaskLabels.state(state)+(when.isEmpty()?"":" · "+when)+(note.isEmpty()?"":"\n"+note),
+                0xFF435B69,()->{
+                    boolean resumable=!java.util.Arrays.asList("COMPLETED","CANCELLED","RUNNING","EXECUTING","BUILDING","VERIFYING","DELIVERING").contains(state);
+                    java.util.List<String> labels=new java.util.ArrayList<>(java.util.Arrays.asList("Открыть чат задачи"));
+                    if(resumable)labels.add("Продолжить задачу");
+                    new AlertDialog.Builder(a).setTitle(t.optString("title","Задача"))
+                        .setItems(labels.toArray(new String[0]),(dialog,which)->{
+                            if(d[0]!=null)d[0].dismiss();
+                            if(taskAction!=null)taskAction.accept(which==0?"open":"resume",id);
+                        }).setNegativeButton("Закрыть",null).show();
+                });
+        }
+        d[0]=ui.present(body,true);
+    });}
+
     public void history(){run(()->{
         LinearLayout body=ui.body("История и память",true);final Dialog[] d={null};
         JSONArray threads=projects.listConversations(owner);

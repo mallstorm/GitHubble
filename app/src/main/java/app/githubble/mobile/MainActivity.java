@@ -115,15 +115,15 @@ import app.githubble.mobile.repository.RepositoryStore;
 import app.githubble.mobile.activity.RepositoryActivityFeed;
 
 public class MainActivity extends Activity {
-    private LinearLayout content;
-    private final ExecutorService io = Executors.newFixedThreadPool(4);
+    LinearLayout content;
+    final ExecutorService io = Executors.newFixedThreadPool(4);
     // Long-running storage inventory must not occupy the interactive API pool.
-    private final ExecutorService inventoryIo = Executors.newSingleThreadExecutor();
-    private java.util.concurrent.Future<?> accountInventoryFuture;
-    private AtomicBoolean accountInventoryCancelled = new AtomicBoolean(true);
-    private SharedPreferences prefs;
+    final ExecutorService inventoryIo = Executors.newSingleThreadExecutor();
+    java.util.concurrent.Future<?> accountInventoryFuture;
+    AtomicBoolean accountInventoryCancelled = new AtomicBoolean(true);
+    SharedPreferences prefs;
     private SecureStore secureStore;
-    private GitHubApiClient api;
+    GitHubApiClient api;
     private GitHubGraphQlClient graphql;
     private OAuthManager oauth;
     private GitHubAccountStore accountStore;
@@ -137,10 +137,34 @@ public class MainActivity extends Activity {
     private OAuthSubscriptions oauthSubscriptions;
     private app.githubble.mobile.memory.MemoryHub agentMemory;
     private app.githubble.mobile.agent.WorkspaceHub agentWorkspaces;
+    private final ActionsScreens actionsScreens=new ActionsScreens(this);
     private app.githubble.mobile.ui.AgentFeatureScreens agentFeatures;
     private app.githubble.mobile.ui.AgentFeatureScreens agentFeatures(String owner){
         agentFeatures=new app.githubble.mobile.ui.AgentFeatureScreens(this,owner,()->accountStore.activeCacheKey(),agentProjects,agentMemory,io,BG,CARD,TEXT,MUTED,GREEN,BORDER,()->agentRefreshIfCurrent(owner));
+        agentFeatures.taskAction=(op,thread)->runOnUiThread(()->{
+            try{
+                if(!owner.equals(accountStore.activeCacheKey()))return;
+                agentProjects.switchConversation(owner,thread);
+                navigate(this::showAgentChat);
+                if("resume".equals(op)){
+                    try{agentProjects.tasks.authorizeContinuation(owner,thread);}catch(RuntimeException noBudget){/* tasks without a journal simply restart */}
+                    agentResumeLatest(owner,thread);
+                }
+            }catch(Exception e){toast(e.getMessage()==null?"Не удалось открыть задачу":e.getMessage());}
+        });
         return agentFeatures;
+    }
+    /** Continues a task from its latest recorded run; without a journal it restarts from the task title. */
+    private void agentResumeLatest(String owner,String thread){
+        if(agentChatBusy(owner,thread)){toast("Дождитесь завершения текущей задачи");return;}
+        JSONArray messages=agentProjects.messages(owner,thread);
+        for(int i=messages.length()-1;i>=0;i--){
+            JSONObject entry=messages.optJSONObject(i),run=entry==null?null:entry.optJSONObject("run");
+            if(run!=null){agentSend(owner,app.githubble.mobile.agent.ResumePrompt.build(run),true);return;}
+        }
+        String title="задача";
+        try{title=agentProjects.tasks.get(owner,thread).optString("title","задача");}catch(RuntimeException ignored){}
+        agentSend(owner,"Продолжи задачу «"+title+"». Сначала сверь фактическое состояние в GitHub и в проекте, ничего не повторяй вслепую, затем доделай оставшееся.",true);
     }
     private String agentContext(String owner,AgentProjectStore.Project project,String thread,String query){
         String pid=agentProjects.projectId(owner,thread);
@@ -203,7 +227,7 @@ public class MainActivity extends Activity {
         return result;
     }
 
-    private final Map<String,AtomicBoolean> subscriptionAttempts=new ConcurrentHashMap<>();
+    final Map<String,AtomicBoolean> subscriptionAttempts=new ConcurrentHashMap<>();
     private static final java.util.Set<String> aiRequestsInFlight = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private TrackingDatabase trackingDb;
     private TrackingEngine trackingEngine;
@@ -219,7 +243,7 @@ public class MainActivity extends Activity {
     private String buildRunFilter = BuildRunFilter.ALL;
     private int buildVisibleLimit = 12;
     private String repositoriesSort = "updated";
-    private AccountOperationsController accountOperations;
+    AccountOperationsController accountOperations;
     private ProfileController profileController;
     private TranslationController translationController;
     private ScreenStateStore screenState;
@@ -228,7 +252,7 @@ public class MainActivity extends Activity {
     private UserDataManager userDataManager;
     private final FeatureUiState featureState = new FeatureUiState();
     private ScrollView currentScroll;
-    private int BG, SURFACE, CARD, SUBTLE, TEXT, MUTED, BLUE, GREEN, BORDER;
+    int BG, SURFACE, CARD, SUBTLE, TEXT, MUTED, BLUE, GREEN, BORDER;
     private int[] tileColors;
     private String activeTheme = "light";
     private final Deque<Runnable> backStack = new ArrayDeque<>();
@@ -243,7 +267,7 @@ public class MainActivity extends Activity {
             "android/architecture-samples", "JetBrains/kotlin", "github/gitignore"
     };
     private final AtomicBoolean trackingCheckInFlight = new AtomicBoolean(false);
-    private final java.util.concurrent.atomic.AtomicLong screenGeneration = new java.util.concurrent.atomic.AtomicLong();
+    final java.util.concurrent.atomic.AtomicLong screenGeneration = new java.util.concurrent.atomic.AtomicLong();
     private boolean registrationCustomTabActive = false;
     private boolean registrationCustomTabWasPaused = false;
     private boolean registrationReturnDialogVisible = false;
@@ -399,10 +423,58 @@ public class MainActivity extends Activity {
         if (githubAppInstallBrowserActive) githubAppInstallBrowserWasPaused = true;
     }
 
+    private static final int REQUEST_APP_LOCK = 7741;
+    private long lockBackgroundedAt, lockUnlockedAt;
+    private boolean lockPrompting;
+    private View lockOverlay;
+
+    @Override protected void onStop() {
+        super.onStop();
+        lockBackgroundedAt = SystemClock.elapsedRealtime();
+    }
+
+    /** Device credential (PIN, pattern, password or biometrics) after a cold start or 30 s in the background. */
+    private void checkAppLock() {
+        boolean enabled = prefs.getBoolean("app_lock_enabled", false);
+        if (!AppLockPolicy.needsUnlock(enabled, lockBackgroundedAt, lockUnlockedAt, SystemClock.elapsedRealtime(), AppLockPolicy.TIMEOUT_MS)) { hideAppLock(); return; }
+        KeyguardManager keyguard = (KeyguardManager) getSystemService(KEYGUARD_SERVICE);
+        // Without a system screen lock there is nothing to ask: never lock the user out of their own app.
+        Intent confirm = keyguard == null || !keyguard.isDeviceSecure() ? null : keyguard.createConfirmDeviceCredentialIntent("GitHubble", "Подтвердите, что это вы");
+        if (confirm == null) { hideAppLock(); return; }
+        if (lockOverlay == null) {
+            FrameLayout cover = new FrameLayout(this);
+            cover.setBackgroundColor(Color.rgb(20, 24, 30));
+            cover.setClickable(true);
+            lockOverlay = cover;
+            addContentView(cover, new ViewGroup.LayoutParams(-1, -1));
+        }
+        if (lockPrompting) return;
+        lockPrompting = true;
+        startActivityForResult(confirm, REQUEST_APP_LOCK);
+    }
+
+    private void hideAppLock() {
+        if (lockOverlay != null && lockOverlay.getParent() instanceof ViewGroup) ((ViewGroup) lockOverlay.getParent()).removeView(lockOverlay);
+        lockOverlay = null;
+    }
+
+    private SettingsScreen.Toggle appLockToggle() {
+        return new SettingsScreen.Toggle() {
+            @Override public boolean get() { return prefs.getBoolean("app_lock_enabled", false); }
+            @Override public void set(boolean on) {
+                KeyguardManager keyguard = (KeyguardManager) getSystemService(KEYGUARD_SERVICE);
+                if (on && (keyguard == null || !keyguard.isDeviceSecure())) { toast("Сначала включите PIN, графический ключ или пароль в настройках Android"); return; }
+                prefs.edit().putBoolean("app_lock_enabled", on).apply();
+                if (on) lockUnlockedAt = SystemClock.elapsedRealtime();
+            }
+        };
+    }
+
     @Override protected void onResume() {
         app.githubble.mobile.agent.AgentUiSession.foreground(true);
         super.onResume();
         if (prefs == null) return;
+        checkAppLock();
         getWindow().getDecorView().post(this::applySystemBarAppearance);
         BuildMonitorJobService.checkSoon(this);
         if (features != null && features.offlineDispatcher.isOnline()) io.execute(() -> { try { OfflineActionQueue.ProcessResult r=features.offlineQueue.processReady(api); if(r.completed>0||r.conflicts>0) runOnUiThread(() -> toast("Офлайн-очередь: отправлено "+r.completed+", конфликтов "+r.conflicts)); } catch (Exception ignored) {} });
@@ -434,9 +506,9 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void setCurrentScreen(Runnable screen) { currentScreen = screen; }
+    void setCurrentScreen(Runnable screen) { currentScreen = screen; }
 
-    private void navigate(Runnable next) {
+    void navigate(Runnable next) {
         if (currentScreen != null && !restoringBack) backStack.push(currentScreen);
         next.run();
     }
@@ -458,7 +530,7 @@ public class MainActivity extends Activity {
         goBack();
     }
 
-    private void shell(String title, boolean showSearchAction) {
+    void shell(String title, boolean showSearchAction) {
         if(voiceRecognizer!=null)cancelVoiceInput();
         // Discard old account-inventory callbacks on ANY screen transition.
         accountInventoryCancelled.set(true);
@@ -594,7 +666,7 @@ public class MainActivity extends Activity {
         return v;
     }
 
-    private ImageView imageIcon(int iconRes, int tint, int paddingDp) {
+    ImageView imageIcon(int iconRes, int tint, int paddingDp) {
         ImageView v = new ImageView(this);
         v.setImageResource(iconRes);
         v.setColorFilter(tint);
@@ -603,7 +675,7 @@ public class MainActivity extends Activity {
         return v;
     }
 
-    private TextView text(String s, int sp, boolean bold) {
+    TextView text(String s, int sp, boolean bold) {
         TextView t = new TextView(this);
         t.setText(s);
         t.setTextSize(sp);
@@ -617,7 +689,7 @@ public class MainActivity extends Activity {
         return t;
     }
 
-    private Button button(String s) {
+    Button button(String s) {
         Button b = new Button(this);
         b.setText(s); b.setAllCaps(false); b.setTextSize(14); b.setTextColor(Color.WHITE);
         b.setBackground(round(GREEN, 14, GREEN, 0));
@@ -627,14 +699,14 @@ public class MainActivity extends Activity {
         return b;
     }
 
-    private GradientDrawable round(int fill, int radius, int stroke, int width) {
+    GradientDrawable round(int fill, int radius, int stroke, int width) {
         GradientDrawable g = new GradientDrawable();
         g.setColor(fill); g.setCornerRadius(dp(app.githubble.mobile.ui.DesignSystem.radius(radius)));
         if (width > 0) g.setStroke(dp(width), stroke);
         return g;
     }
 
-    private int blend(int base, int accent, float amount) {
+    int blend(int base, int accent, float amount) {
         amount = Math.max(0f, Math.min(1f, amount));
         int r = (int)(Color.red(base) * (1f-amount) + Color.red(accent) * amount);
         int g = (int)(Color.green(base) * (1f-amount) + Color.green(accent) * amount);
@@ -642,12 +714,12 @@ public class MainActivity extends Activity {
         return Color.rgb(r,g,b);
     }
 
-    private int dp(int n) { return (int)(n * getResources().getDisplayMetrics().density + .5f); }
+    int dp(int n) { return (int)(n * getResources().getDisplayMetrics().density + .5f); }
     private boolean isLargeText(){return getResources().getConfiguration().fontScale>=1.25f;}
-    private int adaptiveColumns(int preferred){int sw=getResources().getConfiguration().smallestScreenWidthDp;if(sw>=840)return Math.max(preferred,4);if(sw>=600)return Math.max(preferred,3);if(isLargeText())return Math.min(preferred,2);return preferred;}
+    int adaptiveColumns(int preferred){int sw=getResources().getConfiguration().smallestScreenWidthDp;if(sw>=840)return Math.max(preferred,4);if(sw>=600)return Math.max(preferred,3);if(isLargeText())return Math.min(preferred,2);return preferred;}
 
     /** Section heading with an optional muted subtitle under it. */
-    private void sectionTitle(String title, String subtitle) {
+    void sectionTitle(String title, String subtitle) {
         LinearLayout box = new LinearLayout(this); box.setOrientation(LinearLayout.VERTICAL);
         box.setPadding(0, dp(content.getChildCount() > 0 ? 6 : 0), 0, dp(subtitle != null ? 4 : 0));
         TextView t = text(title, 18, true); t.setMinHeight(dp(36)); t.setGravity(Gravity.CENTER_VERTICAL); box.addView(t);
@@ -655,7 +727,7 @@ public class MainActivity extends Activity {
         content.addView(box, new LinearLayout.LayoutParams(-1, -2));
     }
 
-    private void card(View v) {
+    void card(View v) {
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
         box.setPadding(dp(16), dp(14), dp(16), dp(14));
@@ -3811,7 +3883,7 @@ public class MainActivity extends Activity {
      * layout on the repository overview and in both destination screens.
      * selected: -1 on overview, 0 for runs, 1 for storage.
      */
-    private void addRepositoryActionsTabs(String full,int selected){
+    void addRepositoryActionsTabs(String full,int selected){
         LinearLayout tabs=new LinearLayout(this);
         tabs.setOrientation(LinearLayout.HORIZONTAL);
         tabs.setGravity(Gravity.CENTER_VERTICAL);
@@ -3830,7 +3902,7 @@ public class MainActivity extends Activity {
             tab.setOnClickListener(v->{
                 if(selected==position)return;
                 if(position==0)navigate(()->showBuildCenter(full));
-                else navigate(()->showActionsStorage(full));
+                else navigate(()->actionsScreens.showActionsStorage(full));
             });
             LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(0,dp(48),1f);
             if(i==1)params.setMargins(dp(9),0,0,0);
@@ -4108,7 +4180,7 @@ public class MainActivity extends Activity {
         host.addView(wrap);
     }
 
-    private void startArtifactDownload(String repo,JSONObject artifact){
+    void startArtifactDownload(String repo,JSONObject artifact){
         if(artifact.optBoolean("expired",false)){toast("Срок хранения артефакта истёк");return;}
         io.execute(()->{
             try{
@@ -4939,7 +5011,7 @@ public class MainActivity extends Activity {
         grid.addView(tile,p);
     }
 
-    private void repoSectionHeader(String full,String heading,String details,int icon){
+    void repoSectionHeader(String full,String heading,String details,int icon){
         LinearLayout panel=new LinearLayout(this);panel.setGravity(Gravity.CENTER_VERTICAL);
         panel.setPadding(dp(11),dp(10),dp(11),dp(10));
         panel.setBackground(round(CARD,12,BORDER,1));
@@ -5274,11 +5346,11 @@ public class MainActivity extends Activity {
         addAction(upload,"Загрузить файл/ZIP",()->startRepositoryFileImport(full,defaultBranch));
         addAction(upload,"Открыть файлы",()->navigate(()->showRepositoryFiles(full,defaultBranch,"")));content.addView(upload);
         sectionTitle("Git и публикация",null);GridLayout actions=new GridLayout(this);actions.setColumnCount(adaptiveColumns(2));
-        addAction(actions,"Создать fork",()->showForkDialog(full));addAction(actions,"Новая ветка",()->showCreateBranchDialog(full,defaultBranch));addAction(actions,"Новый тег",()->showCreateTagDialog(full,defaultBranch));addAction(actions,"Новый Release",()->showCreateReleaseDialog(full,defaultBranch));addAction(actions,"Actions / место",()->navigate(()->showActionsStorage(full)));addAction(actions,"Коммиты "+defaultBranch,()->navigate(()->showRepositoryCommits(full,defaultBranch)));content.addView(actions);
+        addAction(actions,"Создать fork",()->showForkDialog(full));addAction(actions,"Новая ветка",()->showCreateBranchDialog(full,defaultBranch));addAction(actions,"Новый тег",()->showCreateTagDialog(full,defaultBranch));addAction(actions,"Новый Release",()->showCreateReleaseDialog(full,defaultBranch));addAction(actions,"Actions / место",()->navigate(()->actionsScreens.showActionsStorage(full)));addAction(actions,"Коммиты "+defaultBranch,()->navigate(()->showRepositoryCommits(full,defaultBranch)));content.addView(actions);
         boolean isPrivate=repo!=null&&repo.optBoolean("private",false);boolean admin=repo!=null&&repo.optJSONObject("permissions")!=null&&repo.optJSONObject("permissions").optBoolean("admin",false);
         sectionTitle("Настройки репозитория",null);
         Button retention=button("⚙  Хранилище Actions · срок и лимиты");
-        retention.setOnClickListener(v->navigate(()->showActionsStorage(full)));
+        retention.setOnClickListener(v->navigate(()->actionsScreens.showActionsStorage(full)));
         content.addView(retention,new LinearLayout.LayoutParams(-1,dp(50)));
         GridLayout settings=new GridLayout(this);settings.setColumnCount(adaptiveColumns(2));
         if(admin){addAction(settings,"Имя и описание",()->showEditRepositoryDialog(full,repo));addAction(settings,isPrivate?"Сделать публичным":"Сделать приватным",()->showRepositoryVisibilityDialog(full,isPrivate));addAction(settings,"Удалить репозиторий",()->showDeleteRepositoryDialog(full));}
@@ -6159,7 +6231,7 @@ public class MainActivity extends Activity {
         LinearLayout pager=new LinearLayout(this);Button prev=compactButton("← Предыдущие");prev.setEnabled(page>0);prev.setOnClickListener(v->renderCodeViewer(full,name,raw,Math.max(1,line-pageSize),query));pager.addView(prev,new LinearLayout.LayoutParams(0,dp(46),1));Button next=compactButton("Следующие →");next.setEnabled(page<totalPages-1);next.setOnClickListener(v->renderCodeViewer(full,name,raw,Math.min(lines.length,line+pageSize),query));LinearLayout.LayoutParams np=new LinearLayout.LayoutParams(0,dp(46),1);np.setMargins(dp(6),0,0,0);pager.addView(next,np);content.addView(pager);
     }
 
-    private Button compactButton(String label){
+    Button compactButton(String label){
         Button b=new Button(this){@Override public void setEnabled(boolean enabled){super.setEnabled(enabled);setAlpha(enabled?1f:.45f);}};
         b.setText(label);b.setAllCaps(false);b.setTextSize(13);b.setTypeface(null,android.graphics.Typeface.BOLD);b.setTextColor(GREEN);
         b.setBackground(round(blend(CARD,GREEN,0.10f),10,Color.TRANSPARENT,0));
@@ -6269,7 +6341,7 @@ public class MainActivity extends Activity {
                 .replaceAll("(?m)^\\s*[-*]\\s+\\[xX]\\s+","☑ ")
                 .replaceAll("(?m)^\\s*[-*]\\s+\\[ \\]\\s+","☐ ");
     }
-    private void errorCard(String title,String message){LinearLayout b=new LinearLayout(this);b.setOrientation(LinearLayout.VERTICAL);TextView h=text(title,18,true);h.setTextColor(Color.rgb(190,55,60));b.addView(h);TextView m=text(message==null?"Неизвестная ошибка":message,14,false);m.setTextColor(MUTED);b.addView(m);card(b);}
+    void errorCard(String title,String message){LinearLayout b=new LinearLayout(this);b.setOrientation(LinearLayout.VERTICAL);TextView h=text(title,18,true);h.setTextColor(Color.rgb(190,55,60));b.addView(h);TextView m=text(message==null?"Неизвестная ошибка":message,14,false);m.setTextColor(MUTED);b.addView(m);card(b);}
 
     private void showTranslationInfo(){new AlertDialog.Builder(this).setTitle("Интеллектуальный перевод").setMessage("GitHubble автоматически определяет язык и переводит длинный Markdown частями. Кодовые блоки, inline-код, URL, пути, JSON/YAML, версии, хеши и разметка GFM защищаются плейсхолдерами и восстанавливаются после перевода. Переводы кэшируются по SHA содержимого и дате обновления.").setPositiveButton("Понятно",null).show();}
 
@@ -7351,14 +7423,14 @@ public class MainActivity extends Activity {
     }
 
 
-    private void openPrivateRepositoryAccess(){
+    void openPrivateRepositoryAccess(){
         repositoryAccessBrowserActive = true;
         repositoryAccessBrowserWasPaused = false;
         String url = prefs.getString(accountStateKey("repository_access_settings_url"), AccountOperationsController.INSTALLATIONS_PAGE);
         openSecureGitHubPage(url);
     }
 
-    private void openSecureGitHubPage(String url){
+    void openSecureGitHubPage(String url){
         try{
             boolean customTab=GitHubCustomTabs.open(this,Uri.parse(url),GREEN,"dark".equals(activeTheme));
             if(!customTab)openWeb(url);
@@ -7372,7 +7444,7 @@ public class MainActivity extends Activity {
     }
 
 
-    private LinearLayout billingSurface(){
+    LinearLayout billingSurface(){
         LinearLayout box=new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
         box.setPadding(dp(14),dp(13),dp(14),dp(13));
@@ -7381,7 +7453,7 @@ public class MainActivity extends Activity {
         return box;
     }
 
-    private LinearLayout billingHeader(int icon,String title,String subtitle,int accent){
+    LinearLayout billingHeader(int icon,String title,String subtitle,int accent){
         LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);
         ImageView art=imageIcon(icon,accent,8);
         art.setBackground(round(blend(CARD,accent,0.10f),12,0,0));
@@ -7394,7 +7466,7 @@ public class MainActivity extends Activity {
         return row;
     }
 
-    private LinearLayout billingMetric(int icon,String label,TextView value,TextView detail,int accent){
+    LinearLayout billingMetric(int icon,String label,TextView value,TextView detail,int accent){
         LinearLayout tile=new LinearLayout(this);tile.setOrientation(LinearLayout.VERTICAL);
         tile.setPadding(dp(11),dp(10),dp(11),dp(10));
         tile.setBackground(round(blend(CARD,accent,0.055f),14,0,0));
@@ -7410,7 +7482,7 @@ public class MainActivity extends Activity {
         return tile;
     }
 
-    private void styleBillingProgress(ProgressBar progress,int percent,int accent){
+    void styleBillingProgress(ProgressBar progress,int percent,int accent){
         progress.setMax(100);
         progress.setProgress(Math.max(0,Math.min(100,percent)));
         progress.setProgressTintList(android.content.res.ColorStateList.valueOf(accent));
@@ -7418,7 +7490,7 @@ public class MainActivity extends Activity {
                 blend(CARD,MUTED,0.18f)));
     }
 
-    private void addBillingQuickAction(GridLayout grid,int icon,String title,String subtitle,Runnable action){
+    void addBillingQuickAction(GridLayout grid,int icon,String title,String subtitle,Runnable action){
         LinearLayout tile=new LinearLayout(this);tile.setGravity(Gravity.CENTER_VERTICAL);
         tile.setPadding(dp(10),dp(8),dp(10),dp(8));
         tile.setBackground(round(blend(CARD,GREEN,0.045f),14,blend(BORDER,GREEN,0.18f),1));
@@ -7440,7 +7512,7 @@ public class MainActivity extends Activity {
         grid.addView(tile,p);
     }
 
-    private void addBillingStatusRow(LinearLayout parent,int icon,String label,TextView value,int accent){
+    void addBillingStatusRow(LinearLayout parent,int icon,String label,TextView value,int accent){
         LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(0,dp(5),0,dp(5));
         ImageView art=imageIcon(icon,accent,7);
@@ -7460,13 +7532,13 @@ public class MainActivity extends Activity {
         return String.format(Locale.ROOT,"%.2f",value);
     }
 
-    private String billingCacheKey(String suffix){
+    String billingCacheKey(String suffix){
         String scope=currentAccountId();
         if(scope==null||scope.isEmpty())scope="default";
         return "billing_ui_"+scope+"_"+suffix;
     }
 
-    private void rememberInventory(AccountOperationsController.StorageInventory result){
+    void rememberInventory(AccountOperationsController.StorageInventory result){
         if(result==null)return;
         prefs.edit()
                 .putLong(billingCacheKey("artifact_bytes"),Math.max(0L,result.artifactBytes))
@@ -7479,37 +7551,7 @@ public class MainActivity extends Activity {
                 .apply();
     }
 
-    private String billingUtcTime(long millis){
-        if(millis<=0)return "ещё не обновлялось";
-        java.text.SimpleDateFormat f=new java.text.SimpleDateFormat("dd.MM.yyyy HH:mm",Locale.getDefault());
-        f.setTimeZone(java.util.TimeZone.getTimeZone("UTC"));
-        return f.format(new java.util.Date(millis))+" UTC";
-    }
 
-    private void showActionsRepositoryPicker(String title,java.util.function.Consumer<String> action){
-        if(!isSignedIn()){accountRequiredCard("Подключите GitHub для доступа к репозиториям.");return;}
-        io.execute(()->{
-            try{
-                LinkedHashSet<String> names=new LinkedHashSet<>();
-                for(int page=1;page<=5;page++){
-                    JSONArray repos=api.getArray("https://api.github.com/user/repos?visibility=all&affiliation=owner,collaborator,organization_member&sort=updated&per_page=100&page="+page);
-                    for(int i=0;i<repos.length();i++){
-                        JSONObject item=repos.optJSONObject(i);
-                        String full=item==null?"":item.optString("full_name","");
-                        if(full.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+"))names.add(full);
-                    }
-                    if(repos.length()<100)break;
-                }
-                String[] values=names.toArray(new String[0]);
-                runOnUiThread(()->{
-                    if(values.length==0){toast("Нет доступных репозиториев");return;}
-                    new AlertDialog.Builder(this).setTitle(title)
-                            .setItems(values,(d,which)->action.accept(values[which]))
-                            .setNegativeButton("Отмена",null).show();
-                });
-            }catch(Exception e){runOnUiThread(()->errorDialog(title,e.getMessage()));}
-        });
-    }
 
 
     /** Billing, storage and access now live on the account settings screen. */
@@ -7563,7 +7605,7 @@ public class MainActivity extends Activity {
                                 +(usage.actionsAccessible?formatAccountBytes(usage.totalBytes()):"нет доступа"));
                         open.setAllCaps(false);
                         open.setEnabled(usage.actionsAccessible);
-                        open.setOnClickListener(v->navigate(()->showActionsStorage(usage.fullName)));
+                        open.setOnClickListener(v->navigate(()->actionsScreens.showActionsStorage(usage.fullName)));
                         LinearLayout.LayoutParams rowParams=new LinearLayout.LayoutParams(-1,dp(49));
                         rowParams.setMargins(0,dp(5),0,0);
                         rows.addView(open,rowParams);
@@ -7586,754 +7628,14 @@ public class MainActivity extends Activity {
 
     /** Official billed cost; never calculate money by multiplying artifacts' current size. */
 
-    private View labeledField(String label,View field){
-        LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);
-        TextView caption=text(label,12,true);caption.setTextColor(MUTED);box.addView(caption);box.addView(field);return box;
-    }
-
-    private EditText numberField(String hint,String value){
-        EditText field=new EditText(this);field.setSingleLine(true);field.setInputType(InputType.TYPE_CLASS_NUMBER);
-        field.setHint(hint);field.setText(value);return field;
-    }
-
-    /** One form for the repository cache quotas (size and retention), shown only when GitHub allows them. */
-    private void addCacheQuotaCard(String full,ActionsStorageManager manager){
-        sectionTitle("Квоты кэша","Отдельно от артефактов. По умолчанию GitHub даёт 10 ГБ и 7 дней на репозиторий.");
-        final long generation=screenGeneration.get();
-        final LinearLayout host=content;
-        final String account=currentAccountId();
-        LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);
-        TextView status=text("Получаем настройки GitHub…",12,false);status.setTextColor(MUTED);box.addView(status);
-        EditText sizeInput=numberField("10","");EditText daysInput=numberField("7","");
-        sizeInput.setEnabled(false);daysInput.setEnabled(false);
-        LinearLayout.LayoutParams fieldParams=new LinearLayout.LayoutParams(-1,-2);fieldParams.setMargins(0,dp(8),0,0);
-        box.addView(labeledField("Максимальный размер кэша, ГБ (1–10000)",sizeInput),fieldParams);
-        box.addView(labeledField("Срок хранения кэша, дней (1–400)",daysInput),fieldParams);
-        Button save=button("Сохранить квоты кэша");save.setEnabled(false);
-        LinearLayout.LayoutParams saveParams=new LinearLayout.LayoutParams(-1,dp(48));saveParams.setMargins(0,dp(10),0,0);
-        box.addView(save,saveParams);
-        card(box);
-        final int[] loaded={-1,-1};
-        final Runnable load=()->io.execute(()->{
-            int size=-1,days=-1;String sizeError="",daysError="";
-            try{size=manager.loadCacheStorageLimitGb(full);}catch(Exception e){sizeError=e.getMessage();}
-            try{days=manager.loadCacheRetentionDays(full);}catch(Exception e){daysError=e.getMessage();}
-            final int sizeValue=size,daysValue=days;final String sizeFailure=sizeError,daysFailure=daysError;
-            runOnUiThread(()->{
-                if(generation!=screenGeneration.get()||host!=content||!account.equals(currentAccountId()))return;
-                loaded[0]=sizeValue;loaded[1]=daysValue;
-                if(sizeValue>0)sizeInput.setText(String.valueOf(sizeValue));
-                if(daysValue>0)daysInput.setText(String.valueOf(daysValue));
-                sizeInput.setEnabled(sizeValue>0);daysInput.setEnabled(daysValue>0);
-                save.setEnabled(sizeValue>0||daysValue>0);
-                if(sizeValue>0||daysValue>0)status.setText("Текущие значения GitHub: "+(sizeValue>0?sizeValue+" ГБ":"размер недоступен")+" · "+(daysValue>0?daysValue+" дн.":"срок недоступен"));
-                else status.setText("Квоты кэша недоступны. "+app.githubble.mobile.build.ActionsErrorText.describe(sizeFailure.isEmpty()?daysFailure:sizeFailure));
-            });
-        });
-        save.setOnClickListener(v->{
-            final int size,days;
-            try{size=Integer.parseInt(sizeInput.getText().toString().trim());days=Integer.parseInt(daysInput.getText().toString().trim());}
-            catch(Exception ex){toast("Введите целые числа");return;}
-            if(size<1||size>10000){toast("Размер кэша: от 1 до 10000 ГБ");return;}
-            if(days<1||days>400){toast("Срок хранения: от 1 до 400 дней");return;}
-            final boolean sizeChanged=sizeInput.isEnabled()&&size!=loaded[0],daysChanged=daysInput.isEnabled()&&days!=loaded[1];
-            if(!sizeChanged&&!daysChanged){toast("Значения не изменились");return;}
-            Runnable apply=()->{
-                save.setEnabled(false);status.setText("Сохраняем в GitHub…");
-                io.execute(()->{
-                    StringBuilder problems=new StringBuilder();
-                    if(sizeChanged)try{manager.setCacheStorageLimitGb(full,size);}catch(Exception e){problems.append("Размер: ").append(app.githubble.mobile.build.ActionsErrorText.describe(e.getMessage())).append('\n');}
-                    if(daysChanged)try{manager.setCacheRetentionDays(full,days);}catch(Exception e){problems.append("Срок: ").append(app.githubble.mobile.build.ActionsErrorText.describe(e.getMessage())).append('\n');}
-                    final String failure=problems.toString().trim();
-                    runOnUiThread(()->{
-                        if(generation!=screenGeneration.get()||host!=content)return;
-                        save.setEnabled(true);
-                        if(failure.isEmpty()){status.setText("Сохранено в GitHub.");toast("Квоты кэша сохранены");}
-                        else status.setText("Не всё сохранено.\n"+failure);
-                    });
-                });
-            };
-            if(sizeChanged&&size>10)
-                new AlertDialog.Builder(this).setTitle("Возможны списания GitHub")
-                        .setMessage("Кэш больше бесплатных 10 ГБ на репозиторий может оплачиваться. Установить лимит "+size+" ГБ?")
-                        .setNegativeButton("Отмена",null).setPositiveButton("Подтвердить",(d,w)->apply.run()).show();
-            else apply.run();
-        });
-        load.run();
-    }
-
-    private void showActionsBillingCost(String full){
-        if(!full.isEmpty()&&!full.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")){
-            errorDialog("Billing","Некорректный репозиторий");return;
-        }
-        setCurrentScreen(()->showActionsBillingCost(full));
-        shell("Оплата и диагностика",false);
-        settingsPanelHeader("Оплата GitHub","Расходы, бюджеты и источники данных",R.drawable.ic_settings);
-        if(!isSignedIn()){accountRequiredCard("Подключите GitHub для просмотра Billing.");return;}
-        final long generation=screenGeneration.get();
-        final String account=currentAccountId();
-        final LinearLayout host=content;
-
-        sectionTitle("Расходы на GitHub Actions",null);
-        LinearLayout costCard=billingSurface();
-        LinearLayout costHeader=billingHeader(R.drawable.ic_history,"GitHub Actions",
-                full.isEmpty()?"Все доступные проекты":"Проект "+full,0xFF7A43D1);
-        costCard.addView(costHeader);
-        TextView period=text("Период: определяем…",11,false);period.setTextColor(MUTED);period.setPadding(0,dp(8),0,dp(5));
-        costCard.addView(period);
-        LinearLayout grossRow=new LinearLayout(this);grossRow.setGravity(Gravity.CENTER_VERTICAL);
-        TextView grossLabel=text("Gross (использование)",13,false),grossValue=text("—",16,true);grossValue.setGravity(Gravity.END);
-        grossRow.addView(grossLabel,new LinearLayout.LayoutParams(0,dp(42),1));grossRow.addView(grossValue,new LinearLayout.LayoutParams(dp(130),dp(42)));
-        costCard.addView(grossRow);
-        LinearLayout discountRow=new LinearLayout(this);discountRow.setGravity(Gravity.CENTER_VERTICAL);
-        TextView discountLabel=text("Скидка GitHub",13,false),discountValue=text("—",16,true);discountValue.setTextColor(GREEN);discountValue.setGravity(Gravity.END);
-        discountRow.addView(discountLabel,new LinearLayout.LayoutParams(0,dp(42),1));discountRow.addView(discountValue,new LinearLayout.LayoutParams(dp(130),dp(42)));
-        costCard.addView(discountRow);
-        View divider=new View(this);divider.setBackgroundColor(BORDER);costCard.addView(divider,new LinearLayout.LayoutParams(-1,dp(1)));
-        LinearLayout netRow=new LinearLayout(this);netRow.setGravity(Gravity.CENTER_VERTICAL);
-        TextView netLabel=text("Итого к оплате (Net)",15,true),netValue=text("—",19,true);netValue.setGravity(Gravity.END);
-        netRow.addView(netLabel,new LinearLayout.LayoutParams(0,dp(48),1));netRow.addView(netValue,new LinearLayout.LayoutParams(dp(140),dp(48)));
-        costCard.addView(netRow);
-        TextView reportNote=text("Отчёт основан на GitHub Billing usage summary. Финальный счёт GitHub может обновляться с задержкой.",10,false);
-        reportNote.setTextColor(MUTED);costCard.addView(reportNote);
-        card(costCard);
-
-        sectionTitle("Бюджеты",null);
-        settingsActionRow("Настроить бюджеты GitHub","Лимиты, уведомления и правила",
-                ()->openSecureGitHubPage("https://github.com/settings/billing"));
-        settingsActionRow("Budgets and alerts","Открыть официальные настройки GitHub",
-                ()->openSecureGitHubPage("https://github.com/settings/billing"));
-        settingsActionRow("Открыть Billing & payment","Управление оплатой только на GitHub",
-                ()->openSecureGitHubPage(AccountOperationsController.BILLING_PAGE));
-        TextView budgetWarning=text("Локальные лимиты GitHubble не останавливают биллинг GitHub. Для запрета платного использования используйте официальный Billing → Budgets and alerts.",11,false);
-        budgetWarning.setTextColor(0xFF9A6500);budgetWarning.setBackground(round(blend(CARD,0xFFFFB020,0.10f),14,0,0));
-        budgetWarning.setPadding(dp(12),dp(10),dp(12),dp(10));content.addView(budgetWarning);
-
-        sectionTitle("Доступ и диагностика",null);
-        LinearLayout diagnostics=billingSurface();
-        TextView billingState=text("Проверяется",11,true);
-        TextView planState=text("Проверяется",11,true);
-        TextView privateState=text("Через GitHub App",11,true);privateState.setTextColor(GREEN);
-        TextView inventoryState=text(prefs.getLong(billingCacheKey("inventory_at"),0L)>0
-                ?(prefs.getBoolean(billingCacheKey("partial"),true)?"Частичная":"Проверена"):"Не запускалась",11,true);
-        TextView updateState=text(billingUtcTime(Math.max(
-                prefs.getLong(billingCacheKey("billing_at"),0L),
-                prefs.getLong(billingCacheKey("inventory_at"),0L))),11,false);
-        addBillingStatusRow(diagnostics,R.drawable.ic_lock,"Billing API",billingState,GREEN);
-        addBillingStatusRow(diagnostics,R.drawable.ic_lock,"Plan permission",planState,GREEN);
-        addBillingStatusRow(diagnostics,R.drawable.ic_lock,"Доступ к приватным репозиториям",privateState,GREEN);
-        addBillingStatusRow(diagnostics,R.drawable.ic_repository,"Инвентаризация",inventoryState,0xFF7A43D1);
-        addBillingStatusRow(diagnostics,R.drawable.ic_history,"Последнее обновление",updateState,MUTED);
-        card(diagnostics);
-
-        sectionTitle("Источники данных и цвета",null);
-        LinearLayout sources=billingSurface();
-        TextView official=text("●  Официальный GitHub — данные GitHub Billing API",11,true);official.setTextColor(GREEN);sources.addView(official);
-        TextView calculated=text("●  Расчёт GitHubble — производные значения: остаток, проценты",11,true);calculated.setTextColor(0xFF3478D4);calculated.setPadding(0,dp(7),0,0);sources.addView(calculated);
-        TextView inventory=text("●  Инвентаризация — найденные артефакты и cache по репозиториям",11,true);inventory.setTextColor(0xFF7A43D1);inventory.setPadding(0,dp(7),0,0);sources.addView(inventory);
-        card(sources);
-
-        sectionTitle("Диагностика и устранение проблем",null);
-        GridLayout tools=new GridLayout(this);tools.setColumnCount(adaptiveColumns(2));
-        addBillingQuickAction(tools,R.drawable.ic_lock,"Права GitHub App","Проверить доступ к приватным репозиториям",this::openPrivateRepositoryAccess);
-        addBillingQuickAction(tools,R.drawable.ic_repository,"Выбрать репозитории","Настроить доступ GitHub App",this::openPrivateRepositoryAccess);
-        addBillingQuickAction(tools,R.drawable.ic_history,"Сбросить кэш Billing","Запросить свежие данные",()->{
-            api.invalidatePrefix("https://api.github.com/users/");
-            api.invalidatePrefix("https://api.github.com/user");
-            toast("Кэш Billing сброшен");
-            showActionsBillingCost(full);
-        });
-        addBillingQuickAction(tools,R.drawable.ic_settings,"Повторить запрос","Обновить отчёт и диагностику",()->showActionsBillingCost(full));
-        content.addView(tools,new LinearLayout.LayoutParams(-1,-2));
-        settingsActionRow("Подробности API","Показать источники запросов",()->new AlertDialog.Builder(this)
-                .setTitle("Billing API")
-                .setMessage("Профиль и тариф:\nGET /user\n\nИспользование Actions:\nGET /users/{login}/settings/billing/usage/summary?year=…&month=…&product=Actions\n\nХранилище:\nGET /repos/{owner}/{repo}/actions/artifacts\nGET /repos/{owner}/{repo}/actions/caches")
-                .setPositiveButton("OK",null).show());
-
-        io.execute(()->{
-            try{
-                JSONObject profile=api.getJsonFresh("https://api.github.com/user");
-                String login=profile.optString("login","");
-                JSONObject planJson=profile.optJSONObject("plan");
-                String planName=planJson==null?"":app.githubble.mobile.ui.JsonText.of(planJson,"name","");
-                if(!login.matches("[A-Za-z0-9-]+"))throw new IllegalStateException("Не удалось определить аккаунт GitHub");
-                java.time.LocalDate month=java.time.LocalDate.now(java.time.ZoneOffset.UTC);
-                String url="https://api.github.com/users/"+login+"/settings/billing/usage/summary?year="+month.getYear()
-                        +"&month="+month.getMonthValue()+"&product=Actions"
-                        +(full.isEmpty()?"":"&repository="+Uri.encode(full));
-                JSONObject report=api.getJson(url);
-                JSONArray items=report.optJSONArray("usageItems");
-                if(items==null)throw new IllegalStateException("GitHub Billing API не вернул usageItems");
-                double gross=0d,discount=0d,net=0d;
-                boolean complete=true;
-                for(int i=0;i<items.length();i++){
-                    JSONObject item=items.optJSONObject(i);
-                    if(item==null||!"Actions".equalsIgnoreCase(item.optString("product","")))continue;
-                    if(!item.has("grossAmount")||!item.has("discountAmount")||!item.has("netAmount")){
-                        complete=false;continue;
-                    }
-                    gross+=item.optDouble("grossAmount",0d);
-                    discount+=item.optDouble("discountAmount",0d);
-                    net+=item.optDouble("netAmount",0d);
-                }
-                final boolean totalsComplete=complete;
-                final double grossFinal=gross,discountFinal=discount,netFinal=net;
-                final String plan=planName;
-                final String periodText=month.getYear()+"-"+String.format(Locale.US,"%02d",month.getMonthValue());
-                runOnUiThread(()->{
-                    if(generation!=screenGeneration.get()||host!=content||!account.equals(currentAccountId()))return;
-                    period.setText("Период: "+periodText+" UTC · Тариф: "+(plan.isEmpty()?"—":plan));
-                    billingState.setText("Доступен");billingState.setTextColor(GREEN);
-                    planState.setText(plan.isEmpty()?"Read":"Read · "+plan);planState.setTextColor(GREEN);
-                    if(totalsComplete){
-                        grossValue.setText("$"+String.format(Locale.US,"%.4f",grossFinal));
-                        discountValue.setText((discountFinal>0?"−":"")+"$"+String.format(Locale.US,"%.4f",Math.abs(discountFinal)));
-                        netValue.setText("$"+String.format(Locale.US,"%.4f",netFinal));
-                    }else{
-                        grossValue.setText("Неполно");discountValue.setText("Неполно");netValue.setText("Неполно");
-                    }
-                    long now=System.currentTimeMillis();
-                    prefs.edit().putLong(billingCacheKey("billing_at"),now).apply();
-                    updateState.setText(billingUtcTime(now));
-                });
-            }catch(Exception error){
-                runOnUiThread(()->{
-                    if(generation!=screenGeneration.get()||host!=content)return;
-                    billingState.setText("Недоступен");billingState.setTextColor(0xFFC34F48);
-                    planState.setText("Проверьте Plan: Read");planState.setTextColor(0xFFC34F48);
-                    reportNote.setText("Стоимость недоступна: "+(error.getMessage()==null?"неизвестная ошибка":error.getMessage())
-                            +". Недоступный результат не считается нулём.");
-                });
-            }
-        });
-    }
 
 
-    /** Account-wide entry point. Each repository owns its own GitHub retention policy. */
-    private void showActionsStorageRepositories(){
-        setCurrentScreen(this::showActionsStorageRepositories);
-        shell("Хранилище Actions",false);
-        settingsPanelHeader("Хранилище Actions","Артефакты, cache и очистка",R.drawable.ic_repository);
-        if(!isSignedIn()){accountRequiredCard("Подключите GitHub для управления хранилищем.");return;}
-        final long generation=screenGeneration.get();
-        final String account=currentAccountId();
-        final LinearLayout host=content;
 
-        sectionTitle("Использование хранилища",null);
-        LinearLayout summary=billingSurface();
-        TextView summaryLimit=text("Лимит артефактов: определяем…",11,false);summaryLimit.setTextColor(MUTED);
-        LinearLayout summaryTitle=billingHeader(R.drawable.ic_repository,"Артефакты и cache",
-                "Сканирование доступных репозиториев",0xFF7A43D1);
-        summary.addView(summaryTitle);summary.addView(summaryLimit);
-        TextView summaryUsage=text("Подготовка инвентаризации…",18,true);summaryUsage.setPadding(0,dp(7),0,0);summary.addView(summaryUsage);
-        ProgressBar storageProgress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);
-        styleBillingProgress(storageProgress,0,GREEN);
-        LinearLayout.LayoutParams spp=new LinearLayout.LayoutParams(-1,dp(8));spp.setMargins(0,dp(7),0,dp(7));summary.addView(storageProgress,spp);
-        LinearLayout summaryMetrics=new LinearLayout(this);
-        TextView artifactValue=text("—",18,true),artifactDetail=text("Артефакты",10,false);
-        TextView cacheValue=text("—",18,true),cacheDetail=text("Cache · отдельная квота",10,false);
-        summaryMetrics.addView(billingMetric(R.drawable.ic_repository,"Артефакты",artifactValue,artifactDetail,0xFF7A43D1),
-                new LinearLayout.LayoutParams(0,-2,1));
-        LinearLayout.LayoutParams cacheP=new LinearLayout.LayoutParams(0,-2,1);cacheP.setMargins(dp(8),0,0,0);
-        summaryMetrics.addView(billingMetric(R.drawable.ic_repository,"Cache",cacheValue,cacheDetail,GREEN),cacheP);
-        summary.addView(summaryMetrics);
-        TextView summaryNote=text("Артефакты сравниваются с лимитом тарифа. Cache не прибавляется к 0,50 ГБ артефактов и отображается отдельно.",10,false);
-        summaryNote.setTextColor(MUTED);summaryNote.setPadding(0,dp(8),0,0);summary.addView(summaryNote);
-        card(summary);
 
-        sectionTitle("Сканирование репозиториев",null);
-        LinearLayout scanCard=billingSurface();
-        TextView scanStatus=text("Получаем список репозиториев…",13,true);scanCard.addView(scanStatus);
-        ProgressBar scanProgress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);
-        styleBillingProgress(scanProgress,0,GREEN);
-        LinearLayout.LayoutParams scp=new LinearLayout.LayoutParams(-1,dp(8));scp.setMargins(0,dp(8),0,dp(6));scanCard.addView(scanProgress,scp);
-        TextView scanMeta=text("Проверено 0 репозиториев",11,false);scanMeta.setTextColor(MUTED);scanCard.addView(scanMeta);
-        Button stop=button("Остановить сканирование");stop.setTextColor(0xFFC34F48);stop.setBackground(round(CARD,13,0xFFC34F48,1));
-        LinearLayout.LayoutParams stopP=new LinearLayout.LayoutParams(-1,dp(44));stopP.setMargins(0,dp(8),0,0);scanCard.addView(stop,stopP);
-        card(scanCard);
 
-        sectionTitle("Репозитории","Открывайте проект для артефактов и retention");
-        LinearLayout repoRows=new LinearLayout(this);repoRows.setOrientation(LinearLayout.VERTICAL);content.addView(repoRows);
 
-        sectionTitle("Менеджер артефактов",null);
-        GridLayout managerTools=new GridLayout(this);managerTools.setColumnCount(adaptiveColumns(2));
-        addBillingQuickAction(managerTools,R.drawable.ic_repository,"Сканировать хранилище","Обновить инвентаризацию",this::showActionsStorageRepositories);
-        addBillingQuickAction(managerTools,R.drawable.ic_history,"Очистка cache","Выбрать репозиторий",
-                ()->showActionsRepositoryPicker("Очистка cache",repo->navigate(()->showActionsCleanup(repo))));
-        addBillingQuickAction(managerTools,R.drawable.ic_settings,"Политики retention","Настроить хранение по проекту",
-                ()->showActionsRepositoryPicker("Retention репозитория",repo->navigate(()->showActionsStorage(repo))));
-        addBillingQuickAction(managerTools,R.drawable.ic_repository,"Крупные файлы","Открыть артефакты проекта",
-                ()->showActionsRepositoryPicker("Артефакты проекта",repo->navigate(()->showActionsStorage(repo))));
-        content.addView(managerTools,new LinearLayout.LayoutParams(-1,-2));
-        settingsActionRow("Retention и cache","Серверные и локальные правила задаются отдельно для каждого репозитория",
-                ()->showActionsRepositoryPicker("Настройки Actions",repo->navigate(()->showActionsStorage(repo))));
-        settingsActionRow("Стоимость и Billing","Перейти к оплате и диагностике",
-                ()->navigate(()->showActionsBillingCost("")));
 
-        io.execute(()->{
-            try{
-                AccountOperationsController.BillingSnapshot billing=accountOperations.loadBillingOverview();
-                runOnUiThread(()->{
-                    if(generation!=screenGeneration.get()||host!=content||!account.equals(currentAccountId()))return;
-                    if(billing.storageLimitBytes>0){
-                        summaryLimit.setText("Лимит артефактов тарифа "+(billing.planName.isEmpty()?"":billing.planName+": ")
-                                +formatAccountBytes(billing.storageLimitBytes));
-                        summaryLimit.setTag(billing.storageLimitBytes);
-                    }else summaryLimit.setText("Лимит артефактов тарифа не определён");
-                });
-            }catch(Exception ignored){}
-        });
 
-        accountInventoryCancelled.set(true);
-        if(accountInventoryFuture!=null&&!accountInventoryFuture.isDone())accountInventoryFuture.cancel(true);
-        final AtomicBoolean stopped=new AtomicBoolean(false);
-        accountInventoryCancelled=stopped;
-        stop.setOnClickListener(v->{
-            stopped.set(true);
-            if(accountInventoryFuture!=null)accountInventoryFuture.cancel(true);
-            scanStatus.setText("Сканирование остановлено");
-            scanMeta.setText("Неполный результат не считается общим объёмом.");
-            stop.setEnabled(false);
-        });
-        accountInventoryFuture=inventoryIo.submit(()->{
-            try{
-                AccountOperationsController.StorageInventory result=accountOperations.loadStorageInventory((done,total)->runOnUiThread(()->{
-                    if(generation!=screenGeneration.get()||host!=content||stopped.get())return;
-                    int percent=total==0?0:Math.min(100,(int)((long)done*100/total));
-                    styleBillingProgress(scanProgress,percent,GREEN);
-                    scanStatus.setText("Сканирование репозиториев");
-                    scanMeta.setText("Проверено "+done+" из "+total+" · "+percent+"%");
-                }),()->stopped.get()||Thread.currentThread().isInterrupted()
-                        ||generation!=screenGeneration.get()||!account.equals(currentAccountId()));
-                runOnUiThread(()->{
-                    if(generation!=screenGeneration.get()||host!=content||stopped.get()||!account.equals(currentAccountId()))return;
-                    rememberInventory(result);
-                    stop.setEnabled(false);
-                    styleBillingProgress(scanProgress,100,GREEN);
-                    scanStatus.setText(result.isPartial()?"Инвентаризация частичная":"Инвентаризация завершена");
-                    scanMeta.setText("Проверено "+result.scanned+" из "+result.total
-                            +" · без доступа "+result.inaccessible
-                            +(result.truncated?" · лимит сканирования 100 репозиториев":""));
-                    artifactValue.setText(formatAccountBytes(result.artifactBytes));
-                    artifactDetail.setText(result.repositories.stream().mapToInt(x->x.artifacts).sum()+" файлов");
-                    cacheValue.setText(formatAccountBytes(result.cacheBytes));
-                    cacheDetail.setText(result.repositories.stream().mapToInt(x->x.caches).sum()+" объектов · отдельная квота");
-                    Object limitTag=summaryLimit.getTag();
-                    if(limitTag instanceof Long&&((Long)limitTag)>0){
-                        long limit=(Long)limitTag;
-                        int percent=(int)Math.round(Math.max(0d,Math.min(100d,result.artifactBytes*100d/limit)));
-                        styleBillingProgress(storageProgress,percent,GREEN);
-                        summaryUsage.setText(formatAccountBytes(result.artifactBytes)+" из "+formatAccountBytes(limit)+" · "+percent+"%");
-                    }else summaryUsage.setText("Артефакты "+formatAccountBytes(result.artifactBytes)+" · cache "+formatAccountBytes(result.cacheBytes));
-                    repoRows.removeAllViews();
-                    if(result.repositories.isEmpty()){
-                        TextView empty=text("Доступные данные Actions не найдены. Проверьте разрешения GitHub App.",12,false);
-                        empty.setTextColor(MUTED);card(empty);
-                    }else{
-                        int shown=0;
-                        for(AccountOperationsController.RepositoryUsage usage:result.repositories){
-                            if(shown>=40)break;
-                            if(usage.totalBytes()<=0&&usage.actionsAccessible)continue;
-                            LinearLayout row=billingSurface();row.setPadding(dp(11),dp(9),dp(11),dp(9));
-                            LinearLayout titleRow=new LinearLayout(this);titleRow.setGravity(Gravity.CENTER_VERTICAL);
-                            ImageView gh=imageIcon(R.drawable.ic_repository,usage.actionsAccessible?GREEN:MUTED,7);
-                            gh.setBackground(round(blend(CARD,usage.actionsAccessible?GREEN:MUTED,0.08f),10,0,0));
-                            titleRow.addView(gh,new LinearLayout.LayoutParams(dp(34),dp(34)));
-                            LinearLayout labels=new LinearLayout(this);labels.setOrientation(LinearLayout.VERTICAL);labels.setPadding(dp(9),0,0,0);
-                            TextView name=text(usage.fullName,13,true);name.setPadding(0,0,0,0);labels.addView(name);
-                            TextView meta=text(usage.actionsAccessible
-                                    ?"Артефакты "+formatAccountBytes(usage.artifactBytes)+" · cache "+formatAccountBytes(usage.cacheBytes)
-                                    :"Нет доступа к Actions",10,false);
-                            meta.setTextColor(MUTED);meta.setPadding(0,dp(2),0,0);labels.addView(meta);
-                            titleRow.addView(labels,new LinearLayout.LayoutParams(0,-2,1));
-                            TextView open=text("Открыть  ›",11,true);open.setTextColor(GREEN);open.setGravity(Gravity.CENTER);
-                            titleRow.addView(open,new LinearLayout.LayoutParams(dp(82),dp(40)));
-                            row.addView(titleRow);
-                            if(usage.actionsAccessible)row.setOnClickListener(v->navigate(()->showActionsStorage(usage.fullName)));
-                            else row.setAlpha(0.65f);
-                            LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(-1,-2);rp.setMargins(0,0,0,dp(7));repoRows.addView(row,rp);
-                            shown++;
-                        }
-                        if(result.repositories.size()>shown){
-                            TextView more=text("Показаны крупнейшие "+shown+" репозиториев. Остальные доступны через выбор проекта.",11,false);
-                            more.setTextColor(MUTED);repoRows.addView(more);
-                        }
-                    }
-                });
-            }catch(Exception e){
-                runOnUiThread(()->{
-                    if(generation!=screenGeneration.get()||host!=content||stopped.get())return;
-                    scanStatus.setText("Инвентаризация не завершилась");
-                    scanMeta.setText(e.getMessage()==null?"Не удалось получить данные GitHub":e.getMessage());
-                    stop.setEnabled(false);
-                });
-            }
-        });
-    }
-
-    private void showActionsStorage(String full){
-        if(!full.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")){
-            errorDialog("Хранилище","Некорректное имя репозитория");return;
-        }
-        setCurrentScreen(()->showActionsStorage(full));
-        shell("Хранилище Actions",false);
-        repoSectionHeader(full,"GitHub Actions","Артефакты и правила хранения",R.drawable.ic_android);
-        addRepositoryActionsTabs(full,1);
-        if(!isSignedIn()){accountRequiredCard("Подключите GitHub для управления Actions.");return;}
-        final ActionsStorageManager manager=new ActionsStorageManager(api,prefs);
-        final long generation=screenGeneration.get();
-        final String account=currentAccountId();
-        final LinearLayout host=content;
-        ActionsStorageManager.Policy policy=manager.loadPolicy(full);
-        EditText keepInput=new EditText(this);keepInput.setSingleLine(true);
-        keepInput.setInputType(InputType.TYPE_CLASS_NUMBER);
-        keepInput.setHint("Сохранять последних артефактов");keepInput.setText(String.valueOf(policy.keepLatest));
-        EditText ageInput=new EditText(this);ageInput.setSingleLine(true);
-        ageInput.setInputType(InputType.TYPE_CLASS_NUMBER);
-        ageInput.setHint("Удалять после, дней");ageInput.setText(String.valueOf(policy.minAgeDays));
-        EditText limitInput=new EditText(this);limitInput.setSingleLine(true);
-        limitInput.setInputType(InputType.TYPE_CLASS_NUMBER);
-        limitInput.setHint("Целевой размер, МБ · 0 = все старые");
-        limitInput.setText(String.valueOf(policy.softLimitMb));
-        TextView warning=text("Срок хранения GitHub действует для новых файлов. Мягкий лимит и правила очистки на телефоне не являются квотой GitHub и не останавливают платное использование.",12,false);
-        warning.setTextColor(MUTED);card(warning);
-        sectionTitle("Артефакты","APK/ZIP · скачать или удалить прямо здесь");
-        TextView status=text("Получаем артефакты…",12,false);status.setTextColor(MUTED);card(status);
-        LinearLayout rows=new LinearLayout(this);rows.setOrientation(LinearLayout.VERTICAL);content.addView(rows);
-        LinearLayout tools=new LinearLayout(this);
-        Button refresh=button("↻ Обновить");
-        refresh.setOnClickListener(v->showActionsStorage(full));
-        Button oldCache=button("Кэш Actions");
-        oldCache.setOnClickListener(v->navigate(()->showActionsCleanup(full)));
-        for(Button action:new Button[]{refresh,oldCache}){
-            action.setTextSize(12);action.setTextColor(GREEN);
-            action.setBackground(round(CARD,13,BORDER,1));
-            LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(45),1f);
-            if(action==oldCache)p.setMargins(dp(9),0,0,0);
-            tools.addView(action,p);
-        }
-        LinearLayout.LayoutParams toolsP=new LinearLayout.LayoutParams(-1,dp(45));
-        toolsP.setMargins(0,dp(6),0,dp(12));
-        content.addView(tools,toolsP);
-        io.execute(()->{
-            try{
-                ActionsStorageManager.Page page=manager.listArtifacts(full,30);
-                runOnUiThread(()->{
-                    if(generation!=screenGeneration.get()||host!=content||!account.equals(currentAccountId()))return;
-                    status.setText("Артефакты: "+page.artifacts.size()+" из "+page.totalCount+
-                            " · найдено "+formatAccountBytes(page.visibleBytes)+
-                            (page.incomplete?"\nСписок неполный: просмотр доступен, групповая очистка отключена.":"")+
-                            "\nЭто текущий размер файлов, не официальный расход Billing.");
-                    if(page.artifacts.isEmpty()){
-                        TextView empty=text("В этом проекте пока нет артефактов.",12,false);
-                        empty.setTextColor(MUTED);
-                        rows.addView(empty);
-                    }
-                    final Set<Long> picked=new LinkedHashSet<>();
-                    final Map<Long,CheckBox> boxes=new LinkedHashMap<>();
-                    final TextView pickedInfo=text("",13,true);
-                    final Button deleteSelected=button("Удалить выбранные");
-                    deleteSelected.setBackground(round(0xFFC34F48,12,0xFFC34F48,0));
-                    final Runnable refreshPicked=()->{
-                        long bytes=0;
-                        for(ActionsStorageManager.Artifact item:page.artifacts)if(picked.contains(item.id))bytes+=item.sizeBytes;
-                        pickedInfo.setText(picked.isEmpty()?"Отметьте артефакты галочками, чтобы удалить их пачкой":"Выбрано: "+picked.size()+" · "+formatAccountBytes(bytes));
-                        deleteSelected.setEnabled(!picked.isEmpty());
-                        deleteSelected.setAlpha(picked.isEmpty()?.45f:1f);
-                    };
-                    if(!page.artifacts.isEmpty()){
-                        LinearLayout bar=new LinearLayout(this);bar.setOrientation(LinearLayout.VERTICAL);
-                        bar.setPadding(dp(12),dp(10),dp(12),dp(10));bar.setBackground(round(CARD,12,BORDER,1));
-                        bar.addView(pickedInfo);
-                        LinearLayout quick=new LinearLayout(this);
-                        Button all=compactButton("Выбрать все"),old=compactButton("Все, кроме "+policy.keepLatest+" новых"),none=compactButton("Сбросить");
-                        all.setOnClickListener(v->{for(CheckBox box:boxes.values())box.setChecked(true);});
-                        none.setOnClickListener(v->{for(CheckBox box:boxes.values())box.setChecked(false);});
-                        old.setOnClickListener(v->{
-                            int index=0;
-                            for(ActionsStorageManager.Artifact item:page.artifacts){
-                                CheckBox box=boxes.get(item.id);
-                                if(box!=null)box.setChecked(index>=policy.keepLatest);
-                                index++;
-                            }
-                        });
-                        LinearLayout.LayoutParams q1=new LinearLayout.LayoutParams(0,dp(40),1f),q2=new LinearLayout.LayoutParams(0,dp(40),1.6f),q3=new LinearLayout.LayoutParams(0,dp(40),1f);
-                        q2.setMargins(dp(6),0,dp(6),0);
-                        quick.addView(all,q1);quick.addView(old,q2);quick.addView(none,q3);
-                        LinearLayout.LayoutParams quickParams=new LinearLayout.LayoutParams(-1,dp(40));quickParams.setMargins(0,dp(8),0,0);
-                        bar.addView(quick,quickParams);
-                        LinearLayout.LayoutParams deleteParams=new LinearLayout.LayoutParams(-1,dp(46));deleteParams.setMargins(0,dp(8),0,0);
-                        bar.addView(deleteSelected,deleteParams);
-                        LinearLayout.LayoutParams barParams=new LinearLayout.LayoutParams(-1,-2);barParams.setMargins(0,0,0,dp(8));
-                        rows.addView(bar,barParams);
-                        refreshPicked.run();
-                        deleteSelected.setOnClickListener(v->{
-                            List<ActionsStorageManager.Artifact> chosen=new ArrayList<>();long sum=0;
-                            for(ActionsStorageManager.Artifact item:page.artifacts)if(picked.contains(item.id)){chosen.add(item);sum+=item.sizeBytes;}
-                            if(chosen.isEmpty())return;
-                            StringBuilder names=new StringBuilder();
-                            for(int i=0;i<Math.min(8,chosen.size());i++)names.append("\n• ").append(chosen.get(i).name);
-                            if(chosen.size()>8)names.append("\n… и ещё ").append(chosen.size()-8);
-                            new AlertDialog.Builder(this).setTitle("Удалить выбранные: "+chosen.size()+"?")
-                                    .setMessage(full+"\nРазмер: "+formatAccountBytes(sum)+names
-                                            +"\n\nУдаление необратимо. Исходники и Releases не затрагиваются.")
-                                    .setNegativeButton("Отмена",null)
-                                    .setPositiveButton("Удалить",(dialog,which)->{
-                                        deleteSelected.setEnabled(false);
-                                        io.execute(()->{
-                                            int done=0,failed=0;String lastError="";
-                                            for(int i=0;i<chosen.size();i++){
-                                                final int number=i+1;
-                                                runOnUiThread(()->pickedInfo.setText("Удаляем "+number+" из "+chosen.size()+"…"));
-                                                try{manager.deleteArtifact(full,chosen.get(i).id);done++;}
-                                                catch(Exception ex){failed++;lastError=ex.getMessage();}
-                                            }
-                                            final int deleted=done,errors=failed;
-                                            final String explanation=lastError;
-                                            runOnUiThread(()->{
-                                                if(generation!=screenGeneration.get()||host!=content)return;
-                                                new AlertDialog.Builder(this).setTitle("Результат удаления")
-                                                        .setMessage("Удалено: "+deleted+"\nОшибок: "+errors+
-                                                                (explanation.isEmpty()?"":"\n"+app.githubble.mobile.build.ActionsErrorText.describe(explanation)))
-                                                        .setPositiveButton("Обновить",(dlg,w)->showActionsStorage(full)).show();
-                                            });
-                                        });
-                                    }).show();
-                        });
-                    }
-                    for(ActionsStorageManager.Artifact artifact:page.artifacts){
-                        LinearLayout line=new LinearLayout(this);line.setOrientation(LinearLayout.VERTICAL);
-                        line.setPadding(dp(12),dp(10),dp(12),dp(10));
-                        LinearLayout head=new LinearLayout(this);head.setGravity(Gravity.CENTER_VERTICAL);
-                        CheckBox pick=new CheckBox(this);
-                        pick.setButtonTintList(android.content.res.ColorStateList.valueOf(GREEN));
-                        pick.setContentDescription("Выбрать "+artifact.name);
-                        boxes.put(artifact.id,pick);
-                        pick.setOnCheckedChangeListener((box,on)->{if(on)picked.add(artifact.id);else picked.remove(artifact.id);refreshPicked.run();});
-                        head.addView(pick,new LinearLayout.LayoutParams(dp(44),dp(44)));
-                        LinearLayout info=new LinearLayout(this);info.setOrientation(LinearLayout.VERTICAL);
-                        info.addView(text(artifact.name,14,true));
-                        TextView meta=text(formatAccountBytes(artifact.sizeBytes)+" · "+formatGitHubDate(artifact.createdAt)
-                                +(artifact.expiresAt.isEmpty()?"":" · до "+formatGitHubDate(artifact.expiresAt))
-                                +(artifact.expired?" · истёк":""),11,false);
-                        meta.setTextColor(MUTED);info.addView(meta);
-                        head.addView(info,new LinearLayout.LayoutParams(0,-2,1));
-                        line.addView(head);
-                        Button download=compactButton("↓ Скачать ZIP");
-                        download.setEnabled(!artifact.expired);
-                        download.setOnClickListener(v->{
-                            try{
-                                JSONObject minimal=new JSONObject().put("id",artifact.id)
-                                        .put("name",artifact.name).put("expired",artifact.expired);
-                                startArtifactDownload(full,minimal);
-                            }catch(Exception e){errorDialog("Загрузка артефакта",e.getMessage());}
-                        });
-                        LinearLayout.LayoutParams downloadParams=new LinearLayout.LayoutParams(-1,dp(40));downloadParams.setMargins(0,dp(6),0,0);
-                        line.addView(download,downloadParams);
-                        line.setOnClickListener(v->pick.toggle());
-                        line.setBackground(round(CARD,12,BORDER,1));
-                        LinearLayout.LayoutParams entryParams=new LinearLayout.LayoutParams(-1,-2);
-                        entryParams.setMargins(0,0,0,dp(8));
-                        rows.addView(line,entryParams);
-                    }
-                    Button preview=button("Предпросмотр очистки по правилу");
-                    preview.setTextColor(GREEN);
-                    preview.setBackground(round(CARD,13,GREEN,1));
-                    preview.setEnabled(!page.incomplete&&page.artifacts.size()>0);
-                    preview.setOnClickListener(v->{
-                        try{
-                            ActionsStorageManager.Policy p=new ActionsStorageManager.Policy(
-                                    Integer.parseInt(keepInput.getText().toString().trim()),
-                                    Integer.parseInt(ageInput.getText().toString().trim()),
-                                    Integer.parseInt(limitInput.getText().toString().trim()));
-                            manager.savePolicy(full,p);
-                            List<ActionsStorageManager.Artifact> selected=manager.previewCleanup(page,p);
-                            long sum=0;for(ActionsStorageManager.Artifact item:selected)sum+=item.sizeBytes;
-                            if(selected.isEmpty()){toast("По текущему правилу удалять нечего");return;}
-                            final long bytes=sum;
-                            StringBuilder names=new StringBuilder();
-                            for(int i=0;i<Math.min(8,selected.size());i++)
-                                names.append("\n• ").append(selected.get(i).name);
-                            if(selected.size()>8)names.append("\n… и ещё ").append(selected.size()-8);
-                            new AlertDialog.Builder(this).setTitle("Подтвердить очистку?")
-                                    .setMessage("Репозиторий: "+full+"\nОбъектов: "+selected.size()
-                                            +"\nРазмер: "+formatAccountBytes(bytes)+names
-                                            +"\n\nУдалённые файлы не восстановить. Это не изменит уже начисленную сумму Billing.")
-                                    .setNegativeButton("Отмена",null)
-                                    .setPositiveButton("Удалить",(dialog,which)->{
-                                        preview.setEnabled(false);
-                                        io.execute(()->{
-                                            int done=0,failed=0;String lastError="";
-                                            for(ActionsStorageManager.Artifact item:selected){
-                                                try{manager.deleteArtifact(full,item.id);done++;}
-                                                catch(Exception ex){failed++;lastError=ex.getMessage();}
-                                            }
-                                            final int deleted=done,errors=failed;
-                                            final String explanation=lastError;
-                                            runOnUiThread(()->{
-                                                if(generation!=screenGeneration.get()||host!=content)return;
-                                                new AlertDialog.Builder(this).setTitle("Результат очистки")
-                                                        .setMessage("Удалено: "+deleted+"\nОшибок: "+errors+
-                                                                (explanation.isEmpty()?"":"\n"+explanation))
-                                                        .setPositiveButton("Обновить",(dlg,w)->showActionsStorage(full)).show();
-                                            });
-                                        });
-                                    }).show();
-                        }catch(Exception e){errorDialog("Правило очистки",e.getMessage());}
-                    });
-                    rows.addView(preview,new LinearLayout.LayoutParams(-1,dp(52)));
-                });
-            }catch(Exception e){
-                runOnUiThread(()->{
-                    if(generation!=screenGeneration.get()||host!=content)return;
-                    status.setText("Не удалось получить артефакты. "+app.githubble.mobile.build.ActionsErrorText.describe(e.getMessage()));
-                });
-            }
-        });
-        sectionTitle("Срок хранения GitHub","Общая настройка репозитория · требует Administration: write");
-        TextView retentionStatus=text("Получаем текущую настройку GitHub…",12,false);
-        retentionStatus.setTextColor(MUTED);card(retentionStatus);
-        Button retentionButton=button("Изменить срок хранения");
-        retentionButton.setEnabled(false);
-        retentionButton.setOnClickListener(v->{
-            String value=retentionStatus.getTag() instanceof String?(String)retentionStatus.getTag():"";
-            int max=400;
-            try{max=Integer.parseInt(value);}catch(Exception ignored){}
-            final int maxDays=max;
-            EditText daysInput=new EditText(this);
-            daysInput.setInputType(InputType.TYPE_CLASS_NUMBER);
-            daysInput.setHint("Например, 7");
-            new AlertDialog.Builder(this).setTitle("Срок хранения · "+full)
-                    .setMessage("От 1 до "+maxDays+" дней. Применится только к новым объектам GitHub Actions.")
-                    .setView(daysInput).setNegativeButton("Отмена",null)
-                    .setPositiveButton("Сохранить",(dialog,which)->{
-                        int days;
-                        try{days=Integer.parseInt(daysInput.getText().toString().trim());}
-                        catch(Exception e){toast("Введите целое число дней");return;}
-                        if(days<1||days>maxDays){toast("Допустимо 1–"+maxDays+" дней");return;}
-                        retentionButton.setEnabled(false);
-                        retentionStatus.setText("Сохраняем в GitHub…");
-                        io.execute(()->{
-                            try{
-                                ActionsStorageManager.Retention updated=manager.setRetention(full,days);
-                                runOnUiThread(()->{
-                                    if(generation!=screenGeneration.get()||host!=content||!account.equals(currentAccountId()))return;
-                                    retentionStatus.setText("GitHub: "+updated.days+" дней · максимум "+updated.maxDays);
-                                    retentionStatus.setTag(String.valueOf(updated.maxDays));
-                                    retentionButton.setEnabled(true);
-                                });
-                            }catch(Exception e){
-                                runOnUiThread(()->{
-                                    if(generation!=screenGeneration.get()||host!=content)return;
-                                    retentionStatus.setText("Не удалось сохранить срок. "+app.githubble.mobile.build.ActionsErrorText.describe(e.getMessage()));
-                                    retentionButton.setEnabled(true);
-                                });
-                            }
-                        });
-                    }).show();
-        });
-        content.addView(retentionButton,new LinearLayout.LayoutParams(-1,dp(49)));
-        io.execute(()->{
-            try{
-                ActionsStorageManager.Retention current=manager.loadRetention(full);
-                runOnUiThread(()->{
-                    if(generation!=screenGeneration.get()||host!=content||!account.equals(currentAccountId()))return;
-                    retentionStatus.setText("GitHub: "+current.days+" дней · максимум "+current.maxDays);
-                    retentionStatus.setTag(String.valueOf(current.maxDays));
-                    retentionButton.setEnabled(current.maxDays>0);
-                });
-            }catch(Exception e){
-                runOnUiThread(()->{
-                    if(generation!=screenGeneration.get()||host!=content)return;
-                    retentionStatus.setText("Срок хранения недоступен. "+app.githubble.mobile.build.ActionsErrorText.describe(e.getMessage())+"\nФайлы можно скачивать и удалять отдельно.");
-                });
-            }
-        });
-        settingsActionRow("Стоимость Actions для проекта","Официальный отчёт GitHub Billing · если разрешён",
-                ()->navigate(()->showActionsBillingCost(full)));
-        settingsActionRow("Денежный бюджет GitHub","Настроить в официальном Billing → Budgets and alerts",
-                ()->openSecureGitHubPage("https://github.com/settings/billing"));
-        addCacheQuotaCard(full,manager);
-        sectionTitle("Правила очистки на устройстве","Применяются только по нажатию «Предпросмотр», затем подтверждение");
-        card(labeledField("Сохранять последних артефактов",keepInput));
-        card(labeledField("Удалять старше, дней",ageInput));
-        card(labeledField("Целевой размер, МБ (0 — удалять все старые)",limitInput));
-        Button save=button("Сохранить локальное правило");
-        save.setOnClickListener(v->{
-            try{
-                ActionsStorageManager.Policy p=new ActionsStorageManager.Policy(
-                        Integer.parseInt(keepInput.getText().toString().trim()),
-                        Integer.parseInt(ageInput.getText().toString().trim()),
-                        Integer.parseInt(limitInput.getText().toString().trim()));
-                manager.savePolicy(full,p);toast("Локальное правило сохранено");
-            }catch(Exception e){errorDialog("Правило очистки",e.getMessage());}
-        });
-        content.addView(save,new LinearLayout.LayoutParams(-1,dp(49)));
-
-    }
-
-    private void showActionsCleanup(String full){
-        setCurrentScreen(()->showActionsCleanup(full));
-        shell("Кэш Actions",false);
-        repoSectionHeader(full,"Кэш Actions","Временные файлы сборок",R.drawable.ic_history);
-        Button backToArtifacts=button("← Артефакты проекта");
-        backToArtifacts.setTextColor(GREEN);
-        backToArtifacts.setBackground(round(CARD,13,BORDER,1));
-        backToArtifacts.setOnClickListener(v->navigate(()->showActionsStorage(full)));
-        content.addView(backToArtifacts,new LinearLayout.LayoutParams(-1,dp(48)));
-        if(!isSignedIn()){accountRequiredCard("Подключите GitHub для управления Actions.");return;}
-        ProgressBar pb=new ProgressBar(this);content.addView(pb);
-        io.execute(()->{
-            try{
-                List<AccountOperationsController.CleanupItem> items=accountOperations.loadCleanupItems(full);
-                items.removeIf(item->!AccountOperationsController.CleanupItem.CACHE.equals(item.kind));
-                runOnUiThread(()->{
-                    content.removeView(pb);
-                    if(items.isEmpty()){
-                        TextView empty=text("Кэш Actions пуст.",13,false);empty.setTextColor(MUTED);card(empty);return;
-                    }
-                    long total=0L;for(AccountOperationsController.CleanupItem item:items)total+=Math.max(0L,item.sizeBytes);
-                    settingsRow("Найдено",items.size()+" объектов · "+formatAccountBytes(total));
-                    TextView note=text("Удаляется только кэш сборок; APK, исходники и Releases не затрагиваются.",11,false);note.setTextColor(MUTED);card(note);
-                    List<CheckBox> checks=new ArrayList<>();
-                    for(AccountOperationsController.CleanupItem item:items){
-                        CheckBox box=new CheckBox(this);
-                        String type="CACHE";
-                        box.setText(type+" · "+item.name+"\n"+formatAccountBytes(item.sizeBytes)+(item.extra.isEmpty()?"":" · "+item.extra));
-                        box.setTextColor(TEXT);box.setTextSize(13);box.setPadding(dp(6),dp(7),dp(6),dp(7));
-                        checks.add(box);card(box);
-                    }
-                    LinearLayout actions=new LinearLayout(this);
-                    Button all=button("Выбрать всё");all.setOnClickListener(v->{for(CheckBox b:checks)b.setChecked(true);});
-                    Button delete=button("Удалить выбранное");delete.setOnClickListener(v->{
-                        List<AccountOperationsController.CleanupItem> selected=new ArrayList<>();long bytes=0L;
-                        for(int i=0;i<checks.size();i++)if(checks.get(i).isChecked()){selected.add(items.get(i));bytes+=items.get(i).sizeBytes;}
-                        if(selected.isEmpty()){toast("Ничего не выбрано");return;}
-                        long finalBytes=bytes;
-                        new AlertDialog.Builder(this).setTitle("Удалить выбранное?")
-                                .setMessage("Объектов: "+selected.size()+"\nБудет освобождено примерно: "+formatAccountBytes(finalBytes)+"\n\nОперация необратима для выбранных кэшей Actions.")
-                                .setNegativeButton("Отмена",null)
-                                .setPositiveButton("Удалить",(d,w)->deleteActionsItems(full,selected)).show();
-                    });
-                    actions.addView(all,new LinearLayout.LayoutParams(0,dp(50),1));
-                    LinearLayout.LayoutParams dpv=new LinearLayout.LayoutParams(0,dp(50),1);dpv.setMargins(dp(7),0,0,0);actions.addView(delete,dpv);content.addView(actions);
-                });
-            }catch(Exception e){runOnUiThread(()->{content.removeView(pb);errorCard("Не удалось загрузить Actions",e.getMessage());});}
-        });
-    }
-
-    private void deleteActionsItems(String full,List<AccountOperationsController.CleanupItem> selected){
-        ProgressDialog dialog=ProgressDialog.show(this,"Очистка Actions","Удаление выбранных объектов…",true,false);
-        io.execute(()->{
-            AccountOperationsController.DeleteResult result=accountOperations.deleteCleanupItems(selected);
-            runOnUiThread(()->{
-                dialog.dismiss();
-                new AlertDialog.Builder(this).setTitle("Очистка завершена")
-                        .setMessage("Удалено: "+result.deleted+"\nОшибок: "+result.failed+"\nОсвобождено: "+formatAccountBytes(result.bytesFreed))
-                        .setPositiveButton("Обновить",(d,w)->showActionsCleanup(full)).show();
-            });
-        });
-    }
 
     /**
      * GitHub commit details, changed files and per-file unified diffs remain in
@@ -8425,7 +7727,7 @@ public class MainActivity extends Activity {
         });
     }
 
-    private String formatAccountBytes(long bytes){
+    String formatAccountBytes(long bytes){
         if(bytes<1024L)return bytes+" B";
         double kb=bytes/1024d;if(kb<1024d)return String.format(Locale.US,"%.1f KB",kb);
         double mb=kb/1024d;if(mb<1024d)return String.format(Locale.US,"%.1f MB",mb);
@@ -8592,10 +7894,10 @@ public class MainActivity extends Activity {
                 "billing тариф минуты квоты план",()->navigate(this::showSettingsAccount)));
         quotas.add(SettingsScreen.Item.action(R.drawable.ic_repository,"Артефакты и cache Actions",
                 "Сканирование, скачивание, срок хранения, очистка",
-                "хранилище артефакты cache кэш retention очистка",()->navigate(this::showActionsStorageRepositories)));
+                "хранилище артефакты cache кэш retention очистка",()->navigate(actionsScreens::showActionsStorageRepositories)));
         quotas.add(SettingsScreen.Item.action(R.drawable.ic_settings,"Расходы и бюджеты",
                 "Стоимость Actions, скидки, бюджеты в USD",
-                "оплата расходы бюджет стоимость деньги",()->navigate(()->showActionsBillingCost(""))));
+                "оплата расходы бюджет стоимость деньги",()->navigate(()->actionsScreens.showActionsBillingCost(""))));
         sections.add(quotas);
         return sections;
     }
@@ -8804,7 +8106,7 @@ public class MainActivity extends Activity {
         long cachedAt=prefs.getLong(billingCacheKey("inventory_at"),0L);
         LinearLayout storageCard=settingsQuotaCard();
         TextView storageLine=text(cachedArtifacts<0?"Хранилище ещё не сканировалось":
-                "Артефакты: "+formatAccountBytes(cachedArtifacts)+" · скан "+billingUtcTime(cachedAt),13,true);
+                "Артефакты: "+formatAccountBytes(cachedArtifacts)+" · скан "+actionsScreens.billingUtcTime(cachedAt),13,true);
         storageLine.setPadding(0,0,0,0);storageCard.addView(storageLine);
         ProgressBar storageProgress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);
         styleBillingProgress(storageProgress,0,GREEN);
@@ -8825,9 +8127,9 @@ public class MainActivity extends Activity {
         SettingsScreen.Section storage=new SettingsScreen.Section("Хранилище и расходы Actions");
         storage.add(storageCard);
         storage.add(SettingsScreen.Item.action(R.drawable.ic_repository,"Артефакты и cache по репозиториям",
-                "Сканирование, скачивание, срок хранения, очистка","",()->navigate(this::showActionsStorageRepositories)));
+                "Сканирование, скачивание, срок хранения, очистка","",()->navigate(actionsScreens::showActionsStorageRepositories)));
         storage.add(SettingsScreen.Item.action(R.drawable.ic_settings,"Расходы и бюджеты",
-                "Стоимость Actions, скидки, бюджеты в USD","",()->navigate(()->showActionsBillingCost(""))));
+                "Стоимость Actions, скидки, бюджеты в USD","",()->navigate(()->actionsScreens.showActionsBillingCost(""))));
         storage.note("Объём артефактов и cache считается по найденным объектам репозиториев, это не официальный остаток квоты.");
         sections.add(storage);
 
@@ -9124,6 +8426,8 @@ public class MainActivity extends Activity {
                 ()->agentFeatures(owner).files()));
         workspace.add(SettingsScreen.Item.action(R.drawable.ic_ai,"Память Hubble Agent",
                 "Контекст проектов, импорт и экспорт","память контекст",()->agentFeatures(owner).memory()));
+        workspace.add(SettingsScreen.Item.action(R.drawable.ic_history,"Задачи агента",
+                "Все задачи, состояние и продолжение прерванных","задачи агент продолжить прервана",()->agentFeatures(owner).tasks()));
         workspace.add(SettingsScreen.Item.action(R.drawable.ic_history,"История и архив диалогов",
                 "Поиск по перепискам и экспорт JSON","история архив диалоги чат",()->agentFeatures(owner).history()));
         sections.add(workspace);
@@ -9135,6 +8439,9 @@ public class MainActivity extends Activity {
         rights.add(SettingsScreen.Item.toggle(R.drawable.ic_github_mark,"Чтение GitHub моделью",
                 "Список репозиториев, ветки и метаданные; OAuth-токен не передаётся. По умолчанию выключено",
                 "github чтение разрешение репозитории",settingsPreferenceToggle("ai_tool_github_read_"+owner,false)));
+        rights.add(SettingsScreen.Item.toggle(R.drawable.ic_lock,"Блокировка приложения",
+                "PIN, ключ, пароль или отпечаток Android при запуске и через 30 секунд в фоне. Нужен экранный замок системы",
+                "блокировка pin пароль биометрия отпечаток безопасность",appLockToggle()));
         rights.add(SettingsScreen.Item.action(R.drawable.ic_lock,"Навыки агента",
                 "Встроенные и свои навыки: включить, добавить, экспорт. Вызов в чате: /имя","навыки skills агент команды",this::showAgentSkills));
         rights.add(SettingsScreen.Item.action(R.drawable.ic_github_mark,"Проверить GitHub-подключение",
@@ -9301,7 +8608,7 @@ public class MainActivity extends Activity {
         settingsPanelHeader(title,subtitle,icon);
     }
 
-    private void settingsPanelHeader(String title,String subtitle,int icon){
+    void settingsPanelHeader(String title,String subtitle,int icon){
         LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(dp(12),dp(12),dp(12),dp(12));
         row.setBackground(round(SUBTLE,17,BORDER,1));
@@ -9639,6 +8946,12 @@ public class MainActivity extends Activity {
 
     @Override protected void onActivityResult(int requestCode,int resultCode,Intent data){
         super.onActivityResult(requestCode,resultCode,data);
+        if(requestCode==REQUEST_APP_LOCK){
+            lockPrompting=false;
+            if(resultCode==RESULT_OK){lockUnlockedAt=SystemClock.elapsedRealtime();hideAppLock();}
+            else finishAffinity();
+            return;
+        }
         if(requestCode==REQUEST_MIRROR_GOOGLE_AUTH){
             if(resultCode==RESULT_OK&&data!=null){
                 try{
@@ -9722,8 +9035,8 @@ public class MainActivity extends Activity {
         else if(requestCode==REQUEST_IMPORT_PORTABLE){try(InputStream in=getContentResolver().openInputStream(uri)){if(in==null)throw new IOException("Не удалось открыть файл");JSONObject root=new JSONObject(readAll(in));PortableSettingsManager.ImportResult r=features.portableSettings.importData(root);reloadUiPreferences();applyTheme();switchLauncherIcon(activeTheme);TrackingJobService.schedule(this,prefs.getInt("tracking_interval_hours",6));new AlertDialog.Builder(this).setTitle("Импорт завершён").setMessage("Добавлено избранных: "+r.favoritesAdded+"\nДобавлено разработчиков: "+r.developersAdded+"\nПрименено настроек: "+r.settingsApplied).setPositiveButton("ОК",(d,w)->showPortableBackup()).show();}catch(Exception e){errorDialog("Ошибка импорта",e.getMessage());}}
     }
 
-    private void settingsRow(String title,String value){settingsActionRow(title,value,null);}
-    private void settingsActionRow(String title,String value,Runnable action){
+    void settingsRow(String title,String value){settingsActionRow(title,value,null);}
+    void settingsActionRow(String title,String value,Runnable action){
         if(isSettingsDetail()){
             nestedSettingsRow(title,value,settingsIcon(title),GREEN,action);
             return;
@@ -9860,11 +9173,11 @@ public class MainActivity extends Activity {
         try{return java.time.Instant.parse(iso).toEpochMilli();}catch(Exception ignored){return 0L;}
     }
 
-    private boolean isSignedIn(){return oauth!=null&&oauth.hasUsableToken();}
-    private String currentAccountId(){return api.accountScope();}
-    private void accountRequiredCard(String message){TextView note=text(message,14,false);note.setTextColor(MUTED);card(note);Button login=button("Войти через GitHub");login.setOnClickListener(v->navigate(this::showProfile));content.addView(login,new LinearLayout.LayoutParams(-1,dp(50)));}
+    boolean isSignedIn(){return oauth!=null&&oauth.hasUsableToken();}
+    String currentAccountId(){return api.accountScope();}
+    void accountRequiredCard(String message){TextView note=text(message,14,false);note.setTextColor(MUTED);card(note);Button login=button("Войти через GitHub");login.setOnClickListener(v->navigate(this::showProfile));content.addView(login,new LinearLayout.LayoutParams(-1,dp(50)));}
     private void openWeb(String url){try{startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse(url)));}catch(Exception e){toast("Не удалось открыть ссылку");}}
-    private String formatGitHubDate(String iso){if(iso==null||iso.isEmpty())return "";try{java.time.Instant instant=java.time.Instant.parse(iso);java.time.format.DateTimeFormatter formatter=java.time.format.DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm",new Locale("ru")).withZone(java.time.ZoneId.systemDefault());return formatter.format(instant);}catch(Exception e){return iso.length()>=10?iso.substring(0,10):iso;}}
+    String formatGitHubDate(String iso){if(iso==null||iso.isEmpty())return "";try{java.time.Instant instant=java.time.Instant.parse(iso);java.time.format.DateTimeFormatter formatter=java.time.format.DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm",new Locale("ru")).withZone(java.time.ZoneId.systemDefault());return formatter.format(instant);}catch(Exception e){return iso.length()>=10?iso.substring(0,10):iso;}}
     private String isoNow(){return java.time.Instant.now().toString();}
 
     private void applyTheme(){
@@ -10409,8 +9722,8 @@ public class MainActivity extends Activity {
     private JSONObject getJson(String url)throws Exception{return api.getJson(url);}
     private static String readAll(InputStream in)throws Exception{ByteArrayOutputStream o=new ByteArrayOutputStream();byte[] b=new byte[8192];int n;while((n=in.read(b))>0)o.write(b,0,n);return o.toString("UTF-8");}
     private static String limit(String s,int n){return s.length()>n?s.substring(0,n)+"\n…":s;}
-    private void errorDialog(String title,String message){new AlertDialog.Builder(this).setTitle(title).setMessage(message==null?"Неизвестная ошибка":message).setPositiveButton("ОК",null).show();}
-    private void toast(String s){Toast.makeText(this,s,Toast.LENGTH_SHORT).show();}
+    void errorDialog(String title,String message){new AlertDialog.Builder(this).setTitle(title).setMessage(message==null?"Неизвестная ошибка":message).setPositiveButton("ОК",null).show();}
+    void toast(String s){Toast.makeText(this,s,Toast.LENGTH_SHORT).show();}
 }
 
 

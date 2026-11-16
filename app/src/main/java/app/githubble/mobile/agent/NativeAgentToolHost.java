@@ -271,7 +271,11 @@ public final class NativeAgentToolHost implements ProjectRuntime.ToolHost {
         if(colleague!=null)return colleague;
         if(skillCeiling!=null&&isMutation(name)&&!skillCeiling.contains(name))
             throw new SecurityException("Активный навык ограничивает изменения: «"+name+"» не входит в его инструменты. Загрузите другой навык или спросите пользователя.");
-        if(TASK_READS.contains(name)||"repository_read_file".equals(name)||"repository_files".equals(name)){
+        // Reading another repository (or any repository without a selected project) goes through the read-only GitHub path below.
+        boolean externalRead=("repository_read_file".equals(name)||"repository_files".equals(name))
+            &&(projects.projectId(account,thread).isEmpty()||a.has("account")
+                ||(a.has("repository")&&!repository.equalsIgnoreCase(a.optString("repository"))));
+        if(!externalRead&&(TASK_READS.contains(name)||"repository_read_file".equals(name)||"repository_files".equals(name))){
             WorkspaceToolset tools=taskTools();
             switch(name){
                 case "list_files":case "repository_files":return tools.list(a.optInt("offset",0),a.optInt("limit",100),a.optString("prefix","")).toString();

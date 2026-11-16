@@ -54,10 +54,10 @@ public final class ToolCatalog {
         for (String n:Arrays.asList("list_repositories","github_profile","github_usage","github_rate_limit","github_capabilities"))
             add(b,n,"account","",gh,false,false,false);
         for (String n:Arrays.asList("repository_info","repository_workflows","repository_branches","repository_issues","repository_pulls","list_releases"))
-            add(b,n,"repository account","",gh,false,false,true);
-        add(b,"repository_files","repository branch offset:integer limit:integer prefix account","",gh,false,false,true);
-        add(b,"repository_read_file","repository branch path start_line:integer line_count:integer account","path",gh,false,false,true);
-        for (String n:Arrays.asList("issue_details","pull_request_details")) add(b,n,"repository number:integer account","number",gh,false,false,true);
+            add(b,n,"repository account","",gh,false,false,false);
+        add(b,"repository_files","repository branch offset:integer limit:integer prefix account","",gh,false,false,false);
+        add(b,"repository_read_file","repository branch path start_line:integer line_count:integer account","path",gh,false,false,false);
+        for (String n:Arrays.asList("issue_details","pull_request_details")) add(b,n,"repository number:integer account","number",gh,false,false,false);
         add(b,"recent_build_runs","repository account","",gh,false,false,true);
         for (String n:Arrays.asList("build_run_diagnostics","build_run_status","build_artifacts")) add(b,n,"repository run_id:integer","run_id",gh,false,false,true);
         add(b,"verify_build","repository run_id:integer sha","run_id sha",gh,false,false,true);

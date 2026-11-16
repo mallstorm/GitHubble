@@ -126,7 +126,8 @@ public final class GitHubAgentBridge {
         JSONArray list = new JSONArray();
         String active = "";
         for (GitHubAccountStore.Account a : accounts.listAccounts()) {
-            list.put(new JSONObject().put("login", a.login).put("name", a.name).put("active", a.active));
+            list.put(new JSONObject().put("login", a.login).put("name", a.name).put("active", a.active)
+                    .put("status", a.active ? "active (writes, builds, publishing)" : "connected (read-only for the agent)"));
             if (a.active) active = a.login;
         }
         return new JSONObject().put("count", list.length()).put("max", GitHubAccountStore.MAX_ACCOUNTS)

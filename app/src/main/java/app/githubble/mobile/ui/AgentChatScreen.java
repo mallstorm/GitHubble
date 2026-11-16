@@ -337,7 +337,7 @@ public final class AgentChatScreen {
                 android.widget.Toast.makeText(activity,"Скопировано",android.widget.Toast.LENGTH_SHORT).show();
             });
             bubble.addView(copy);
-            if(!user){
+            if(!user&&(body.length()>800||body.contains("```")||body.contains("\n## "))){
                 TextView document=label("▤  Открыть документ · .md",11,false,accent);document.setPadding(dp(3),dp(8),dp(3),dp(8));document.setMinHeight(dp(48));
                 document.setOnClickListener(v->AgentDocumentSheet.document(activity,body,text,muted,accent,subtle,border,surface,()->actions.exportMarkdown(body)));bubble.addView(document);
             }
