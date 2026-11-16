@@ -423,10 +423,58 @@ public class MainActivity extends Activity {
         if (githubAppInstallBrowserActive) githubAppInstallBrowserWasPaused = true;
     }
 
+    private static final int REQUEST_APP_LOCK = 7741;
+    private long lockBackgroundedAt, lockUnlockedAt;
+    private boolean lockPrompting;
+    private View lockOverlay;
+
+    @Override protected void onStop() {
+        super.onStop();
+        lockBackgroundedAt = SystemClock.elapsedRealtime();
+    }
+
+    /** Device credential (PIN, pattern, password or biometrics) after a cold start or 30 s in the background. */
+    private void checkAppLock() {
+        boolean enabled = prefs.getBoolean("app_lock_enabled", false);
+        if (!AppLockPolicy.needsUnlock(enabled, lockBackgroundedAt, lockUnlockedAt, SystemClock.elapsedRealtime(), AppLockPolicy.TIMEOUT_MS)) { hideAppLock(); return; }
+        KeyguardManager keyguard = (KeyguardManager) getSystemService(KEYGUARD_SERVICE);
+        // Without a system screen lock there is nothing to ask: never lock the user out of their own app.
+        Intent confirm = keyguard == null || !keyguard.isDeviceSecure() ? null : keyguard.createConfirmDeviceCredentialIntent("GitHubble", "Подтвердите, что это вы");
+        if (confirm == null) { hideAppLock(); return; }
+        if (lockOverlay == null) {
+            FrameLayout cover = new FrameLayout(this);
+            cover.setBackgroundColor(Color.rgb(20, 24, 30));
+            cover.setClickable(true);
+            lockOverlay = cover;
+            addContentView(cover, new ViewGroup.LayoutParams(-1, -1));
+        }
+        if (lockPrompting) return;
+        lockPrompting = true;
+        startActivityForResult(confirm, REQUEST_APP_LOCK);
+    }
+
+    private void hideAppLock() {
+        if (lockOverlay != null && lockOverlay.getParent() instanceof ViewGroup) ((ViewGroup) lockOverlay.getParent()).removeView(lockOverlay);
+        lockOverlay = null;
+    }
+
+    private SettingsScreen.Toggle appLockToggle() {
+        return new SettingsScreen.Toggle() {
+            @Override public boolean get() { return prefs.getBoolean("app_lock_enabled", false); }
+            @Override public void set(boolean on) {
+                KeyguardManager keyguard = (KeyguardManager) getSystemService(KEYGUARD_SERVICE);
+                if (on && (keyguard == null || !keyguard.isDeviceSecure())) { toast("Сначала включите PIN, графический ключ или пароль в настройках Android"); return; }
+                prefs.edit().putBoolean("app_lock_enabled", on).apply();
+                if (on) lockUnlockedAt = SystemClock.elapsedRealtime();
+            }
+        };
+    }
+
     @Override protected void onResume() {
         app.githubble.mobile.agent.AgentUiSession.foreground(true);
         super.onResume();
         if (prefs == null) return;
+        checkAppLock();
         getWindow().getDecorView().post(this::applySystemBarAppearance);
         BuildMonitorJobService.checkSoon(this);
         if (features != null && features.offlineDispatcher.isOnline()) io.execute(() -> { try { OfflineActionQueue.ProcessResult r=features.offlineQueue.processReady(api); if(r.completed>0||r.conflicts>0) runOnUiThread(() -> toast("Офлайн-очередь: отправлено "+r.completed+", конфликтов "+r.conflicts)); } catch (Exception ignored) {} });
@@ -8391,6 +8439,9 @@ public class MainActivity extends Activity {
         rights.add(SettingsScreen.Item.toggle(R.drawable.ic_github_mark,"Чтение GitHub моделью",
                 "Список репозиториев, ветки и метаданные; OAuth-токен не передаётся. По умолчанию выключено",
                 "github чтение разрешение репозитории",settingsPreferenceToggle("ai_tool_github_read_"+owner,false)));
+        rights.add(SettingsScreen.Item.toggle(R.drawable.ic_lock,"Блокировка приложения",
+                "PIN, ключ, пароль или отпечаток Android при запуске и через 30 секунд в фоне. Нужен экранный замок системы",
+                "блокировка pin пароль биометрия отпечаток безопасность",appLockToggle()));
         rights.add(SettingsScreen.Item.action(R.drawable.ic_lock,"Навыки агента",
                 "Встроенные и свои навыки: включить, добавить, экспорт. Вызов в чате: /имя","навыки skills агент команды",this::showAgentSkills));
         rights.add(SettingsScreen.Item.action(R.drawable.ic_github_mark,"Проверить GitHub-подключение",
@@ -8895,6 +8946,12 @@ public class MainActivity extends Activity {
 
     @Override protected void onActivityResult(int requestCode,int resultCode,Intent data){
         super.onActivityResult(requestCode,resultCode,data);
+        if(requestCode==REQUEST_APP_LOCK){
+            lockPrompting=false;
+            if(resultCode==RESULT_OK){lockUnlockedAt=SystemClock.elapsedRealtime();hideAppLock();}
+            else finishAffinity();
+            return;
+        }
         if(requestCode==REQUEST_MIRROR_GOOGLE_AUTH){
             if(resultCode==RESULT_OK&&data!=null){
                 try{
