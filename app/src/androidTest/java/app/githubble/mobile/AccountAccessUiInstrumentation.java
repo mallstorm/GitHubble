@@ -29,7 +29,7 @@ public final class AccountAccessUiInstrumentation extends Instrumentation {
       File dir = getTargetContext().getExternalFilesDir("account-ui");
       if (dir == null || (!dir.exists() && !dir.mkdirs()))
         throw new AssertionError("Screenshot directory unavailable");
-      for (String theme : new String[] {"light", "dark", "beige"})
+      for (String theme : new String[] {"light", "dark", "beige", "blue"})
         for (String scale : new String[] {"1.0", "1.5"}) {
           try (ParcelFileDescriptor p =
                   getUiAutomation().executeShellCommand("settings put system font_scale " + scale);
@@ -119,7 +119,7 @@ public final class AccountAccessUiInstrumentation extends Instrumentation {
         }
       result.putString(
           "result",
-          "PASS: account access UI, 3 themes, 2 font scales, readable permissions and navigation");
+          "PASS: account access UI, 4 themes, 2 font scales, readable permissions and navigation");
 
     } catch (Throwable e) {
       android.util.Log.e("AndroidRuntime", "Account access UI failed", e);

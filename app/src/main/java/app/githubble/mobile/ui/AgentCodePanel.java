@@ -44,6 +44,11 @@ public final class AgentCodePanel {
         /** Root of the active local Workspace, or null when the project has none. */
         File workspaceRoot();
         void openDiff(String id);
+        default boolean taskFiles(){return false;}
+        default void taskPage(int offset,java.util.function.Consumer<JSONObject> done,java.util.function.Consumer<String> error){}
+        default void taskRead(String path,int start,java.util.function.Consumer<JSONObject> done,java.util.function.Consumer<String> error){}
+        default void reviewTask(){}
+
     }
 
     private static final int MAX_FILES = 400;
@@ -62,6 +67,7 @@ public final class AgentCodePanel {
     private static final int[] CODE_COLORS = {0xFF16211F, 0xFFD7E3E0, 0xFF48C9A6, 0xFFE07A7A};
     private final List<TextView> tabs = new ArrayList<>();
     private int tab;
+    private int taskOffset;
 
     public static void show(Activity activity, Source source, int text, int muted, int accent, int subtle,
                             int border, int surface, int initialTab) {
@@ -254,6 +260,8 @@ public final class AgentCodePanel {
     }
 
     private void renderFiles() {
+        if(source.taskFiles()){renderTaskFiles();return;}
+
         File root = source.workspaceRoot();
         if (root == null || !root.isDirectory()) {
             empty("У проекта нет локального Workspace.\nСоздайте или подключите проект в чате, и файлы появятся здесь.");
@@ -281,6 +289,30 @@ public final class AgentCodePanel {
             body.addView(row, params);
         }
     }
+
+    private void renderTaskFiles(){
+        empty("Загружаю файлы текущей задачи…");
+        source.taskPage(taskOffset,page->{
+            if(!dialog.isShowing()||tab!=1)return;body.removeAllViews();
+            TextView review=label("Изменения задачи · diff и принятие",13,true,accent);review.setPadding(dp(10),dp(12),dp(10),dp(12));
+            review.setOnClickListener(v->source.reviewTask());body.addView(review);
+            JSONArray files=page.optJSONArray("files");if(files==null)return;
+            for(int i=0;i<files.length();i++){
+                String path=files.optString(i);TextView row=label(path,13,false,text);row.setTypeface(Typeface.MONOSPACE);row.setPadding(dp(12),dp(10),dp(12),dp(10));
+                row.setOnClickListener(v->taskFile(path,1));body.addView(row);
+            }
+            if(taskOffset>0){TextView previous=label("← Предыдущие файлы",13,true,accent);previous.setOnClickListener(v->{taskOffset=Math.max(0,taskOffset-100);body.removeAllViews();renderTaskFiles();});body.addView(previous);}
+            if(!page.isNull("next_offset")){TextView next=label("Следующие файлы →",13,true,accent);next.setPadding(dp(12),dp(12),dp(12),dp(12));next.setOnClickListener(v->{taskOffset=page.optInt("next_offset");body.removeAllViews();renderTaskFiles();});body.addView(next);}
+        },message->{if(dialog.isShowing()&&tab==1){body.removeAllViews();empty(message);}});
+    }
+    private void taskFile(String path,int start){source.taskRead(path,start,page->{
+        if(!dialog.isShowing())return;
+        TextView value=label(page.optString("content","Файл не существует"),12,false,text);value.setTypeface(Typeface.MONOSPACE);value.setTextIsSelectable(true);value.setPadding(dp(12),dp(12),dp(12),dp(12));
+        ScrollView viewer=new ScrollView(activity);viewer.addView(value);
+        android.app.AlertDialog.Builder popup=new android.app.AlertDialog.Builder(activity).setTitle(path+" · "+page.optInt("start_line")+"–"+page.optInt("end_line")).setView(viewer).setNegativeButton("Закрыть",null);
+        if(page.optBoolean("truncated")&&page.optInt("end_line")>=start)popup.setPositiveButton("Следующие строки",(d,w)->taskFile(path,page.optInt("end_line")+1));
+        if(start>1)popup.setNeutralButton("Предыдущие строки",(d,w)->taskFile(path,Math.max(1,start-200)));popup.show();
+    },message->{if(dialog.isShowing())new android.app.AlertDialog.Builder(activity).setMessage(message).setPositiveButton("ОК",null).show();});}
 
     private void collect(File root, File dir, List<String> out) {
         File[] children = dir.listFiles();

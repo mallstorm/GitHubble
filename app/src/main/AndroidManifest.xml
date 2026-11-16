@@ -54,6 +54,9 @@
         <activity-alias android:name=".DarkIcon" android:targetActivity=".MainActivity" android:enabled="false" android:exported="true" android:icon="@mipmap/ic_launcher_dark" android:roundIcon="@mipmap/ic_launcher_dark" android:label="@string/app_name">
             <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
         </activity-alias>
+        <activity-alias android:name=".BlueIcon" android:targetActivity=".MainActivity" android:enabled="false" android:exported="true" android:icon="@mipmap/ic_launcher_blue" android:roundIcon="@mipmap/ic_launcher_blue" android:label="@string/app_name">
+            <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
+        </activity-alias>
     </application>
 </manifest>
 

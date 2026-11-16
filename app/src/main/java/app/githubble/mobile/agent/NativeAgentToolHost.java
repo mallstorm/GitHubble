@@ -24,8 +24,6 @@ public final class NativeAgentToolHost implements ProjectRuntime.ToolHost {
     private final NativePluginRegistry plugins;
     private final boolean githubEnabled,filesEnabled,planning;
     private AgentRun run;
-    /** Host-enforced build budget and repair-loop limits for this run (TZ 5.1, 9.3). */
-    private final app.githubble.mobile.agent.core.RetryPolicy buildPolicy=new app.githubble.mobile.agent.core.RetryPolicy(null);
     public NativeAgentToolHost withRun(AgentRun value){run=value;return this;}
     private final Runnable guard,refresh;
     private final IntSupplier permission;
@@ -40,6 +38,44 @@ public final class NativeAgentToolHost implements ProjectRuntime.ToolHost {
         this.permission=permission;this.guard=guard;this.refresh=refresh;
         plugins=new NativePluginRegistry(activity,account);
     }
+    private TaskGitService taskService;
+    private WorkspaceToolset taskTools;
+    private static final java.util.Set<String> TASK_READS=new java.util.HashSet<>(java.util.Arrays.asList(
+        "list_files","read_file","search_files","symbol_index","find_definition","find_usages","project_map","directory_info","changes_status"));
+    private static final java.util.Set<String> TASK_WRITES=new java.util.HashSet<>(java.util.Arrays.asList(
+        "write_files","create_directory","replace_text","apply_patch","create_file","delete_path","move_path","rename_path","rollback_changes"));
+    private void taskGuard(){guard.run();AgentProjectStore.Project selected=projects.projectForChat(account,thread);
+        if(!repository.equals(selected.repository)||!workspaceId.equals(selected.workspaceId))throw new java.util.concurrent.CancellationException("Файловый источник проекта изменился");}
+    private TaskGitService taskService()throws Exception {
+        if(taskService==null)taskService=new TaskGitService(new java.io.File(activity.getFilesDir(),"task-changes"),projects,workspace,account,thread,
+            githubEnabled&&!repository.isEmpty()?GitDataApi.bound(github.toolApi(account),this::taskGuard):null,filesEnabled,this::taskGuard);
+        return taskService;
+    }
+    private WorkspaceToolset taskTools()throws Exception {if(taskTools==null)taskTools=taskService().tools();return taskTools;}
+    private JSONObject proposal(JSONObject set)throws Exception {
+        taskService().recordChanges();JSONArray files=new JSONArray();JSONArray entries=set.getJSONArray("entries");boolean sensitive=false;
+        AgentDiffStore diffs=new AgentDiffStore(activity);
+        for(int i=0;i<entries.length();i++){
+            JSONObject e=entries.getJSONObject(i);String path=e.getString("path"),before=e.isNull("before")?null:e.getString("before"),after=e.isNull("after")?null:e.getString("after");
+            FileChangeStats stats=FileChangeStats.between(before,after);if(path.startsWith(".github/workflows/"))sensitive=true;
+            files.put(new JSONObject().put("path",path).put("kind",before==null?"create":after==null?"delete":"edit")
+                .put("added",stats.added).put("removed",stats.removed).put("approximate",stats.approximate).put("diff_id",diffs.save(account,thread,path,before,after)));
+        }
+        if(run!=null)run.files(files,false);
+        String diff=taskTools().diff(set);
+        if(sensitive||AgentPermissionPolicy.needsReview(permission.getAsInt(),false,false)){
+            if(run!=null)run.note("ChangeSet ожидает review в изменениях задачи");
+            return new JSONObject().put("changeset_id",set.getString("id")).put("state","PROPOSED").put("files",files)
+                .put("review","Откройте «Изменения задачи», изучите diff и примите файлы или блоки. Публикация пока недоступна.").put("shared_files_unchanged",true);
+        }
+        if(!approve("ChangeSet · "+set.optString("summary"),diff,false,sensitive)){
+            taskService().changes.reject(set.getString("id"),null);writeDenied=true;return new JSONObject().put("cancelled",true).put("changeset_id",set.getString("id")).put("state","REJECTED").put("review","Отклонено. Откройте изменения задачи для нового предложения.");
+        }
+        check();requireWrite();taskService().changes.approve(set.getString("id"),null);JSONObject applied=taskService().changes.apply(set.getString("id"),taskTools().source);
+        event("Изменения применены только в задаче · "+set.getString("id"),files);
+        return new JSONObject().put("changeset_id",set.getString("id")).put("state",applied.getString("state")).put("files",files)
+            .put("checkpoint",applied.optString("checkpoint")).put("shared_files_unchanged",true);
+    }
     public String catalog(){
         String result=planning?"PLANNING MODE: discuss, inspect and plan. ALL mutations are forbidden.":
             "AGENT MODE: reason and discuss normally; execute only actions requested by the user.";
@@ -50,11 +86,11 @@ public final class NativeAgentToolHost implements ProjectRuntime.ToolHost {
                 result+="\nWORKSPACE LIFECYCLE: detach_workspace {} removes the current chat binding; delete_workspace {mode:\"local\"|\"full\"} deletes only the attached LOCAL Workspace. Full also purges its memory. Both deletions detach all conversations, preserve their history and NEVER touch GitHub or external SAF files. Every lifecycle action requires explicit user confirmation.";
             }
             if(githubEnabled){
-                result+="\nGITHUB WRITE: "+GitHubAgentOperations.WRITE_CATALOG+" attach_repository {repository,branch}, import_repository {repository,branch} (new bounded text Workspace; not a Git clone).";
-                if(filesEnabled)result+=" publish_workspace {commit_message} (only linked repository/branch; bounded text snapshot; no deletions).";
+                result+="\nGITHUB WRITE: "+GitHubAgentOperations.WRITE_CATALOG+" attach_repository {repository,branch}, import_repository {repository,branch} (safe commit-pinned zipball snapshot; partial/skipped files are reported).";
+                result+=" publish_workspace {commit_message} (only linked repository/branch; only the confirmed task delta, never the full Workspace).";
             }
         }
-        if(githubEnabled&&!repository.isEmpty())result+="\nBUILD WAIT: await_build {run_id,timeout_s<=60} polls ONE Actions run of the linked repository; "+
+        if(githubEnabled&&!repository.isEmpty())result+="\nCI: build {workflow_id?} finds an exact SHA run or dispatches once, ci_failure {run_id,include_logs:false} returns durable retry policy; include_logs:true needs separate user consent. ci_status {} reads durable state. verify_task_result {run_id?,artifact_id?,pull_number?} is mandatory before delivery claims. WAIT_EXTERNAL/FAIL forbid source edits; FIX_SOURCE requires a new published SHA before rebuilding. Never claim completion from model text.\nBUILD WAIT: await_build {run_id,timeout_s<=60} polls ONE Actions run of the linked repository; "+
             "on failure it classifies the error and returns the host's retry decision (FIX_SOURCE | RETRY_AFTER | WAIT_EXTERNAL | FAIL). "+
             "Obey the decision: environment/permission/billing failures are never fixed by editing code, and dispatch_workflow is refused once the build budget is spent. "+
             "When the task asks to build: after publishing, look for the new run with recent_build_runs (once more after a short wait) or start it with dispatch_workflow, then await_build until it concludes. "+
@@ -71,6 +107,13 @@ public final class NativeAgentToolHost implements ProjectRuntime.ToolHost {
             "If tools lack authorization, explain the exact limitation. A cancelled operation must not be retried.";
     }
     public boolean handles(String name){
+        boolean taskSource=(filesEnabled&&!workspaceId.isEmpty())||(githubEnabled&&!repository.isEmpty());
+        if(java.util.Arrays.asList("build","ci_failure","ci_status","verify_task_result","await_build").contains(name))return githubEnabled&&!repository.isEmpty()&&( !name.equals("build") || !writeDenied&&AgentPermissionPolicy.mayWrite(permission.getAsInt(),planning));
+        if(TASK_READS.contains(name))return taskSource&&!projects.projectId(account,thread).isEmpty();
+        if("publication_status".equals(name))return githubEnabled&&!repository.isEmpty();
+        if("publish_workspace".equals(name))return githubEnabled&&!repository.isEmpty()&&!writeDenied&&AgentPermissionPolicy.mayWrite(permission.getAsInt(),planning);
+        if("reconcile_publication".equals(name))return githubEnabled&&!repository.isEmpty()&&!writeDenied&&AgentPermissionPolicy.mayWrite(permission.getAsInt(),planning);
+        if(TASK_WRITES.contains(name))return taskSource&&!writeDenied&&AgentPermissionPolicy.mayWrite(permission.getAsInt(),planning);
         if("detach_workspace".equals(name)||"delete_workspace".equals(name))
             return !writeDenied&&filesEnabled&&!workspaceId.isEmpty()&&
                 AgentPermissionPolicy.mayWrite(permission.getAsInt(),planning);
@@ -108,6 +151,7 @@ public final class NativeAgentToolHost implements ProjectRuntime.ToolHost {
         if(!AgentPermissionPolicy.mayWrite(permission.getAsInt(),planning))throw new SecurityException("Запись запрещена");
         // Destructive Workspace lifecycle operations always need a physical UI approval,
         // even when the agent otherwise runs with local-auto permissions.
+        if(brokerApprovalInUse&&!name.startsWith("ChangeSet")){check();return true;}
         boolean workspaceLifecycle=name.startsWith("Workspace ·");
         if(!workspaceLifecycle&&!AgentPermissionPolicy.needsReview(permission.getAsInt(),remote,sensitive))return true;
         if(run!=null)run.approval(true);
@@ -138,11 +182,107 @@ public final class NativeAgentToolHost implements ProjectRuntime.ToolHost {
             }
         }finally{if(run!=null)run.approval(false);main.post(()->{AlertDialog d=dialog.get();if(d!=null)d.dismiss();});}
     }
+    private String brokerConfirmedName = "";
+    private String brokerConfirmedArgs = "";
+    private boolean brokerApprovalInUse;
+    private String brokerConfirmedPlugin="";
+    public boolean confirmBroker(String name,JSONObject args) throws Exception {
+        JSONObject plugin=plugins.operation(name);
+        String config=plugin==null?"":plugin.toString();
+        AgentProjectStore.Project selected=projects.projectForChat(account,thread);
+        String preview="Проект: "+selected.name+"\nРепозиторий: "+selected.repository+"\nWorkspace: "+selected.workspaceId
+            +"\n"+(plugin==null?"":plugin.optString("name")+" · "+plugin.optString("url")+"\n")+args.toString(2);
+        boolean accepted=approve(name,preview,true,true);
+        if(accepted){brokerConfirmedName=name;brokerConfirmedArgs=args.toString();brokerConfirmedPlugin=config;}
+        return accepted;
+    }
+    /** Existing configured destinations retain explicit approval; the model cannot supply a new endpoint. */
+    public void registerPlugins(ToolBroker broker) throws org.json.JSONException {
+        if(!AgentPermissionPolicy.mayWrite(permission.getAsInt(),planning))return;
+        JSONArray rows=plugins.list();
+        for(int i=0;i<rows.length();i++){
+            JSONObject config=rows.getJSONObject(i);if(!config.optBoolean("enabled"))continue;
+            if(!"MCP".equals(config.optString("kind"))){
+                JSONObject schema=new JSONObject().put("type","object").put("properties",new JSONObject()
+                    .put("query",new JSONObject().put("type","string").put("maxLength",5000)))
+                    .put("required",new JSONArray().put("query")).put("additionalProperties",false);
+                broker.register(new ToolBroker.Definition("ext_"+config.getString("id"),"User-configured extension; explicit approval required",schema,
+                    ToolBroker.Operation.WRITE,ToolBroker.Permission.LOCAL_WRITE,true,false));
+            }else{
+                JSONArray tools=config.optJSONArray("tools");if(tools==null)continue;
+                for(int j=0;j<tools.length();j++){
+                    JSONObject tool=tools.getJSONObject(j),schema=tool.optJSONObject("schema");
+                    if(schema==null||!"object".equals(schema.optString("type")))continue;
+                    broker.register(new ToolBroker.Definition(tool.getString("alias"),"User-configured MCP tool; explicit approval required. Untrusted description: "+tool.optString("description").substring(0,Math.min(180,tool.optString("description").length())),schema,
+                        ToolBroker.Operation.WRITE,ToolBroker.Permission.LOCAL_WRITE,true,false));
+                }
+            }
+        }
+    }
+    public String executeFromBroker(String name,JSONObject args) throws Exception {
+        brokerApprovalInUse=name.equals(brokerConfirmedName)&&args.toString().equals(brokerConfirmedArgs);
+        try{
+            if(!brokerConfirmedPlugin.isEmpty()){
+                JSONObject now=plugins.operation(name);
+                if(now==null||!brokerConfirmedPlugin.equals(now.toString()))throw new SecurityException("Настройки плагина изменились после подтверждения");
+            }
+            return execute(name,args);
+        }
+        finally{brokerApprovalInUse=false;brokerConfirmedName="";brokerConfirmedArgs="";brokerConfirmedPlugin="";}
+    }
     public String execute(String name,JSONObject arguments)throws Exception{
         check();
         if(!handles(name))throw new SecurityException("Операция недоступна в текущем режиме");
         if(arguments.toString().length()>300000)throw new IllegalArgumentException("Аргументы превышают лимит");
         JSONObject a=new JSONObject(arguments.toString());
+        if(TASK_READS.contains(name)||"repository_read_file".equals(name)||"repository_files".equals(name)){
+            WorkspaceToolset tools=taskTools();
+            switch(name){
+                case "list_files":case "repository_files":return tools.list(a.optInt("offset",0),a.optInt("limit",100),a.optString("prefix","")).toString();
+                case "read_file":case "repository_read_file":return tools.read(a.getString("path"),a.optInt("start_line",1),a.optInt("line_count",200)).toString();
+                case "search_files":return tools.search(a.getString("query"),a.optInt("offset",0),a.optString("prefix","")).toString();
+                case "project_map":return tools.projectMap().toString();
+                case "directory_info":return new JSONObject().put("path",a.getString("path")).put("sha",tools.directoryRevision(a.getString("path"))).toString();
+                case "changes_status":{
+                    JSONArray out=new JSONArray();JSONArray sets=taskService().changes.list();for(int i=0;i<sets.length();i++){
+                        JSONObject set=sets.getJSONObject(i);out.put(new JSONObject().put("id",set.getString("id")).put("state",set.getString("state")).put("summary",set.optString("summary")));}
+                    return new JSONObject().put("changeSets",out).toString();
+                }
+                default:return TaskIndex.query(tools,name,a.optString("query"),a.optString("prefix"),a.optInt("offset",0)).toString();
+            }
+        }
+        if(TASK_WRITES.contains(name)){
+            CiToolset.assertSourceAllowed(projects.tasks.get(account,thread).optJSONObject("ci")==null?new JSONObject():projects.tasks.get(account,thread).optJSONObject("ci"));
+            WorkspaceToolset tools=taskTools();check();requireWrite();JSONObject set;
+            switch(name){
+                case "rollback_changes":{
+                    String id=a.getString("changeset_id");if(!approve("Откат ChangeSet",id,false,false))return denied(name);
+                    check();taskService().changes.rollback(id);return new JSONObject().put("rolled_back",id).put("shared_files_unchanged",true).toString();
+                }
+                case "write_files":set=tools.write(a.getJSONArray("files"),a.optString("summary","Изменение файлов"));break;
+                case "create_directory":set=tools.changes.proposeDirectory(tools.source,a.getString("path"));break;
+                case "create_file":set=tools.write(new JSONArray().put(new JSONObject().put("path",a.getString("path")).put("expected_sha","missing").put("content",a.getString("content"))),"Создание файла");break;
+                case "replace_text":set=tools.replace(a.getString("path"),a.getString("expected_sha"),a.getString("old_text"),a.getString("new_text"));break;
+                case "apply_patch":set=tools.patch(a.getString("path"),a.getString("expected_sha"),a.getString("patch"));break;
+                case "delete_path":set=tools.delete(a.getString("path"),a.getString("expected_sha"),a.optBoolean("directory"));break;
+                default:set=tools.move(a.getString("from"),a.getString("to"),a.getString("expected_sha"),a.optBoolean("directory"));
+            }
+            return proposal(set).toString();
+        }
+        if("publication_status".equals(name))return taskService().publicationStatus().toString();
+        if("reconcile_publication".equals(name)){
+            if(!approve("Сверить публикацию",taskService().publicationStatus().toString(2),true,true))return denied(name);
+            JSONObject result=taskService().reconcile();branch=projects.projectForChat(account,thread).branch;taskTools=null;return result.toString();
+        }
+        if("publish_workspace".equals(name)){
+            CiToolset.assertSourceAllowed(projects.tasks.get(account,thread).optJSONObject("ci")==null?new JSONObject():projects.tasks.get(account,thread).optJSONObject("ci"));
+            JSONObject preview=taskService().preview();if(preview.getInt("count")==0)throw new IllegalArgumentException("Нет подтверждённых изменений задачи");
+            if(!approve("Опубликовать дельту задачи",preview.toString(2),true,preview.optBoolean("sensitive")))return denied(name);
+            check();requireWrite();if(run!=null)run.remoteDispatched();
+            // TaskBranch updates the pinned branch as part of this operation; the external guard still pins account/task/project.
+            JSONObject result=taskService().publishApproved(preview,a.optString("commit_message","feat: task changes"));
+            branch=projects.projectForChat(account,thread).branch;taskTools=null;event("GitHub подтвердил commit "+result.getString("sha"),null);return result.toString();
+        }
         if("web_search".equals(name)){
             JSONObject result=NativeWebSearch.search(a.optString("query"));check();
             event("⌕ Веб-поиск: "+a.optString("query")+" · источников: "+result.getJSONArray("results").length(),null);
@@ -191,6 +331,10 @@ public final class NativeAgentToolHost implements ProjectRuntime.ToolHost {
             if(!approve("Плагин · "+plugin.optString("name"),plugin.optString("url")+"\n\n"+a.toString(2),true,true))return denied(name);
             check();requireWrite();if(run!=null)run.remoteDispatched();String output=plugins.invoke(name,a,expected);check();event("✓ Плагин: "+plugin.optString("name"),null);return output;
         }
+        if("build".equals(name)){requireWrite();requireDelivery("/build");return ci().build(a.optString("workflow_id")).toString();}
+        if("ci_status".equals(name))return ci().status().toString();
+        if("ci_failure".equals(name))return ci().failure(a.optLong("run_id"),a.optBoolean("include_logs")).toString();
+        if("verify_task_result".equals(name))return verifyCompletion(a).toString();
         if("await_build".equals(name))return awaitBuild(a);
         if(githubEnabled&&ProjectRuntime.allowed(name,true,false)){
             String result=github.executeReadOnly(account,name,a,repository,branch).toString();
@@ -216,49 +360,13 @@ public final class NativeAgentToolHost implements ProjectRuntime.ToolHost {
             event("📂 Создан проект «"+title+"»",null);
             return created.toString();
         }
-        if("write_files".equals(name)){
-            if(workspaceId.isEmpty())throw new IllegalArgumentException("Сначала создайте Workspace");
-            AgentFilePlan plan=AgentFilePlan.parse(a.toString());
-            WorkspaceChangeReview review=WorkspaceChangeReview.capture(workspace,account,workspaceId,plan,true);
-            if(!review.hasChanges()){event("Файлы без изменений",review.operations);return new JSONObject().put("unchanged",true).toString();}
-            if(run!=null){
-                AgentDiffStore diffs=new AgentDiffStore(activity);
-                for(int i=0;i<review.operations.length();i++){
-                    JSONObject op=review.operations.getJSONObject(i);String path=op.getString("path");
-                    String before=workspace.file(account,workspaceId,path).isFile()?workspace.readFile(account,workspaceId,path):null;
-                    String after=plan.files.getJSONObject(i).getString("content");
-                    op.put("diff_id",diffs.save(account,thread,path,before,after));
-                }
-                run.files(review.operations,false);
-            }
-            if(!approve("Запись файлов",review.preview()+"\n\n"+plan.preview(),false,false))return denied(name);
-            check();requireWrite();
-            event("Записываются файлы проекта…",null);
-            AgentExecutionEngine.Applied applied=WorkspaceChangeReview.applyApproved(activity,workspace,account,workspaceId,plan,review);
-            event("Файлы записаны · checkpoint "+applied.checkpointId,review.operations);
-            return new JSONObject().put("applied",true).put("checkpoint",applied.checkpointId)
-                .put("files",review.operations).toString();
-        }
-        if("publish_workspace".equals(name)){
-            if(workspaceId.isEmpty()||repository.isEmpty())throw new IllegalArgumentException("Создайте Workspace и привяжите репозиторий");
-            github.requireAccount(account);
-            WorkspacePublishPlan plan=WorkspacePublishPlan.capture(workspace,account,workspaceId);
-            AgentGitWorkspace.Snapshot snapshot=git.inspect(account,repository,branch);
-            String message=a.optString("commit_message","feat: publish workspace");
-            if(!approve("Публикация проекта",plan.preview(repository,branch)+"\nКоммит: "+message,true,plan.skipped>0))return denied(name);
-            check();requireWrite();github.requireAccount(account);
-            if(run!=null)run.remoteDispatched();
-            JSONObject result=git.publishApprovedWorkspace(account,repository,branch,snapshot.head,workspace,plan,message);
-            event("✓ Проект опубликован в "+repository+" / "+branch+" · "+result.toString(),null);
-            return result.toString();
-        }
-        if("download_artifact".equals(name))return downloadArtifact(a);
+        if("download_artifact".equals(name)){requireDelivery("APK");return downloadArtifact(a);}
         if("artifact_verdict".equals(name))return artifactVerdict(a);
         if("attach_repository".equals(name)||"import_repository".equals(name)){
             String repo=GitHubAgentOperations.repository(a,repository),ref=a.optString("branch",branch);
             AgentGitWorkspace.validateRepository(repo,ref);
             if(!approve(name,repo+" / "+ref+"\n"+("import_repository".equals(name)?
-                    "Импорт до 180 текстовых файлов / 8 MiB в новый Workspace; существующий проект сохранится отдельно.":
+                    "Импорт снимка на commit SHA, до 32 MiB ZIP / 10000 записей в новый Workspace; существующий проект сохранится отдельно.":
                     "Привязка репозитория к текущему диалогу; локальные файлы сохраняются."),false,false))return denied(name);
             check();requireWrite();github.requireAccount(account);
             JSONObject result;
@@ -274,36 +382,27 @@ public final class NativeAgentToolHost implements ProjectRuntime.ToolHost {
             event("✓ "+name+" · "+repo+" / "+ref,null);
             return result.toString();
         }
+        if("dispatch_workflow".equals(name)){
+            requireWrite();requireDelivery("/build");
+            if(a.has("ref")&&!branch.equals(a.getString("ref")))throw new SecurityException("CI ограничен веткой задачи");
+            return ci().build(a.getString("workflow_id")).toString();
+        }
         // Exact immutable arguments are presented before dispatch, not a paraphrase of the task.
         if(run!=null)run.requireNotDuplicate();
         String preview=a.toString(2);
-        if("dispatch_workflow".equals(name)){
-            // Facts are checked before the user is asked, so an impossible dispatch never reaches a dialog.
-            check();github.requireAccount(account);
-            JSONObject facts=GitHubAgentOperations.preflight(github.toolApi(account),name,a,repository,branch);
-            preview+="\n\nWorkflow: "+facts.optString("workflow")+" ("+facts.optString("path")+") @ "+facts.optString("ref");
-        }
         // Defense in depth: the execution-mode policy may only add a review requirement, never remove one.
         boolean modeReview=app.githubble.mobile.agent.core.ExecutionMode.forLevel(permission.getAsInt())
             .decide(GitHubAgentOperations.action(name,a),false,false)
             ==app.githubble.mobile.agent.core.ExecutionMode.Decision.NEED_APPROVAL;
         if(!approve(name,preview,true,GitHubAgentOperations.sensitive(name)||modeReview&&AgentPermissionPolicy.normalize(permission.getAsInt())>=AgentPermissionPolicy.LOCAL_AUTO))return denied(name);
         check();requireWrite();github.requireAccount(account);
-        if("dispatch_workflow".equals(name)&&!buildPolicy.tryStartBuild())
-            throw new IllegalStateException("Лимит запусков сборки исчерпан ("+buildPolicy.buildRuns()+"). Остановитесь и сообщите пользователю причину.");
+
         if(run!=null)run.remoteDispatched();
+        if("create_pull_request".equals(name)&&!a.has("base"))a.put("base",projects.registry.get(account,projects.projectId(account,thread)).optString("baseBranch","main"));
         JSONObject result=GitHubAgentOperations.write(github,account,name,a,repository,branch);
-        if("dispatch_workflow".equals(name)){
-            android.content.Context ctx=activity.getApplicationContext();
-            String full=GitHubAgentOperations.repository(a,repository);
-            boolean watched=app.githubble.mobile.build.BuildMonitor.prefs(ctx)
-                .getBoolean(app.githubble.mobile.build.BuildMonitor.PREF_ENABLED,true)
-                &&app.githubble.mobile.build.BuildMonitor.isWatched(ctx,full);
-            result.put("background_monitor",watched);
-            if(!watched)result.put("background_note","Если приложение закроют, уведомления о результате этой сборки не будет: репозиторий не отслеживается в Мониторе сборок.");
-        }
         event("✓ "+name+" · "+result.optString("html_url",result.optString("full_name","выполнено")),null);
         // Creating a repository should make it the project's target without losing local files.
+        if("create_pull_request".equals(name))projects.tasks.update(account,thread,t->AgentController.put(t,"pullNumber",result.optInt("number")));
         if("create_repository".equals(name)){
             try{check();}catch(java.util.concurrent.CancellationException changed){return result.toString();}
             String full=result.optString("full_name","");
@@ -320,53 +419,51 @@ public final class NativeAgentToolHost implements ProjectRuntime.ToolHost {
      * Bounded wait for one CI run. The result carries facts from the GitHub API (never model text)
      * plus the host's decision from RetryPolicy, so the repair loop cannot run unbounded.
      */
-    private String awaitBuild(JSONObject a)throws Exception{
-        long id=a.optLong("run_id",0);
-        if(id<=0)throw new IllegalArgumentException("Нужен положительный run_id");
-        if(repository.isEmpty())throw new IllegalArgumentException("Сначала привяжите репозиторий");
-        int seconds=Math.max(0,Math.min(60,a.optInt("timeout_s",45)));
-        long deadline=System.currentTimeMillis()+seconds*1000L;
-        JSONObject args=new JSONObject().put("run_id",id);
-        JSONObject status;
-        while(true){
-            check();
-            status=github.executeReadOnly(account,"build_run_status",args,repository,branch);
-            if("completed".equals(status.optString("status"))||System.currentTimeMillis()>=deadline)break;
-            if(run!=null)run.note("Жду сборку #"+id+" · "+status.optString("status"));
-            Thread.sleep(4000);
+    private String pinnedSha()throws Exception {
+        JSONObject t=projects.tasks.get(account,thread);String sha=t.optString("confirmedCommitSha",t.optString("sourceCommitSha"));
+        if(sha.isEmpty())sha=github.toolApi(account).getJsonFresh(GitDataApi.base(repository)+"/git/ref/heads/"+GitDataApi.encode(branch)).getJSONObject("object").getString("sha");
+        GitObjectId.requireCommit(sha);return sha;
+    }
+    private CiToolset ci()throws Exception {
+        check();return new CiToolset(GitDataApi.bound(github.toolApi(account),this::taskGuard),new CiToolset.Store(){
+            public JSONObject read(){JSONObject s=projects.tasks.get(account,thread).optJSONObject("ci");return s==null?new JSONObject():s;}
+            public void save(JSONObject s){projects.tasks.update(account,thread,t->AgentController.put(t,"ci",s));}
+        },(id,logs)->github.ciDiagnostics(account,repository,id,logs),id->approve("Передать CI-журнал модели",repository+" · run #"+id+"\nОграниченный фрагмент журнала после удаления известных секретов будет отправлен выбранному внешнему AI-провайдеру.",true,true),
+            id->approve("Запуск сборки",repository+" · "+branch+" · workflow #"+id,true,false),this::taskGuard,System::currentTimeMillis,repository,branch,pinnedSha());
+    }
+    public void requireDelivery(String message){
+        if(planning)return;String m=message.toLowerCase(java.util.Locale.ROOT);
+        boolean apk=m.matches("(?s).*(\\bapk\\b|апк).*"),build=apk||m.matches("(?s).*(/build|собери|собрать|сборк|\\bbuild\\b).*" );
+        if(build)projects.tasks.update(account,thread,t->{AgentController.put(t,"requireBuild",true);if(apk)AgentController.put(t,"requireApk",true);});
+    }
+    private String awaitBuild(JSONObject a)throws Exception {
+        long deadline=System.currentTimeMillis()+Math.min(45,Math.max(0,a.optInt("timeout_s",30)))*1000L;
+        JSONObject result;do{check();result=ci().await(a.optLong("run_id"));if(result.optBoolean("done")||System.currentTimeMillis()>=deadline)break;Thread.sleep(3000);}while(true);
+        if(result.optBoolean("done")&&!"success".equals(result.optString("conclusion")))result.put("failure",ci().failure(result.getLong("run_id"),false));
+        return result.toString();
+    }
+    public JSONObject verifyCompletion(JSONObject args)throws Exception {
+        check();JSONObject task=projects.tasks.get(account,thread),ci=task.optJSONObject("ci");
+        long runId=args.optLong("run_id",ci==null?0:ci.optLong("runId")),artifact=args.optLong("artifact_id",task.optLong("artifactId"));
+        JSONObject device=ApkVerdictStore.find(app.githubble.mobile.build.BuildMonitor.prefs(activity).getString(ApkVerdictStore.KEY,""),account,repository,artifact);
+        JSONObject result=TaskEvidence.verify(new GitHubEvidence(github.toolApi(account)),GitDataApi.bound(github.toolApi(account),this::taskGuard),repository,branch,pinnedSha(),runId,
+            args.optInt("pull_number",task.optInt("pullNumber")),artifact,device,task.optBoolean("requireBuild")||runId>0,task.optBoolean("requireApk")||artifact>0);
+        JSONArray sets=taskService().changes.list();for(int i=0;i<sets.length();i++){
+            JSONArray entries=sets.getJSONObject(i).optJSONArray("entries");for(int j=0;entries!=null&&j<entries.length();j++){
+                String state=entries.getJSONObject(j).optString("state");if(state.equals("PROPOSED")||state.equals("APPROVED")||state.equals("LOCAL_APPLIED")||state.equals("CONFLICT")){
+                    result.put("accepted",false);result.getJSONArray("issues").put("В задаче остались неопубликованные/непринятые изменения");break;
+                }
+            }
         }
-        JSONObject out=new JSONObject().put("run_id",id).put("status",status.optString("status"))
-            .put("conclusion",status.optString("conclusion")).put("head_sha",status.optString("head_sha"))
-            .put("url",status.optString("html_url"));
-        if(!"completed".equals(status.optString("status")))
-            return out.put("done",false).put("instruction","Run still in progress; call await_build again.").toString();
-        out.put("done",true);
-        if("success".equals(status.optString("conclusion"))){
-            out.put("verification",GitHubAgentOperations.verifyBuild(github.toolApi(account),repository,branch,id,status.optString("head_sha")));
-            event("✓ Сборка #"+id+" успешна",null);
-            return out.toString();
-        }
-        JSONObject report=github.executeReadOnly(account,"build_run_diagnostics",args,repository,branch);
-        app.githubble.mobile.agent.core.FailureClass kind;
-        try{kind=app.githubble.mobile.agent.core.FailureClass.valueOf(report.optString("failure_class","UNKNOWN"));}
-        catch(IllegalArgumentException unknown){kind=app.githubble.mobile.agent.core.FailureClass.UNKNOWN;}
-        if(kind==app.githubble.mobile.agent.core.FailureClass.UNKNOWN){
-            // Step names alone do not reveal the cause. Log excerpts leave the device only through
-            // the user's explicit repair dialog, so the host does not guess a fix here.
-            out.put("failure_class",kind.name()).put("failed_jobs",report.optJSONArray("failures"))
-                .put("decision",new JSONObject().put("action","NEED_LOG_EXCERPT")
-                    .put("reason","Класс ошибки неизвестен по метаданным. Попросите пользователя открыть диагностику сборки (отдельное согласие на передачу журнала). Не угадывайте исправление."));
-            event("✗ Сборка #"+id+" · причина неизвестна без журнала",null);
-            return out.toString();
-        }
-        app.githubble.mobile.agent.core.RetryPolicy.Decision decision=buildPolicy.onFailure(
-            app.githubble.mobile.agent.core.BuildFailureClassifier.Result.of(kind,report.optString("failure_signature","")),0);
-        out.put("failure_class",kind.name()).put("failed_jobs",report.optJSONArray("failures"))
-            .put("decision",new JSONObject().put("action",decision.action.name()).put("delay_ms",decision.delayMs)
-                .put("reason",decision.reason).put("next_state",decision.nextState.name()))
-            .put("builds_used",buildPolicy.buildRuns()).put("auto_fixes_used",buildPolicy.autoFixes());
-        event("✗ Сборка #"+id+" · "+kind.name()+" → "+decision.action.name(),null);
-        return out.toString();
+        check();projects.tasks.update(account,thread,t->{AgentController.put(t,"delivery",result);AgentController.put(t,"state",result.optBoolean("accepted")?"DONE":completionState(t));});return result;
+    }
+    private static String completionState(JSONObject task){JSONObject ci=task.optJSONObject("ci"),d=ci==null?null:ci.optJSONObject("decision");
+        String action=d==null?"":d.optString("action");return action.equals("WAIT_EXTERNAL")?"WAITING_EXTERNAL":action.equals("FAIL")?"FAILED":"REVIEW";}
+    public JSONObject completionStatus()throws Exception {
+        JSONObject task=projects.tasks.get(account,thread);if(!task.optBoolean("requireBuild")&&!task.has("delivery"))return null;
+        try{return verifyCompletion(new JSONObject());}catch(java.util.concurrent.CancellationException cancelled){throw cancelled;}
+        catch(Exception unavailable){JSONObject result=new JSONObject().put("accepted",false).put("issues",new JSONArray().put(AgentLogRedactor.redact(unavailable.getMessage())));
+            projects.tasks.update(account,thread,t->{AgentController.put(t,"state",completionState(t));AgentController.put(t,"delivery",result);});return result;}
     }
     /** Queues one artifact of the LINKED repository; verification happens on-device in BuildDownloadReceiver. */
     private String downloadArtifact(JSONObject a)throws Exception{
@@ -387,6 +484,7 @@ public final class NativeAgentToolHost implements ProjectRuntime.ToolHost {
         JSONObject expect=ApkVerdictStore.cleanExpectation(a.optJSONObject("expect"));
         long download=app.githubble.mobile.build.BuildArtifactDownloads.enqueue(
             activity.getApplicationContext(),repository,meta,false,runId,expect);
+        projects.tasks.update(account,thread,t->AgentController.put(t,"artifactId",id));
         event("↓ Артефакт #"+id+" поставлен в загрузку",null);
         return new JSONObject().put("queued",true).put("download_id",download).put("artifact_id",id).put("name",label)
             .put("expect",expect)

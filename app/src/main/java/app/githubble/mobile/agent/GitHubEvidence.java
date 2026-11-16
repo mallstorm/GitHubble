@@ -27,7 +27,7 @@ public final class GitHubEvidence implements Evidence {
     @Override public String branchHead(String repo, String branch) throws Exception {
         AgentGitWorkspace.validateRepository(repo, branch);
         try {
-            JSONObject ref = api.getJson(base(repo) + "/git/ref/heads/" + branch);
+            JSONObject ref = api.getJsonFresh(base(repo) + "/git/ref/heads/" + GitDataApi.encode(branch));
             JSONObject object = ref.optJSONObject("object");
             return object == null ? null : object.optString("sha");
         } catch (Exception e) {
@@ -39,7 +39,7 @@ public final class GitHubEvidence implements Evidence {
     @Override public Boolean commitExists(String repo, String sha) throws Exception {
         if (sha == null || !sha.matches("[a-fA-F0-9]{7,40}")) return Boolean.FALSE;
         try {
-            api.getJson(base(repo) + "/commits/" + sha);
+            api.getJsonFresh(base(repo) + "/commits/" + sha);
             return Boolean.TRUE;
         } catch (Exception e) {
             if (notFound(e)) return Boolean.FALSE;
@@ -49,7 +49,7 @@ public final class GitHubEvidence implements Evidence {
 
     @Override public PullInfo pullRequest(String repo, int number) throws Exception {
         try {
-            JSONObject pr = api.getJson(base(repo) + "/pulls/" + number);
+            JSONObject pr = api.getJsonFresh(base(repo) + "/pulls/" + number);
             JSONObject head = pr.optJSONObject("head"), baseRef = pr.optJSONObject("base");
             return new PullInfo(true, pr.optString("state"), head == null ? "" : head.optString("sha"),
                 baseRef == null ? "" : baseRef.optString("ref"));
@@ -62,7 +62,7 @@ public final class GitHubEvidence implements Evidence {
     @Override public RunInfo workflowRun(String repo, long runId) throws Exception {
         if (runId <= 0) throw new IllegalArgumentException("run_id");
         try {
-            JSONObject run = api.getJson(base(repo) + "/actions/runs/" + runId);
+            JSONObject run = api.getJsonFresh(base(repo) + "/actions/runs/" + runId);
             return new RunInfo(run.optString("status"), run.optString("conclusion"),
                 run.optString("head_sha"), run.optString("head_branch"));
         } catch (Exception e) {
@@ -72,7 +72,7 @@ public final class GitHubEvidence implements Evidence {
     }
 
     @Override public List<ArtifactInfo> artifacts(String repo, long runId) throws Exception {
-        JSONObject response = api.getJson(base(repo) + "/actions/runs/" + runId + "/artifacts?per_page=100");
+        JSONObject response = api.getJsonFresh(base(repo) + "/actions/runs/" + runId + "/artifacts?per_page=100");
         JSONArray items = response.optJSONArray("artifacts");
         List<ArtifactInfo> out = new ArrayList<>();
         for (int i = 0; items != null && i < items.length(); i++) {

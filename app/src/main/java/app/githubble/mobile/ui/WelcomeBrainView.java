@@ -12,9 +12,15 @@ import android.view.View;
 public final class WelcomeBrainView extends View {
     private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
     private boolean mini;
+    private final int accent,outline;
     /** Small header logo: only the brain, thinner strokes, no orbits. */
     public WelcomeBrainView mini(){mini=true;invalidate();return this;}
-    public WelcomeBrainView(Context context) { super(context); setContentDescription("Hubble Agent — мозг"); }
+    public WelcomeBrainView(Context context) {
+        super(context);boolean blue="blue".equals(context.getSharedPreferences("githubble",Context.MODE_PRIVATE).getString("theme","light"));
+        accent=blue?0xFF419FD0:0xFF48C9A6;outline=blue?0xFF245A82:0xFF2E5E59;
+        setContentDescription("Hubble Agent — мозг");
+    }
+    private int alpha(int color,int value){return (color&0x00FFFFFF)|(value<<24);}
     private float dp(float v) { return v * getResources().getDisplayMetrics().density; }
     @Override protected void onDraw(Canvas c) {
         super.onDraw(c);
@@ -23,12 +29,12 @@ public final class WelcomeBrainView extends View {
         float cx=w/2, cy=h*.43f, bw=w*.46f, bh=h*.40f;
         p.setStyle(Paint.Style.STROKE); p.setStrokeCap(Paint.Cap.ROUND);
         if (!mini) {
-        p.setColor(0x2E48C9A6); p.setStrokeWidth(dp(1.5f));
+        p.setColor(alpha(accent,0x2E)); p.setStrokeWidth(dp(1.5f));
         c.drawOval(w*.10f,h*.25f,w*.90f,h*.59f,p);
-        p.setColor(0x3848C9A6); p.setStrokeWidth(dp(1));
+        p.setColor(alpha(accent,0x38)); p.setStrokeWidth(dp(1));
         c.drawOval(w*.18f,h*.18f,w*.82f,h*.66f,p);
         }
-        p.setColor(0xFF2E5E59); p.setStrokeWidth(dp(mini ? 1.8f : 4));
+        p.setColor(outline); p.setStrokeWidth(dp(mini ? 1.8f : 4));
         for(int sign : new int[]{-1,1}) {
             Path path=new Path(); path.moveTo(cx,cy-bh*.52f);
             path.cubicTo(cx+sign*bw*.10f,cy-bh*.68f,cx+sign*bw*.42f,cy-bh*.60f,cx+sign*bw*.44f,cy-bh*.30f);
@@ -37,20 +43,20 @@ public final class WelcomeBrainView extends View {
             path.cubicTo(cx+sign*bw*.08f,cy+bh*.58f,cx,cy+bh*.48f,cx,cy+bh*.34f);
             c.drawPath(path,p);
         }
-        p.setColor(0xFF48C9A6); p.setStrokeWidth(dp(mini ? 1.2f : 2.2f));
+        p.setColor(accent); p.setStrokeWidth(dp(mini ? 1.2f : 2.2f));
         c.drawLine(cx,cy-bh*.48f,cx,cy+bh*.34f,p);
         for(int sign : new int[]{-1,1}) {
             float[] xs={cx+sign*bw*.28f,cx+sign*bw*.22f,cx+sign*bw*.30f};
             float[] ys={cy-bh*.24f,cy+bh*.03f,cy+bh*.27f};
             if (mini) continue;
-            p.setStyle(Paint.Style.STROKE); p.setColor(0xBF48C9A6);p.setStrokeWidth(dp(1.6f));
+            p.setStyle(Paint.Style.STROKE); p.setColor(alpha(accent,0xBF));p.setStrokeWidth(dp(1.6f));
             c.drawLine(xs[0],ys[0],xs[1],ys[1],p); c.drawLine(xs[1],ys[1],xs[2],ys[2],p);
-            p.setStyle(Paint.Style.FILL);p.setColor(0xFF48C9A6);
+            p.setStyle(Paint.Style.FILL);p.setColor(accent);
             for(int i=0;i<3;i++) c.drawCircle(xs[i],ys[i],dp(4),p);
         }
         if (!mini) {
         c.drawCircle(w*.83f,h*.28f,dp(5),p);
-        p.setColor(0xBF2E5E59);c.drawCircle(w*.18f,h*.57f,dp(3),p);
+        p.setColor(alpha(outline,0xBF));c.drawCircle(w*.18f,h*.57f,dp(3),p);
         }
         c.restore();
     }

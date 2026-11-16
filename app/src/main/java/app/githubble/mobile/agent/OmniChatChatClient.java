@@ -17,32 +17,139 @@ import java.nio.charset.StandardCharsets;
 public final class OmniChatChatClient {
     private final OAuthSubscriptions subscriptions;
     private app.githubble.mobile.network.NativeProviderRuntime nativeRuntime;
+    private OmniChatConnectionStore store;
     public OmniChatChatClient(){this.subscriptions=null;}
     public OmniChatChatClient(OAuthSubscriptions subscriptions){this.subscriptions=subscriptions;}
     public OmniChatChatClient(android.content.Context context,OAuthSubscriptions subscriptions,OmniChatConnectionStore store){
-        this.subscriptions=subscriptions;this.nativeRuntime=new app.githubble.mobile.network.NativeProviderRuntime(context,store);
+        this.subscriptions=subscriptions;this.store=store;this.nativeRuntime=new app.githubble.mobile.network.NativeProviderRuntime(context,store);
+    }
+
+    private interface KeyedCall<T>{T run(String credential)throws Exception;}
+
+    private static int statusOf(Throwable error){
+        for(Throwable t=error;t!=null;t=t.getCause()){
+            if(t instanceof app.githubble.mobile.network.ApiFailure)return((app.githubble.mobile.network.ApiFailure)t).getStatusCode();
+            String m=t.getMessage();
+            if(m!=null){java.util.regex.Matcher x=java.util.regex.Pattern.compile("HTTP (\\d{3})").matcher(m);if(x.find())return Integer.parseInt(x.group(1));}
+            if(t.getCause()==t)break;
+        }
+        return 0;
+    }
+
+    /**
+     * Runs a request through the key pool of a service: picks a key by the service strategy, records the
+     * result per key, and moves to the next key when this one is rejected, rate limited or out of quota.
+     * Services without a pool (OAuth subscriptions) use the passed credential unchanged.
+     * A request that already produced streamed text is never repeated on another key.
+     */
+    private <T> T routed(String owner,String provider,String fallback,boolean record,java.util.concurrent.atomic.AtomicBoolean emitted,KeyedCall<T> call)throws Exception{
+        ProviderPool pool=store==null?null:store.pool();
+        if(pool==null||!OmniChatConnectionStore.poolable(provider)||!pool.hasSlots(owner,provider))return call.run(fallback);
+        java.util.HashSet<String> tried=new java.util.HashSet<>();
+        Exception last=null;
+        while(true){
+            PoolPolicy.Slot slot=pool.pick(owner,provider,tried);
+            if(slot==null)break;
+            tried.add(slot.id);
+            String secret=pool.secret(owner,provider,slot.id);
+            if(secret.isEmpty()){pool.recordFailure(owner,provider,slot.id,401,"Секрет ключа недоступен");continue;}
+            try{
+                T result=call.run(secret);
+                if(record){Usage usage=LAST_USAGE.get();
+                    pool.recordSuccess(owner,provider,slot.id,usage==null?0:usage.inputTokens,usage==null?0:usage.outputTokens,usage!=null&&usage.reported);}
+                return result;
+            }catch(Exception error){
+                if(error instanceof java.util.concurrent.CancellationException||error instanceof InterruptedException||Thread.currentThread().isInterrupted())throw error;
+                PoolPolicy.Failure failure=record?pool.recordFailure(owner,provider,slot.id,statusOf(error),error.getMessage())
+                    :PoolPolicy.classify(statusOf(error),error.getMessage());
+                last=error;
+                if(!PoolPolicy.failover(failure)||emitted!=null&&emitted.get())throw error;
+            }
+        }
+        if(last!=null)throw last;
+        long wait=pool.nextAvailableAt(owner,provider);
+        throw new IllegalStateException("Нет доступных ключей "+(store==null?provider:store.displayName(provider))+": все отключены, исчерпаны или на паузе"
+            +(wait>0?" (ближайший освободится через "+Math.max(1,(wait-System.currentTimeMillis()+999)/1000)+" с)":""));
     }
     public static void reportUsage(long input,long output,boolean reported){LAST_USAGE.set(new Usage(input,output,reported));}
+    /** Endpoint and protocol are resolved from the existing provider configuration before selection. */
+    public ModelTransport agentTransport(String owner,String provider,String model,String credential,
+            AgentExecutionEngine.Completion compatible,java.util.function.Consumer<Usage> usageObserver) {
+        if(!"openai".equals(provider)||model==null)return new EnvelopeTransport(compatible);
+        String base="https://api.openai.com/v1",wire="openai-responses";
+        if(nativeRuntime!=null&&nativeRuntime.handles(provider)){
+            app.githubble.mobile.data.ProviderEntity entity=nativeRuntime.entity(provider,model,credential,owner).getFirst();
+            base=entity.getBaseUrl();wire=entity.getProtocol();
+        }
+        // Never send a custom endpoint's credential to the official API or infer capabilities from its brand.
+        if(!"https://api.openai.com/v1".equals(base)||!model.matches("(?:gpt-4o|gpt-4\\.1|gpt-5|o3|o4-mini)(?:$|[-.].*)"))
+            return new EnvelopeTransport(compatible);
+        final NativeToolTransport.Protocol protocol;
+        if("openai-responses".equals(wire))protocol=NativeToolTransport.Protocol.RESPONSES;
+        else if("openai-chat".equals(wire))protocol=NativeToolTransport.Protocol.CHAT_COMPLETIONS;
+        else return new EnvelopeTransport(compatible);
+        final String target=base+(protocol==NativeToolTransport.Protocol.RESPONSES?"/responses":"/chat/completions");
+        TransportCapabilities capabilities=new TransportCapabilities();capabilities.confirmed(target,model,protocol,true);
+        if(!capabilities.supports(target,model,protocol))return new EnvelopeTransport(compatible);
+        ModelTransport nativeTools=new NativeToolTransport(protocol,model,body -> {
+            if(credential==null||credential.isBlank())throw new IllegalStateException("Нет API-ключа");
+            byte[] bytes=body.toString().getBytes(StandardCharsets.UTF_8);
+            if(bytes.length>MAX_INPUT_BYTES)throw new IllegalArgumentException("Контекст превысил лимит API");
+            HttpURLConnection connection=app.githubble.mobile.network.AiNetwork.open(target);
+            try{
+                connection.setRequestMethod("POST");connection.setDoOutput(true);
+                connection.setConnectTimeout(15000);connection.setReadTimeout(85000);
+                connection.setInstanceFollowRedirects(false);connection.setUseCaches(false);
+                connection.setRequestProperty("Authorization","Bearer "+credential.trim());
+                connection.setRequestProperty("Content-Type","application/json; charset=UTF-8");
+                connection.setRequestProperty("Accept","application/json");connection.setFixedLengthStreamingMode(bytes.length);
+                try(OutputStream out=connection.getOutputStream()){out.write(bytes);}
+                int status=connection.getResponseCode();String raw;
+                try(InputStream in=status>=200&&status<300?connection.getInputStream():connection.getErrorStream()){raw=readLimited(in);}
+                if(status<200||status>=300){
+                    if(ToolTransportFallback.unsupported(status,raw))throw new ToolTransportFallback.Unsupported();
+                    throw new IllegalStateException("AI API HTTP "+status+": "+apiError(raw,credential));
+                }
+                JSONObject result=new JSONObject(raw);captureUsage(result);Usage usage=takeUsage();
+                if(usageObserver!=null)usageObserver.accept(usage);return result;
+            }finally{connection.disconnect();}
+        });
+        return new ToolTransportFallback(nativeTools,new EnvelopeTransport(compatible));
+    }
     public String completeForAccount(String owner,String provider,String model,String credential,JSONArray transcript,String project,String repository)throws Exception{
         LAST_USAGE.remove();
-        if(nativeRuntime!=null&&nativeRuntime.handles(provider))return nativeRuntime.complete(provider,model,credential,owner,transcript,
-            "Вы Git Agent. Отвечайте на языке пользователя. Не заявляйте выполнение без инструментального результата.\n"+project+"\n"+repository);
-        return complete(provider,model,credential,transcript,project,repository);
+        return routed(owner,provider,credential,true,null,key->{
+            LAST_USAGE.remove();
+            if(nativeRuntime!=null&&nativeRuntime.handles(provider))return nativeRuntime.complete(provider,model,key,owner,transcript,
+                "Вы Git Agent. Отвечайте на языке пользователя. Не заявляйте выполнение без инструментального результата.\n"+project+"\n"+repository);
+            return complete(provider,model,key,transcript,project,repository);
+        });
     }
     public String completeStreamingForAccount(String owner,String provider,String model,String credential,JSONArray transcript,String project,String repository,java.util.function.Consumer<String> onText)throws Exception{
         LAST_USAGE.remove();
-        if(nativeRuntime!=null&&nativeRuntime.handles(provider))return nativeRuntime.completeStreaming(provider,model,credential,owner,transcript,
-            "Вы Git Agent. Планируйте шаги самостоятельно. Отвечайте на языке пользователя. Не заявляйте выполнение без инструментального результата.\n"+project+"\n"+repository,onText);
-        return completeInternal(provider,model,credential,transcript,project,repository,null,null,onText);
+        final java.util.concurrent.atomic.AtomicBoolean emitted=new java.util.concurrent.atomic.AtomicBoolean(false);
+        final java.util.function.Consumer<String> tracked=onText==null?null:text->{emitted.set(true);onText.accept(text);};
+        return routed(owner,provider,credential,true,emitted,key->{
+            LAST_USAGE.remove();
+            if(nativeRuntime!=null&&nativeRuntime.handles(provider))return nativeRuntime.completeStreaming(provider,model,key,owner,transcript,
+                "Вы Git Agent. Планируйте шаги самостоятельно. Отвечайте на языке пользователя. Не заявляйте выполнение без инструментального результата.\n"+project+"\n"+repository,
+                tracked==null?t->{}:tracked);
+            return completeInternal(provider,model,key,transcript,project,repository,null,null,tracked);
+        });
     }
     public String completeWithImageForAccount(String owner,String provider,String model,String credential,JSONArray transcript,String project,String repository,String mime,byte[] image)throws Exception{
         LAST_USAGE.remove();
-        if(nativeRuntime!=null&&nativeRuntime.handles(provider))return nativeRuntime.complete(provider,model,credential,owner,transcript,project+"\n"+repository,mime,image);
-        return completeWithImage(provider,model,credential,transcript,project,repository,mime,image);
+        return routed(owner,provider,credential,true,null,key->{
+            LAST_USAGE.remove();
+            if(nativeRuntime!=null&&nativeRuntime.handles(provider))return nativeRuntime.complete(provider,model,key,owner,transcript,project+"\n"+repository,mime,image);
+            return completeWithImage(provider,model,key,transcript,project,repository,mime,image);
+        });
     }
     public java.util.List<String> discoverModelsForAccount(String owner,String provider,String credential)throws Exception{
-        if(nativeRuntime!=null&&nativeRuntime.handles(provider))return nativeRuntime.models(provider,credential,owner);
-        return discoverModels(provider,credential);
+        return routed(owner,provider,credential,false,null,key->{
+            if(nativeRuntime!=null&&nativeRuntime.handles(provider))return nativeRuntime.models(provider,key,owner);
+            return discoverModels(provider,key);
+        });
     }
     /** Reported by an AI API for the current worker thread; not a subscription quota. */
     public static final class Usage {
@@ -102,7 +209,7 @@ public final class OmniChatChatClient {
     }
 
     public static boolean supportsVision(String provider){
-        return app.githubble.mobile.network.NativeSubscriptionRuntime.supports(provider)||java.util.Arrays.asList("openai","gemini","openrouter","anthropic","xai","groq","mistral","together","nvidia","ollama","custom","proxy-external").contains(provider);
+        return app.githubble.mobile.network.NativeSubscriptionRuntime.supports(provider)||java.util.Arrays.asList("openai","gemini","openrouter","anthropic","xai","groq","mistral","together","nvidia","ollama","custom","proxy-external").contains(provider)||OmniChatConnectionStore.isCustom(provider);
     }
 
     public String completeWithImage(String provider,String model,String credential,

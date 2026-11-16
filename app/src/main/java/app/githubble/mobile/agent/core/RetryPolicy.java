@@ -48,12 +48,14 @@ public final class RetryPolicy {
             seen = signatures.containsKey(failure.signature) ? signatures.get(failure.signature) + 1 : 1;
             signatures.put(failure.signature, seen);
         }
-        if (buildRuns >= limits.maxBuildRuns)
-            return new Decision(Action.FAIL, 0, "Исчерпан лимит запусков сборки (" + limits.maxBuildRuns + ")", TaskState.FAILED);
         if (c == FailureClass.PERMISSION_ERROR || c == FailureClass.SIGNING_FAILURE || c == FailureClass.ANDROID_SDK_ERROR
-                || c == FailureClass.BILLING_OR_QUOTA_BLOCK)
+                || c == FailureClass.BILLING_OR_QUOTA_BLOCK) {
             return new Decision(Action.WAIT_EXTERNAL, 0,
                 c + ": нужны действия владельца (права, ключи или окружение); обход не выполняется", TaskState.WAITING_EXTERNAL);
+        }
+        if (buildRuns >= limits.maxBuildRuns) {
+            return new Decision(Action.FAIL, 0, "Исчерпан лимит запусков сборки (" + limits.maxBuildRuns + ")", TaskState.FAILED);
+        }
         if (c.transientFailure) {
             if (transientRetries >= limits.maxTransientRetries)
                 return new Decision(Action.WAIT_EXTERNAL, 0, c + ": временный сбой не прошёл после "
@@ -74,6 +76,20 @@ public final class RetryPolicy {
             return new Decision(Action.FIX_SOURCE, 0, c + ": исправление исходников", TaskState.EXECUTING);
         }
         return new Decision(Action.FAIL, 0, "Не удалось классифицировать ошибку сборки", TaskState.FAILED);
+    }
+
+    /** Persisted per task; recreating a host must never reset repair allowances. */
+    public synchronized org.json.JSONObject snapshot() {
+        try{return new org.json.JSONObject().put("buildRuns",buildRuns).put("autoFixes",autoFixes)
+            .put("transientRetries",transientRetries).put("signatures",new org.json.JSONObject(signatures));}
+        catch(org.json.JSONException bad){throw new IllegalStateException(bad);}
+    }
+    public static RetryPolicy restore(org.json.JSONObject value) {
+        RetryPolicy p=new RetryPolicy(null);if(value==null)return p;
+        p.buildRuns=Math.max(0,value.optInt("buildRuns"));p.autoFixes=Math.max(0,value.optInt("autoFixes"));
+        p.transientRetries=Math.max(0,value.optInt("transientRetries"));org.json.JSONObject sig=value.optJSONObject("signatures");
+        if(sig!=null){java.util.Iterator<String> keys=sig.keys();while(keys.hasNext()){String key=keys.next();p.signatures.put(key,Math.max(0,sig.optInt(key)));}}
+        return p;
     }
 
     private long backoff(int attempt) {

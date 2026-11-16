@@ -39,11 +39,12 @@ public final class AgentChatUiInstrumentation extends Instrumentation {
       if (!new app.githubble.mobile.security.SecureStore(getTargetContext())
           .get("github_token")
           .isEmpty()) throw new AssertionError("Clean test profile required");
-      storage();
+      storage(); // Creates the legacy v3 archive fixture before any test opens its v4 database.
+      UnifiedAgentUiChecks.run(getTargetContext());
       File directory = getTargetContext().getExternalFilesDir("agent-ui");
       if (directory == null || (!directory.isDirectory() && !directory.mkdirs()))
         throw new AssertionError("Screenshot directory unavailable");
-      for (String theme : new String[] {"light", "dark", "beige"})
+      for (String theme : new String[] {"light", "dark", "beige", "blue"})
         for (String scale : new String[] {"1.0", "1.5"}) {
           shell("settings put system font_scale " + scale);
           shell("settings put secure show_ime_with_hard_keyboard 1");
@@ -66,7 +67,10 @@ public final class AgentChatUiInstrumentation extends Instrumentation {
                               Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK));
           waitForIdleSync();
           SystemClock.sleep(350);
-          if (theme.equals("light") && scale.equals("1.0")) verifyNativeTools(app);
+          if (theme.equals("light") && scale.equals("1.0")) {verifyNativeTools(app);ChangeReviewUiChecks.run(this,app);
+          Stage3UiChecks.run(this,app);}
+          if(theme.equals("blue")&&scale.equals("1.0"))ThemeUiChecks.run(this,app);
+          if(theme.equals("light")||theme.equals("blue"))RepositoryUiChecks.run(this,app);
           AgentChatPreviewActivity current = app;
           main(
               () -> {
@@ -182,7 +186,7 @@ public final class AgentChatUiInstrumentation extends Instrumentation {
         }
       result.putString(
           "result",
-          "PASS: agent chat UI; storage migration; native tools; 3 themes; 2 font scales; timer;"
+          "PASS: agent chat UI; storage migration; native tools; 4 themes; 2 font scales; timer;"
               + " recreation; composer; Markdown; diff; IME");
     } catch (Throwable e) {
       android.util.Log.e("AndroidRuntime", "Agent chat UI failed", e);
@@ -408,8 +412,10 @@ public final class AgentChatUiInstrumentation extends Instrumentation {
     check(reply.equals("Готово"), "Native tool loop incomplete");
     String id = store.project(owner).workspaceId;
     check(
-        workspace.readFile(owner, id, "docs/report.md").equals(AgentChatPreviewActivity.source()),
-        "Host did not write actual file");
+        new TaskGitService(new File(activity.getFilesDir(),"task-changes"),store,workspace,owner,thread,null,true,()->{}).tools()
+            .snapshot("docs/report.md").text.equals(AgentChatPreviewActivity.source()),
+        "Host did not apply the task overlay");
+    check(!workspace.file(owner,id,"docs/report.md").exists(),"Agent wrote a shared Workspace file instead of its overlay");
     JSONObject file =
         run.snapshot()
             .getJSONArray("operations")

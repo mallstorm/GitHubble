@@ -6,4 +6,8 @@
         <item name="android:statusBarColor">#FFFFFF</item>
         <item name="android:colorAccent">#0969DA</item>
     </style>
+    <style name="RepositoryLanguageSheetAnimation">
+        <item name="android:windowEnterAnimation">@anim/repository_language_sheet_in</item>
+        <item name="android:windowExitAnimation">@anim/repository_language_sheet_out</item>
+    </style>
 </resources>

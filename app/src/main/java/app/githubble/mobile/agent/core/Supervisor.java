@@ -24,7 +24,7 @@ public final class Supervisor {
     public static final class Verdict {
         public final List<Finding> findings = new ArrayList<>();
         public boolean accepted() {
-            for (Finding f : findings) if (f.severity == Severity.BLOCKER) return false;
+            for (Finding f : findings) if (f.severity == Severity.BLOCKER || f.severity == Severity.WARNING && !f.check.equals("workflow-file")) return false;
             return true;
         }
         /** Earliest state any blocker asks to return to (so no step is skipped), or null. */
@@ -67,28 +67,30 @@ public final class Supervisor {
                 String head = evidence.branchHead(c.repo, c.branch);
                 if (head == null) v.add(Severity.WARNING, "branch", "не удалось проверить ветку " + c.branch, null);
                 else if (head.isEmpty()) v.block("branch", "ветка " + c.branch + " не существует", TaskState.EXECUTING);
-                else if (!c.commitSha.isEmpty() && !head.equalsIgnoreCase(c.commitSha)
-                        && !Boolean.TRUE.equals(evidence.commitExists(c.repo, c.commitSha)))
-                    v.block("commit", "заявленный коммит " + c.commitSha + " отсутствует в репозитории", TaskState.EXECUTING);
+                else if (!c.commitSha.isEmpty() && !head.equalsIgnoreCase(c.commitSha))
+                    v.block("commit", "HEAD ветки не совпадает с заявленным коммитом", TaskState.EXECUTING);
             } else if (!c.commitSha.isEmpty()) {
                 Boolean exists = evidence.commitExists(c.repo, c.commitSha);
                 if (exists == null) v.add(Severity.WARNING, "commit", "не удалось проверить коммит", null);
                 else if (!exists) v.block("commit", "коммит " + c.commitSha + " не найден", TaskState.EXECUTING);
             }
+            if (c.repo.isEmpty() || (c.branch.isEmpty() && c.commitSha.isEmpty() && c.pullNumber<=0 && c.runId<=0))
+                v.block("evidence", "Нет проверяемого результата", TaskState.VERIFYING);
             if (c.pullNumber > 0) {
                 Evidence.PullInfo pr = evidence.pullRequest(c.repo, c.pullNumber);
                 if (pr == null) v.add(Severity.WARNING, "pull-request", "не удалось проверить PR #" + c.pullNumber, null);
                 else if (!pr.exists) v.block("pull-request", "PR #" + c.pullNumber + " не существует", TaskState.DELIVERING);
-                else if (!c.commitSha.isEmpty() && !pr.headSha.isEmpty() && !pr.headSha.equalsIgnoreCase(c.commitSha))
-                    v.add(Severity.WARNING, "pull-request", "HEAD PR отличается от заявленного коммита", null);
+                else if (!c.commitSha.isEmpty() && !pr.headSha.equalsIgnoreCase(c.commitSha))
+                    v.block("pull-request", "HEAD PR отличается от заявленного коммита или не установлен", TaskState.DELIVERING);
             }
             if (c.runId > 0) {
                 Evidence.RunInfo run = evidence.workflowRun(c.repo, c.runId);
                 if (run == null) v.add(Severity.WARNING, "workflow", "не удалось получить запуск " + c.runId, null);
                 else if (!"completed".equals(run.status)) v.block("workflow", "сборка ещё не завершена: " + run.status, TaskState.BUILDING);
                 else if (!"success".equals(run.conclusion)) v.block("workflow", "сборка завершилась: " + run.conclusion, TaskState.BUILDING);
-                else if (!c.commitSha.isEmpty() && !run.headSha.isEmpty() && !run.headSha.equalsIgnoreCase(c.commitSha))
+                else if (!c.commitSha.isEmpty() && !run.headSha.equalsIgnoreCase(c.commitSha))
                     v.block("workflow", "успешная сборка относится к другому коммиту " + run.headSha, TaskState.BUILDING);
+                if(run!=null&&!c.branch.isEmpty()&&!c.branch.equals(run.branch))v.block("workflow", "Workflow другой ветки", TaskState.BUILDING);
                 if (run != null && "completed".equals(run.status) && "success".equals(run.conclusion)
                         && (c.claimsBuildDone || c.requireArtifact || !c.artifactName.isEmpty()))
                     checkArtifacts(c, v);

@@ -31,8 +31,6 @@ public final class RepositoriesScreen {
     public interface Actions {
         void create();
         void refresh();
-        void sort();
-        void toggleLayout(boolean grid);
         void open(String fullName);
         void menu(JSONObject repository);
     }
@@ -43,10 +41,8 @@ public final class RepositoriesScreen {
     private final int card, textColor, muted, green, border, subtle;
     private final Set<String> saved;
     private JSONArray repositories = new JSONArray();
-    private String filter = "all";
-    private String query = "";
-    private boolean gridMode;
-    private boolean languagesExpanded;
+    private final RepositoryListOptions options=new RepositoryListOptions();
+    private final boolean gridMode;
     private LinearLayout listHost, filtersHost;
     private TextView allCount, privateCount, publicCount, savedCount, resultCount, state;
     private EditText search;
@@ -67,8 +63,9 @@ public final class RepositoriesScreen {
         this.gridMode = gridMode;
     }
 
-    public void render(JSONArray initial, String sortLabel, String initialStatus) {
+    public void render(JSONArray initial, String sortOrder, String initialStatus) {
         repositories = initial == null ? new JSONArray() : initial;
+        options.order=sortOrder;
 
         LinearLayout overview = vertical();
         overview.setPadding(dp(12),dp(13),dp(12),dp(12));
@@ -121,7 +118,7 @@ public final class RepositoriesScreen {
         search.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s,int start,int count,int after) {}
             @Override public void onTextChanged(CharSequence s,int start,int before,int count) {
-                query=s.toString().trim().toLowerCase(Locale.ROOT);
+                options.query=s.toString();
                 updateRows();
             }
             @Override public void afterTextChanged(Editable e) {}
@@ -132,35 +129,12 @@ public final class RepositoriesScreen {
         filtersHost=horizontal(Gravity.CENTER_VERTICAL);
         filtersHost.setPadding(0,0,0,0);
         filterScroll.addView(filtersHost);
-        add(filterScroll,dp(42),9);
+        add(filterScroll,dp(38),5);
         makeFilters();
-        LinearLayout sorting=horizontal(Gravity.CENTER_VERTICAL);
-        TextView sort=label("↕  "+sortLabel+"  ⌄",12,false,textColor);
-        sort.setGravity(Gravity.CENTER_VERTICAL);
-        sort.setPadding(dp(12),0,dp(12),0);
-        sort.setBackground(shape(card,13,border,1));
-        sort.setContentDescription("Сортировать репозитории");
-        sort.setOnClickListener(v->actions.sort());
-        sorting.addView(sort,new LinearLayout.LayoutParams(-2,dp(42)));
-        TextView layout=label(gridMode?"▤ Плитки":"☰ Список",12,true,green);
-        layout.setGravity(Gravity.CENTER);
-        layout.setContentDescription(gridMode?"Переключить на список":"Переключить на плитки");
-        layout.setBackground(shape(card,12,border,1));
-        LinearLayout.LayoutParams layoutParams=new LinearLayout.LayoutParams(dp(91),dp(42));
-        layoutParams.setMargins(dp(6),0,0,0);
-        sorting.addView(layout,layoutParams);
-        layout.setOnClickListener(v->{
-            gridMode=!gridMode;
-            actions.toggleLayout(gridMode);
-            layout.setText(gridMode?"▤ Плитки":"☰ Список");
-            layout.setContentDescription(gridMode?"Переключить на список":"Переключить на плитки");
-            updateRows();
-        });
         resultCount=label("",11,false,muted);
         resultCount.setGravity(Gravity.END|Gravity.CENTER_VERTICAL);
         resultCount.setSingleLine(true);
-        sorting.addView(resultCount,new LinearLayout.LayoutParams(0,dp(42),1));
-        add(sorting,dp(42),8);
+        add(resultCount,dp(20),2);
         state=label(initialStatus,10,false,muted);
         state.setSingleLine(true);
         state.setEllipsize(TextUtils.TruncateAt.END);
@@ -209,42 +183,29 @@ public final class RepositoriesScreen {
 
     private void makeFilters(){
         filtersHost.removeAllViews();
-        chip("Все","all");
-        chip("Недавние","recent");
-        chip("Приватные","private");
-        chip("Публичные","public");
-        chip("Избранные","saved");
-        chip(languagesExpanded?"Языки ▴":"Языки ▾","langs");
-        if(languagesExpanded||isLanguageFilter()){
-            chip("Kotlin","kotlin");
-            chip("Java","java");
-            chip("Go","go");
-            chip("C++","c++");
-        }
+        control("Все",options.visibility.equals("all")&&!options.favoritesOnly&&options.language.isEmpty(),"Все репозитории",()->{options.clearFilters();changedFilters();});
+        control("Приватные",options.visibility.equals("private"),"Фильтр: приватные",()->{options.visibility=options.visibility.equals("private")?"all":"private";changedFilters();});
+        control("Публичные",options.visibility.equals("public"),"Фильтр: публичные",()->{options.visibility=options.visibility.equals("public")?"all":"public";changedFilters();});
+        control("Избранные",options.favoritesOnly,"Фильтр: избранные",()->{options.favoritesOnly=!options.favoritesOnly;changedFilters();});
+        control((options.language.isEmpty()?"Язык":options.language)+" ▾",!options.language.isEmpty(),"Фильтр по языку",()->{
+            List<String> languages=RepositoryListOptions.languages(repositories);
+            languages.add(0,"Все языки");
+            RepositoryLanguageSheet.show(activity,languages,options.language,
+                    card,textColor,muted,green,border,subtle,selected->{
+                        options.language=selected;
+                        changedFilters();
+                    });
+        });
     }
-    private boolean isLanguageFilter(){
-        return !"all".equals(filter)&&!"recent".equals(filter)
-                &&!"private".equals(filter)&&!"public".equals(filter)&&!"saved".equals(filter);
-    }
-    private void chip(String title,String value){
-        boolean active=filter.equals(value)||("langs".equals(value)&&languagesExpanded);
+    private void changedFilters(){makeFilters();updateRows();}
+    private void control(String title,boolean active,String description,Runnable click){
         TextView chip=label(title,12,active,active?Color.WHITE:textColor);
-        chip.setGravity(Gravity.CENTER);
+        chip.setGravity(Gravity.CENTER);chip.setSingleLine(true);chip.setContentDescription(description);
         chip.setPadding(dp(12),0,dp(12),0);
         chip.setBackground(shape(active?green:card,17,active?green:border,active?0:1));
-        chip.setOnClickListener(v->{
-            if("langs".equals(value)){
-                languagesExpanded=!languagesExpanded;
-                makeFilters();
-                return;
-            }
-            filter=value;
-            makeFilters();
-            updateRows();
-        });
-        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-2,dp(36));
-        p.setMargins(0,0,dp(6),0);
-        filtersHost.addView(chip,p);
+        chip.setSelected(active);
+        chip.setOnClickListener(v->click.run());
+        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-2,dp(36));p.setMargins(0,0,dp(6),0);filtersHost.addView(chip,p);
     }
 
     /**
@@ -254,39 +215,23 @@ public final class RepositoriesScreen {
     private void updateRows(){
         if(listHost==null)return;
         listHost.removeAllViews();
-        List<JSONObject> matching=new ArrayList<>();
-        for(int i=0;i<repositories.length();i++){
-            JSONObject repo=repositories.optJSONObject(i);
-            if(repo==null)continue;
-            String full=repo.optString("full_name","");
-            if(full.isEmpty())continue;
-            String language=app.githubble.mobile.ui.JsonText.of(repo,"language","");
-            String haystack=(full+" "+app.githubble.mobile.ui.JsonText.of(repo,"description","")+" "+language)
-                    .toLowerCase(Locale.ROOT);
-            if(!haystack.contains(query))continue;
-            if("private".equals(filter)&&!repo.optBoolean("private",false))continue;
-            if("public".equals(filter)&&repo.optBoolean("private",false))continue;
-            if("saved".equals(filter)&&!saved.contains(full))continue;
-            if("recent".equals(filter)&&!isRecent(repo))continue;
-            if(isLanguageFilter()&&!filter.equalsIgnoreCase(language))continue;
-            matching.add(repo);
-        }
+        List<JSONObject> matching=options.select(repositories,saved);
         resultCount.setText("Найдено: "+matching.size());
         if(matching.isEmpty()){
             TextView empty=label(repositories.length()==0
-                    ?"Репозитории пока не загружены. Нажмите «Обновить»."
+                    ?"Репозитории пока не загружены. Нажмите здесь, чтобы повторить загрузку."
                     :"По этому запросу репозиториев не найдено.",13,false,muted);
             empty.setPadding(dp(12),dp(20),dp(12),dp(20));
             empty.setBackground(shape(card,14,border,1));
+            if(repositories.length()==0)empty.setOnClickListener(v->actions.refresh());
             listHost.addView(empty);
             return;
         }
         ViewGroup rows=listHost;
         if(gridMode){
             GridLayout grid=new GridLayout(activity);
-            boolean tablet=activity.getResources().getConfiguration().smallestScreenWidthDp>=600
-                    &&activity.getResources().getConfiguration().fontScale<1.5f;
-            grid.setColumnCount(tablet?2:1);
+            grid.setColumnCount(2);
+            grid.setContentDescription("Репозитории плитками");
             listHost.addView(grid,new LinearLayout.LayoutParams(-1,-2));
             rows=grid;
         }
@@ -296,7 +241,13 @@ public final class RepositoriesScreen {
     private void appendRows(List<JSONObject> matching,int start,ViewGroup target){
         int end=Math.min(start+24,matching.size());
         for(int i=start;i<end;i++)addRepository(matching.get(i),target);
-        if(end>=matching.size())return;
+        if(end>=matching.size()){
+            if(target instanceof GridLayout&&end%2==1){
+                GridLayout.LayoutParams p=new GridLayout.LayoutParams();p.width=0;p.height=0;
+                p.columnSpec=GridLayout.spec(GridLayout.UNDEFINED,GridLayout.FILL,1f);p.setMargins(dp(3),0,dp(3),0);
+                target.addView(new View(activity),p);
+            }return;
+        }
         TextView more=label("Показать ещё "+(matching.size()-end)+" репозиториев  ›",
                 13,true,green);
         more.setGravity(Gravity.CENTER);
@@ -311,15 +262,8 @@ public final class RepositoriesScreen {
         });
     }
 
-    private boolean isRecent(JSONObject r){
-        try {
-            String value=r.optString("pushed_at",r.optString("updated_at",""));
-            long age=System.currentTimeMillis()-Instant.parse(value).toEpochMilli();
-            return age>=0&&age<30L*24*60*60*1000L;
-        }catch(Exception ignored){return false;}
-    }
-
     private void addRepository(JSONObject repo,ViewGroup target){
+        boolean tile=target instanceof GridLayout;
         String full=repo.optString("full_name","");
         String name=repo.optString("name",full.contains("/")
                 ?full.substring(full.indexOf('/')+1):full);
@@ -338,23 +282,26 @@ public final class RepositoriesScreen {
         icon.setImageResource(name.equalsIgnoreCase("GitHubble")
                 ?R.drawable.ic_home_rocket:R.drawable.ic_repository);
         icon.setColorFilter(Color.WHITE);
-        icon.setPadding(dp(10),dp(10),dp(10),dp(10));
+        int iconPadding=dp(tile?7:10);icon.setPadding(iconPadding,iconPadding,iconPadding,iconPadding);
         icon.setBackground(shape(accent,11,0,0));
-        titleLine.addView(icon,new LinearLayout.LayoutParams(dp(43),dp(43)));
+        titleLine.addView(icon,new LinearLayout.LayoutParams(dp(tile?32:43),dp(tile?32:43)));
 
         LinearLayout info=vertical();
-        info.setPadding(dp(9),0,0,0);
+        info.setPadding(tile?0:dp(9),tile?dp(7):0,0,0);
         TextView title=label(name,14,true,textColor);
-        title.setSingleLine(true);
+        if(tile){title.setMaxLines(2);title.setMinLines(2);}else title.setSingleLine(true);
         title.setEllipsize(TextUtils.TruncateAt.END);
         info.addView(title);
         TextView detail=label(description,11,false,muted);
         detail.setMaxLines(2);
+        if(tile)detail.setMinLines(2);
         detail.setEllipsize(TextUtils.TruncateAt.END);
         info.addView(detail);
-        titleLine.addView(info,new LinearLayout.LayoutParams(0,-2,1));
+        if(tile)titleLine.addView(new View(activity),new LinearLayout.LayoutParams(0,1,1));
+        else titleLine.addView(info,new LinearLayout.LayoutParams(0,-2,1));
 
-        TextView privacy=label(privateRepo?"◧ Закрыт":"◎ Открыт",10,false,privateRepo?muted:green);
+        TextView privacy=label(tile?(privateRepo?"◧":"◎"):(privateRepo?"◧ Закрыт":"◎ Открыт"),10,false,privateRepo?muted:green);
+        privacy.setContentDescription(privateRepo?"Приватный репозиторий":"Публичный репозиторий");
         privacy.setPadding(dp(5),dp(4),dp(5),dp(4));
         privacy.setBackground(shape(mix(card,privateRepo?muted:green,.10f),15,0,0));
         LinearLayout.LayoutParams privacyLp=new LinearLayout.LayoutParams(-2,-2);
@@ -365,9 +312,10 @@ public final class RepositoriesScreen {
         more.setGravity(Gravity.CENTER);
         more.setContentDescription("Действия с репозиторием "+name);
         more.setOnClickListener(v->actions.menu(repo));
-        LinearLayout.LayoutParams moreLp=new LinearLayout.LayoutParams(dp(30),dp(40));
+        LinearLayout.LayoutParams moreLp=new LinearLayout.LayoutParams(dp(44),dp(44));
         titleLine.addView(more,moreLp);
         box.addView(titleLine);
+        if(tile)box.addView(info,new LinearLayout.LayoutParams(-1,-2));
         LinearLayout meta=horizontal(Gravity.CENTER_VERTICAL);
         meta.setPadding(0,dp(8),0,0);
         ImageView dot=new ImageView(activity);
@@ -375,26 +323,27 @@ public final class RepositoriesScreen {
         meta.addView(dot,new LinearLayout.LayoutParams(dp(9),dp(9)));
         TextView lang=label(" "+language,10,false,textColor);
         lang.setSingleLine(true);
-        meta.addView(lang);
+        lang.setEllipsize(TextUtils.TruncateAt.END);
+        if(tile)meta.addView(lang,new LinearLayout.LayoutParams(0,-2,1));else meta.addView(lang);
         TextView stats=label(" ★ "+repo.optInt("stargazers_count",0)
-                +"   ⑂ "+repo.optInt("forks_count",0)
-                +"   ◉ "+repo.optInt("open_issues_count",0),10,false,muted);
+                +(tile?"":"   ⑂ "+repo.optInt("forks_count",0)+"   ◉ "+repo.optInt("open_issues_count",0)),10,false,muted);
         stats.setSingleLine(true);
         stats.setEllipsize(TextUtils.TruncateAt.END);
-        meta.addView(stats,new LinearLayout.LayoutParams(0,-2,1));
+        meta.addView(stats,new LinearLayout.LayoutParams(tile?-2:0,-2,tile?0:1));
         TextView updated=label(relativeUpdated(repo),10,false,muted);
         updated.setSingleLine(true);
         updated.setEllipsize(TextUtils.TruncateAt.END);
         updated.setGravity(Gravity.END);
-        meta.addView(updated,new LinearLayout.LayoutParams(-2,-2));
+        if(!tile)meta.addView(updated,new LinearLayout.LayoutParams(-2,-2));
         box.addView(meta);
+        if(tile){updated.setGravity(Gravity.START);updated.setPadding(0,dp(5),0,0);box.addView(updated,new LinearLayout.LayoutParams(-1,-2));}
         box.setContentDescription(full+(privateRepo?", приватный репозиторий":", публичный репозиторий"));
         box.setOnClickListener(v->actions.open(full));
         if(target instanceof GridLayout){
             GridLayout.LayoutParams p=new GridLayout.LayoutParams();
             p.width=0;
             p.height=-2;
-            p.columnSpec=GridLayout.spec(GridLayout.UNDEFINED,1f);
+            p.columnSpec=GridLayout.spec(GridLayout.UNDEFINED,GridLayout.FILL,1f);
             p.setMargins(dp(3),dp(3),dp(3),dp(6));
             target.addView(box,p);
         }else{
@@ -406,8 +355,8 @@ public final class RepositoriesScreen {
 
     private String relativeUpdated(JSONObject repo){
         try{
-            String raw=repo.optString("pushed_at",repo.optString("updated_at",""));
-            long age=System.currentTimeMillis()-Instant.parse(raw).toEpochMilli();
+            long timestamp=RepositoryListOptions.updatedAt(repo);if(timestamp==0)return "Дата неизвестна";
+            long age=System.currentTimeMillis()-timestamp;
             if(age<0)return "Обновлён недавно";
             long mins=age/60000;
             if(mins<1)return "Сейчас";

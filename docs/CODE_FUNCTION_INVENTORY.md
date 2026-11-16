@@ -2048,3 +2048,12 @@
 | `GitHubCustomTabs` | [web/GitHubCustomTabs.java:48](https://github.com/mallstorm/GitHubble/blob/feature/omnichat-native-agent-phase1/app/src/main/java/app/githubble/mobile/web/GitHubCustomTabs.java#L48) | Реализация в коде; нет одноимённого unit test-файла; см. ограничения раздела аудита |
 | `open` | [web/GitHubCustomTabs.java:54](https://github.com/mallstorm/GitHubble/blob/feature/omnichat-native-agent-phase1/app/src/main/java/app/githubble/mobile/web/GitHubCustomTabs.java#L54) | Реализация в коде; нет одноимённого unit test-файла; см. ограничения раздела аудита |
 | `findProvider` | [web/GitHubCustomTabs.java:83](https://github.com/mallstorm/GitHubble/blob/feature/omnichat-native-agent-phase1/app/src/main/java/app/githubble/mobile/web/GitHubCustomTabs.java#L83) | Реализация в коде; нет одноимённого unit test-файла; см. ограничения раздела аудита |
+
+## Unified Agent III (rc4.2.33 / 80)
+
+- CiToolset: commit-bound Actions, persistent retry/dispatch journal, separate log consent.
+- TaskEvidence/Supervisor: live ref/PR/workflow/verified APK gate; AgentController owns DONE.
+- ApkSignatureVerifier: cryptographic verification and certificate SHA256 in device verdicts.
+- TaskRepository/TaskWorkPanel: interrupted state recovery, audit of user-granted budgets, one task panel.
+- Legacy dispatch_workflow delegates to CiToolset; duplicate per-run CI policy and await logic removed.
+- Production signing remains main-only; device/provider acceptance remains separate from emulator CI.

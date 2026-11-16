@@ -36,6 +36,7 @@ class NativeProviderRuntime(context:Context,private val store:OmniChatConnection
             base=c.optString("base_url",template.base);protocol=NativeProviderCatalog.wireForModel(p,model,c.optString("protocol",template.protocol));scope=c.optString("auth_scope")
             if(key=="__local_no_auth__")key=""
             if(p=="proxy-nvidia")type="nvidia"
+            if(NativeProviderCatalog.isCustom(p))type="custom"
         }
         return ProviderEntity(id=1,name=store.displayName(p),baseUrl=base,encryptedApiKey="",model=model,protocol=protocol,
             systemPrompt=instructions,providerType=type,authScope=scope,allowLocalHttp=base.startsWith("http://")) to key

@@ -176,6 +176,32 @@ public final class AgentConversationStore {
     }
   }
 
+  /** A task always gets a fresh identity, even when the current conversation is an empty draft. */
+  public String createTaskThread(String owner, String title, String id) {
+    synchronized (STORE_LOCK) {
+      ensure(owner);safeId(id);
+      JSONArray index = readIndex(owner);
+      index.put(new JSONObjectBuilder(id, title, System.currentTimeMillis()).toJson());
+      if (!prefs.edit().putString(key(owner, "thread_index"), index.toString())
+          .putString(key(owner, "active_thread"), id).putString(transcriptKey(owner, id), "[]").commit())
+        throw new IllegalStateException("Не удалось создать обсуждение задачи");
+      return id;
+    }
+  }
+
+  public void openTaskThread(String owner,String id,String title) {
+    synchronized(STORE_LOCK) {
+      ensure(owner);safeId(id);
+      JSONArray index=readIndex(owner);
+      if(!contains(index,id)) {
+        index.put(new JSONObjectBuilder(id,title,System.currentTimeMillis()).toJson());
+        if(!prefs.edit().putString(key(owner,"thread_index"),index.toString()).commit())
+          throw new IllegalStateException("Не удалось открыть задачу");
+      }
+      open(owner,id);
+    }
+  }
+
   public void open(String owner, String id) {
     synchronized (STORE_LOCK) {
       ensure(owner);

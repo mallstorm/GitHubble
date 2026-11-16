@@ -423,6 +423,36 @@ public final class GitHubApiClient {
     }
   }
 
+  /** Stream a pinned repository zipball. The GitHub credential is never forwarded to codeload. */
+  public void downloadZipball(String repository,String sha,File target,long maxBytes,Runnable guard)throws Exception {
+    app.githubble.mobile.agent.AgentGitWorkspace.validateRepository(repository,"main");
+    app.githubble.mobile.agent.GitObjectId.requireCommit(sha);
+    if(maxBytes<1||maxBytes>200L*1024*1024)throw new IllegalArgumentException("Неверный лимит zipball");
+    GitHubSession session=capture();
+    HttpURLConnection connection=open("GET","https://api.github.com/repos/"+repository+"/zipball/"+sha,session,true);
+    boolean success=false;
+    try{
+      guard.run();int status=connection.getResponseCode();requireCurrent(session);updateRateLimit(connection);
+      if(status==302||status==301||status==307){
+        String location=connection.getHeaderField("Location");java.net.URI uri=java.net.URI.create(location==null?"":location);
+        if(!"https".equals(uri.getScheme())||!"codeload.github.com".equals(uri.getHost())||uri.getPort()!=-1||uri.getUserInfo()!=null
+            ||uri.getFragment()!=null||!uri.getPath().startsWith("/"+repository+"/")||!uri.getPath().endsWith("/"+sha))throw new IOException("Недопустимый redirect zipball");
+        connection.disconnect();connection=(HttpURLConnection)uri.toURL().openConnection();
+        connection.setInstanceFollowRedirects(false);connection.setConnectTimeout(15000);connection.setReadTimeout(35000);
+        connection.setRequestProperty("Accept","application/zip");
+        // Deliberately no Authorization header for the signed download address.
+        guard.run();requireCurrent(session);status=connection.getResponseCode();
+      }
+      if(status!=200)throw new ApiException(status,"Zipball HTTP "+status,resetEpochSeconds);
+      if(connection.getContentLengthLong()>maxBytes)throw new IOException("Zipball больше лимита");
+      try(InputStream in=connection.getInputStream();FileOutputStream out=new FileOutputStream(target)){
+        byte[] buffer=new byte[16384];long total=0;int n;
+        while((n=in.read(buffer))!=-1){guard.run();requireCurrent(session);total+=n;if(total>maxBytes)throw new IOException("Zipball больше лимита");out.write(buffer,0,n);}out.getFD().sync();
+      }
+      requireCurrent(session);guard.run();success=true;
+    }finally{connection.disconnect();if(!success)target.delete();}
+  }
+
   public JSONObject postBase64Blob(String url, InputStream input, long maxBytes) throws Exception {
     if (input == null) throw new IOException("Не удалось открыть выбранный файл");
     GitHubSession s = capture();

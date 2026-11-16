@@ -201,6 +201,23 @@ class WorkspaceTools private constructor(
 
     fun list(): List<String> = fileSystem.listFiles(1500)
 
+    /** Bounded task analysis uses the same internal/SAF backend without the legacy 1500-file editor cap. */
+    fun taskPaths():List<String> = fileSystem.listFiles(20000).filter { it!=".workspace.json"&&it!=".hubble-import.json" }.sorted()
+    fun taskDirectories():List<String> = fileSystem.listDirectories(20000)
+    fun taskRead(path:String):String? {
+        val clean=normalizePath(path)
+        if(storageMode==ProjectWorkspaceSupport.STORAGE_INTERNAL){
+            var raw=internalRoot.toPath()
+            for(part in clean.split('/')){raw=raw.resolve(part);require(!java.nio.file.Files.isSymbolicLink(raw)){"Символические ссылки не доступны агенту"}}
+        }
+        if(!fileSystem.exists(clean))return null
+        require(fileSystem.isFile(clean)){"Ожидался файл"}
+        val bytes=fileSystem.readBytes(clean,2L*1024*1024)
+        require(bytes.none{it==0.toByte()}){"Бинарный файл"}
+        return Charsets.UTF_8.newDecoder().onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+            .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT).decode(java.nio.ByteBuffer.wrap(bytes)).toString()
+    }
+
     fun directories(): List<String> = fileSystem.listDirectories(2000)
 
     private fun readLimited(input: java.io.InputStream, maxBytes: Long): ByteArray {
