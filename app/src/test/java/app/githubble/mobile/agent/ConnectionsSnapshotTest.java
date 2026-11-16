@@ -135,4 +135,32 @@ public class ConnectionsSnapshotTest {
         ConnectionsSnapshot s = ConnectionsSnapshot.parse(json);
         assertEquals(1, s.appSettings.size());
     }
+
+    private static String skill(String name, String body) {
+        return "---\nname: " + name + "\ndescription: d\n---\n" + body + "\n";
+    }
+
+    @Test public void skillsRoundTripAndAffectHash() throws Exception {
+        ConnectionsSnapshot a = new ConnectionsSnapshot();
+        String before = a.contentHash();
+        a.skills.put("my-skill", skill("my-skill", "do it"));
+        assertFalse(before.equals(a.contentHash()));
+        ConnectionsSnapshot b = ConnectionsSnapshot.parse(a.toJson());
+        assertEquals(a.skills, b.skills);
+        assertTrue(a.sameContent(b));
+    }
+
+    @Test public void skillsMergeWithoutDeletionAndHostileOnesAreDropped() throws Exception {
+        ConnectionsSnapshot local = new ConnectionsSnapshot(), remote = new ConnectionsSnapshot();
+        local.skills.put("one", skill("one", "local"));
+        remote.skills.put("one", skill("one", "remote"));
+        remote.skills.put("two", skill("two", "x"));
+        assertEquals(skill("one", "local"), ConnectionsSnapshot.merge(local, remote, false).skills.get("one"));
+        ConnectionsSnapshot taken = ConnectionsSnapshot.merge(local, remote, true);
+        assertEquals(skill("one", "remote"), taken.skills.get("one"));
+        assertEquals(2, taken.skills.size());
+        String json = "{\"format\":\"githubble-settings\",\"schema\":1,\"skills\":{\"bad\":\"no frontmatter\",\"Mismatch\":"
+                + "\"---\\nname: other\\ndescription: d\\n---\\nb\"}}";
+        assertEquals(0, ConnectionsSnapshot.parse(json).skills.size());
+    }
 }

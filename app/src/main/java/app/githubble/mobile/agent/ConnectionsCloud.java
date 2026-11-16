@@ -23,6 +23,7 @@ public final class ConnectionsCloud {
     private static final int MAX_OWNERS = 16;
 
     private final SharedPreferences cloud, main;
+    private final Context context;
     private final OmniChatConnectionStore store;
 
     /** Outcome of one reconciliation; {@link #payload} is what has to be written to Drive, or null. */
@@ -40,6 +41,7 @@ public final class ConnectionsCloud {
 
     public ConnectionsCloud(Context context, OmniChatConnectionStore store) {
         Context app = context.getApplicationContext();
+        this.context = app;
         this.cloud = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         this.main = app.getSharedPreferences("githubble", Context.MODE_PRIVATE);
         this.store = store;
@@ -105,9 +107,27 @@ public final class ConnectionsCloud {
         edit.apply();
     }
 
+    private void collectSkills(ConnectionsSnapshot snap) {
+        try {
+            for (SkillDocument s : AgentSkills.of(context).user())
+                if (snap.skills.size() < ConnectionsSnapshot.MAX_SKILLS) snap.skills.put(s.name, s.toMarkdown());
+        } catch (RuntimeException unavailable) { /* skills are optional for the backup */ }
+    }
+
+    private void applySkills(ConnectionsSnapshot merged) {
+        AgentSkills registry = AgentSkills.of(context);
+        java.util.Map<String, String> have = new java.util.HashMap<>();
+        for (SkillDocument s : registry.user()) have.put(s.name, s.toMarkdown());
+        for (Map.Entry<String, String> e : merged.skills.entrySet()) {
+            if (e.getValue().equals(have.get(e.getKey()))) continue;
+            try { registry.saveUser(SkillDocument.parse(e.getValue(), false)); } catch (Exception skip) { /* reserved name or limit */ }
+        }
+    }
+
     public ConnectionsSnapshot collect() {
         ConnectionsSnapshot snap = new ConnectionsSnapshot();
         collectApp(snap);
+        collectSkills(snap);
         for (String id : store.customProviders()) {
             NativeProviderCatalog.Profile profile = NativeProviderCatalog.profile(id);
             if (profile == null) continue;
@@ -208,6 +228,7 @@ public final class ConnectionsCloud {
 
     private void apply(ConnectionsSnapshot merged) {
         applyApp(merged);
+        applySkills(merged);
         for (ConnectionsSnapshot.Service s : merged.services.values())
             store.restoreCustomProvider(s.id, s.name, s.base, s.protocol, s.keyless);
         for (String owner : owners()) {

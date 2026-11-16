@@ -26,6 +26,11 @@ public final class AgentSkills {
     }
     public static AgentSkills install(Context context, SharedPreferences prefs) { return instance = new AgentSkills(context, prefs); }
     public static AgentSkills get() { return instance; }
+    /** Background sync runs without an Activity, so it creates the registry itself when needed. */
+    public static synchronized AgentSkills of(Context context) {
+        if (instance == null) install(context, context.getApplicationContext().getSharedPreferences("githubble", Context.MODE_PRIVATE));
+        return instance;
+    }
 
     private synchronized List<SkillDocument> builtin() {
         if (builtin != null) return builtin;

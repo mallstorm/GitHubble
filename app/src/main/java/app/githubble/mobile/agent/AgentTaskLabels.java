@@ -6,6 +6,9 @@ public final class AgentTaskLabels {
 
   public static String state(String name) {
     switch (name == null ? "" : name) {
+      case "INTERRUPTED": return "Прервана";
+      case "READY": return "Готова к продолжению";
+      case "RUNNING": return "Выполняется";
       case "CREATED": return "Создана";
       case "ANALYZING": return "Анализ";
       case "PLANNING": return "Планирование";

@@ -57,6 +57,7 @@ public final class AgentController {
                 }
             },(d,a) -> host.confirmBroker(d.name,a), (name,args) -> {
                 if (args.has("repository") && !linked.equalsIgnoreCase(args.optString("repository"))
+                        && !ProjectRuntime.allowed(name,true,false)
                         && !name.equals("attach_repository") && !name.equals("import_repository")
                         && !name.equals("delete_repository") && !name.equals("actions_cleanup"))
                     throw new SecurityException("Инструмент ограничен репозиторием выбранного проекта");
