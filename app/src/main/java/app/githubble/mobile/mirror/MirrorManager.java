@@ -30,12 +30,14 @@ public final class MirrorManager {
     private static final String API="https://api.github.com/repos/";
     private static final String PREFS="githubble_mirror_manager", KEY_JOBS="jobs";
     private final GitHubAccountStore accounts;
+    private final MirrorLinkRegistry linkRegistry;
     private final Context applicationContext;
     private final SharedPreferences prefs;
     private final Object lock=new Object();
 
     public MirrorManager(Context context,GitHubAccountStore accounts){
         this.accounts=accounts;
+        this.linkRegistry=new MirrorLinkRegistry(context);
         this.applicationContext=context.getApplicationContext();
         this.prefs=applicationContext.getSharedPreferences(PREFS,Context.MODE_PRIVATE);
     }
@@ -44,7 +46,7 @@ public final class MirrorManager {
     public static final class Job {
         public String id="",requestId="",source="",destination="",sourceAccountId="",destinationAccountId="";
         public String sourceDefault="",baselineSha="",mode=COPY,state=PREPARING,error="",runUrl="",targetDigest="";
-        public String destinationDefault="",targetBaselineSha="",reviewBranch="",linkedCopyId="",prUrl="";
+        public String destinationDefault="",targetBaselineSha="",reviewBranch="",linkedCopyId="",linkPairId="",prUrl="";
         public boolean privateSource,secretInstalled,workflowInstalled,cleanupPending;
         public long runId,createdAt,updatedAt,prNumber;
         public boolean isManaged(){return false;}
@@ -62,6 +64,7 @@ public final class MirrorManager {
                 o.put("runId",runId);o.put("createdAt",createdAt);o.put("updatedAt",updatedAt);
                 o.put("destinationDefault",destinationDefault);o.put("targetBaselineSha",targetBaselineSha);
                 o.put("reviewBranch",reviewBranch);o.put("linkedCopyId",linkedCopyId);
+                o.put("linkPairId",linkPairId);
                 o.put("prUrl",prUrl);o.put("prNumber",prNumber);
             }catch(Exception ignored){}
             return o;
@@ -87,6 +90,7 @@ public final class MirrorManager {
             j.targetBaselineSha=o.optString("targetBaselineSha","");
             j.reviewBranch=o.optString("reviewBranch","");
             j.linkedCopyId=o.optString("linkedCopyId","");
+            j.linkPairId=o.optString("linkPairId","");
             j.prUrl=o.optString("prUrl","");
             j.prNumber=o.optLong("prNumber");
             return j;
@@ -227,7 +231,8 @@ public final class MirrorManager {
         job.sourceAccountId=sourceAccountId;job.destinationAccountId=targetAccountId;
         job.sourceDefault=defaultBranch;job.baselineSha=baseline;
         job.privateSource=repo.optBoolean("private",false);
-        job.mode=COPY;job.createdAt=System.currentTimeMillis();save(job);
+        job.mode=COPY;job.linkPairId=MirrorLinkRegistry.pairId(sourceFull,destination);
+        job.createdAt=System.currentTimeMillis();save(job);
         try{
             JSONObject created=target.postJson("https://api.github.com/user/repos",
                     new JSONObject().put("name",targetName).put("private",job.privateSource)
@@ -252,6 +257,166 @@ public final class MirrorManager {
             save(job);
             throw error;
         }
+    }
+
+    /**
+     * Reconstructs durable pair links independently of the old transfer journal.
+     * An older successful COPY is migrated once; subsequently the registry stands alone.
+     */
+    public List<MirrorLinkRegistry.Link> listLinks(){
+        for(Job j:list()){
+            if(COPY.equals(j.mode)&&VERIFIED.equals(j.state)
+                    &&j.source.contains("/")&&j.destination.contains("/")){
+                try{linkRegistry.remember(j.source,j.destination,j.source,j.id);}
+                catch(IllegalArgumentException ignored){}
+            }
+        }
+        return linkRegistry.list();
+    }
+    public List<MirrorLinkRegistry.Link> linksFor(String repo){
+        listLinks();
+        return linkRegistry.forRepository(repo);
+    }
+    public MirrorLinkRegistry.Link pair(String id){listLinks();return linkRegistry.find(id);}
+
+    private GitHubAccountStore.Account accountForRepo(String repo){
+        MirrorPolicy.requireRepository(repo);
+        String owner=repo.substring(0,repo.indexOf('/'));
+        for(GitHubAccountStore.Account a:accounts.listAccounts())
+            if(owner.equalsIgnoreCase(a.login))return a;
+        throw new IllegalStateException("Авторизуйте @"+owner+" в GitHubble для этой операции");
+    }
+
+    /**
+     * Restore an existing independent clone without the original local OneShot journal.
+     * Requires a shared, exactly matching Git commit SHA. It never edits either repository.
+     */
+    public MirrorLinkRegistry.Link recoverLink(String left,String right)throws Exception{
+        MirrorPolicy.requireDifferent(left,right);
+        GitHubAccountStore.Account a=accountForRepo(left),b=accountForRepo(right);
+        if(a.id.equals(b.id))
+            throw new IllegalArgumentException("Связывать можно только репозитории разных аккаунтов");
+        GitHubApiClient src=api(a),dst=api(b);
+        JSONObject r1=src.getJsonFresh(API+left),r2=dst.getJsonFresh(API+right);
+        if(r1.optBoolean("fork")||r2.optBoolean("fork"))
+            throw new IllegalArgumentException("Fork не принимается за независимое зеркало");
+        java.util.HashSet<String> commits=new java.util.HashSet<>();
+        for(int page=1;page<=5;page++){
+            JSONArray one=src.getArray(API+left+"/commits?per_page=100&page="+page);
+            for(int i=0;i<one.length();i++){
+                JSONObject item=one.optJSONObject(i);
+                if(item!=null)commits.add(item.optString("sha",""));
+            }
+            if(one.length()<100)break;
+        }
+        boolean shared=false;
+        for(int page=1;page<=5 && !shared;page++){
+            JSONArray two=dst.getArray(API+right+"/commits?per_page=100&page="+page);
+            for(int i=0;i<two.length();i++){
+                JSONObject item=two.optJSONObject(i);
+                if(item!=null&&commits.contains(item.optString("sha",""))
+                        &&item.optString("sha","").matches("[0-9a-f]{40}")){
+                    shared=true;break;
+                }
+            }
+            if(two.length()<100)break;
+        }
+        if(!shared)throw new IllegalStateException("В первых 500 коммитах не найдена общая "
+                +"Git-история. Связь не создана: нужно отдельно проверить происхождение репозиториев.");
+        return linkRegistry.remember(left,right,left,"");
+    }
+
+    public static final class PairState {
+        public String from="",to="",fromBranch="",toBranch="",fromSha="",toSha="";
+        public String relation="unknown";
+        public boolean contentsDiffer;
+    }
+
+    private PairState inspect(GitHubApiClient source,GitHubApiClient target,
+                              String sourceRepo,String targetRepo)throws Exception{
+        JSONObject a=source.getJsonFresh(API+sourceRepo),b=target.getJsonFresh(API+targetRepo);
+        if(a.optBoolean("fork")||b.optBoolean("fork"))
+            throw new IllegalStateException("Связанная пара должна состоять из независимых репозиториев");
+        PairState state=new PairState();
+        state.from=sourceRepo;state.to=targetRepo;
+        state.fromBranch=a.optString("default_branch","");
+        state.toBranch=b.optString("default_branch","");
+        requireBranch(state.fromBranch);requireBranch(state.toBranch);
+        state.fromSha=head(source,sourceRepo,state.fromBranch);
+        state.toSha=head(target,targetRepo,state.toBranch);
+        String fromTree=source.getJsonFresh(API+sourceRepo+"/git/commits/"+state.fromSha)
+                .getJSONObject("tree").optString("sha","");
+        String toTree=target.getJsonFresh(API+targetRepo+"/git/commits/"+state.toSha)
+                .getJSONObject("tree").optString("sha","");
+        state.contentsDiffer=fromTree.isEmpty()||toTree.isEmpty()||!fromTree.equals(toTree);
+        if(state.fromSha.equals(state.toSha)){state.relation="identical";return state;}
+        try{
+            JSONObject diff=source.getJsonFresh(API+sourceRepo+"/compare/"
+                    +state.toSha+"..."+state.fromSha);
+            state.relation=diff.optString("status","unknown");
+        }catch(GitHubApiClient.ApiException e){
+            if(e.statusCode==404||e.statusCode==422)state.relation="diverged";
+            else throw e;
+        }
+        return state;
+    }
+
+    public PairState inspectLink(String linkId,String fromRepo)throws Exception{
+        MirrorLinkRegistry.Link link=pair(linkId);
+        if(link==null)throw new IllegalArgumentException("Связанная пара не найдена");
+        String destination=link.partner(fromRepo);
+        GitHubAccountStore.Account a=accountForRepo(fromRepo),b=accountForRepo(destination);
+        return inspect(api(a),api(b),fromRepo,destination);
+    }
+
+    /**
+     * Generic directionless transfer for any linked pair. If a safe FF sync is not possible,
+     * only stage the source default branch for review through a draft PR on the destination.
+     */
+    public Job transferLinked(String linkId,String fromRepo)throws Exception{
+        MirrorLinkRegistry.Link link=pair(linkId);
+        if(link==null)throw new IllegalArgumentException("Связанная пара не найдена");
+        String toRepo=link.partner(fromRepo);
+        GitHubAccountStore.Account a=accountForRepo(fromRepo),b=accountForRepo(toRepo);
+        GitHubApiClient source=api(a),target=api(b);
+        for(Job previous:list()){
+            if(!link.id.equals(previous.linkPairId)
+                    &&!(fromRepo.equalsIgnoreCase(previous.source)
+                         &&toRepo.equalsIgnoreCase(previous.destination)))continue;
+            if(PREPARING.equals(previous.state)||DISPATCHED.equals(previous.state)
+                    ||RUNNING.equals(previous.state)||UNKNOWN.equals(previous.state)
+                    ||previous.cleanupPending)
+                throw new IllegalStateException("В этой связанной паре ещё выполняется перенос или очистка");
+            if(RETURN.equals(previous.mode)&&PR_READY.equals(previous.state)
+                    &&previous.destination.equalsIgnoreCase(toRepo))
+                throw new IllegalStateException("Для назначения уже открыт черновик Pull Request. "
+                        +"Сначала проверьте или закройте предыдущий PR.");
+        }
+        PairState state=inspect(source,target,fromRepo,toRepo);
+        if("identical".equals(state.relation)&&!state.contentsDiffer){
+            // Tags and non-default branches may differ; a non-destructive sync verifies them.
+        }else if(("behind".equals(state.relation)||"diverged".equals(state.relation)
+                ||"unknown".equals(state.relation))&&!state.contentsDiffer){
+            throw new IllegalStateException("В основной ветке нет изменений файлов для возврата. "
+                    +"Проверьте остальные ветки вручную.");
+        }
+        boolean fastForward=("ahead".equals(state.relation)||"identical".equals(state.relation))
+                &&state.fromBranch.equals(state.toBranch);
+        if(!fastForward && !state.contentsDiffer)
+            throw new IllegalStateException("Основные ветки различаются, а файлы одинаковы. "
+                    +"Автоматическое объединение не требуется.");
+        Job job=new Job();
+        job.id=UUID.randomUUID().toString().replace("-","");
+        job.requestId=job.id;job.mode=fastForward?SYNC:RETURN;
+        job.linkPairId=link.id;job.linkedCopyId=link.copyJobId;
+        job.source=fromRepo;job.destination=toRepo;
+        job.sourceAccountId=a.id;job.destinationAccountId=b.id;
+        job.sourceDefault=state.fromBranch;job.destinationDefault=state.toBranch;
+        job.baselineSha=state.fromSha;job.targetBaselineSha=state.toSha;
+        if(RETURN.equals(job.mode))job.reviewBranch="mirror-return/"+job.requestId;
+        job.createdAt=System.currentTimeMillis();save(job);
+        try{stageAndDispatch(source,job,b.id);return job;}
+        catch(Exception e){handleStartFailure(source,job,e);throw e;}
     }
 
     /** Fast-forward already existing linked mirror. Does not create or overwrite another repo. */
@@ -553,6 +718,10 @@ public final class MirrorManager {
             }catch(Exception e){
                 job.state=UNKNOWN;job.error="Проверка и подготовка PR: "+safeError(e);
             }
+        }
+        if(COPY.equals(job.mode)&&VERIFIED.equals(job.state)){
+            // Persistent bidirectional pair survives independent OneShot journal pruning.
+            linkRegistry.remember(job.source,job.destination,job.source,job.id);
         }
         job.cleanupPending=job.secretInstalled||job.workflowInstalled;
         save(job);
