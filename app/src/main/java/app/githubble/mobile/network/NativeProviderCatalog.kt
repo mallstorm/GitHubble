@@ -38,8 +38,15 @@ object NativeProviderCatalog {
         val prefixes=if(provider=="opencode-zen")listOf("claude-","qwen3.8-flash","qwen3.7-","qwen3.6-","qwen3.5-") else listOf("minimax-","qwen3.8-","qwen3.7-","qwen3.6-")
         return if(prefixes.any{id.startsWith(it)})ApiGateway.ANTHROPIC else ApiGateway.CHAT
     }
-    @JvmStatic fun keyless(id:String):Boolean = profiles[id]?.auth=="none"||id in setOf("custom","proxy-external")
-    @JvmStatic fun names():Map<String,String> = profiles.mapValues{it.value.name}
-    @JvmStatic fun profile(id:String):Profile=profiles[id]?:error("Нет API-профиля: $id")
+    // User-defined services (own endpoint + wire protocol); the connection store restores them on start.
+    private val custom=java.util.concurrent.ConcurrentHashMap<String,Profile>()
+    @JvmStatic fun registerCustom(id:String,name:String,base:String,protocol:String,keyless:Boolean){
+        custom[id]=Profile(id,name,base.trimEnd('/'),protocol,if(keyless)"none" else "bearer")
+    }
+    @JvmStatic fun unregisterCustom(id:String){custom.remove(id)}
+    @JvmStatic fun isCustom(id:String):Boolean=custom.containsKey(id)
+    @JvmStatic fun keyless(id:String):Boolean = custom[id]?.auth=="none"||profiles[id]?.auth=="none"||id in setOf("custom","proxy-external")
+    @JvmStatic fun names():Map<String,String> = profiles.mapValues{it.value.name}+custom.mapValues{it.value.name}
+    @JvmStatic fun profile(id:String):Profile=custom[id]?:profiles[id]?:error("Нет API-профиля: $id")
     @JvmStatic fun configuration(id:String):JSONObject=profile(id).let{JSONObject().put("base_url",it.base).put("protocol",it.protocol).put("auth_scope","")}
 }

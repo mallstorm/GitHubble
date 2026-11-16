@@ -44,15 +44,16 @@ public final class UiPolish {
     for (int i = 0; i < row.getChildCount(); i++) {
       View child = row.getChildAt(i);
       if (child.getVisibility() == View.GONE) continue;
-      if (previous != null && surface(previous, horizontal) && surface(child, horizontal)
+      if (previous != null && (horizontal ? surface(previous, true) && surface(child, true) : block(previous) && block(child))
           && child.getTag(R.id.ui_polished) == null
           && child.getLayoutParams() instanceof LinearLayout.LayoutParams) {
         LinearLayout.LayoutParams params = (LinearLayout.LayoutParams) child.getLayoutParams();
         LinearLayout.LayoutParams before = (LinearLayout.LayoutParams) previous.getLayoutParams();
         int gap = horizontal ? before.rightMargin + params.leftMargin : before.bottomMargin + params.topMargin;
+        int target = horizontal ? gapPx : Math.max(gapPx, Math.round(DesignSystem.GAP_BLOCK * child.getResources().getDisplayMetrics().density));
         child.setTag(R.id.ui_polished, Boolean.TRUE);
-        if (gap < minGapPx) {
-          if (horizontal) params.leftMargin += gapPx - gap; else params.topMargin += gapPx - gap;
+        if (gap < (horizontal ? minGapPx : Math.max(minGapPx, target - 1))) {
+          if (horizontal) params.leftMargin += target - gap; else params.topMargin += target - gap;
           child.setLayoutParams(params);
         }
       }
@@ -75,6 +76,38 @@ public final class UiPolish {
         child.setLayoutParams(params);
       }
     }
+  }
+
+  /**
+   * A stacked block: a button, a clickable surface, a card (background plus real padding) or a
+   * transparent row made of buttons. Two such neighbours must never touch.
+   */
+  private static boolean block(View view) {
+    if (!(view.getLayoutParams() instanceof LinearLayout.LayoutParams)) return false;
+    if (view instanceof Button) return true;
+    float density = view.getResources().getDisplayMetrics().density;
+    if (view.getBackground() != null) {
+      if (view.isClickable() && view instanceof TextView) return true;
+      if (view instanceof LinearLayout) {
+        boolean padded = view.getPaddingTop() + view.getPaddingBottom() >= 10 * density;
+        return view.isClickable() || padded;
+      }
+      return view.isClickable();
+    }
+    return view instanceof LinearLayout && buttonRow((LinearLayout) view);
+  }
+
+  private static boolean buttonRow(LinearLayout row) {
+    if (row.getOrientation() != LinearLayout.HORIZONTAL) return false;
+    int seen = 0;
+    for (int i = 0; i < row.getChildCount(); i++) {
+      View child = row.getChildAt(i);
+      if (child.getVisibility() == View.GONE) continue;
+      boolean control = child instanceof Button || child.getBackground() != null && child.isClickable();
+      if (!control) return false;
+      seen++;
+    }
+    return seen > 0;
   }
 
   private static boolean surface(View view, boolean horizontal) {
