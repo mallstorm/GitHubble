@@ -3,14 +3,14 @@ package app.githubble.mobile.ui;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.ProgressDialog;
+import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.RippleDrawable;
 import android.view.Gravity;
-import android.view.View;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
-import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.Spinner;
@@ -23,7 +23,7 @@ import java.util.List;
 import java.util.concurrent.Executor;
 import java.util.function.Consumer;
 
-/** Native account-scoped Mirror Manager screen; background calls never block the UI thread. */
+/** Compact OneShot transfer and journal UI. Configuration belongs to Settings. */
 public final class MirrorManagerScreen {
     private MirrorManagerScreen(){}
 
@@ -31,111 +31,178 @@ public final class MirrorManagerScreen {
             GitHubAccountStore store,String source,int card,int text,int muted,int accent,int border,
             Executor background,Runnable reload,Consumer<String> openUrl) {
 
-        panel(activity,host,card,border,text,muted,"Mirror Manager · OneShot",
-                "Разовое независимое Git-зеркало без Fork и стороннего контроллера. "
-                +"Временный GitHub Actions workflow запускается в исходном репозитории, "
-                +"переносит историю, ветки, теги и Git LFS и затем очищается.");
-        subtitle(activity,host,
-                "Оба аккаунта должны быть авторизованы. Для исходного репозитория нужны "
-                +"Contents:write, Workflows:write, Secrets:write и Actions:write. "
-                +"Для целевого — право создать репозиторий, Contents:write и Workflows:write.",muted);
+        LinearLayout intro=vertical(activity);
+        eyebrow(activity,intro,"MIRROR MANAGER",accent);
+        heading(activity,intro,"Разовая копия репозитория",text,19);
+        subtitle(activity,intro,"Полная Git-история, ветки, теги и LFS. Без Fork и скачивания на телефон.",muted);
+        wrap(activity,host,intro,card,border);
 
-        if(source!=null&&!source.isEmpty() && source.contains("/")) {
-            GitHubAccountStore.Account active=store.listAccounts().stream()
-                    .filter(a->a.login.equalsIgnoreCase(source.substring(0,source.indexOf('/'))))
-                    .findFirst().orElse(null);
+        if(source!=null && source.contains("/")) {
+            GitHubAccountStore.Account active=null;
+            String sourceOwner=source.substring(0,source.indexOf('/'));
+            for(GitHubAccountStore.Account candidate:store.listAccounts())
+                if(sourceOwner.equalsIgnoreCase(candidate.login)){active=candidate;break;}
+            final GitHubAccountStore.Account srcAccount=active;
             List<GitHubAccountStore.Account> targets=new ArrayList<>();
-            for(GitHubAccountStore.Account account:store.listAccounts())
-                if(active!=null&&!active.id.equals(account.id))targets.add(account);
-            LinearLayout box=vertical(activity);
-            heading(activity,box,"Новое зеркало · "+source,text);
-            if(active==null||targets.isEmpty()) {
-                subtitle(activity,box,"Подключите второй аккаунт GitHub, чтобы выбрать назначение.",muted);
-            } else {
-                subtitle(activity,box,"Источник: @"+active.login+" · публичный или приватный",muted);
-                List<String> labels=new ArrayList<>();
-                for(GitHubAccountStore.Account a:targets)labels.add(a.displayName());
+            for(GitHubAccountStore.Account item:store.listAccounts())
+                if(srcAccount!=null&&!srcAccount.id.equals(item.id))targets.add(item);
+            LinearLayout form=vertical(activity);
+            heading(activity,form,"Новая копия",text,17);
+            infoLabel(activity,form,"ИСТОЧНИК",muted);
+            TextView src=body(activity,source,text,14);
+            src.setTypeface(null,Typeface.BOLD);form.addView(src);
+            gap(activity,form,9);
+            if(srcAccount==null||targets.isEmpty()){
+                subtitle(activity,form,"Для переноса подключите исходный аккаунт и хотя бы один аккаунт назначения.",muted);
+            }else{
+                infoLabel(activity,form,"КОПИРОВАТЬ В АККАУНТ",muted);
                 Spinner selector=new Spinner(activity);
-                selector.setAdapter(new ArrayAdapter<>(activity,android.R.layout.simple_spinner_dropdown_item,labels));
-                box.addView(selector,new LinearLayout.LayoutParams(-1,dp(activity,52)));
+                List<String> labels=new ArrayList<>();
+                for(GitHubAccountStore.Account a:targets)labels.add("@"+a.login);
+                ArrayAdapter<String> adapter=new ArrayAdapter<>(activity,
+                        android.R.layout.simple_spinner_dropdown_item,labels);
+                selector.setAdapter(adapter);
+                selector.setPadding(dp(activity,8),0,dp(activity,8),0);
+                bordered(activity,selector,card,border,12);
+                form.addView(selector,new LinearLayout.LayoutParams(-1,dp(activity,50)));
+                gap(activity,form,12);
+                infoLabel(activity,form,"ИМЯ НОВОГО РЕПОЗИТОРИЯ",muted);
                 EditText name=new EditText(activity);
-                name.setSingleLine(true);name.setHint("Название нового репозитория");
-                name.setText(source.substring(source.indexOf('/')+1));box.addView(name);
-                subtitle(activity,box,"Будет создан новый пустой репозиторий с той же приватностью. "
-                        +"Один раз скопируем снимок Git-истории, все ветки, теги и LFS. "
-                        +"Issues, PR, Releases, Actions secrets и настройки не переносятся. "
-                        +"На исходной default branch появятся два технических коммита: "
-                        +"создание и удаление временного workflow.",muted);
-                Button start=button(activity,"Скопировать OneShot",accent);
-                box.addView(start);
+                name.setSingleLine(true);
+                name.setText(source.substring(source.indexOf('/')+1));
+                name.setTextSize(15);name.setTextColor(text);
+                name.setSelectAllOnFocus(true);
+                name.setHint("Имя репозитория");
+                name.setPadding(dp(activity,12),0,dp(activity,12),0);
+                bordered(activity,name,card,border,12);
+                form.addView(name,new LinearLayout.LayoutParams(-1,dp(activity,50)));
+                gap(activity,form,12);
+                subtitle(activity,form,"Создаётся новый независимый репозиторий. "
+                        +"Существующие проекты не перезаписываются.",muted);
+                Button start=button(activity,"Создать копию  →",accent,card,border,true);
+                form.addView(start,new LinearLayout.LayoutParams(-1,dp(activity,48)));
                 start.setOnClickListener(v->{
                     int index=selector.getSelectedItemPosition();
                     if(index<0||index>=targets.size())return;
                     String repoName=name.getText().toString().trim();
-                    try {MirrorPolicy.requireName(repoName);}
+                    try{MirrorPolicy.requireName(repoName);}
                     catch(Exception invalid){name.setError(invalid.getMessage());return;}
-                    GitHubAccountStore.Account target=targets.get(index);
-                    new AlertDialog.Builder(activity).setTitle("OneShot · подтвердить разовую копию")
-                            .setMessage(source+" → "+target.login+"/"+repoName
-                                    +"\n\nСоздать НОВЫЙ независимый репозиторий, скопировать "
-                                    +"Git историю, ветки, теги и LFS? "
-                                    +"GitHub Actions запустится в исходном репозитории. "
-                                    +"Будут добавлены и затем удалены временный workflow и Secret "
-                                    +"с токеном целевого аккаунта. Технические коммиты останутся "
-                                    +"в истории источника. Другие данные GitHub не переносятся.")
-                            .setNegativeButton("Отмена",null)
-                            .setPositiveButton("Копировать",(dialog,which)->run(activity,background,
-                                    "Запуск OneShot",()->manager.start(source,active.id,target.id,repoName,false),reload))
-                            .show();
+                    GitHubAccountStore.Account dstAccount=targets.get(index);
+                    String destination=dstAccount.login+"/"+repoName;
+                    new AlertDialog.Builder(activity)
+                        .setTitle("Копировать репозиторий?")
+                        .setMessage(source+"  →  "+destination
+                                +"\n\nСоздадим новый пустой репозиторий и перенесём "
+                                +"Git-историю, ветки, теги и LFS.\n\n"
+                                +"Не переносятся Issues, PR, Releases, Actions secrets и настройки. "
+                                +"В исходной ветке останутся два технических коммита создания "
+                                +"и удаления временного workflow.\n\n"
+                                +"Существующий репозиторий назначения не изменяется.")
+                        .setNegativeButton("Отмена",null)
+                        .setPositiveButton("Копировать",(d,w)->run(activity,background,
+                                "OneShot",()->manager.start(source,srcAccount.id,dstAccount.id,repoName,false),reload))
+                        .show();
                 });
             }
-            wrap(activity,host,box,card,border);
-        }else {
-            panel(activity,host,card,border,text,muted,"Новое зеркало",
-                    "Откройте репозиторий и выберите «Зеркалировать» в меню проекта.");
+            wrap(activity,host,form,card,border);
+        }else{
+            LinearLayout noSource=vertical(activity);
+            heading(activity,noSource,"Выбери исходный репозиторий",text,16);
+            subtitle(activity,noSource,"Открой нужный проект в разделе «Репозитории» и выбери «Зеркалировать».",muted);
+            wrap(activity,host,noSource,card,border);
         }
-        heading(activity,host,"Мои зеркала",text);
+
         List<MirrorManager.Job> jobs=manager.list();
-        if(jobs.isEmpty())subtitle(activity,host,"Операций пока нет.",muted);
-        for(MirrorManager.Job job:jobs) {
-            LinearLayout box=vertical(activity);
-            heading(activity,box,job.source+" → "+job.destination,text);
-            subtitle(activity,box,(MirrorManager.FORK.equals(job.mode)
-                    ||MirrorManager.MANAGED.equals(job.mode)
-                    ?"Устаревшая операция":status(job.state))
-                    +" · OneShot"
-                    +(job.cleanupPending?" · Требуется очистка временного Secret/Workflow":"")
-                    +(job.error.isEmpty()?"":"\n"+job.error),muted);
-            LinearLayout controls=new LinearLayout(activity);
-            Button verify=button(activity,"Проверить",accent);
-            controls.addView(verify,new LinearLayout.LayoutParams(0,dp(activity,48),1));
-            verify.setEnabled(!MirrorManager.FORK.equals(job.mode)
-                    && !MirrorManager.MANAGED.equals(job.mode));
-            verify.setOnClickListener(v->run(activity,background,"Проверяем GitHub",
-                    ()->manager.refresh(job.id),reload));
-            box.addView(controls);
-            if(!job.runUrl.isEmpty()) {
-                Button run=button(activity,"Открыть запуск Actions #"+job.runId,accent);
-                run.setOnClickListener(v->openUrl.accept(job.runUrl));
-                box.addView(run);
-            }
-            wrap(activity,host,box,card,border);
+        LinearLayout historyHeader=new LinearLayout(activity);
+        historyHeader.setOrientation(LinearLayout.HORIZONTAL);
+        historyHeader.setGravity(Gravity.CENTER_VERTICAL);
+        TextView title=body(activity,"История переносов",text,17);
+        title.setTypeface(null,Typeface.BOLD);
+        historyHeader.addView(title,new LinearLayout.LayoutParams(0,-2,1));
+        TextView count=body(activity,String.valueOf(jobs.size()),muted,12);
+        count.setPadding(dp(activity,10),dp(activity,5),dp(activity,10),dp(activity,5));
+        bordered(activity,count,card,border,12);
+        historyHeader.addView(count);
+        LinearLayout.LayoutParams hp=new LinearLayout.LayoutParams(-1,-2);
+        hp.setMargins(dp(activity,2),dp(activity,15),dp(activity,2),dp(activity,10));
+        host.addView(historyHeader,hp);
+
+        if(jobs.isEmpty()){
+            LinearLayout empty=vertical(activity);
+            subtitle(activity,empty,"Переносов пока нет. После копирования здесь появятся история, статус и ссылки на GitHub.",muted);
+            wrap(activity,host,empty,card,border);
         }
+
+        for(MirrorManager.Job job:jobs){
+            LinearLayout record=vertical(activity);
+            boolean completed=MirrorManager.VERIFIED.equals(job.state)&&!job.cleanupPending;
+            boolean failed=MirrorManager.FAILED.equals(job.state)||MirrorManager.DIVERGED.equals(job.state);
+            boolean obsolete=MirrorManager.FORK.equals(job.mode)||MirrorManager.MANAGED.equals(job.mode);
+            TextView state=body(activity,(completed?"✓  ":"")+
+                    (obsolete?"Прежняя операция":status(job.state)),completed?accent:muted,12);
+            state.setTypeface(null,Typeface.BOLD);
+            record.addView(state);
+            gap(activity,record,9);
+            TextView from=body(activity,job.source,text,14);from.setTypeface(null,Typeface.BOLD);
+            record.addView(from);
+            TextView arrow=body(activity,"↓  КОПИЯ В",muted,11);
+            arrow.setPadding(0,dp(activity,5),0,dp(activity,5));record.addView(arrow);
+            TextView to=body(activity,job.destination,text,14);to.setTypeface(null,Typeface.BOLD);
+            record.addView(to);
+            if(!job.baselineSha.isEmpty()){
+                gap(activity,record,6);
+                subtitle(activity,record,"Снимок: "+job.baselineSha.substring(0,Math.min(10,job.baselineSha.length())),muted);
+            }
+            if(job.cleanupPending){
+                gap(activity,record,7);
+                subtitle(activity,record,"Требуется завершить очистку временного секрета и workflow.",muted);
+            }
+            if(!job.error.isEmpty()){
+                gap(activity,record,6);
+                subtitle(activity,record,job.error,muted);
+            }
+            gap(activity,record,10);
+            LinearLayout actions=new LinearLayout(activity);
+            actions.setOrientation(LinearLayout.HORIZONTAL);
+            actions.setGravity(Gravity.CENTER_VERTICAL);
+            Button verify=button(activity,completed?"Проверено":"Проверить",accent,card,border,false);
+            verify.setEnabled(!obsolete);
+            verify.setOnClickListener(v->run(activity,background,"Проверка OneShot",
+                    ()->manager.refresh(job.id),reload));
+            LinearLayout.LayoutParams ap=new LinearLayout.LayoutParams(0,dp(activity,44),1);
+            ap.setMargins(0,0,dp(activity,7),0);actions.addView(verify,ap);
+            Button destination=button(activity,"Репозиторий ↗",accent,card,border,false);
+            destination.setOnClickListener(v->openUrl.accept("https://github.com/"+job.destination));
+            actions.addView(destination,new LinearLayout.LayoutParams(0,dp(activity,44),1));
+            record.addView(actions);
+            if(!job.runUrl.isEmpty()){
+                TextView logs=body(activity,"Журнал GitHub Actions  ↗",accent,13);
+                logs.setPadding(0,dp(activity,12),0,dp(activity,3));
+                logs.setOnClickListener(v->openUrl.accept(job.runUrl));
+                record.addView(logs);
+            }
+            wrap(activity,host,record,card,border);
+        }
+        LinearLayout foot=vertical(activity);
+        subtitle(activity,foot,"OneShot создаёт только новый репозиторий. "
+                +"Обратное обновление существующего проекта пока не поддерживается — "
+                +"для него нужна проверка расхождений Git-истории.",muted);
+        host.addView(foot);
     }
 
     private interface Task{MirrorManager.Job execute()throws Exception;}
-    private static void run(Activity a,Executor executor,String title,Task task,Runnable refresh){
-        ProgressDialog progress=ProgressDialog.show(a,title,"GitHub обрабатывает операцию…",true,false);
-        executor.execute(()->{
+    private static void run(Activity a,Executor background,String label,Task task,Runnable reload){
+        ProgressDialog dialog=ProgressDialog.show(a,label,"Связываемся с GitHub…",true,false);
+        background.execute(()->{
             try{
                 task.execute();
-                a.runOnUiThread(()->{if(a.isFinishing())return;progress.dismiss();refresh.run();});
-            }catch(Exception ex){
+                a.runOnUiThread(()->{if(a.isFinishing())return;dialog.dismiss();reload.run();});
+            }catch(Exception error){
                 a.runOnUiThread(()->{
                     if(a.isFinishing())return;
-                    progress.dismiss();refresh.run();
-                    new AlertDialog.Builder(a).setTitle("Mirror Manager")
-                            .setMessage(ex.getMessage()==null?"Ошибка GitHub":ex.getMessage())
+                    dialog.dismiss();reload.run();
+                    new AlertDialog.Builder(a).setTitle("OneShot")
+                            .setMessage(error.getMessage()==null?"Ошибка GitHub":error.getMessage())
                             .setPositiveButton("OK",null).show();
                 });
             }
@@ -145,42 +212,70 @@ public final class MirrorManagerScreen {
         if(MirrorManager.PREPARING.equals(state))return "Подготовка";
         if(MirrorManager.DEST_CREATED.equals(state))return "Назначение создано";
         if(MirrorManager.DISPATCHED.equals(state))return "Запуск отправлен";
-        if(MirrorManager.RUNNING.equals(state))return "GitHub копирует ветки";
-        if(MirrorManager.VERIFIED.equals(state))return "Проверено · Git snapshot совпадает";
-        if(MirrorManager.FAILED.equals(state))return "Ошибка GitHub Actions";
-        if(MirrorManager.DIVERGED.equals(state))return "Ветки или теги различаются";
-        if(MirrorManager.UNKNOWN.equals(state))return "Результат требует проверки · откройте GitHub Actions";
-        if(MirrorManager.CLEANUP_PENDING.equals(state))return "Завершён · нужна очистка";
+        if(MirrorManager.RUNNING.equals(state))return "Копирование в GitHub Actions";
+        if(MirrorManager.VERIFIED.equals(state))return "Git-снимок совпадает";
+        if(MirrorManager.FAILED.equals(state))return "Ошибка переноса";
+        if(MirrorManager.DIVERGED.equals(state))return "Различаются Git-снимки";
+        if(MirrorManager.UNKNOWN.equals(state))return "Требуется проверка";
+        if(MirrorManager.CLEANUP_PENDING.equals(state))return "Завершение очистки";
         return state;
     }
-    private static void panel(Activity a,LinearLayout parent,int card,int border,
-            int text,int muted,String title,String description){
-        LinearLayout box=vertical(a);heading(a,box,title,text);
-        subtitle(a,box,description,muted);wrap(a,parent,box,card,border);
+
+    private static void infoLabel(Activity a,LinearLayout box,String value,int muted){
+        TextView t=body(a,value,muted,11);t.setTypeface(null,Typeface.BOLD);
+        t.setPadding(0,dp(a,1),0,dp(a,7));box.addView(t);
     }
-    private static void wrap(Activity a,LinearLayout parent,LinearLayout box,int card,int border){
-        box.setPadding(dp(a,14),dp(a,13),dp(a,14),dp(a,13));
-        GradientDrawable drawable=new GradientDrawable();drawable.setColor(card);
-        drawable.setCornerRadius(dp(a,16));drawable.setStroke(dp(a,1),border);
-        box.setBackground(drawable);
-        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);
-        p.setMargins(0,dp(a,5),0,dp(a,10));parent.addView(box,p);
+    private static void eyebrow(Activity a,LinearLayout box,String value,int accent){
+        TextView t=body(a,value,accent,11);t.setTypeface(null,Typeface.BOLD);
+        t.setPadding(0,0,0,dp(a,8));box.addView(t);
     }
-    private static void heading(Activity a,LinearLayout parent,String value,int color){
-        TextView label=new TextView(a);label.setText(value);label.setTextColor(color);
-        label.setTextSize(16);label.setTypeface(null,Typeface.BOLD);
-        label.setPadding(0,dp(a,5),0,dp(a,7));parent.addView(label);
+    private static void heading(Activity a,LinearLayout parent,String value,int color,int size){
+        TextView view=body(a,value,color,size);
+        view.setTypeface(null,Typeface.BOLD);
+        view.setPadding(0,0,0,dp(a,7));parent.addView(view);
     }
     private static void subtitle(Activity a,LinearLayout parent,String value,int color){
-        TextView label=new TextView(a);label.setText(value);label.setTextColor(color);
-        label.setTextSize(12);label.setPadding(0,0,0,dp(a,9));parent.addView(label);
+        TextView view=body(a,value,color,12);
+        view.setLineSpacing(dp(a,2),1f);
+        parent.addView(view);
     }
-    private static LinearLayout vertical(Activity a) {
-        LinearLayout l=new LinearLayout(a);l.setOrientation(LinearLayout.VERTICAL);return l;
+    private static TextView body(Activity a,String value,int color,int size){
+        TextView view=new TextView(a);
+        view.setText(value);view.setTextColor(color);view.setTextSize(size);
+        return view;
     }
-    private static Button button(Activity a,String label,int tint) {
-        Button b=new Button(a);b.setText(label);b.setTextColor(tint);
-        b.setAllCaps(false);return b;
+    private static void gap(Activity a,LinearLayout parent,int amount){
+        parent.addView(new android.view.View(a),new LinearLayout.LayoutParams(1,dp(a,amount)));
     }
-    private static int dp(Activity a,int x){return (int)(x*a.getResources().getDisplayMetrics().density+.5f);}
+    private static void wrap(Activity a,LinearLayout parent,LinearLayout body,int bg,int border){
+        body.setPadding(dp(a,17),dp(a,16),dp(a,17),dp(a,17));
+        bordered(a,body,bg,border,17);
+        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);
+        p.setMargins(0,dp(a,5),0,dp(a,9));parent.addView(body,p);
+    }
+    private static void bordered(Activity a,android.view.View view,int bg,int border,int radius){
+        GradientDrawable shape=new GradientDrawable();
+        shape.setColor(bg);shape.setCornerRadius(dp(a,radius));
+        shape.setStroke(dp(a,1),border);
+        view.setBackground(shape);
+    }
+    private static Button button(Activity a,String label,int accent,int card,int border,boolean primary){
+        Button b=new Button(a);
+        b.setText(label);b.setAllCaps(false);b.setTextSize(13);
+        b.setTypeface(null,Typeface.BOLD);
+        b.setTextColor(primary?Color.WHITE:accent);
+        b.setMinHeight(0);b.setMinimumHeight(0);
+        b.setPadding(dp(a,9),0,dp(a,9),0);
+        GradientDrawable bg=new GradientDrawable();
+        bg.setColor(primary?accent:card);bg.setCornerRadius(dp(a,12));
+        if(!primary)bg.setStroke(dp(a,1),border);
+        b.setBackground(new RippleDrawable(ColorStateList.valueOf(
+                primary?0x44FFFFFF:0x18000000),bg,null));
+        b.setBackgroundTintList(null);
+        return b;
+    }
+    private static LinearLayout vertical(Activity a){
+        LinearLayout box=new LinearLayout(a);box.setOrientation(LinearLayout.VERTICAL);return box;
+    }
+    private static int dp(Activity a,int n){return (int)(n*a.getResources().getDisplayMetrics().density+.5f);}
 }
