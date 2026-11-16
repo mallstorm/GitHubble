@@ -58,16 +58,6 @@ public final class ProviderHubScreen {
         void selectionChanged();
         /** Re-renders whichever screen is on top (used after background work finished). */
         void refreshCurrentScreen();
-        /** Google Drive backup of the connections (settings.json); keys are never uploaded. */
-        boolean cloudConnected();
-        String cloudEmail();
-        long cloudLastSync();
-        /** Result of the last run, or the reason it failed. */
-        String cloudNote();
-        boolean cloudFailed();
-        void cloudConnect();
-        void cloudSync();
-        void cloudOpenFolder();
     }
 
     private static final String SENTINEL = "__local_no_auth__";
@@ -186,31 +176,6 @@ public final class ProviderHubScreen {
         tools.addView(button("Сеть / DNS", false, v -> host.openNetwork()), params(0, 46, 1, 8, 0, 0, 0));
         content.addView(tools, params(-1, -2, 0, 0, 0, 12));
 
-        // ---- cloud backup
-        content.addView(heading("Облако"));
-        LinearLayout cloud = card(0.03f);
-        if (host.cloudConnected()) {
-            cloud.addView(label("Google Drive · " + host.cloudEmail(), 15, palette.text, true));
-            String when = host.cloudLastSync() > 0 ? "Последняя синхронизация: "
-                    + new java.text.SimpleDateFormat("dd.MM HH:mm", java.util.Locale.getDefault()).format(new java.util.Date(host.cloudLastSync()))
-                    : "Синхронизация ещё не выполнялась";
-            cloud.addView(label(when, 12, palette.muted, false), params(-1, -2, 0, 4, 0, 0));
-            if (!host.cloudNote().isEmpty())
-                cloud.addView(label(host.cloudNote(), 12, host.cloudFailed() ? palette.muted : palette.green, false), params(-1, -2, 0, 2, 0, 0));
-            cloud.addView(label("Папка GitHubble · settings.json: сервисы, endpoint, модели, избранное. "
-                    + "API-ключи остаются на этом устройстве.", 12, palette.muted, false), params(-1, -2, 0, 6, 0, 0));
-            LinearLayout row = new LinearLayout(activity);
-            row.addView(button("Синхронизировать", true, v -> host.cloudSync()), params(0, 46, 1, 0, 0, 0, 0));
-            row.addView(button("Папка на Диске", false, v -> host.cloudOpenFolder()), params(0, 46, 1, 8, 0, 0, 0));
-            cloud.addView(row, params(-1, -2, 0, 10, 0, 0));
-        } else {
-            cloud.addView(label("Сохраняйте подключения в Google Drive", 15, palette.text, true));
-            cloud.addView(label("Войдите через Google — GitHubble сам создаст папку GitHubble на вашем Диске и сохранит "
-                    + "сервисы, endpoint, модели и избранное. На новом устройстве всё вернётся после входа. "
-                    + "API-ключи в облако не попадают: их нужно ввести заново.", 12, palette.muted, false), params(-1, -2, 0, 4, 0, 0));
-            cloud.addView(button("Войти через Google", true, v -> host.cloudConnect()), params(-1, 46, 0, 10, 0, 0));
-        }
-        content.addView(cloud, params(-1, -2, 0, 0, 0, 12));
     }
 
     private LinearLayout serviceCard(String provider) {

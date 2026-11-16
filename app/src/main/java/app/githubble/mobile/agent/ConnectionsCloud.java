@@ -2,6 +2,7 @@ package app.githubble.mobile.agent;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import app.githubble.mobile.backup.PortableSettingsManager;
 import app.githubble.mobile.network.NativeProviderCatalog;
 import app.githubble.mobile.security.SecureStore;
 import java.util.ArrayList;
@@ -30,7 +31,7 @@ public final class ConnectionsCloud {
         public String payload;
         long stamp;
         ConnectionsSnapshot remote;
-        public int restoredServices, restoredProviders;
+        public int restoredServices, restoredProviders, restoredSettings;
     }
 
     public ConnectionsCloud(Context context) {
@@ -61,8 +62,52 @@ public final class ConnectionsCloud {
 
     // ------------------------------------------------------------------ local picture
 
+    private static String encode(Object value) {
+        if (value instanceof Boolean) return "b:" + value;
+        if (value instanceof Integer) return "i:" + value;
+        if (value instanceof Long) return "l:" + value;
+        if (value instanceof Float) return "f:" + value;
+        if (value instanceof String && !((String) value).contains("\n")) return "s:" + value;
+        return null;
+    }
+
+    private void collectApp(ConnectionsSnapshot snap) {
+        Map<String, ?> all = main.getAll();
+        for (String key : PortableSettingsManager.allowedKeys()) {
+            String typed = encode(all.get(key));
+            if (typed != null && typed.length() <= 300) snap.appSettings.put(key, typed);
+        }
+        List<String> favorites = new ArrayList<>();
+        for (String f : main.getStringSet("favorites", new HashSet<String>())) if (f.contains("/")) favorites.add(f);
+        java.util.Collections.sort(favorites);
+        snap.appFavorites = favorites.size() > 100 ? new ArrayList<>(favorites.subList(0, 100)) : favorites;
+    }
+
+    private void applyApp(ConnectionsSnapshot merged) {
+        SharedPreferences.Editor edit = main.edit();
+        List<String> allowed = PortableSettingsManager.allowedKeys();
+        for (Map.Entry<String, String> e : merged.appSettings.entrySet()) {
+            if (!allowed.contains(e.getKey())) continue;
+            String v = e.getValue().substring(2);
+            try {
+                switch (e.getValue().charAt(0)) {
+                    case 'b': edit.putBoolean(e.getKey(), Boolean.parseBoolean(v)); break;
+                    case 'i': edit.putInt(e.getKey(), Integer.parseInt(v)); break;
+                    case 'l': edit.putLong(e.getKey(), Long.parseLong(v)); break;
+                    case 'f': edit.putFloat(e.getKey(), Float.parseFloat(v)); break;
+                    default: edit.putString(e.getKey(), v);
+                }
+            } catch (NumberFormatException damaged) { /* skip a damaged value */ }
+        }
+        Set<String> favorites = new HashSet<>(main.getStringSet("favorites", new HashSet<String>()));
+        for (String f : merged.appFavorites) if (f.contains("/")) favorites.add(f);
+        edit.putStringSet("favorites", favorites);
+        edit.apply();
+    }
+
     public ConnectionsSnapshot collect() {
         ConnectionsSnapshot snap = new ConnectionsSnapshot();
+        collectApp(snap);
         for (String id : store.customProviders()) {
             NativeProviderCatalog.Profile profile = NativeProviderCatalog.profile(id);
             if (profile == null) continue;
@@ -127,6 +172,8 @@ public final class ConnectionsCloud {
         if (remote != null) {
             apply(merged);
             ConnectionsSnapshot after = collect();
+            for (Map.Entry<String, String> e : after.appSettings.entrySet())
+                if (!e.getValue().equals(local.appSettings.get(e.getKey()))) plan.restoredSettings++;
             plan.restoredServices = Math.max(0, after.services.size() - local.services.size());
             plan.restoredProviders = Math.max(0, countProviders(after) - countProviders(local));
         }
@@ -143,8 +190,9 @@ public final class ConnectionsCloud {
     public synchronized void commit(Plan plan) {
         long seen = plan.payload != null ? plan.stamp : plan.remote != null ? plan.remote.updatedAt : 0;
         String note = plan.action == ConnectionsSnapshot.Action.NONE ? "без изменений"
-                : (plan.restoredServices + plan.restoredProviders > 0
-                    ? "восстановлено: сервисов " + plan.restoredServices + ", подключений " + plan.restoredProviders
+                : (plan.restoredServices + plan.restoredProviders + plan.restoredSettings > 0
+                    ? "восстановлено: настроек " + plan.restoredSettings + ", сервисов " + plan.restoredServices
+                        + ", подключений " + plan.restoredProviders
                     : plan.payload != null ? "настройки сохранены в облако" : "без изменений");
         cloud.edit().putLong(KEY_SEEN, seen).putString(KEY_HASH, collect().contentHash())
                 .putLong(KEY_LAST, System.currentTimeMillis()).putString(KEY_NOTE, note).apply();
@@ -159,6 +207,7 @@ public final class ConnectionsCloud {
     // ------------------------------------------------------------------ apply
 
     private void apply(ConnectionsSnapshot merged) {
+        applyApp(merged);
         for (ConnectionsSnapshot.Service s : merged.services.values())
             store.restoreCustomProvider(s.id, s.name, s.base, s.protocol, s.keyless);
         for (String owner : owners()) {

@@ -75,10 +75,15 @@ public final class ConnectionsSnapshot {
     public long updatedAt;
     public final Map<String, Service> services = new LinkedHashMap<>();
     public final Map<String, Profile> profiles = new LinkedHashMap<>();
+    /** Whitelisted app settings as typed text ("b:true", "i:6", "s:dark") and the favourite repositories. */
+    public final Map<String, String> appSettings = new LinkedHashMap<>();
+    public List<String> appFavorites = new ArrayList<>();
 
     public ConnectionsSnapshot copy() {
         ConnectionsSnapshot c = new ConnectionsSnapshot();
         c.updatedAt = updatedAt;
+        c.appSettings.putAll(appSettings);
+        c.appFavorites = new ArrayList<>(appFavorites);
         for (Map.Entry<String, Service> e : services.entrySet()) c.services.put(e.getKey(), e.getValue().copy());
         for (Map.Entry<String, Profile> e : profiles.entrySet()) c.profiles.put(e.getKey(), e.getValue().copy());
         return c;
@@ -107,6 +112,9 @@ public final class ConnectionsSnapshot {
     public static ConnectionsSnapshot merge(ConnectionsSnapshot local, ConnectionsSnapshot remote, boolean preferRemote) {
         ConnectionsSnapshot out = local.copy();
         out.updatedAt = Math.max(local.updatedAt, remote.updatedAt);
+        for (Map.Entry<String, String> e : remote.appSettings.entrySet())
+            if (preferRemote || !out.appSettings.containsKey(e.getKey())) out.appSettings.put(e.getKey(), e.getValue());
+        out.appFavorites = preferRemote ? new ArrayList<>(remote.appFavorites) : union(local.appFavorites, remote.appFavorites);
         for (Map.Entry<String, Service> e : remote.services.entrySet()) {
             if (preferRemote || !out.services.containsKey(e.getKey())) out.services.put(e.getKey(), e.getValue().copy());
         }
@@ -156,6 +164,9 @@ public final class ConnectionsSnapshot {
             b.append("S|").append(e.getKey()).append('|').append(s.name).append('|').append(s.base).append('|')
                     .append(s.protocol).append('|').append(s.keyless).append('\n');
         }
+        for (Map.Entry<String, String> e : new TreeMap<>(appSettings).entrySet())
+            b.append("A|").append(e.getKey()).append('|').append(e.getValue()).append('\n');
+        b.append("AF|").append(String.join("\u001f", appFavorites)).append('\n');
         for (Map.Entry<String, Profile> e : new TreeMap<>(profiles).entrySet()) {
             Profile p = e.getValue();
             if (p.isEmpty()) continue;
@@ -196,6 +207,10 @@ public final class ConnectionsSnapshot {
                         .put("protocol", s.protocol).put("keyless", s.keyless));
             }
             root.put("services", svc);
+            JSONObject app = new JSONObject();
+            for (Map.Entry<String, String> e : new TreeMap<>(appSettings).entrySet()) app.put(e.getKey(), e.getValue());
+            root.put("app_settings", app);
+            root.put("app_favorites", array(appFavorites));
             JSONObject owners = new JSONObject();
             for (Map.Entry<String, Profile> e : new TreeMap<>(profiles).entrySet()) {
                 Profile p = e.getValue();
@@ -241,6 +256,14 @@ public final class ConnectionsSnapshot {
             if (v.id.startsWith("custom-") && PROVIDER_ID.matcher(v.id).matches() && !v.name.isEmpty() && !v.base.isEmpty())
                 s.services.put(v.id, v);
         }
+        JSONObject app = root.optJSONObject("app_settings");
+        java.util.Iterator<String> keys = app == null ? new ArrayList<String>().iterator() : app.keys();
+        while (keys.hasNext() && s.appSettings.size() < 100) {
+            String key = keys.next();
+            String value = text(app.optString(key), 300);
+            if (key.matches("[a-z0-9_]{1,48}") && value.matches("[bilfs]:.*")) s.appSettings.put(key, value);
+        }
+        s.appFavorites = strings(root.optJSONArray("app_favorites"), 220);
         JSONObject owners = root.optJSONObject("profiles");
         java.util.Iterator<String> names = owners == null ? new ArrayList<String>().iterator() : owners.keys();
         while (names.hasNext() && s.profiles.size() < MAX_PROFILES) {

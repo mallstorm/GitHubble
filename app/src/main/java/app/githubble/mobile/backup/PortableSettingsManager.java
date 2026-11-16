@@ -18,6 +18,8 @@ public final class PortableSettingsManager {
             "tracking_notify_pushes","tracking_notify_status","tracking_star_threshold","tracking_fork_threshold",
             "tracking_release_check_limit","diff_mode","diff_collapse_context",
             "ui_card_density","repositories_grid","repositories_sort","voice_search_language");
+    /** Keys that are safe to copy between devices (no tokens, API keys or signing data). */
+    public static List<String> allowedKeys(){return ALLOWED_SETTINGS;}
     private final SharedPreferences prefs;private final TrackingDatabase tracking;
     public PortableSettingsManager(SharedPreferences prefs,TrackingDatabase tracking){this.prefs=prefs;this.tracking=tracking;}
 

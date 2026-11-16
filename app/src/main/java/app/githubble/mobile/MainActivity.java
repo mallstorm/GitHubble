@@ -1148,17 +1148,6 @@ public class MainActivity extends Activity {
             @Override public void openUsage() { navigate(() -> agentShowUsage(owner)); }
             @Override public void selectionChanged() { agentRefreshIfCurrent(owner); }
             @Override public void refreshCurrentScreen() { if (currentScreen != null) currentScreen.run(); }
-            @Override public boolean cloudConnected() { return mirrorManager.googleCloud().connected(); }
-            @Override public String cloudEmail() { return mirrorManager.googleCloud().email(); }
-            @Override public long cloudLastSync() { return mirrorManager.googleCloud().lastSync(); }
-            @Override public String cloudNote() {
-                String failure = mirrorManager.googleCloud().settingsError();
-                return failure.isEmpty() ? new app.githubble.mobile.agent.ConnectionsCloud(MainActivity.this, aiConnections).lastNote() : failure;
-            }
-            @Override public boolean cloudFailed() { return !mirrorManager.googleCloud().settingsError().isEmpty(); }
-            @Override public void cloudConnect() { mirrorGoogleReturn = () -> agentShowConnections(owner); connectMirrorGoogle(); }
-            @Override public void cloudSync() { mirrorGoogleReturn = () -> agentShowConnections(owner); syncMirrorGoogle(); }
-            @Override public void cloudOpenFolder() { openMirrorGoogleFolder(); }
         });
     }
 
@@ -5113,6 +5102,8 @@ public class MainActivity extends Activity {
                         mirrorManager.googleCloud().sync(token);
                 runOnUiThread(()->{
                     if(isFinishing())return;
+                    reloadUiPreferences();
+                    if(!prefs.getString("theme","light").equals(activeTheme)){applyTheme();switchLauncherIcon(activeTheme);}
                     Runnable back=mirrorGoogleReturn;mirrorGoogleReturn=null;
                     if(back!=null)back.run();else showMirrorSetupWizard();
                     new AlertDialog.Builder(this)
@@ -5120,7 +5111,7 @@ public class MainActivity extends Activity {
                             .setMessage("Аккаунт: "+out.email
                                     +"\nПапка: Мой диск / GitHubble"
                                     +"\nФайлы: mirror-registry.json, settings.json"
-                                    +"\nПодключения: "+out.settings
+                                    +"\nНастройки и подключения: "+out.settings
                                     +"\nСвязанных пар: "+out.total
                                     +"\nИмпортировано: "+out.imported
                                     +"\nОбновление Google Диска: "+(out.uploaded?"да":"не требовалось"))
@@ -8427,6 +8418,8 @@ public class MainActivity extends Activity {
                 (provider.isEmpty()?"Модель не выбрана":"Модель: "+aiConnections.displayName(provider))
                         +" · подписки, Workspace, сеть",
                 accent[1],()->navigate(this::showSettingsGitAgentWorkspace),settingsAgentSections(owner)));
+        categories.add(new SettingsScreen.Category(R.drawable.ic_history,"Облако и синхронизация",
+                settingsCloudSubtitle(),accent[5],()->navigate(this::showSettingsCloud),settingsCloudSections()));
         categories.add(new SettingsScreen.Category(R.drawable.ic_settings,"О приложении",
                 "Версия "+BuildConfig.VERSION_NAME+" · диагностика",
                 accent[7],()->navigate(this::showSettingsAbout),settingsAboutSections()));
@@ -8439,6 +8432,79 @@ public class MainActivity extends Activity {
                 signedIn?()->navigate(this::showProfile):this::startSmartLogin);
         new SettingsScreen(this,content,settingsPalette())
                 .renderRoot(header,categories,settingsQuery,query->settingsQuery=query);
+    }
+
+    private String settingsCloudSubtitle(){
+        GoogleMirrorCloudStore google=mirrorManager.googleCloud();
+        if(!google.connected())return "Вход через Google · зеркала, подключения и настройки на всех устройствах";
+        String when=google.lastSync()>0?" · "+new java.text.SimpleDateFormat("dd.MM HH:mm",java.util.Locale.getDefault())
+                .format(new java.util.Date(google.lastSync())):"";
+        return google.email()+when;
+    }
+
+    private void showSettingsCloud(){
+        setCurrentScreen(this::showSettingsCloud);
+        shell("Облако и синхронизация",false);
+        new SettingsScreen(this,content,settingsPalette()).renderPage(null,tileColors[5],settingsCloudSections());
+    }
+
+    /** One Google sign-in keeps Mirror Manager links, AI connections and app settings in Drive/GitHubble. */
+    private List<SettingsScreen.Section> settingsCloudSections(){
+        List<SettingsScreen.Section> sections=new ArrayList<>();
+        GoogleMirrorCloudStore google=mirrorManager.googleCloud();
+        String keywords="облако google drive диск синхронизация резервная копия бэкап mirror настройки";
+        SettingsScreen.Section account=new SettingsScreen.Section("Google Drive");
+        if(google.connected()){
+            account.add(SettingsScreen.Item.info(R.drawable.ic_profile,"Аккаунт",google.email(),keywords));
+            account.add(SettingsScreen.Item.info(R.drawable.ic_history,"Последняя синхронизация",
+                    google.lastSync()>0?formatEpoch(google.lastSync()):"ещё не выполнялась"+(google.pending()?" · ожидает":""),keywords));
+            app.githubble.mobile.agent.ConnectionsCloud connections=
+                    new app.githubble.mobile.agent.ConnectionsCloud(this,aiConnections);
+            String note=google.settingsError().isEmpty()?connections.lastNote():google.settingsError();
+            if(!note.isEmpty())account.add(SettingsScreen.Item.info(R.drawable.ic_repository,
+                    google.settingsError().isEmpty()?"Настройки и подключения":"Проблема с настройками",note,keywords));
+            if(!google.error().isEmpty())account.add(SettingsScreen.Item.info(R.drawable.ic_lock,
+                    "Mirror Manager",google.error(),keywords));
+            account.add(SettingsScreen.Item.action(R.drawable.ic_history,"Синхронизировать сейчас",
+                    "Зеркала, подключения AI и настройки приложения",keywords+" обновить",()->{
+                        mirrorGoogleReturn=this::showSettingsCloud;syncMirrorGoogle();}));
+            account.add(SettingsScreen.Item.action(R.drawable.ic_repository,"Открыть папку на Диске",
+                    "Мой диск / GitHubble",keywords+" папка",this::openMirrorGoogleFolder));
+            account.add(SettingsScreen.Item.action(R.drawable.ic_profile,"Сменить Google-аккаунт",
+                    "Данные из текущего аккаунта будут сохранены в новый Диск",keywords+" другой аккаунт",()->{
+                        mirrorGoogleReturn=this::showSettingsCloud;connectMirrorGoogle();}));
+            account.add(SettingsScreen.Item.danger(R.drawable.ic_back,"Отключить Google Drive",
+                    "Файлы на Диске и данные на устройстве остаются",keywords+" выйти отключить",()->
+                    new AlertDialog.Builder(this).setTitle("Отключить Google Drive?")
+                            .setMessage("Синхронизация остановится. Файлы в папке GitHubble не удаляются, "
+                                    +"связи, подключения и настройки на этом устройстве сохраняются.")
+                            .setNegativeButton("Отмена",null)
+                            .setPositiveButton("Отключить",(d,w)->{
+                                mirrorManager.googleCloud().disconnect();showSettingsCloud();
+                                toast("Google Диск отключён");}).show()));
+        }else{
+            account.add(SettingsScreen.Item.action(R.drawable.ic_profile,"Войти через Google",
+                    "GitHubble сам создаст папку GitHubble на вашем Диске",keywords+" вход войти",()->{
+                        mirrorGoogleReturn=this::showSettingsCloud;connectMirrorGoogle();}));
+            account.note("Один вход для всего: зеркала репозиториев, подключения AI и основные настройки.");
+        }
+        sections.add(account);
+        SettingsScreen.Section stored=new SettingsScreen.Section("Что хранится в облаке");
+        stored.add(SettingsScreen.Item.info(R.drawable.ic_repository,"mirror-registry.json",
+                "Связанные пары репозиториев Mirror Manager",keywords));
+        stored.add(SettingsScreen.Item.info(R.drawable.ic_agent_link,"settings.json · подключения",
+                "Сервисы, свои endpoint, модели, протоколы, избранное моделей",keywords));
+        stored.add(SettingsScreen.Item.info(R.drawable.ic_tools,"settings.json · приложение",
+                "Тема, карточки, diff, перевод, наблюдение, избранные репозитории",keywords));
+        stored.note("API-ключи, токены GitHub, пароли и содержимое репозиториев в облако не попадают. "
+                +"На новом устройстве после входа вернутся все настройки, а ключи придётся ввести заново.");
+        sections.add(stored);
+        SettingsScreen.Section other=new SettingsScreen.Section("Другое хранилище");
+        other.add(SettingsScreen.Item.action(R.drawable.ic_lock,"Облачный JSON-файл",
+                "OneDrive и другие провайдеры через выбор файла (только реестр зеркал)",keywords+" onedrive saf",
+                ()->navigate(this::showMirrorSetupWizard)));
+        sections.add(other);
+        return sections;
     }
 
     /** Account rows the root search can find; the account screen itself also shows live quotas. */

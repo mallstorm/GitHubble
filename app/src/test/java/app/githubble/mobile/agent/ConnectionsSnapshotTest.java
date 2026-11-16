@@ -108,4 +108,31 @@ public class ConnectionsSnapshotTest {
         b.profiles.get("owner").providers.get("openai").model = "other";
         assertFalse(a.contentHash().equals(b.contentHash()));
     }
+
+    @Test public void appSettingsRoundTripAndMerge() throws Exception {
+        ConnectionsSnapshot local = sample();
+        local.appSettings.put("theme", "s:dark");
+        local.appSettings.put("repositories_grid", "b:true");
+        local.appFavorites = Arrays.asList("a/b");
+        ConnectionsSnapshot back = ConnectionsSnapshot.parse(local.toJson());
+        assertTrue(local.sameContent(back));
+        ConnectionsSnapshot remote = sample();
+        remote.appSettings.put("theme", "s:blue");
+        remote.appSettings.put("tracking_interval_hours", "i:12");
+        remote.appFavorites = Arrays.asList("c/d");
+        ConnectionsSnapshot kept = ConnectionsSnapshot.merge(local, remote, false);
+        assertEquals("s:dark", kept.appSettings.get("theme"));
+        assertEquals("i:12", kept.appSettings.get("tracking_interval_hours"));
+        assertEquals(Arrays.asList("a/b", "c/d"), kept.appFavorites);
+        ConnectionsSnapshot taken = ConnectionsSnapshot.merge(local, remote, true);
+        assertEquals("s:blue", taken.appSettings.get("theme"));
+        assertEquals("b:true", taken.appSettings.get("repositories_grid"));
+    }
+
+    @Test public void badAppSettingKeysAreDropped() throws Exception {
+        String json = "{\"format\":\"githubble-settings\",\"schema\":1,\"app_settings\":"
+                + "{\"theme\":\"s:dark\",\"Bad Key\":\"s:x\",\"x\":\"untyped\"}}";
+        ConnectionsSnapshot s = ConnectionsSnapshot.parse(json);
+        assertEquals(1, s.appSettings.size());
+    }
 }
