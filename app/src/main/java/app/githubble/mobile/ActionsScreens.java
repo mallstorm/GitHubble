@@ -118,7 +118,7 @@ final class ActionsScreens {
     private final MainActivity a;
     ActionsScreens(MainActivity activity) { this.a = activity; }
 
-    private String billingUtcTime(long millis){
+    String billingUtcTime(long millis){
         if(millis<=0)return "ещё не обновлялось";
         java.text.SimpleDateFormat f=new java.text.SimpleDateFormat("dd.MM.yyyy HH:mm",Locale.getDefault());
         f.setTimeZone(java.util.TimeZone.getTimeZone("UTC"));
