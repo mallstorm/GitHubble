@@ -20,7 +20,7 @@ object NativeProviderCatalog {
             if(auth !in setOf("bearer","x-api-key","none","gigachat-oauth","yandex-api-key","api-key"))continue
             val wires=j.optJSONArray("protocols")?.toString().orEmpty()
             val protocol=when(id){"anthropic"->ApiGateway.ANTHROPIC;"gemini"->ApiGateway.GEMINI;"ollama"->ApiGateway.OLLAMA;"openai"->ApiGateway.RESPONSES;else->if("chat-completions" in wires)ApiGateway.CHAT else if("responses" in wires)ApiGateway.RESPONSES else ApiGateway.CHAT}
-            val base=when(id){"gemini"->"https://generativelanguage.googleapis.com/v1beta";"ollama"->"http://127.0.0.1:11434";"gigachat"->"https://api.giga.chat/v1";"yandex"->"https://ai.api.cloud.yandex.net/v1";else->if(j.isNull("base_url"))"" else j.optString("base_url").trimEnd('/')}
+            val base=when(id){"gemini"->"https://generativelanguage.googleapis.com/v1beta";"ollama"->"http://127.0.0.1:11434";"gigachat"->"https://api.giga.chat/v1";"yandex"->"https://ai.api.cloud.yandex.net/v1";else->(if(j.isNull("base_url"))"" else j.optString("base_url").trimEnd('/')).ifEmpty{EndpointDirectory.base(id)}}
             result[id]=Profile(id,j.optString("name",id),base,protocol,auth)
         }
         result["polza"]=Profile("polza","Polza.AI","https://polza.ai/api/v1",ApiGateway.CHAT,"bearer")
