@@ -122,8 +122,11 @@ public final class MirrorLinkRegistry {
                 found.createdAt=System.currentTimeMillis();
                 items.add(found);
             }
-            if(found.copyJobId.isEmpty()&&copyJobId!=null)found.copyJobId=copyJobId;
-            found.updatedAt=System.currentTimeMillis();
+            boolean changed=false;
+            if(found.copyJobId.isEmpty()&&copyJobId!=null&&!copyJobId.isEmpty()){
+                found.copyJobId=copyJobId;changed=true;
+            }
+            if(found.updatedAt==0||changed)found.updatedAt=System.currentTimeMillis();
             JSONArray arr=new JSONArray();
             for(Link item:items)arr.put(item.json());
             if(!prefs.edit().putString(KEY,arr.toString()).commit())
@@ -131,4 +134,49 @@ public final class MirrorLinkRegistry {
             return found;
         }
     }
+    /** Import cloud records as a union, never delete local relationships. */
+    public int mergeRemote(List<Link> remote){
+        synchronized(lock){
+            List<Link> local=list();
+            java.util.LinkedHashMap<String,Link> merged=new java.util.LinkedHashMap<>();
+            for(Link item:local)merged.put(item.id,item);
+            int changes=0;
+            for(Link incoming:remote){
+                if(incoming==null||!pairId(incoming.left,incoming.right).equals(incoming.id)
+                        ||(!incoming.original.equalsIgnoreCase(incoming.left)
+                            &&!incoming.original.equalsIgnoreCase(incoming.right)))
+                    throw new IllegalArgumentException("Неверная облачная запись Mirror Manager");
+                Link current=merged.get(incoming.id);
+                if(current==null){
+                    merged.put(incoming.id,Link.fromJson(incoming.json()));changes++;
+                    continue;
+                }
+                if(current.copyJobId.isEmpty()&&!incoming.copyJobId.isEmpty()){
+                    current.copyJobId=incoming.copyJobId;changes++;
+                }
+                long earlier=positiveMinimum(current.createdAt,incoming.createdAt);
+                if(earlier!=current.createdAt){
+                    current.createdAt=earlier;
+                    // Original owner chosen from the earlier persisted relation.
+                    current.original=incoming.original;changes++;
+                }
+                long updated=Math.max(current.updatedAt,incoming.updatedAt);
+                if(updated!=current.updatedAt){current.updatedAt=updated;changes++;}
+            }
+            if(changes>0){
+                JSONArray array=new JSONArray();
+                for(Link item:merged.values())array.put(item.json());
+                if(!prefs.edit().putString(KEY,array.toString()).commit())
+                    throw new IllegalStateException("Ошибка записи объединённого реестра");
+            }
+            return changes;
+        }
+    }
+
+    private static long positiveMinimum(long a,long b){
+        if(a<=0)return b;
+        if(b<=0)return a;
+        return Math.min(a,b);
+    }
+
 }
