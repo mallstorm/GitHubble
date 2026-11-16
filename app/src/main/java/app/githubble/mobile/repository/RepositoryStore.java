@@ -94,6 +94,24 @@ public final class RepositoryStore {
         return read(accountId);
     }
 
+    /** Drops one repository from the saved list right away (e.g. after it was deleted on GitHub). */
+    public synchronized void remove(String accountId, String fullName) {
+        if (fullName == null || fullName.isEmpty()) return;
+        String prefix = prefix(accountId);
+        String payload = prefs.getString(prefix + ".json", "");
+        if (payload.isEmpty()) return;
+        try {
+            JSONArray old = new JSONArray(payload);
+            JSONArray kept = new JSONArray();
+            for (int i = 0; i < old.length(); i++) {
+                JSONObject item = old.optJSONObject(i);
+                if (item != null && fullName.equalsIgnoreCase(item.optString("full_name", ""))) continue;
+                kept.put(old.get(i));
+            }
+            if (kept.length() != old.length()) prefs.edit().putString(prefix + ".json", kept.toString()).apply();
+        } catch (Exception ignored) { }
+    }
+
     public synchronized void clear(String accountId) {
         String prefix = prefix(accountId);
         SharedPreferences.Editor editor = prefs.edit();

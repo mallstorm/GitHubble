@@ -1013,6 +1013,7 @@ public class MainActivity extends Activity {
                             try{
                                 aiGithub.deleteOwnRepository(expected,full);
                                 if(!expected.equals(accountStore.activeCacheKey()))return;
+                                forgetDeletedRepository(currentAccountId(),full);
                                 AgentProjectStore.Project current=agentProjects.project(expected);
                                 if(full.equals(current.repository))
                                     agentProjects.save(new AgentProjectStore.Project(expected,
@@ -4201,6 +4202,13 @@ public class MainActivity extends Activity {
                 }).setNegativeButton("Отмена",null).show();
     }
 
+    /** Removes a repository deleted on GitHub from the saved list and favorites so it disappears at once. */
+    private void forgetDeletedRepository(String accountId,String full){
+        repositoryStore.remove(accountId,full);
+        Set<String> favorites=new LinkedHashSet<>(prefs.getStringSet("favorites",new LinkedHashSet<>()));
+        if(favorites.remove(full))prefs.edit().putStringSet("favorites",favorites).apply();
+    }
+
     private void showMyRepositories(){showMyRepositories(false);}
 
     private void showMyRepositories(boolean forceNetwork){
@@ -5290,7 +5298,7 @@ public class MainActivity extends Activity {
 
     private void showDeleteRepositoryDialog(String full){
         LinearLayout form=new LinearLayout(this);form.setOrientation(LinearLayout.VERTICAL);form.setPadding(dp(18),0,dp(18),0);TextView warning=text("Это удалит репозиторий на GitHub. Для подтверждения введите точное имя:\n\n"+full,13,false);warning.setTextColor(Color.rgb(190,55,60));form.addView(warning);EditText confirm=new EditText(this);confirm.setHint(full);confirm.setSingleLine(true);form.addView(confirm);
-        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Удалить репозиторий").setView(form).setPositiveButton("Удалить",null).setNegativeButton("Отмена",null).create();dialog.setOnShowListener(x->{Button delete=dialog.getButton(AlertDialog.BUTTON_POSITIVE);delete.setTextColor(Color.rgb(190,55,60));delete.setOnClickListener(v->{if(!full.equals(confirm.getText().toString().trim())){confirm.setError("Введите "+full);return;}delete.setEnabled(false);io.execute(()->{try{features.repositoryAdmin.deleteRepository(full);runOnUiThread(()->{dialog.dismiss();toast("Репозиторий удалён");openRoot(this::showMyRepositories);});}catch(Exception e){runOnUiThread(()->{delete.setEnabled(true);errorDialog("Не удалось удалить репозиторий",e.getMessage());});}});});});dialog.show();
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Удалить репозиторий").setView(form).setPositiveButton("Удалить",null).setNegativeButton("Отмена",null).create();dialog.setOnShowListener(x->{Button delete=dialog.getButton(AlertDialog.BUTTON_POSITIVE);delete.setTextColor(Color.rgb(190,55,60));delete.setOnClickListener(v->{if(!full.equals(confirm.getText().toString().trim())){confirm.setError("Введите "+full);return;}delete.setEnabled(false);io.execute(()->{try{features.repositoryAdmin.deleteRepository(full);forgetDeletedRepository(currentAccountId(),full);runOnUiThread(()->{dialog.dismiss();toast("Репозиторий удалён");openRoot(()->showMyRepositories(true));});}catch(Exception e){runOnUiThread(()->{delete.setEnabled(true);errorDialog("Не удалось удалить репозиторий",e.getMessage());});}});});});dialog.show();
     }
 
     private String humanBytes(long bytes){if(bytes<=0)return "неизвестно";double value=bytes;String[] units={"Б","КиБ","МиБ","ГиБ"};int i=0;while(value>=1024&&i<units.length-1){value/=1024;i++;}return String.format(Locale.ROOT,value>=10?"%.0f %s":"%.1f %s",value,units[i]);}
