@@ -18,6 +18,7 @@ import android.widget.TextView;
 import app.githubble.mobile.auth.GitHubAccountStore;
 import app.githubble.mobile.mirror.MirrorManager;
 import app.githubble.mobile.mirror.MirrorLinkRegistry;
+import app.githubble.mobile.mirror.MirrorCloudStore;
 import app.githubble.mobile.mirror.MirrorPolicy;
 import java.util.ArrayList;
 import java.util.List;
@@ -30,7 +31,7 @@ public final class MirrorManagerScreen {
 
     public static void render(Activity activity,LinearLayout host,MirrorManager manager,
             GitHubAccountStore store,String source,int card,int text,int muted,int accent,int border,
-            Executor background,Runnable reload,Consumer<String> openUrl) {
+            Executor background,Runnable reload,Consumer<String> openUrl,Runnable openCloudSettings) {
 
         LinearLayout intro=vertical(activity);
         eyebrow(activity,intro,"MIRROR MANAGER",accent);
@@ -39,6 +40,8 @@ public final class MirrorManagerScreen {
                 +"обратно через Pull Request. Без Fork и загрузки исходников на телефон.",muted);
         wrap(activity,host,intro,card,border);
 
+        cloudStatus(activity,host,manager,card,text,muted,accent,border,
+                background,reload,openCloudSettings);
         showLinkedPairs(activity,host,manager,source,card,text,muted,accent,border,
                 background,reload,openUrl);
 
@@ -242,6 +245,56 @@ public final class MirrorManagerScreen {
                 +"Fast-forward обновляет существующее зеркало без force push. "
                 +"При расхождении Git-истории создаётся Draft Pull Request для проверки.",muted);
         host.addView(foot);
+    }
+
+    private static void cloudStatus(Activity a,LinearLayout host,MirrorManager manager,
+            int card,int text,int muted,int accent,int border,Executor background,
+            Runnable reload,Runnable openCloudSettings){
+        MirrorCloudStore cloud=manager.cloud();
+        LinearLayout panel=vertical(a);
+        eyebrow(a,panel,"ОБЛАЧНЫЙ РЕЕСТР",accent);
+        if(cloud.connected()){
+            heading(a,panel,"Связи синхронизируются",text,15);
+            subtitle(a,panel,"Источник: "+cloud.location()
+                    +(cloud.pending()?" · есть несинхронизированные изменения":""),muted);
+            Button sync=button(a,"Синхронизировать связи",accent,card,border,false);
+            LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,dp(a,44));
+            p.setMargins(0,dp(a,12),0,0);
+            panel.addView(sync,p);
+            sync.setOnClickListener(v->{
+                ProgressDialog wait=ProgressDialog.show(a,"Mirror Manager",
+                        "Объединяем связанные пары с облачным реестром…",true,false);
+                background.execute(()->{
+                    try{
+                        MirrorCloudStore.Result value=cloud.sync();
+                        a.runOnUiThread(()->{
+                            if(a.isFinishing())return;
+                            wait.dismiss();reload.run();
+                            new AlertDialog.Builder(a).setTitle("Облачный реестр")
+                                .setMessage("Связанных пар: "+value.merged
+                                        +"\nОбновлено локально: "+value.imported
+                                        +"\nОблако обновлено: "+(value.wrote?"да":"не требовалось"))
+                                .setPositiveButton("OK",null).show();
+                        });
+                    }catch(Exception e){a.runOnUiThread(()->{
+                        if(a.isFinishing())return;
+                        wait.dismiss();
+                        new AlertDialog.Builder(a).setTitle("Ошибка облака")
+                            .setMessage(e.getMessage()).setPositiveButton("OK",null).show();
+                    });}
+                });
+            });
+        }else{
+            subtitle(a,panel,"Связанные пары пока хранятся только на телефоне. "
+                    +"Подключи общий JSON на Google Диске, OneDrive или другом "
+                    +"доступном облачном провайдере.",muted);
+        }
+        Button setup=button(a,cloud.connected()?"Настройки облака":"Подключить облако",
+                accent,card,border,!cloud.connected());
+        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,dp(a,44));
+        p.setMargins(0,dp(a,9),0,0);panel.addView(setup,p);
+        setup.setOnClickListener(v->openCloudSettings.run());
+        wrap(a,host,panel,card,border);
     }
 
     private static void showLinkedPairs(Activity a,LinearLayout host,MirrorManager manager,
