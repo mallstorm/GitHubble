@@ -61,7 +61,7 @@ public final class GitHubReadLoop {
     public static String analyze(AgentExecutionEngine.Completion model,GitHubAgentBridge github,
             String owner,String linkedRepo,String linkedBranch,String task,String context)throws Exception{
         String instructions="Use real GitHub tools to answer accurately, never invent a repository. "+
-            "Available READ-ONLY tools: github_account {}, list_repositories {}, "+
+            "Available READ-ONLY tools: github_account {}, github_accounts {}, list_repositories {account?: login|all}, "+
             "repository_info {repository}, repository_files {repository,branch}, "+
             "repository_workflows {repository}. "+
             "You may request up to 3 tools per turn. For tool calls respond ONLY with "+

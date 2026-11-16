@@ -34,6 +34,17 @@ public final class GitHubAgentBridge {
 
     /** Immutable network credentials are captured under the account switch lock. */
     private GitHubApiClient scopedApi(String expected) throws GitHubApiClient.SessionChangedException {
+        String other = viewAs.get();
+        if (other != null && !other.isEmpty()) {
+            boolean active;
+            synchronized (SecureStore.SESSION_LOCK) { requireAccount(expected); active = isActiveLogin(other); }
+            if (!active) {
+                // The network check runs outside the session lock.
+                try { return foreignClient(other); }
+                catch (RuntimeException e) { throw e; }
+                catch (Exception e) { throw new IllegalStateException("Не удалось открыть аккаунт @" + other, e); }
+            }
+        }
         synchronized (SecureStore.SESSION_LOCK) {
             requireAccount(expected);
             String token = secrets.get("github_token");
@@ -75,6 +86,79 @@ public final class GitHubAgentBridge {
 
 
     /** Repository list comes from the active user's OAuth token, never from the AI model. */
+    // ---------------------------------------------------------------- several connected accounts (read-only)
+
+    /** Login whose data the current read-only call looks at; null means the active account. */
+    private final ThreadLocal<String> viewAs = new ThreadLocal<>();
+
+    private boolean isActiveLogin(String login) {
+        GitHubAccountStore.Account active = accounts.activeAccount();
+        return active != null && active.login.equalsIgnoreCase(login);
+    }
+
+    private GitHubAccountStore.Account accountByLogin(String login) {
+        for (GitHubAccountStore.Account a : accounts.listAccounts()) if (a.login.equalsIgnoreCase(login)) return a;
+        return null;
+    }
+
+    /** A client for another connected account. It never switches the foreground account and is never used for writes. */
+    private GitHubApiClient foreignClient(String login) throws Exception {
+        GitHubAccountStore.Account account = accountByLogin(login);
+        if (account == null) throw new IllegalArgumentException("Аккаунт @" + login + " не подключён к GitHubble");
+        String token = accounts.tokenForAccount(account.id);
+        if (token == null || token.isEmpty()) throw new IllegalStateException("Нет действующего токена @" + login + ": войдите в аккаунт заново");
+        final app.githubble.mobile.network.GitHubSession session =
+                new app.githubble.mobile.network.GitHubSession(token, account.login, 0L);
+        GitHubApiClient client = new GitHubApiClient(new app.githubble.mobile.network.GitHubSession.Source() {
+            public app.githubble.mobile.network.GitHubSession capture() { return session; }
+            public boolean isCurrent(app.githubble.mobile.network.GitHubSession got) { return got == session; }
+            public void reauthorization(app.githubble.mobile.network.GitHubSession got, boolean flag) {}
+        }, null);
+        JSONObject who = client.getJsonFresh("https://api.github.com/user");
+        if (!account.login.equalsIgnoreCase(who.optString("login", "")))
+            throw new SecurityException("Сессия принадлежит другому GitHub-аккаунту");
+        return client;
+    }
+
+    /** All connected accounts: logins and names only, never tokens. */
+    public JSONObject connectedAccounts(String expected) throws Exception {
+        requireAccount(expected);
+        JSONArray list = new JSONArray();
+        String active = "";
+        for (GitHubAccountStore.Account a : accounts.listAccounts()) {
+            list.put(new JSONObject().put("login", a.login).put("name", a.name).put("active", a.active));
+            if (a.active) active = a.login;
+        }
+        return new JSONObject().put("count", list.length()).put("max", GitHubAccountStore.MAX_ACCOUNTS)
+                .put("active_login", active).put("accounts", list)
+                .put("note", "To read another connected account pass {\"account\":\"<login>\"} to a read-only tool; "
+                        + "list_repositories also accepts \"all\". Writes, builds and publishing always use the active account.");
+    }
+
+    /** Repositories of every connected account; a broken session of one account is reported, not fatal. */
+    public JSONObject listAllRepositories(String expected) throws Exception {
+        requireAccount(expected);
+        JSONArray perAccount = new JSONArray();
+        int total = 0;
+        for (GitHubAccountStore.Account a : accounts.listAccounts()) {
+            JSONObject item = new JSONObject().put("login", a.login).put("active", a.active);
+            viewAs.set(a.login);
+            try {
+                JSONObject r = listAccessibleRepositories(expected);
+                item.put("count", r.optInt("count")).put("truncated", r.optBoolean("truncated"))
+                        .put("repositories", r.getJSONArray("repositories"));
+                total += r.optInt("count");
+            } catch (SecurityException | IllegalStateException e) {
+                item.put("error", "Сессия аккаунта недействительна, войдите в @" + a.login + " заново");
+            } catch (Exception e) {
+                item.put("error", "GitHub не вернул список репозиториев @" + a.login);
+            } finally { viewAs.remove(); }
+            perAccount.put(item);
+        }
+        return new JSONObject().put("accounts_count", perAccount.length()).put("total_repositories", total)
+                .put("accounts", perAccount);
+    }
+
     public JSONObject listAccessibleRepositories(String expected) throws Exception {
         GitHubApiClient api = scopedApi(expected);
         JSONArray result = new JSONArray();
@@ -95,7 +179,9 @@ public final class GitHubAgentBridge {
             if(batch.length()<100)break;
             if(page==10)truncated=true;
         }
-        return new JSONObject().put("account",accounts.activeAccount()==null?"":accounts.activeAccount().login)
+        String shown=viewAs.get();
+        if(shown==null||shown.isEmpty())shown=accounts.activeAccount()==null?"":accounts.activeAccount().login;
+        return new JSONObject().put("account",shown)
             .put("count",result.length()).put("truncated",truncated)
             .put("pages",pages).put("repositories",result);
     }
@@ -133,7 +219,10 @@ public final class GitHubAgentBridge {
 
     public JSONObject repositoryTree(String expected,String fullName,String branch)throws Exception{
         AgentGitWorkspace.validateRepository(fullName,branch);
-        AgentGitWorkspace.Snapshot snapshot=new AgentGitWorkspace(accounts,secrets).inspect(expected,fullName,branch);
+        String other=viewAs.get();
+        AgentGitWorkspace workspace=new AgentGitWorkspace(accounts,secrets);
+        AgentGitWorkspace.Snapshot snapshot=(other!=null&&!other.isEmpty()&&!isActiveLogin(other))
+            ?workspace.inspect(scopedApi(expected),fullName,branch):workspace.inspect(expected,fullName,branch);
         return new JSONObject().put("repository",fullName).put("branch",branch)
             .put("head",snapshot.head).put("files_overview",snapshot.overview);
     }
@@ -169,6 +258,19 @@ public final class GitHubAgentBridge {
     }
     public JSONObject executeReadOnly(String expected,String name,JSONObject args,String linkedRepo,String branch)throws Exception{
         if(args==null)args=new JSONObject();
+        if("github_accounts".equals(name))return connectedAccounts(expected);
+        String other=args.optString("account","").trim();
+        if(other.startsWith("@"))other=other.substring(1);
+        if(other.isEmpty())return executeReadOnlyActive(expected,name,args,linkedRepo,branch);
+        if("all".equalsIgnoreCase(other)&&"list_repositories".equals(name))return listAllRepositories(expected);
+        if(!other.matches("[A-Za-z0-9-]{1,39}"))throw new IllegalArgumentException("Некорректный логин аккаунта");
+        if(isActiveLogin(other))return executeReadOnlyActive(expected,name,args,linkedRepo,branch);
+        viewAs.set(other);
+        try{return executeReadOnlyActive(expected,name,args,linkedRepo,branch);}
+        finally{viewAs.remove();}
+    }
+
+    private JSONObject executeReadOnlyActive(String expected,String name,JSONObject args,String linkedRepo,String branch)throws Exception{
         if(GitHubAgentOperations.READS.contains(name))
             return GitHubAgentOperations.read(this,expected,name,args,linkedRepo,branch);
         switch(name){
