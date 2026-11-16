@@ -13,11 +13,14 @@ import org.json.JSONObject;
 public final class GitHubAgentOperations {
     public static final Set<String> READS=set("github_profile","github_usage","github_rate_limit","github_capabilities",
         "repository_branches","repository_read_file","repository_issues","repository_pulls",
-        "issue_details","pull_request_details","build_artifacts","verify_build","build_run_status","list_releases");
+        "issue_details","pull_request_details","build_artifacts","verify_build","build_run_status","list_releases","github_get");
     public static final Set<String> WRITES=set("create_repository","create_branch",
         "update_repository","update_account_profile","create_issue","update_issue",
-        "create_pull_request","update_pull_request","comment_issue","merge_pull_request","dispatch_workflow","create_release");
-    public static final String READ_CATALOG="list_releases {repository}, github_profile {}, github_usage {} (usage, not remaining quota), "+
+        "create_pull_request","update_pull_request","comment_issue","merge_pull_request","dispatch_workflow","create_release",
+        "github_request","delete_repository","actions_cleanup");
+    /** Executed by the host through the risk gateway (GatewayPolicy), never by write(). */
+    public static final Set<String> GATEWAY_WRITES=set("github_request","delete_repository","actions_cleanup");
+    public static final String READ_CATALOG="github_get {path,account?} (any GET on api.github.com: billing /users/{login}/settings/billing/usage, packages /users/{login}/packages?package_type=container, Actions caches /repos/{o}/{r}/actions/caches, storage, secrets NAMES, rulesets; files and CI logs have their own tools), list_releases {repository}, github_profile {}, github_usage {} (usage, not remaining quota), "+
         "github_rate_limit {}, github_capabilities {} (GitHub App installations and grants), repository_branches {repository}, "+
         "repository_read_file {repository,path,branch}, repository_issues {repository}, "+
         "repository_pulls {repository}, issue_details {repository,number}, "+
@@ -36,7 +39,10 @@ public final class GitHubAgentOperations {
         "comment_issue {repository,number,body} (also for pull requests), "+
         "merge_pull_request {repository,number,sha,merge_method:squash|merge|rebase}, "+
         "dispatch_workflow {repository,workflow_id,ref} (host checks the workflow can be dispatched and returns run_id when the new run is found), "+
-        "create_release {repository,tag,name,body,target,draft:true,prerelease:false} (draft by default; no asset upload).";
+        "create_release {repository,tag,name,body,target,draft:true,prerelease:false} (draft by default; no asset upload), "+
+        "github_request {method:POST|PATCH|PUT|DELETE,path,body?} (any other REST write on api.github.com as the user; the HOST classifies risk: reversible writes follow the permission level, deletions always ask, irreversible ones — delete repo, visibility, transfer, force-push, hooks/permissions/protection — need the user to type the exact name; secret values, SSH/GPG keys, tokens and billing writes are unreachable), "+
+        "delete_repository {repository} (own repository; user types its exact name), "+
+        "actions_cleanup {repository,kind:caches|artifacts|runs,older_than_days?} (host lists and shows count/size first, one confirmation, max 300).";
     private static Set<String> set(String... names){return java.util.Collections.unmodifiableSet(new java.util.HashSet<>(java.util.Arrays.asList(names)));}
     private GitHubAgentOperations(){}
     public static boolean sensitive(String name){
@@ -158,6 +164,11 @@ public final class GitHubAgentOperations {
                 .put("remaining_minutes",JSONObject.NULL).put("warning",b.billingWarning)
                 .put("note","Remaining allowance and billed storage are not exposed by this result; never infer them from plan names.");
         }
+        if("github_get".equals(name)){
+            GatewayPolicy.Decision d=GatewayPolicy.classify("GET",a.optString("path"));
+            if(d.blocked())throw new SecurityException(d.reason);
+            return new JSONObject().put("path",d.path).put("response",GatewayOps.get(api,d));
+        }
         String base="https://api.github.com/repos/"+repository(a,linked);
         switch(name){
             case "repository_branches":return new JSONObject().put("branches",api.getArray(base+"/branches?per_page=100")).put("limit",100);
@@ -201,7 +212,7 @@ public final class GitHubAgentOperations {
     }
     public static JSONObject write(GitHubAgentBridge bridge,String account,String name,JSONObject a,
             String linked,String branch)throws Exception{
-        if(!WRITES.contains(name))throw new SecurityException("Неизвестная операция");
+        if(!WRITES.contains(name)||GATEWAY_WRITES.contains(name))throw new SecurityException("Неизвестная операция");
         GitHubApiClient api=bridge.toolApi(account);
         if("create_repository".equals(name))return bridge.createRepository(account,required(a,"name",100),a.optString("description"),a.optBoolean("private",true));
         if("update_account_profile".equals(name)){

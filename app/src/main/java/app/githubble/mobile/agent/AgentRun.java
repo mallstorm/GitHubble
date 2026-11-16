@@ -388,6 +388,12 @@ public final class AgentRun {
         return "Аккаунт GitHub";
       case "github_accounts":
         return "Подключённые аккаунты GitHub";
+      case "github_get":
+        return "Запрос к GitHub API";
+      case "github_request":
+        return "Изменение через GitHub API";
+      case "actions_cleanup":
+        return "Очистка Actions";
       case "recent_build_runs":
         return "Запуски сборок";
       case "build_run_diagnostics":

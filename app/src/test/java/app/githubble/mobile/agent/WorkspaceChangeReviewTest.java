@@ -61,5 +61,13 @@ public final class WorkspaceChangeReviewTest {
         assertTrue(WorkspaceChangeReview.writablePath("README.md"));
         assertTrue(WorkspaceChangeReview.writablePath(".gitignore"));
         assertTrue(WorkspaceChangeReview.writablePath("src/app.kt"));
+        assertTrue(WorkspaceChangeReview.writablePath("app/TokenManager.java"));
+        assertTrue(WorkspaceChangeReview.writablePath("ui/PasswordField.kt"));
+        assertTrue(WorkspaceChangeReview.writablePath("src/token/Parser.java"));
+        assertFalse(WorkspaceChangeReview.writablePath("config/secrets.yml"));
+        assertFalse(WorkspaceChangeReview.writablePath("app/keystore.properties"));
+        assertFalse(WorkspaceChangeReview.writablePath("secrets/notes.md"));
+        assertFalse(WorkspaceChangeReview.writablePath("release.keystore"));
+        assertFalse(WorkspaceChangeReview.writablePath("my-api-key.json"));
     }
 }

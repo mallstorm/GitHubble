@@ -57,7 +57,8 @@ public final class AgentController {
                 }
             },(d,a) -> host.confirmBroker(d.name,a), (name,args) -> {
                 if (args.has("repository") && !linked.equalsIgnoreCase(args.optString("repository"))
-                        && !name.equals("attach_repository") && !name.equals("import_repository"))
+                        && !name.equals("attach_repository") && !name.equals("import_repository")
+                        && !name.equals("delete_repository") && !name.equals("actions_cleanup"))
                     throw new SecurityException("Инструмент ограничен репозиторием выбранного проекта");
                 return host.executeFromBroker(name,args);
             },new ToolBroker.Journal() {

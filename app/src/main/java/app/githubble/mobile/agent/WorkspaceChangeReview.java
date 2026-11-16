@@ -29,6 +29,9 @@ public final class WorkspaceChangeReview {
         this.summary=summary;
     }
 
+    private static final java.util.Set<String> CODE_EXTENSIONS=new java.util.HashSet<>(java.util.Arrays.asList(
+        "java","kt","kts","py","js","jsx","ts","tsx","swift","go","rs","rb","php","cs","c","cc","cpp","h","hpp","md","dart","scala","gradle"));
+
     public static boolean writablePath(String path){
         try{AgentFilePlan.validatePath(path);}
         catch(IllegalArgumentException invalid){return false;}
@@ -37,17 +40,27 @@ public final class WorkspaceChangeReview {
             ||name.startsWith(".git/")||name.startsWith(".agent/")
             ||name.startsWith(".github/")&&!name.startsWith(".github/workflows/")
             ||name.contains("/.git/")||name.contains("/.agent/"))return false;
-        for(String segment:name.split("/")){
-            if(segment.equals(".env")||segment.startsWith(".env.")
-                ||segment.contains("secret")||segment.contains("credential")
-                ||segment.contains("password")||segment.contains("keystore")
-                ||segment.contains("token")||segment.contains("api_key")
-                ||segment.contains("apikey")||segment.equals(".npmrc")||segment.equals(".pypirc")
-                ||segment.equals("id_rsa")||segment.equals("id_ed25519"))return false;
+        String[] parts=name.split("/");
+        for(int i=0;i<parts.length;i++){
+            String segment=parts[i];
+            boolean last=i==parts.length-1;
+            if(segment.equals(".env")||segment.startsWith(".env.")||segment.equals(".npmrc")||segment.equals(".pypirc")
+                ||segment.equals(".netrc")||segment.equals("id_rsa")||segment.equals("id_ed25519"))return false;
+            if(!last){
+                if(segment.equals("secret")||segment.equals("secrets")||segment.equals(".secrets")||segment.equals("credentials"))return false;
+                continue;
+            }
+            int dot=segment.lastIndexOf('.');
+            String ext=dot>0?segment.substring(dot+1):"";
+            // Source files named after a concept (TokenManager.java, PasswordField.kt) are code, not secrets.
+            if(CODE_EXTENSIONS.contains(ext))continue;
+            if(segment.contains("secret")||segment.contains("credential")||segment.contains("password")
+                ||segment.contains("keystore")||segment.contains("token")||segment.contains("api_key")
+                ||segment.contains("apikey")||segment.contains("api-key"))return false;
         }
         return !(name.endsWith(".pem")||name.endsWith(".key")
             ||name.endsWith(".p12")||name.endsWith(".pfx")
-            ||name.endsWith(".jks")||name.endsWith(".asc")
+            ||name.endsWith(".jks")||name.endsWith(".keystore")||name.endsWith(".asc")
             ||name.endsWith(".gpg")||name.endsWith(".mobileprovision")
             ||name.endsWith(".der")||name.endsWith(".p8"));
     }
