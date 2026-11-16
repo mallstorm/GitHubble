@@ -63,7 +63,7 @@ public final class GitHubReadLoop {
         String instructions="Use real GitHub tools to answer accurately, never invent a repository. "+
             "Available READ-ONLY tools: github_account {}, github_accounts {}, list_repositories {account?: login|all}, "+
             "repository_info {repository}, repository_files {repository,branch}, "+
-            "repository_workflows {repository}. "+
+            "repository_workflows {repository}, github_get {path,account?} (any GET on api.github.com: billing, packages, Actions caches, rulesets). "+
             "You may request up to 3 tools per turn. For tool calls respond ONLY with "+
             "JSON {\"tools\":[{\"name\":\"list_repositories\",\"args\":{}}]}. "+
             "When done, return JSON {\"answer\":\"...\"} or plain conversational text. "+

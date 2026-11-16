@@ -345,6 +345,7 @@ public class MainActivity extends Activity {
         repositoryController = new RepositoryController(api);
         repositoryAccess = new RepositoryAccessController(api);
         repositoryStore = new RepositoryStore(prefs);
+        app.githubble.mobile.agent.GatewayOps.onRepositoryDeleted=(accountId,full)->runOnUiThread(()->forgetDeletedRepository(accountId,full));
         accountOperations = new AccountOperationsController(api);
         profileController = new ProfileController(api);
         translationController = new TranslationController(secureStore, prefs, translationCache, translationEngine);

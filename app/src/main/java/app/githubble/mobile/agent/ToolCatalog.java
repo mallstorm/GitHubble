@@ -23,6 +23,9 @@ public final class ToolCatalog {
         if (props.has("files")) props.put("files", type("array").put("minItems",1).put("maxItems",12)
             .put("items",schema("path content expected_sha", "path content")));
         if (props.has("expect")) props.put("expect",schema("package version_code:integer version_name", ""));
+        if (props.has("method")) props.getJSONObject("method").put("enum",new JSONArray().put("POST").put("PATCH").put("PUT").put("DELETE"));
+        if (props.has("kind")) props.getJSONObject("kind").put("enum",new JSONArray().put("caches").put("artifacts").put("runs"));
+        if (props.has("path")&&props.has("method")) props.getJSONObject("path").put("maxLength",600);
         if (props.has("mode")) props.getJSONObject("mode").put("enum",new JSONArray().put("local").put("full"));
         JSONArray req=new JSONArray(); for (String f:required.split(" ")) if (!f.isEmpty()) req.put(f);
         return type("object").put("properties",props).put("required",req).put("additionalProperties",false);
@@ -36,6 +39,10 @@ public final class ToolCatalog {
         ToolBroker.Permission gh=ToolBroker.Permission.GITHUB_READ, fs=ToolBroker.Permission.FILE_READ,
             local=ToolBroker.Permission.LOCAL_WRITE, remote=ToolBroker.Permission.GITHUB_WRITE;
         add(b,"github_account","","",gh,false,false,false);
+        add(b,"github_get","path account","path",gh,false,false,false);
+        add(b,"github_request","method path body","method path",remote,true,false,false);
+        add(b,"delete_repository","repository","repository",remote,true,false,false);
+        add(b,"actions_cleanup","repository kind older_than_days:integer","repository kind",remote,true,false,false);
         add(b,"github_accounts","","",gh,false,false,false);
         for (String n:Arrays.asList("list_repositories","github_profile","github_usage","github_rate_limit","github_capabilities"))
             add(b,n,"account","",gh,false,false,false);
