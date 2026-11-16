@@ -94,6 +94,12 @@ public final class AgentGitWorkspace {
         return new Snapshot(head, treeSha, names.toString());
     }
 
+    /** Same overview through an explicit client (another connected account, read-only). */
+    public Snapshot inspect(GitHubApiClient api, String repository, String branch) throws Exception {
+        validateRepository(repository, branch);
+        return inspect(api, repository, branch, true);
+    }
+
     public Snapshot inspect(String account, String repository, String branch) throws Exception {
         validateRepository(repository, branch);
         return inspect(client(account), repository, branch, true);

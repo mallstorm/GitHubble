@@ -163,6 +163,14 @@ public class MainActivity extends Activity {
             "result as a system message. GitHub mutations require "+
             "explicit confirmation. Model access to GitHub metadata: "+
             (prefs.getBoolean("ai_tool_github_read_"+owner,false)?"allowed by user":"disabled")+".\n";
+        if(prefs.getBoolean("ai_tool_github_read_"+owner,false)&&accountStore.count()>0){
+            StringBuilder logins=new StringBuilder();
+            for(GitHubAccountStore.Account a:accountStore.listAccounts())
+                logins.append(logins.length()==0?"":", ").append(a.displayName()).append(a.active?" (active)":"");
+            result+="Connected GitHub accounts ("+accountStore.count()+"): "+logins+
+                ". Use github_accounts, list_repositories {account:\"all\"} or {account:login} on read-only tools "+
+                "to see the repositories of every connected account; writes always use the active account.\n";
+        }
         if(prefs.getBoolean("ai_tool_github_read_"+owner,false)
             &&project.repository!=null&&!project.repository.isEmpty())
             result+="Linked repository: "+project.repository+

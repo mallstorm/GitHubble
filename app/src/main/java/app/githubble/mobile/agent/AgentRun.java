@@ -386,6 +386,8 @@ public final class AgentRun {
         return "Сведения о репозитории";
       case "github_account":
         return "Аккаунт GitHub";
+      case "github_accounts":
+        return "Подключённые аккаунты GitHub";
       case "recent_build_runs":
         return "Запуски сборок";
       case "build_run_diagnostics":
