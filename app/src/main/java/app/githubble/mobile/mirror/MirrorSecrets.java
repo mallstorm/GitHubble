@@ -41,7 +41,18 @@ public final class MirrorSecrets {
     public static void put(GitHubApiClient source,String repo,String requestId,String destToken)throws Exception{
         if(destToken==null||destToken.isEmpty())
             throw new IllegalStateException("Целевой GitHub-аккаунт необходимо авторизовать повторно");
-        JSONObject key=source.getJsonFresh(API+repo+"/actions/secrets/public-key");
+        JSONObject key;
+        try{key=source.getJsonFresh(API+repo+"/actions/secrets/public-key");}
+        catch(GitHubApiClient.ApiException e){
+            if(e.statusCode==403||e.statusCode==404)
+                throw new IllegalStateException("У GitHub App нет доступа к Actions secrets репозитория "+repo+". "
+                    +"Нужно: 1) в настройках GitHub App (Developer settings → GitHub Apps → Permissions) включить "
+                    +"Repository permissions → Secrets, Actions, Workflows и Contents = Read and write; "
+                    +"2) войти в аккаунт-владельца "+repo.substring(0,repo.indexOf('/'))+" и на github.com/settings/installations "
+                    +"нажать Configure → Review request и принять новые права; 3) убедиться, что репозиторий входит в установку "
+                    +"(All repositories или выбран в Selected). Ответ GitHub: HTTP "+e.statusCode+".",e);
+            throw e;
+        }
         String id=key.optString("key_id","");
         String value=key.optString("key","");
         if(id.isEmpty()||value.isEmpty())throw new SecurityException("Не удалось получить GitHub Actions public key");

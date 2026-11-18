@@ -4,9 +4,9 @@
 
 ## Текущая версия
 
-- Version: `1.0.0-rc4.2.40`
+- Version: `1.0.0-rc4.2.41`
 - versionCode: `78`
-- release channel: `rc4.2.40`
+- release channel: `rc4.2.41`
 - applicationId: `app.githubble.mobile`
 - minSdk: `28`
 - targetSdk / compileSdk: `36`
@@ -204,6 +204,7 @@ GitHub REST API не предоставляет загрузку аватара 
 - Repository Administration: **Read and write**;
 - Actions: **Read** или **Read and write** для операций Actions;
 - Workflows: **Read and write**, если приложение меняет `.github/workflows/*`;
+- Secrets: **Read and write** — обязательно для Mirror Manager (одноразовый секрет с токеном целевого аккаунта в исходном репозитории); после изменения прав владелец каждого аккаунта должен принять их на github.com/settings/installations;
 - Blocking users / Interaction limits: **Read and write** для управления блокировками и ограничениями аккаунта;
 - Followers: **Read and write** для изменения подписки на пользователя;
 - Profile: **Write** для редактирования профиля;
@@ -303,4 +304,4 @@ Production-signed Release APK создаётся только в `main` и то�
 
 ---
 
-**Текущий эталон исходников: GitHubble `1.0.0-rc4.2.40`, versionCode `84`.**
+**Текущий эталон исходников: GitHubble `1.0.0-rc4.2.41`, versionCode `84`.**
