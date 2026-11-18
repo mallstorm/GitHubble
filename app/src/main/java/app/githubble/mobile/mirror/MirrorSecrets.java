@@ -41,6 +41,21 @@ public final class MirrorSecrets {
     public static void put(GitHubApiClient source,String repo,String requestId,String destToken)throws Exception{
         if(destToken==null||destToken.isEmpty())
             throw new IllegalStateException("Целевой GitHub-аккаунт необходимо авторизовать повторно");
+        JSONObject key=publicKey(source,repo);
+        String id=key.optString("key_id","");
+        String value=key.optString("key","");
+        if(id.isEmpty()||value.isEmpty())throw new SecurityException("Не удалось получить GitHub Actions public key");
+        byte[] plaintext=destToken.getBytes(StandardCharsets.UTF_8);
+        try{
+            JSONObject payload=new JSONObject()
+                    .put("key_id",id)
+                    .put("encrypted_value",encryptForGitHub(plaintext,value));
+            source.putJson(API+repo+"/actions/secrets/"+name(requestId),payload);
+        }finally{Arrays.fill(plaintext,(byte)0);}
+    }
+
+    /** Cheap access check done BEFORE any workflow is committed, so a missing Secrets grant leaves no trace in the repository. */
+    public static JSONObject publicKey(GitHubApiClient source,String repo)throws Exception{
         JSONObject key;
         try{key=source.getJsonFresh(API+repo+"/actions/secrets/public-key");}
         catch(GitHubApiClient.ApiException e){
@@ -53,16 +68,7 @@ public final class MirrorSecrets {
                     +"(All repositories или выбран в Selected). Ответ GitHub: HTTP "+e.statusCode+".",e);
             throw e;
         }
-        String id=key.optString("key_id","");
-        String value=key.optString("key","");
-        if(id.isEmpty()||value.isEmpty())throw new SecurityException("Не удалось получить GitHub Actions public key");
-        byte[] plaintext=destToken.getBytes(StandardCharsets.UTF_8);
-        try{
-            JSONObject payload=new JSONObject()
-                    .put("key_id",id)
-                    .put("encrypted_value",encryptForGitHub(plaintext,value));
-            source.putJson(API+repo+"/actions/secrets/"+name(requestId),payload);
-        }finally{Arrays.fill(plaintext,(byte)0);}
+        return key;
     }
 
     public static void delete(GitHubApiClient source,String repo,String requestId)throws Exception{

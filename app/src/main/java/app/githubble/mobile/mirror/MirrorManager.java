@@ -544,6 +544,7 @@ public final class MirrorManager {
 
     /** Shared only-by-request runner for first copy, safe fast-forward sync and return PR. */
     private void stageAndDispatch(GitHubApiClient source,Job job,String targetAccountId)throws Exception{
+        MirrorSecrets.publicKey(source,job.source);
         String path=MirrorWorkflow.path(job.requestId);
         JSONObject file=new JSONObject()
                 .put("message","chore(mirror): temporary GitHubble OneShot runner")
@@ -748,6 +749,39 @@ public final class MirrorManager {
         try{cleanup(source,job);}
         catch(Exception e){job.cleanupPending=true;job.error+="; очистка: "+safeError(e);save(job);}
         return job;
+    }
+
+    /** Removes a history record. Temporary workflow/secret is cleaned best-effort first; a record of a running copy is kept. */
+    public String discard(String id)throws Exception{
+        Job job=find(id);
+        if(job==null)return "";
+        boolean running=PREPARING.equals(job.state)||DEST_CREATED.equals(job.state)
+                ||DISPATCHED.equals(job.state)||RUNNING.equals(job.state);
+        if(running&&System.currentTimeMillis()-job.updatedAt<15L*60*1000)
+            throw new IllegalStateException("Операция ещё выполняется. Дождитесь завершения и нажмите «Проверить».");
+        String note="";
+        if(job.secretInstalled||job.workflowInstalled||job.cleanupPending){
+            try{cleanup(api(account(job.sourceAccountId)),job);}
+            catch(Exception e){
+                note="Запись удалена, но временные файлы в "+job.source+" автоматически убрать не удалось ("
+                        +safeError(e)+"). Проверьте .github/workflows и секреты GITHUBBLE_ONESHOT_* вручную.";
+            }
+        }
+        synchronized(lock){
+            JSONArray arr=new JSONArray();
+            for(Job j:list())if(!j.id.equals(id))arr.put(j.json());
+            if(!prefs.edit().putString(KEY_JOBS,arr.toString()).commit())
+                throw new IllegalStateException("Не удалось сохранить OneShot journal");
+        }
+        return note;
+    }
+
+    /** Removes every failed / diverged / stale record; returns how many were removed. */
+    public int discardFailed()throws Exception{
+        int n=0;
+        for(Job j:list())
+            if(FAILED.equals(j.state)||DIVERGED.equals(j.state)||UNKNOWN.equals(j.state)){discard(j.id);n++;}
+        return n;
     }
 
     /** Public compatibility entrypoint: safely update an existing linked mirror. */
