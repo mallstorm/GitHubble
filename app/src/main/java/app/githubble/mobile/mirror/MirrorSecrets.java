@@ -27,9 +27,13 @@ public final class MirrorSecrets {
         // libsodium crypto_box_seal is the sealed-box format required by GitHub's API.
         byte[] cipher=new byte[message.length+48];
         try{
-            LazySodiumAndroid sodium=new LazySodiumAndroid(new SodiumAndroid());
-            if(!sodium.cryptoBoxSeal(cipher,message,message.length,pk))
-                throw new SecurityException("Libsodium sealed-box encryption failed");
+            LazySodiumAndroid sodium;
+            try{sodium=new LazySodiumAndroid(new SodiumAndroid());
+                if(!sodium.cryptoBoxSeal(cipher,message,message.length,pk))
+                    throw new SecurityException("Libsodium sealed-box encryption failed");
+            }catch(LinkageError e){ // UnsatisfiedLinkError / NoClassDefFoundError are Errors: surface them as a normal failure
+                throw new IllegalStateException("Библиотека шифрования libsodium/JNA не загрузилась: "+e,e);
+            }
             return Base64.getEncoder().encodeToString(cipher);
         } finally {
             Arrays.fill(pk,(byte)0);
