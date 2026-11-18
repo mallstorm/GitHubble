@@ -23,6 +23,7 @@ Mirror Manager supports any two connected GitHub accounts, in either direction, 
 
 - Jobs retain linkPairId, original copy ID, source/target SHAs, direction, run URL, cleanup and optional PR state. The journal shows operations from either side.
 - No force push, prune, deletion or silent merge of an existing target.
+- If GitHub answers 403 «Resource not accessible by integration» on `actions/secrets/public-key`, the GitHub App lacks Secrets:write or its installation on the source account has not accepted the updated permissions or does not include the repository.
 - Source permissions: Contents:write, Workflows:write, Secrets:write and Actions:write. Return PR additionally needs Pull requests:write on the destination. Branch rulesets can block temporary workflow commits.
 - The destination OAuth token is encrypted into a temporary GitHub Actions secret in the source repository. Worker removes it after completion. Secret deletion does not revoke OAuth credentials, so repository workflow writers must be trusted.
 - Temporary source workflows leave two technical commits in main even after cleanup.
