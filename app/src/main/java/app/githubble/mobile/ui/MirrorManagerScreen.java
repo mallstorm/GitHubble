@@ -26,7 +26,7 @@ import java.util.List;
 import java.util.concurrent.Executor;
 import java.util.function.Consumer;
 
-/** Compact OneShot transfer and journal UI. Configuration belongs to Settings. */
+/** Compact mirror transfer and journal UI. Configuration belongs to Settings. */
 public final class MirrorManagerScreen {
     private MirrorManagerScreen(){}
 
@@ -34,12 +34,21 @@ public final class MirrorManagerScreen {
             GitHubAccountStore store,String source,int card,int text,int muted,int accent,int border,
             Executor background,Runnable reload,Consumer<String> openUrl,Runnable openCloudSettings) {
 
+        MirrorLiveProgress.reset();
         LinearLayout intro=vertical(activity);
         eyebrow(activity,intro,"MIRROR MANAGER",accent);
         heading(activity,intro,"Зеркалирование репозиториев",text,19);
         subtitle(activity,intro,"Создай копию, обнови существующее зеркало или верни доработки "
                 +"обратно через Pull Request. Без Fork и загрузки исходников на телефон.",muted);
         wrap(activity,host,intro,card,border);
+
+        String runningOperation=operation;
+        if(runningOperation!=null){
+            LinearLayout busy=vertical(activity);
+            eyebrow(activity,busy,"ВЫПОЛНЯЕТСЯ",accent);
+            busy.addView(MirrorLiveProgress.panel(activity,null,operationSince,runningOperation+"…",text,muted,accent));
+            wrap(activity,host,busy,card,border);
+        }
 
         cloudStatus(activity,host,manager,card,text,muted,accent,border,
                 background,reload,openCloudSettings);
@@ -141,7 +150,7 @@ public final class MirrorManagerScreen {
                                 +"Существующий репозиторий назначения не изменяется.")
                         .setNegativeButton("Отмена",null)
                         .setPositiveButton("Копировать",(d,w)->run(activity,background,
-                                "OneShot",()->manager.start(source,srcAccount.id,dstAccount.id,repoName,false),reload))
+                                "Создание копии",()->manager.start(source,srcAccount.id,dstAccount.id,repoName,false),reload))
                         .show();
                 });
             }
@@ -208,6 +217,11 @@ public final class MirrorManagerScreen {
                     (obsolete?"Прежняя операция":status(job.state)),completed?accent:muted,12);
             state.setTypeface(null,Typeface.BOLD);
             record.addView(state);
+            if(MirrorManager.PREPARING.equals(job.state)||MirrorManager.DEST_CREATED.equals(job.state)
+                    ||MirrorManager.DISPATCHED.equals(job.state)||MirrorManager.RUNNING.equals(job.state)){
+                gap(activity,record,8);
+                record.addView(MirrorLiveProgress.panel(activity,job.id,job.createdAt,status(job.state),text,muted,accent));
+            }
             gap(activity,record,9);
             TextView from=body(activity,job.source,text,14);from.setTypeface(null,Typeface.BOLD);
             record.addView(from);
@@ -233,7 +247,7 @@ public final class MirrorManagerScreen {
             actions.setGravity(Gravity.CENTER_VERTICAL);
             Button verify=button(activity,completed?"Проверено":"Проверить",accent,card,border,false);
             verify.setEnabled(!obsolete);
-            verify.setOnClickListener(v->run(activity,background,"Проверка OneShot",
+            verify.setOnClickListener(v->run(activity,background,"Проверка копирования",
                     ()->manager.refresh(job.id),reload));
             LinearLayout.LayoutParams ap=new LinearLayout.LayoutParams(0,dp(activity,44),1);
             ap.setMargins(0,0,dp(activity,7),0);actions.addView(verify,ap);
@@ -273,6 +287,7 @@ public final class MirrorManagerScreen {
             }
             wrap(activity,host,record,card,border);
         }
+        MirrorLiveProgress.poll(activity,manager,reload);
         LinearLayout foot=vertical(activity);
         subtitle(activity,foot,"Связь работает в обе стороны независимо от активного аккаунта. "
                 +"Fast-forward обновляет существующее зеркало без force push. "
@@ -445,21 +460,25 @@ public final class MirrorManagerScreen {
     }
 
     private interface Task{MirrorManager.Job execute()throws Exception;}
+    private static volatile String operation;
+    private static volatile long operationSince;
+
+    /** Runs a mirror action in the background; progress is shown inline on the page, not in a dialog. */
     private static void run(Activity a,Executor background,String label,Task task,Runnable reload){
-        ProgressDialog dialog=ProgressDialog.show(a,label,"Связываемся с GitHub…",true,false);
+        operation=label;operationSince=System.currentTimeMillis();
+        reload.run();
         background.execute(()->{
-            try{
-                task.execute();
-                a.runOnUiThread(()->{if(a.isFinishing())return;dialog.dismiss();reload.run();});
-            }catch(Exception error){
-                a.runOnUiThread(()->{
-                    if(a.isFinishing())return;
-                    dialog.dismiss();reload.run();
-                    new AlertDialog.Builder(a).setTitle("OneShot")
-                            .setMessage(error.getMessage()==null?"Ошибка GitHub":error.getMessage())
-                            .setPositiveButton("OK",null).show();
-                });
-            }
+            String failure=null;
+            try{task.execute();}
+            catch(Exception error){failure=error.getMessage()==null?"Ошибка GitHub":error.getMessage();}
+            final String message=failure;
+            operation=null;
+            a.runOnUiThread(()->{
+                if(a.isFinishing()||!MirrorLiveProgress.attached())return;
+                reload.run();
+                if(message!=null)new AlertDialog.Builder(a).setTitle("Зеркалирование")
+                        .setMessage(message).setPositiveButton("OK",null).show();
+            });
         });
     }
     public static String status(String state){
