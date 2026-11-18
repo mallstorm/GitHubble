@@ -167,6 +167,21 @@ public final class MirrorManagerScreen {
         TextView count=body(activity,String.valueOf(jobs.size()),muted,12);
         count.setPadding(dp(activity,10),dp(activity,5),dp(activity,10),dp(activity,5));
         bordered(activity,count,card,border,12);
+        boolean anyFailed=false;
+        for(MirrorManager.Job j:jobs)
+            if(MirrorManager.FAILED.equals(j.state)||MirrorManager.DIVERGED.equals(j.state)||MirrorManager.UNKNOWN.equals(j.state))anyFailed=true;
+        if(anyFailed){
+            TextView clear=body(activity,"Очистить ошибки",accent,12);
+            clear.setPadding(dp(activity,4),dp(activity,5),dp(activity,12),dp(activity,5));
+            clear.setOnClickListener(v->new AlertDialog.Builder(activity)
+                    .setTitle("Убрать неудачные записи?")
+                    .setMessage("Будут удалены записи со статусами «Ошибка», «Требуется проверка» и «Различаются снимки». Репозитории на GitHub не затрагиваются.")
+                    .setNegativeButton("Отмена",null)
+                    .setPositiveButton("Убрать",(d2,w)->run(activity,background,"Очистка истории",
+                            ()->{manager.discardFailed();return null;},reload))
+                    .show());
+            historyHeader.addView(clear);
+        }
         historyHeader.addView(count);
         LinearLayout.LayoutParams hp=new LinearLayout.LayoutParams(-1,-2);
         hp.setMargins(dp(activity,2),dp(activity,15),dp(activity,2),dp(activity,10));
@@ -226,6 +241,23 @@ public final class MirrorManagerScreen {
             destination.setOnClickListener(v->openUrl.accept("https://github.com/"+job.destination));
             actions.addView(destination,new LinearLayout.LayoutParams(0,dp(activity,44),1));
             record.addView(actions);
+            boolean busy=MirrorManager.PREPARING.equals(job.state)||MirrorManager.DEST_CREATED.equals(job.state)
+                    ||MirrorManager.DISPATCHED.equals(job.state)||MirrorManager.RUNNING.equals(job.state);
+            if(!busy||obsolete){
+                Button discard=button(activity,"Удалить запись из истории",0xFFC75B66,card,border,false);
+                LinearLayout.LayoutParams dp0=new LinearLayout.LayoutParams(-1,dp(activity,44));
+                dp0.setMargins(0,dp(activity,8),0,0);
+                discard.setOnClickListener(v->new AlertDialog.Builder(activity)
+                        .setTitle("Удалить запись?")
+                        .setMessage("Запись о переносе "+job.source+" → "+job.destination
+                                +" исчезнет из истории. Репозитории на GitHub не затрагиваются; временные файлы переноса будут удалены, если они остались.")
+                        .setNegativeButton("Отмена",null)
+                        .setPositiveButton("Удалить",(d2,w)->run(activity,background,"Удаление записи",
+                                ()->{String note=manager.discard(job.id);
+                                    if(!note.isEmpty())throw new IllegalStateException(note);return null;},reload))
+                        .show());
+                record.addView(discard,dp0);
+            }
             if(!job.prUrl.isEmpty()){
                 Button pr=button(activity,"Открыть Pull Request ↗",accent,card,border,true);
                 LinearLayout.LayoutParams prParams=new LinearLayout.LayoutParams(-1,dp(activity,46));
