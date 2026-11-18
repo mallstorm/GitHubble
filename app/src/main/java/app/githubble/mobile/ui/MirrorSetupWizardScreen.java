@@ -30,7 +30,7 @@ public final class MirrorSetupWizardScreen {
         shape.setColor(card);shape.setCornerRadius(dp(activity,18));shape.setStroke(dp(activity,1),border);
         panel.setBackground(shape);
         host.addView(panel);
-        title(activity,panel,"Mirror Manager OneShot",20,text);
+        title(activity,panel,"Mirror Manager",20,text);
         info(activity,panel,"Разовая передача репозитория между любыми двумя подключёнными аккаунтами. "
                 +"Отдельный контроллер и ручной ввод Private Key / Client ID не нужны.",muted);
         title(activity,panel,"1. Подключённые аккаунты",16,text);
@@ -38,7 +38,7 @@ public final class MirrorSetupWizardScreen {
             info(activity,panel,"✓ "+a.displayName(),accent);
         }
         if(accounts.listAccounts().size()<2){
-            info(activity,panel,"Для OneShot подключите ещё один GitHub-аккаунт.",muted);
+            info(activity,panel,"Для зеркалирования подключите ещё один GitHub-аккаунт.",muted);
         }
         title(activity,panel,"2. Разрешения GitHub App",16,text);
         info(activity,panel,"GitHubble работает через OAuth каждого выбранного пользователя. "
@@ -52,7 +52,7 @@ public final class MirrorSetupWizardScreen {
                 ()->openUrl.accept("https://github.com/settings/installations"));
         action(activity,panel,"Разрешения GitHub Apps",accent,
                 ()->openUrl.accept("https://github.com/settings/apps"));
-        title(activity,panel,"3. OneShot перенос",16,text);
+        title(activity,panel,"3. Перенос",16,text);
         info(activity,panel,"Откройте Репозитории → исходный репозиторий → Mirror Manager. "
                 +"Выберите другой аккаунт и название. "
                 +"Приложение создаст пустой репозиторий назначения и временный workflow "

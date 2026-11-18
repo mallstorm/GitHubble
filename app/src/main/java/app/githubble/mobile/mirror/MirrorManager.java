@@ -132,7 +132,7 @@ public final class MirrorManager {
             job.updatedAt=System.currentTimeMillis();
             JSONArray arr=new JSONArray();for(Job j:jobs)arr.put(j.json());
             if(!prefs.edit().putString(KEY_JOBS,arr.toString()).commit())
-                throw new IllegalStateException("Не удалось сохранить OneShot journal");
+                throw new IllegalStateException("Не удалось сохранить журнал зеркалирования");
         }
     }
 
@@ -206,7 +206,7 @@ public final class MirrorManager {
     /** Removed: users no longer create shared controller repositories. */
     public String setupController(){
         throw new UnsupportedOperationException(
-                "Mirror Controller удалён из OneShot. Используйте Mirror Manager внутри репозитория.");
+                "Mirror Controller удалён. Используйте Mirror Manager внутри репозитория.");
     }
 
     public Job start(String sourceFull,String sourceAccountId,String targetAccountId,
@@ -220,7 +220,7 @@ public final class MirrorManager {
         String destination=MirrorPolicy.requireDifferent(sourceFull,targetAccount.login+"/"+targetName);
         for(Job old:list())if(old.destination.equalsIgnoreCase(destination)
                 &&!FORK.equals(old.mode))
-            throw new IllegalStateException("Это назначение уже есть в журнале OneShot");
+            throw new IllegalStateException("Это назначение уже есть в журнале зеркалирования");
 
         GitHubApiClient source=api(sourceAccount),target=api(targetAccount);
         JSONObject repo=source.getJsonFresh(API+sourceFull);
@@ -232,7 +232,7 @@ public final class MirrorManager {
         if(!baseline.matches("[0-9a-f]{40}"))throw new IllegalStateException("Нет исходного Git commit SHA");
         try{
             target.getJsonFresh(API+destination);
-            throw new IllegalStateException("Репозиторий назначения существует — OneShot не перезаписывает проекты");
+            throw new IllegalStateException("Репозиторий назначения существует — зеркалирование не перезаписывает проекты");
         }catch(GitHubApiClient.ApiException notFound){if(notFound.statusCode!=404)throw notFound;}
 
         Job job=new Job();
@@ -246,7 +246,7 @@ public final class MirrorManager {
         try{
             JSONObject created=target.postJson("https://api.github.com/user/repos",
                     new JSONObject().put("name",targetName).put("private",job.privateSource)
-                            .put("auto_init",false).put("description","OneShot independent copy of "+sourceFull),true);
+                            .put("auto_init",false).put("description","Independent copy of "+sourceFull),true);
             if(!destination.equalsIgnoreCase(created.optString("full_name",""))
                     ||created.optBoolean("fork",true)
                     ||created.optBoolean("private")!=job.privateSource)
@@ -442,7 +442,7 @@ public final class MirrorManager {
         Job previous=find(copyId);
         if(previous==null || !COPY.equals(previous.mode) || !VERIFIED.equals(previous.state)
                 || previous.cleanupPending)
-            throw new IllegalStateException("Обновление доступно только для проверенного OneShot зеркала");
+            throw new IllegalStateException("Обновление доступно только для проверенного зеркала");
         for(Job existing:list())
             if(SYNC.equals(existing.mode) && copyId.equals(existing.linkedCopyId)
                     && (PREPARING.equals(existing.state)||DISPATCHED.equals(existing.state)
@@ -483,7 +483,7 @@ public final class MirrorManager {
         Job previous=find(copyId);
         if(previous==null || !COPY.equals(previous.mode) || !VERIFIED.equals(previous.state)
                 ||previous.cleanupPending)
-            throw new IllegalStateException("Возврат доступен только для проверенного OneShot зеркала");
+            throw new IllegalStateException("Возврат доступен только для проверенного зеркала");
         for(Job existing:list())
             if(RETURN.equals(existing.mode) && copyId.equals(existing.linkedCopyId)
                     && (PREPARING.equals(existing.state)||DISPATCHED.equals(existing.state)
@@ -643,7 +643,7 @@ public final class MirrorManager {
                     .put("head",job.reviewBranch)
                     .put("base",job.destinationDefault)
                     .put("draft",true)
-                    .put("body","GitHubble OneShot: безопасный обратный перенос.\n\n"
+                    .put("body","GitHubble Mirror: безопасный обратный перенос.\n\n"
                             +"Источник: "+job.source+"\n"
                             +"Назначение: "+job.destination+"\n"
                             +"Snapshot: "+job.baselineSha+"\n\n"
@@ -676,7 +676,7 @@ public final class MirrorManager {
 
     /** Detect a completed run by opaque request ID, verify refs, then delete temporary credentials. */
     public Job refresh(String id)throws Exception{
-        Job job=find(id);if(job==null)throw new IllegalArgumentException("OneShot job не найден");
+        Job job=find(id);if(job==null)throw new IllegalArgumentException("Запись не найдена");
         if(FORK.equals(job.mode)||MANAGED.equals(job.mode))
             throw new IllegalStateException("Старый план: используется другая версия Mirror Manager");
         GitHubApiClient source=api(account(job.sourceAccountId));
@@ -751,6 +751,42 @@ public final class MirrorManager {
         return job;
     }
 
+    /** Live state for the UI: percent (-1 unknown), stage text, current GitHub Actions step. */
+    public JSONObject liveProgress(String id)throws Exception{
+        Job job=find(id);
+        JSONObject out=new JSONObject().put("percent",-1).put("stage","").put("terminal",false);
+        if(job==null)return out.put("terminal",true);
+        if(PREPARING.equals(job.state))return out.put("percent",8).put("stage","Проверяем доступ и создаём репозиторий");
+        if(DEST_CREATED.equals(job.state))return out.put("percent",18).put("stage","Репозиторий создан, готовим запуск");
+        if(DISPATCHED.equals(job.state))return out.put("percent",28).put("stage","Запуск отправлен, ждём GitHub Actions");
+        if(RUNNING.equals(job.state)){
+            out.put("percent",32).put("stage","Копирование в GitHub Actions");
+            if(job.runId>0){
+                try{
+                    JSONObject jobs=api(account(job.sourceAccountId))
+                            .getJsonFresh(API+job.source+"/actions/runs/"+job.runId+"/jobs");
+                    JSONArray list=jobs.optJSONArray("jobs");
+                    JSONArray steps=list==null||list.length()==0?null:list.getJSONObject(0).optJSONArray("steps");
+                    int total=0,done=0;String current="";
+                    for(int i=0;steps!=null&&i<steps.length();i++){
+                        JSONObject s=steps.optJSONObject(i);if(s==null)continue;
+                        total++;
+                        if("completed".equals(s.optString("status")))done++;
+                        else if(current.isEmpty()&&"in_progress".equals(s.optString("status")))current=s.optString("name");
+                    }
+                    if(total>0){
+                        out.put("percent",30+(int)(60.0*done/total));
+                        out.put("step_label","шаг "+Math.min(total,done+1)+" из "+total+(current.isEmpty()?"":": "+current));
+                    }
+                }catch(Exception ignored){}
+            }
+            return out;
+        }
+        if(CLEANUP_PENDING.equals(job.state))return out.put("percent",95).put("stage","Завершаем очистку");
+        return out.put("percent",VERIFIED.equals(job.state)||PR_READY.equals(job.state)?100:-1)
+                .put("stage",VERIFIED.equals(job.state)?"Готово":"").put("terminal",true);
+    }
+
     /** Removes a history record. Temporary workflow/secret is cleaned best-effort first; a record of a running copy is kept. */
     public String discard(String id)throws Exception{
         Job job=find(id);
@@ -771,7 +807,7 @@ public final class MirrorManager {
             JSONArray arr=new JSONArray();
             for(Job j:list())if(!j.id.equals(id))arr.put(j.json());
             if(!prefs.edit().putString(KEY_JOBS,arr.toString()).commit())
-                throw new IllegalStateException("Не удалось сохранить OneShot journal");
+                throw new IllegalStateException("Не удалось сохранить журнал зеркалирования");
         }
         return note;
     }
