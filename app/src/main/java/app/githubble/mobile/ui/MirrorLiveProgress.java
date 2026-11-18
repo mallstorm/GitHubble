@@ -118,8 +118,8 @@ final class MirrorLiveProgress {
                         if (tick % 4 == 0 && e.jobId != null) {
                             try {
                                 MirrorManager.Job j = manager.find(e.jobId);
-                                if (j != null && (MirrorManager.DISPATCHED.equals(j.state)
-                                        || MirrorManager.RUNNING.equals(j.state))) manager.refresh(e.jobId);
+                                if (j != null && !MirrorManager.FAILED.equals(j.state)
+                                        && !MirrorManager.VERIFIED.equals(j.state)) manager.refresh(e.jobId);
                                 p = manager.liveProgress(e.jobId);
                             } catch (Exception ignored) {}
                         }

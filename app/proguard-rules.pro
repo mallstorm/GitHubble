@@ -11,3 +11,11 @@
 # These rules intentionally mirror the pinned AAR consumer rules.
 -keep class go.** { *; }
 -keep class libXray.** { *; }
+
+# Mirror Manager encrypts GitHub Actions secrets with libsodium through JNA (JNI + reflection);
+# without these rules the minified release build fails to load them at runtime.
+-keep class com.sun.jna.** { *; }
+-keepclassmembers class * extends com.sun.jna.** { public *; }
+-keep class com.goterl.lazysodium.** { *; }
+-dontwarn java.awt.**
+-dontwarn com.sun.jna.**

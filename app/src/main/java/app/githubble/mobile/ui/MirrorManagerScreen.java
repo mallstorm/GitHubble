@@ -470,7 +470,7 @@ public final class MirrorManagerScreen {
         background.execute(()->{
             String failure=null;
             try{task.execute();}
-            catch(Exception error){failure=error.getMessage()==null?"Ошибка GitHub":error.getMessage();}
+            catch(Throwable error){failure=error.getMessage()==null?"Ошибка: "+error:error.getMessage();}
             final String message=failure;
             operation=null;
             a.runOnUiThread(()->{

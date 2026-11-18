@@ -255,7 +255,9 @@ public final class MirrorManager {
 
             stageAndDispatch(source,job,targetAccountId);
             return job;
-        }catch(Exception error){
+        }catch(Throwable thrown){
+            Exception error=thrown instanceof Exception?(Exception)thrown
+                    :new IllegalStateException("Внутренний сбой: "+thrown,thrown);
             job.error=safeError(error);
             job.state=error instanceof GitHubApiClient.MutationOutcomeUnknownException?UNKNOWN:FAILED;
             if(!UNKNOWN.equals(job.state)){
@@ -680,6 +682,15 @@ public final class MirrorManager {
         if(FORK.equals(job.mode)||MANAGED.equals(job.mode))
             throw new IllegalStateException("Старый план: используется другая версия Mirror Manager");
         GitHubApiClient source=api(account(job.sourceAccountId));
+        if((PREPARING.equals(job.state)||DEST_CREATED.equals(job.state))
+                &&System.currentTimeMillis()-job.updatedAt>5L*60*1000){
+            // The process that was preparing this copy is gone (app closed, crash): nothing will ever move this record on.
+            job.state=FAILED;
+            job.error="Подготовка прервана до запуска workflow (приложение закрыто или произошёл сбой). Удалите запись и повторите.";
+            try{cleanup(source,job);}catch(Exception e){job.cleanupPending=true;}
+            save(job);
+            return job;
+        }
         if(job.cleanupPending && !RUNNING.equals(job.state)
                 && !DISPATCHED.equals(job.state)&&!UNKNOWN.equals(job.state)){
             try{cleanup(source,job);}
