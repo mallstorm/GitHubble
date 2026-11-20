@@ -1691,7 +1691,13 @@ public class MainActivity extends Activity {
                         .setMessage(login.getDetail()+"\n\nОткройте браузер и подтвердите вход. Ключ API не требуется.")
                         .setPositiveButton("Открыть браузер",null).setNegativeButton("Отмена",null).create();
                     dialog.setOnDismissListener(d->{cancelled.set(true);subscriptionAttempts.remove(owner,cancelled);login.cancel();java.util.concurrent.Future<?> f=waiting.get();if(f!=null)f.cancel(true);});
-                    dialog.setOnShowListener(d->dialog.getButton(-1).setOnClickListener(v->{if(subscriptionAttemptCurrent(owner,cancelled))openWeb(login.getUrl());}));dialog.show();
+                    dialog.setOnShowListener(d->dialog.getButton(-1).setOnClickListener(v->{if(!subscriptionAttemptCurrent(owner,cancelled))return;
+                        java.util.regex.Matcher code=java.util.regex.Pattern.compile("Код [^:]*: (\\S+)").matcher(login.getDetail());
+                        if(code.find()){
+                            android.content.ClipboardManager clip=(android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE);
+                            if(clip!=null){clip.setPrimaryClip(android.content.ClipData.newPlainText("code",code.group(1)));toast("Код скопирован: "+code.group(1));}
+                        }
+                        openWeb(login.getUrl());}));dialog.show();
                     waiting.set(io.submit(()->{
                         try{
                             JSONObject session=app.githubble.mobile.network.NativeSubscriptionRuntime.await(login);session.put("owner",owner);

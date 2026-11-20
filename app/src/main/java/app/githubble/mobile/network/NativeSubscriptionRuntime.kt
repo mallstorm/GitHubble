@@ -28,7 +28,7 @@ object NativeSubscriptionRuntime {
                 val host=prefs.getString(owner,"").orEmpty().ifBlank{"urn:uuid:"+UUID.randomUUID().also{prefs.edit().putString(owner,"urn:uuid:$it").apply()}}
                 ChatGptPlanClient().beginLogin(host).let{Login(p,it.authUrl,"ChatGPT OAuth · без Codex CLI",it)}
             }
-            COPILOT->GitHubCopilotClient().beginLogin().let{Login(p,it.verificationUri,"Код GitHub: ${it.userCode}",it)}
+            COPILOT->GitHubCopilotClient().beginLogin().let{Login(p,it.verificationUri+"?user_code="+java.net.URLEncoder.encode(it.userCode,"UTF-8"),"Код GitHub: ${it.userCode}",it)}
             "claude-subscription"->SubscriptionProxyClaudeClient().beginLogin().let{Login(p,it.authUrl,"Claude OAuth",it)}
             "grok-subscription"->SubscriptionProxyGrokClient().beginDeviceLogin().let{Login(p,it.verificationUriComplete.ifBlank{it.verificationUri},"Код xAI/Grok: ${it.userCode}",it)}
             else->error("Нет OAuth-клиента")
