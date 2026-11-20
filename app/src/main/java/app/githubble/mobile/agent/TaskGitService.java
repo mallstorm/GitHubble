@@ -31,7 +31,7 @@ public final class TaskGitService {
             if(publication!=null&&"CONFIRMED".equals(publication.optString("state"))&&binding.repository.equals(publication.optString("repository")))
                 sha=publication.getString("commitSha");
             if(sha.isEmpty()){
-                sha=GitHubWorkspaceSource.head(api,binding.repository,projectState.optString("baseBranch","main"));final String pinned=sha;
+                sha=GitHubWorkspaceSource.head(api,binding.repository,taskState.optString("adoptedBranch").isEmpty()?projectState.optString("baseBranch","main"):taskState.optString("adoptedBranch"));final String pinned=sha;
                 projects.tasks.update(account,task,t->{AgentController.put(t,"sourceCommitSha",pinned);AgentController.put(t,"sourceRepository",binding.repository);});
             }
             GitHubWorkspaceSource remote=new GitHubWorkspaceSource(api,binding.repository,sha);
@@ -64,7 +64,7 @@ public final class TaskGitService {
             files.put(new JSONObject().put("path",path).put("kind",entry.isNull("after")?"DELETE":entry.getString("beforeSha").equals("missing")?"ADD":"MODIFY"));}
         JSONObject state=projects.tasks.get(account,task);
         return new JSONObject().put("files",files).put("count",files.length()).put("sensitive",sensitive).put("fingerprint",changes.fingerprint(source))
-            .put("branch",TaskBranch.name(state.optString("title","task"),task)).put("repository",projects.registry.get(account,project).optString("repository"));
+            .put("branch",state.optString("adoptedBranch").isEmpty()?TaskBranch.name(state.optString("title","task"),task):state.optString("adoptedBranch")).put("repository",projects.registry.get(account,project).optString("repository"));
     }
     public JSONObject publishApproved(JSONObject preview,String message)throws Exception {
         guard.run();if(api==null)throw new SecurityException("GitHub не разрешён");
@@ -72,7 +72,10 @@ public final class TaskGitService {
         if(preview.getInt("count")==0)throw new IllegalArgumentException("Нет подтверждённой дельты; весь Workspace не публикуется");
         JSONObject projectState=projects.registry.get(account,project),taskState=projects.tasks.get(account,task);
         String repo=projectState.getString("repository");JSONObject branchRecord=taskState.optJSONObject("taskBranch");if(branchRecord==null)branchRecord=new JSONObject();
-        String branch=TaskBranch.ensure(api,repo,projectState.optString("baseBranch","main"),taskState.optString("title","task"),task,branchRecord,
+        String adopted=taskState.optString("adoptedBranch");
+        final String branch;
+        if(!adopted.isEmpty()&&repo.equals(taskState.optString("adoptedRepository"))){GitHubWorkspaceSource.head(api,repo,adopted);branch=adopted;}
+        else branch=TaskBranch.ensure(api,repo,projectState.optString("baseBranch","main"),taskState.optString("title","task"),task,branchRecord,
             value->projects.tasks.update(account,task,t->AgentController.put(t,"taskBranch",UnifiedAgentStore.copy(value))));
         projects.tasks.update(account,task,t->AgentController.put(t,"workingBranch",branch));
         String expected=GitHubWorkspaceSource.head(api,repo,branch);JSONArray delta=changes.delta(source);

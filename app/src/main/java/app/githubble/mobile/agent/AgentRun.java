@@ -336,6 +336,12 @@ public final class AgentRun {
         return "Чтение файла GitHub";
       case "repository_branches":
         return "Ветки репозитория";
+      case "recent_branches":
+        return "Свежие ветки";
+      case "active_branch":
+        return "Активная ветка";
+      case "set_active_branch":
+        return "Переключение ветки";
       case "repository_issues":
         return "Задачи репозитория";
       case "repository_pulls":

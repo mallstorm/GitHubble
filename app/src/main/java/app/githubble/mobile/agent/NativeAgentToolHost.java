@@ -80,16 +80,14 @@ public final class NativeAgentToolHost implements ProjectRuntime.ToolHost {
         String result=planning?"PLANNING MODE: discuss, inspect and plan. ALL mutations are forbidden.":
             "AGENT MODE: reason and discuss normally; execute only actions requested by the user.";
         if(AgentPermissionPolicy.mayWrite(permission.getAsInt(),planning)){
-            result+="\nPROJECT: create_workspace {name,instructions} (empty local project; no GitHub needed).";
-            if(filesEnabled&&!workspaceId.isEmpty()){
-                result+="\nLOCAL WRITE: write_files {summary,files:[{path,content}]} (1–12 complete UTF-8 files, 80 KiB/file, 240 KiB total; checkpoint and stale-file checks).";
-                result+="\nWORKSPACE LIFECYCLE: detach_workspace {} removes the current chat binding; delete_workspace {mode:\"local\"|\"full\"} deletes only the attached LOCAL Workspace. Full also purges its memory. Both deletions detach all conversations, preserve their history and NEVER touch GitHub or external SAF files. Every lifecycle action requires explicit user confirmation.";
-            }
+            result+="\nWORKSPACE: there is NO local workspace. All source lives in GitHub: read files with list_files/read_file/search_files, edit with write_files/replace_text/apply_patch, then publish_workspace {commit_message} pushes the confirmed delta to the bound repository/branch (a new project starts with create_repository, then you plan and create files). When the user says to upload/update everything, publish_workspace to the bound repository.";
+            if(filesEnabled||githubEnabled)result+="\nLOCAL WRITE: write_files {summary,files:[{path,content}]} (1–12 complete UTF-8 files, 80 KiB/file, 240 KiB total; stale-file checks).";
             if(githubEnabled){
-                result+="\nGITHUB WRITE: "+GitHubAgentOperations.WRITE_CATALOG+" attach_repository {repository,branch}, import_repository {repository,branch} (safe commit-pinned zipball snapshot; partial/skipped files are reported).";
+                result+="\nGITHUB WRITE: "+GitHubAgentOperations.WRITE_CATALOG+" attach_repository {repository,branch} binds the chat to a repository (no download).";
                 result+=" publish_workspace {commit_message} (only linked repository/branch; only the confirmed task delta, never the full Workspace).";
             }
         }
+        if(githubEnabled)result+="\nBRANCHES: recent_branches {repository?,limit?:1-5} returns the newest worked branches with created/updated dates and what changed last; ALWAYS show each as the markdown link from its 'link' field (tap = that branch becomes the active working branch). active_branch {} says which repository/branch is active now. set_active_branch {repository?,branch} switches the working branch. Every repository of the connected GitHub account is visible: list_repositories, github_accounts.";
         if(githubEnabled&&!repository.isEmpty())result+="\nCI: build {workflow_id?} finds an exact SHA run or dispatches once, ci_failure {run_id,include_logs:false} returns durable retry policy; include_logs:true needs separate user consent. ci_status {} reads durable state. verify_task_result {run_id?,artifact_id?,pull_number?} is mandatory before delivery claims. WAIT_EXTERNAL/FAIL forbid source edits; FIX_SOURCE requires a new published SHA before rebuilding. Never claim completion from model text.\nBUILD WAIT: await_build {run_id,timeout_s<=60} polls ONE Actions run of the linked repository; "+
             "on failure it classifies the error and returns the host's retry decision (FIX_SOURCE | RETRY_AFTER | WAIT_EXTERNAL | FAIL). "+
             "Obey the decision: environment/permission/billing failures are never fixed by editing code, and dispatch_workflow is refused once the build budget is spent. "+
@@ -118,6 +116,11 @@ public final class NativeAgentToolHost implements ProjectRuntime.ToolHost {
     }
     public boolean handles(String name){
         if("load_skill".equals(name)||"ask_user".equals(name))return true;
+        if("recent_branches".equals(name)||"active_branch".equals(name))return githubEnabled;
+        if("set_active_branch".equals(name))return githubEnabled&&!writeDenied&&!planning;
+        // Local scratch scaffold only before a repository is bound; lifecycle/import of local copies is gone.
+        if("create_workspace".equals(name))return repository.isEmpty()&&workspaceId.isEmpty()&&!writeDenied&&AgentPermissionPolicy.mayWrite(permission.getAsInt(),planning);
+        if("detach_workspace".equals(name)||"delete_workspace".equals(name)||"import_repository".equals(name))return false;
         if("record_decision".equals(name)||"propose_skill".equals(name))return !writeDenied&&AgentPermissionPolicy.mayWrite(permission.getAsInt(),planning);
         boolean taskSource=(filesEnabled&&!workspaceId.isEmpty())||(githubEnabled&&!repository.isEmpty());
         if(java.util.Arrays.asList("build","ci_failure","ci_status","verify_task_result","await_build").contains(name))return githubEnabled&&!repository.isEmpty()&&( !name.equals("build") || !writeDenied&&AgentPermissionPolicy.mayWrite(permission.getAsInt(),planning));
@@ -267,6 +270,17 @@ public final class NativeAgentToolHost implements ProjectRuntime.ToolHost {
         if(!handles(name))throw new SecurityException("Операция недоступна в текущем режиме");
         if(arguments.toString().length()>300000)throw new IllegalArgumentException("Аргументы превышают лимит");
         JSONObject a=new JSONObject(arguments.toString());
+        if("recent_branches".equals(name)||"active_branch".equals(name)||"set_active_branch".equals(name)){
+            String repo=a.optString("repository",repository);
+            GitDataApi data=github.taskData(account,guard);
+            if("active_branch".equals(name))return BranchHistory.active(projects,account,thread).toString();
+            if(repo.isEmpty())throw new IllegalArgumentException("Укажите репозиторий (repository: owner/repo)");
+            if("recent_branches".equals(name))return BranchHistory.recent(data,repo,a.optInt("limit",2)).toString();
+            JSONObject done=BranchHistory.adopt(data,projects,account,thread,repo,a.getString("branch"));
+            repository=repo;branch=a.getString("branch");taskService=null;taskTools=null;
+            event("✓ Активная ветка · "+repo+"@"+branch,null);
+            return done.toString();
+        }
         String colleague=colleagueTool(name,a);
         if(colleague!=null)return colleague;
         if(skillCeiling!=null&&isMutation(name)&&!skillCeiling.contains(name))

@@ -75,7 +75,32 @@ public final class OmniChatChatClient {
     /** Endpoint and protocol are resolved from the existing provider configuration before selection. */
     public ModelTransport agentTransport(String owner,String provider,String model,String credential,
             AgentExecutionEngine.Completion compatible,java.util.function.Consumer<Usage> usageObserver) {
-        if(!"openai".equals(provider)||model==null)return new EnvelopeTransport(compatible);
+        ModelTransport official=officialOpenAiTransport(owner,provider,model,credential,compatible,usageObserver);
+        if(official!=null)return official;
+        EnvelopeTransport envelope=new EnvelopeTransport(compatible);
+        if(nativeRuntime==null||model==null||model.isEmpty()||!nativeRuntime.handles(provider))return envelope;
+        final String wire=nativeRuntime.toolWire(provider,model,credential,owner);
+        if(wire==null)return envelope;
+        final NativeToolTransport.Protocol protocol=
+            "openai-responses".equals(wire)?NativeToolTransport.Protocol.RESPONSES:
+            "anthropic".equals(wire)?NativeToolTransport.Protocol.ANTHROPIC_MESSAGES:
+            "gemini".equals(wire)?NativeToolTransport.Protocol.GEMINI:NativeToolTransport.Protocol.CHAT_COMPLETIONS;
+        final String key=nativeRuntime.toolKey(provider,model,credential,owner,wire);
+        ModelTransport raw=new NativeToolTransport(protocol,model,
+            request->nativeRuntime.postToolJson(provider,model,credential,owner,wire,request));
+        ModelTransport counted=(instructions,tools,history)->{
+            ModelTransport.Turn turn=raw.complete(instructions,tools,history);
+            if(usageObserver!=null&&(turn.inputTokens>0||turn.outputTokens>0))usageObserver.accept(new Usage(turn.inputTokens,turn.outputTokens,true));
+            return turn;
+        };
+        return new AdaptiveToolTransport(counted,envelope,new AdaptiveToolTransport.Cache(){
+            public Boolean get(String k){return nativeRuntime.toolCapability(k);}
+            public void put(String k,boolean supported){nativeRuntime.setToolCapability(k,supported);}
+        },key);
+    }
+    private ModelTransport officialOpenAiTransport(String owner,String provider,String model,String credential,
+            AgentExecutionEngine.Completion compatible,java.util.function.Consumer<Usage> usageObserver) {
+        if(!"openai".equals(provider)||model==null)return null;
         String base="https://api.openai.com/v1",wire="openai-responses";
         if(nativeRuntime!=null&&nativeRuntime.handles(provider)){
             app.githubble.mobile.data.ProviderEntity entity=nativeRuntime.entity(provider,model,credential,owner).getFirst();
@@ -83,14 +108,14 @@ public final class OmniChatChatClient {
         }
         // Never send a custom endpoint's credential to the official API or infer capabilities from its brand.
         if(!"https://api.openai.com/v1".equals(base)||!model.matches("(?:gpt-4o|gpt-4\\.1|gpt-5|o3|o4-mini)(?:$|[-.].*)"))
-            return new EnvelopeTransport(compatible);
+            return null;
         final NativeToolTransport.Protocol protocol;
         if("openai-responses".equals(wire))protocol=NativeToolTransport.Protocol.RESPONSES;
         else if("openai-chat".equals(wire))protocol=NativeToolTransport.Protocol.CHAT_COMPLETIONS;
-        else return new EnvelopeTransport(compatible);
+        else return null;
         final String target=base+(protocol==NativeToolTransport.Protocol.RESPONSES?"/responses":"/chat/completions");
         TransportCapabilities capabilities=new TransportCapabilities();capabilities.confirmed(target,model,protocol,true);
-        if(!capabilities.supports(target,model,protocol))return new EnvelopeTransport(compatible);
+        if(!capabilities.supports(target,model,protocol))return null;
         ModelTransport nativeTools=new NativeToolTransport(protocol,model,body -> {
             if(credential==null||credential.isBlank())throw new IllegalStateException("Нет API-ключа");
             byte[] bytes=body.toString().getBytes(StandardCharsets.UTF_8);

@@ -135,7 +135,7 @@ public final class EndpointDirectory {
         put("ray-serve", "http://127.0.0.1:8000/v1");
         put("triton-openai", "http://127.0.0.1:9000/v1");
         put("proxy-external", "http://127.0.0.1:8787/v1");
-        put("proxy-nvidia", "https://integrate.api.nvidia.com/v1");
+        put("github-models", "https://models.github.ai/inference");
 
         // ---- personal addresses: only a hint, the user supplies the real one
         hint("azure", "https://<ресурс>.openai.azure.com/openai/v1");
