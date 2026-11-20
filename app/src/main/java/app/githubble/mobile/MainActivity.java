@@ -1983,16 +1983,27 @@ public class MainActivity extends Activity {
                 dialog[0].dismiss();if(!owner.equals(accountStore.activeCacheKey()))return;
                 switch(action){case 0:agentPhotoTool(owner,false);break;case 1:agentPhotoTool(owner,true);break;case 2:agentGenerateImage(owner);break;case 3:agentShowWebSearch(owner);break;case 4:agentShowPlugins(owner);break;}
             });}
-        ui.section(body,"Инструменты GitHubble");
-        String[] tools={"Создать или изменить код","Импорт GitHub → Workspace","Привязать репозиторий","GitHub Actions","APK и артефакты","Проекты","AI-подключения","Все инструменты"};
+        ui.section(body,"GitHub и ветки");
+        ui.note(body,"Агент видит все репозитории подключённого аккаунта и работает только с GitHub — без локального Workspace.");
+        final String[] tools={"Свежие ветки","Какая ветка активна","Создать репозиторий","Привязать репозиторий","Залить всё в репозиторий",
+            "Создать или изменить код","GitHub Actions","APK и артефакты","Проекты и чаты","Подключения и подписки","Все инструменты"};
+        final String[] hints={"Две последние ветки с датами и тем, что менялось; нажмите ветку — она станет рабочей","Репозиторий и ветка, в которой агент сейчас работает",
+            "Агент начнёт проект с нового репозитория","Выбрать существующий репозиторий и ветку","Опубликовать подтверждённые изменения в привязанный репозиторий","Предпросмотр файлов и подтверждение коммита","","","","OAuth в один тап и API-ключи",""};
         for(int i=0;i<tools.length;i++){final int action=i;
-            ui.action(body,tools[i],i==0?"Предпросмотр файлов и подтверждение коммита":"",0xFF435B69,()->{
+            ui.action(body,tools[i],hints[i],0xFF435B69,()->{
                 dialog[0].dismiss();if(!owner.equals(accountStore.activeCacheKey()))return;
-                switch(action){case 0:agentGenerateProjectCode(owner,"");break;
-                    case 1:agentImportRepositoryToWorkspace(owner,"");break;
-                    case 2:agentAttachRepository(owner);break;case 3:agentChooseWorkflow(owner);break;
-                    case 4:agentShowBuildArtifacts(owner);break;case 5:agentShowConversations(owner);break;
-                    case 6:navigate(this::showSettingsGitAgentWorkspace);break;default:agentShowChatTools(owner);}
+                switch(action){
+                    case 0:agentSend(owner,"Покажи самые свежие ветки в репозитории: даты создания и обновления и что менялось последним. Каждая ветка должна быть кликабельной.",false);break;
+                    case 1:agentSend(owner,"Какая ветка сейчас активна?",false);break;
+                    case 2:agentCreateRepository(owner,"",true);break;
+                    case 3:agentAttachRepository(owner);break;
+                    case 4:agentSend(owner,"Залей всё в репозиторий и обнови его.",false);break;
+                    case 5:agentGenerateProjectCode(owner,"");break;
+                    case 6:agentChooseWorkflow(owner);break;
+                    case 7:agentShowBuildArtifacts(owner);break;
+                    case 8:agentShowConversations(owner);break;
+                    case 9:navigate(()->agentShowConnections(owner));break;
+                    default:agentShowChatTools(owner);}
             });}
         dialog[0]=ui.present(body,true);
     }
@@ -2011,8 +2022,6 @@ public class MainActivity extends Activity {
                         "▶  GitHub Actions",
                         "↓  APK / артефакты",
                         "⚑  Диагностика CI → исправление",
-                        "▣  Workspace — локальные проекты",
-                        "↓  Импорт GitHub в Workspace",
                         "≋  Изменения задачи: diff и откат"
                 }, (d, index) -> {
                     switch (index) {
@@ -2039,9 +2048,7 @@ public class MainActivity extends Activity {
                         case 6: agentChooseWorkflow(owner); break;
                         case 7: agentShowBuildArtifacts(owner); break;
                         case 8: agentDiagnoseBuild(owner); break;
-                        case 9: agentFeatures(owner).workspace(); break;
-                        case 10: agentImportRepositoryToWorkspace(owner,""); break;
-                        case 11: agentTaskChanges(owner,agentProjects.activeConversation(owner),false);break;
+                        case 9: agentTaskChanges(owner,agentProjects.activeConversation(owner),false);break;
                     }
                 }).setNegativeButton("Закрыть", null).show();
     }
@@ -2338,6 +2345,15 @@ public class MainActivity extends Activity {
                         app.githubble.mobile.agent.ModelTransport transport=aiChatClient.agentTransport(expected,provider,model,credential,completion,usage->aiUsage.record(expected,provider,model,usage));
                         response=agentController.execute(expected,activeChat,message,context,transport,tools,
                             allowGithub,allowFiles,scopeGuard,run).answer;
+                        if(prefs.getBoolean("ai_subagent_"+expected,false)&&response!=null&&!response.trim().isEmpty()){
+                            scopeGuard.run();
+                            response=app.githubble.mobile.agent.SubagentReview.orchestrate(prompt->{
+                                scopeGuard.run();
+                                String reply=aiChatClient.completeForAccount(expected,provider,model,credential,
+                                    new JSONArray().put(new JSONObject().put("role","user").put("body",prompt)),"Hubble agent and reviewer subagent","");
+                                aiUsage.record(expected,provider,model,OmniChatChatClient.takeUsage());return reply;
+                            },message,context,response,2);
+                        }
                     }else if(imageUri!=null){
                         scopeGuard.run();
                         String mime=getContentResolver().getType(imageUri);
@@ -8405,6 +8421,9 @@ public class MainActivity extends Activity {
         sections.add(workspace);
 
         SettingsScreen.Section rights=new SettingsScreen.Section("Что разрешено модели");
+        rights.add(SettingsScreen.Item.toggle(R.drawable.ic_agent_extension,"Режим субагента",
+                "Второй агент проверяет ответ основного, при ошибке они исправляют её вместе. Выключено по умолчанию",
+                "субагент агент проверка оркестрация ревью",settingsPreferenceToggle("ai_subagent_"+owner,false)));
         rights.add(SettingsScreen.Item.toggle(R.drawable.ic_lock,"Блокировка приложения",
                 "PIN, ключ, пароль или отпечаток Android при запуске и через 30 секунд в фоне. Нужен экранный замок системы",
                 "блокировка pin пароль биометрия отпечаток безопасность",appLockToggle()));
