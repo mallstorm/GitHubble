@@ -16,7 +16,7 @@ class NativeProviderRuntime(context:Context,private val store:OmniChatConnection
     private val app=context.applicationContext
     private val gateway=ApiGateway(app)
     // Scoped to this runtime; do not alter the user's explicit provider settings.
-    private val chatFallbackCache=java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val protocolCache=app.getSharedPreferences("provider_protocol_cache",Context.MODE_PRIVATE)
     fun handles(p:String):Boolean=NativeSubscriptionRuntime.supports(p)||NativeProviderCatalog.names().containsKey(p)
     private fun provider(p:String,model:String,raw:String,owner:String,instructions:String):Pair<ProviderEntity,String>{
         var type=p;var key=raw;var scope="";var protocol=ApiGateway.CHAT;var base=""
@@ -61,9 +61,9 @@ class NativeProviderRuntime(context:Context,private val store:OmniChatConnection
         suspend fun attempt(session:String):String{
             val (entity,key)=provider(p,model,session,owner,instructions)
             val cacheKey=listOf(owner,p,model,entity.baseUrl).joinToString("|")
-            val active=if(entity.protocol==ApiGateway.RESPONSES &&
-                !NativeSubscriptionRuntime.supports(p) && chatFallbackCache.contains(cacheKey))
-                entity.copy(protocol=ApiGateway.CHAT) else entity
+            val eligible=!NativeSubscriptionRuntime.supports(p)&&ProtocolResolver.eligible(entity.providerType,entity.baseUrl)
+            val remembered=if(eligible)protocolCache.getString(cacheKey,null) else null
+            val active=if(remembered!=null&&remembered!=entity.protocol)entity.copy(protocol=remembered) else entity
             val text: suspend (String)->Unit={value->onText?.accept(value)}
             val usage: suspend (UsageSnapshot)->Unit={u->
                 inputTokens=(u.inputTokens?:0).toLong()
@@ -73,13 +73,20 @@ class NativeProviderRuntime(context:Context,private val store:OmniChatConnection
             return try{
                 gateway.stream(active,key,turns,text,usage)
             }catch(error:ApiFailure){
-                if(!OpenAiCompatibleFallback.shouldRetryAsChat(
-                        active.protocol,active.providerType,active.baseUrl,error))throw error
-                // The first response failed before producing content. Retry once, never
-                // rewrite OAuth/subscription endpoints or suppress a Chat API error.
-                val response=gateway.stream(active.copy(protocol=ApiGateway.CHAT),key,turns,text,usage)
-                chatFallbackCache.add(cacheKey)
-                response
+                if(!eligible||!ProtocolResolver.mismatch(error))throw error
+                // The upstream rejected the wire format before producing content: try the other formats.
+                var last:ApiFailure=error
+                for(candidate in ProtocolResolver.candidates(active.protocol)){
+                    try{
+                        val result=gateway.stream(active.copy(protocol=candidate),key,turns,text,usage)
+                        protocolCache.edit().putString(cacheKey,candidate).apply()
+                        return result
+                    }catch(next:ApiFailure){
+                        if(!ProtocolResolver.mismatch(next))throw next
+                        last=next
+                    }
+                }
+                throw last
             }
         }
         try{attempt(raw)}catch(e:ApiFailure){
