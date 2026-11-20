@@ -108,19 +108,37 @@ class GitHubCopilotClient {
             if (!r.isSuccessful) throw ApiFailure("Каталог Copilot: HTTP ${r.code}", r.code)
             JSONObject(raw)
         }
-        val data = json.optJSONArray("data") ?: throw ApiFailure("Copilot не вернул каталог моделей")
-        val ids = linkedSetOf<String>()
+        val data = json.optJSONArray("data") ?: json.optJSONArray("models")
+            ?: throw ApiFailure("Copilot не вернул каталог моделей: " + json.toString().take(200))
+        // Free and Pro plans differ in what is enabled; keep every chat model the account may use,
+        // best (shown in the picker and enabled by policy) first.
+        val preferred = linkedSetOf<String>()
+        val allowed = linkedSetOf<String>()
+        val any = linkedSetOf<String>()
+        val sample = StringBuilder()
         for (i in 0 until data.length()) {
             val item = data.optJSONObject(i) ?: continue
             val id = item.optString("id")
             if (id.isBlank() || id.length > 160) continue
-            if (item.has("model_picker_enabled") && !item.optBoolean("model_picker_enabled", true)) continue
+            if (sample.length < 400) sample.append(id).append(" [picker=").append(item.opt("model_picker_enabled"))
+                .append(", policy=").append(item.optJSONObject("policy")?.optString("state"))
+                .append(", type=").append(item.optJSONObject("capabilities")?.optString("type")).append("]; ")
             val type = item.optJSONObject("capabilities")?.optString("type").orEmpty()
             if (type.isNotEmpty() && type != "chat") continue
-            ids.add(id)
+            val endpoints = item.optJSONArray("supported_endpoints")
+            if (endpoints != null && endpoints.length() > 0 &&
+                (0 until endpoints.length()).none { endpoints.optString(it).endsWith("/chat/completions") }) continue
+            val policy = item.optJSONObject("policy")?.optString("state").orEmpty()
+            any.add(id)
+            if (policy == "disabled") continue
+            allowed.add(id)
+            if (policy != "unconfigured" && item.optBoolean("model_picker_enabled", true)) preferred.add(id)
         }
-        require(ids.isNotEmpty()) { "Каталог Copilot пуст: проверьте подписку и политику организации" }
-        ids.toList()
+        val ids = (preferred.ifEmpty { allowed.ifEmpty { any } }).toList()
+        require(ids.isNotEmpty()) {
+            "Каталог Copilot: получено " + data.length() + " записей, подходящих нет. " + sample.toString().take(400)
+        }
+        ids
     }
 
     private fun requestJson(request: Request, label: String): JSONObject =
@@ -147,6 +165,7 @@ class GitHubCopilotClient {
             .header("Copilot-Integration-Id", "vscode-chat")
             .header("openai-intent", "conversation-panel")
             .header("X-Initiator", "user")
+            .header("X-GitHub-Api-Version", "2025-05-01")
             .header("User-Agent", USER_AGENT)
     }
 }
