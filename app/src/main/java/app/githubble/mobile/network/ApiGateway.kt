@@ -999,6 +999,27 @@ class ApiGateway(private val context: Context) {
     data class NativeAgentTurn(val content: String, val calls: List<NativeToolCall>, val usage: UsageSnapshot, val assistantMessage: JSONObject)
 
     /** Native function calling; when the provider supports it, tool results are preserved in the API's proper roles. */
+    /** One non-streaming JSON request on the provider's own wire protocol; used for native tool calling. */
+    suspend fun postJson(provider: ProviderEntity, key: String, protocol: String, body: JSONObject): JSONObject =
+        withContext(Dispatchers.IO) {
+            val url = when (protocol) {
+                CHAT -> endpoint(provider.baseUrl, protocol, "chat", "completions")
+                RESPONSES -> endpoint(provider.baseUrl, protocol, "responses")
+                ANTHROPIC -> endpoint(provider.baseUrl, protocol, "messages")
+                GEMINI -> endpoint(provider.baseUrl, protocol, "models",
+                    "${provider.model.removePrefix("models/")}:generateContent")
+                else -> throw ApiFailure("Нативные инструменты не поддерживаются протоколом $protocol")
+            }
+            if (protocol != GEMINI) body.put("model", provider.model)
+            var parsed = JSONObject()
+            execute(request(url, key, protocol, provider.providerType, provider.authScope)
+                .header("Accept", "application/json")
+                .post(body.toString().toRequestBody(jsonType)).build()) { response ->
+                parsed = JSONObject(response.body?.string().orEmpty().ifBlank { "{}" })
+            }
+            parsed
+        }
+
     suspend fun nativeAgentTurn(provider: ProviderEntity, key: String, history: List<MessageEntity>,
                                 extraMessages: JSONArray, tools: JSONArray): NativeAgentTurn = withContext(Dispatchers.IO) {
         require(provider.protocol == CHAT) { "Tool calling currently requires Chat Completions" }

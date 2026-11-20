@@ -58,6 +58,19 @@ public final class AgentContextBuilder {
                 JSONObject message=choice==null?null:choice.optJSONObject("message");
                 JSONArray calls=message==null?null:message.optJSONArray("tool_calls");
                 if(calls!=null)for(int j=0;j<calls.length();j++)compactFunction(calls.getJSONObject(j).getJSONObject("function"));
+                JSONArray content=response.optJSONArray("content");
+                if(content!=null)for(int j=0;j<content.length();j++) {
+                    JSONObject block=content.optJSONObject(j);
+                    if(block!=null&&"tool_use".equals(block.optString("type"))&&block.optJSONObject("input")!=null)
+                        block.put("input",smallArguments(block.getJSONObject("input")));
+                }
+                JSONArray candidates=response.optJSONArray("candidates");JSONObject candidate=candidates==null?null:candidates.optJSONObject(0);
+                JSONObject candidateContent=candidate==null?null:candidate.optJSONObject("content");
+                JSONArray parts=candidateContent==null?null:candidateContent.optJSONArray("parts");
+                if(parts!=null)for(int j=0;j<parts.length();j++) {
+                    JSONObject part=parts.optJSONObject(j),fc=part==null?null:part.optJSONObject("functionCall");
+                    if(fc!=null&&fc.optJSONObject("args")!=null)fc.put("args",smallArguments(fc.getJSONObject("args")));
+                }
             }
         }catch(org.json.JSONException bad){throw new IllegalStateException(bad);}
         return record;

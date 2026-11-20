@@ -17,6 +17,7 @@ class NativeProviderRuntime(context:Context,private val store:OmniChatConnection
     private val gateway=ApiGateway(app)
     // Scoped to this runtime; do not alter the user's explicit provider settings.
     private val protocolCache=app.getSharedPreferences("provider_protocol_cache",Context.MODE_PRIVATE)
+    private val toolCache=app.getSharedPreferences("native_tool_capability",Context.MODE_PRIVATE)
     fun handles(p:String):Boolean=NativeSubscriptionRuntime.supports(p)||NativeProviderCatalog.names().containsKey(p)
     private fun provider(p:String,model:String,raw:String,owner:String,instructions:String):Pair<ProviderEntity,String>{
         var type=p;var key=raw;var scope="";var protocol=ApiGateway.CHAT;var base=""
@@ -96,6 +97,37 @@ class NativeProviderRuntime(context:Context,private val store:OmniChatConnection
         }
         OmniChatChatClient.reportUsage(inputTokens,outputTokens,reported)
         return response
+    }
+    /** Wire protocol on which native tool calling may be attempted for this connection, or null. */
+    fun toolWire(p:String,model:String,raw:String,owner:String):String?{
+        if(model.isBlank())return null
+        val (entity,_)=try{provider(p,model,raw,owner,"")}catch(e:Exception){return null}
+        val type=entity.providerType
+        if(type=="openai-codex"||type.startsWith("subscription-proxy-")||type in setOf("gigachat","yandex","azure"))return null
+        if(NativeSubscriptionRuntime.supports(p)&&type !in setOf("github-copilot","openrouter","kilo-gateway"))return null
+        val remembered=if(ProtocolResolver.eligible(type,entity.baseUrl))protocolCache.getString(listOf(owner,p,model,entity.baseUrl).joinToString("|"),null) else null
+        val wire=remembered?:entity.protocol
+        return wire.takeIf{it==ApiGateway.CHAT||it==ApiGateway.RESPONSES||it==ApiGateway.ANTHROPIC||it==ApiGateway.GEMINI}
+    }
+    /** true = native tools confirmed, false = rejected within the last week, null = unknown (probe needed). */
+    fun toolCapability(key:String):Boolean?{
+        val v=toolCache.getString(key,null)?:return null
+        if(v=="1")return true
+        val at=v.removePrefix("0:").toLongOrNull()?:return null
+        return if(System.currentTimeMillis()-at<7L*24*3600*1000)false else null
+    }
+    fun setToolCapability(key:String,supported:Boolean){
+        toolCache.edit().putString(key,if(supported)"1" else "0:"+System.currentTimeMillis()).apply()
+    }
+    /** Identifies the exact endpoint/model/protocol for capability caching. */
+    fun toolKey(p:String,model:String,raw:String,owner:String,wire:String):String=
+        listOf(p,model,provider(p,model,raw,owner,"").first.baseUrl,wire).joinToString("|")
+    fun postToolJson(p:String,model:String,raw:String,owner:String,wire:String,body:JSONObject):JSONObject=runBlocking{
+        suspend fun once(session:String):JSONObject{val (entity,key)=provider(p,model,session,owner,"");return gateway.postJson(entity,key,wire,JSONObject(body.toString()))}
+        try{once(raw)}catch(e:ApiFailure){
+            if(e.statusCode!=401||!NativeSubscriptionRuntime.supports(p))throw e
+            once(NativeSubscriptionRuntime.current(p,raw,store,true).toString())
+        }
     }
     fun completeStreaming(p:String,model:String,raw:String,owner:String,history:JSONArray,instructions:String,onText:java.util.function.Consumer<String>):String =
         complete(p,model,raw,owner,history,instructions,null,null,onText)
