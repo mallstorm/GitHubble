@@ -30,19 +30,75 @@ public final class OmniChatConnectionStore {
         NAMES.put("together", "Together AI API");
         NAMES.put("cerebras", "Cerebras API");
         NAMES.put("nvidia", "NVIDIA NIM API");
-        NAMES.put(OAuthSubscriptions.OPENAI,"OpenAI · подписка ChatGPT/Codex");
-        NAMES.put(OAuthSubscriptions.CLINE,"Cline Account / Cline Pass");
-        NAMES.put(OAuthSubscriptions.KIMI,"Kimi Code · OAuth");
-        NAMES.put(OAuthSubscriptions.GROK,"xAI Grok · OAuth");
-        NAMES.put("claude-subscription","Claude Code · OAuth");
-        NAMES.put("gemini-antigravity","Gemini Antigravity · OAuth");
-        NAMES.put("openrouter-account","OpenRouter Account · OAuth");
-        NAMES.put("kilo-account","Kilo Code · OAuth");
-        NAMES.put("chatgpt-plan","ChatGPT · OAuth без Codex CLI");
-        NAMES.put("proxy-chatgpt","ChatGPT · Subscription Proxy");
-        NAMES.put("proxy-gemini","Gemini / Cloud Code · Subscription Proxy");
-        NAMES.put("proxy-claude","Claude · Subscription Proxy");
-        NAMES.put("proxy-grok","Grok · Subscription Proxy");
+        for (ConnectionCatalog.Account a : ConnectionCatalog.accounts()) NAMES.put(a.id, a.title);
+    }
+
+    private final java.util.Set<String> migratedAccounts = new java.util.HashSet<>();
+
+    /**
+     * One-time merge of the former "Subscription Proxy" section into the single accounts list.
+     * proxy-chatgpt/claude/grok used the very same OAuth client as chatgpt-plan/claude-subscription/
+     * grok-subscription, so they become one connection (the canonical one wins); proxy-nvidia was a
+     * second NVIDIA NIM key and joins the NVIDIA key pool; the discontinued Google Antigravity login is dropped.
+     */
+    private synchronized void migrateAliases(String account) {
+        if (account == null || account.isBlank() || !migratedAccounts.add(account)) return;
+        try {
+            String scope = namespace(account);
+            for (java.util.Map.Entry<String, String> alias : ConnectionCatalog.legacyAliases().entrySet()) {
+                String from = alias.getKey(), to = alias.getValue();
+                String fromKey = "omnichat_key_v2_" + scope + "_" + from;
+                if (to == null) { // discontinued: remove silently
+                    vault.remove(fromKey);
+                    pool.removeProvider(account, from);
+                    dropPrefs(scope, from);
+                    continue;
+                }
+                if (ConnectionCatalog.isApiAlias(from)) {
+                    String single = vault.get(fromKey);
+                    if (!single.isEmpty()) {
+                        try { pool.addKey(account, to, "", single); } catch (IllegalArgumentException duplicate) { /* already there */ }
+                        vault.remove(fromKey);
+                    }
+                    for (PoolPolicy.Slot slot : pool.slots(account, from)) {
+                        String secret = pool.secret(account, from, slot.id);
+                        if (secret == null || secret.isEmpty()) continue;
+                        try { pool.addKey(account, to, slot.label, secret); } catch (IllegalArgumentException duplicate) { /* already there */ }
+                    }
+                    pool.removeProvider(account, from);
+                    String model = prefs.getString(scope + "_model_" + from, "");
+                    if (!model.isEmpty() && prefs.getString(scope + "_model_" + to, "").isEmpty())
+                        prefs.edit().putString(scope + "_model_" + to, model).apply();
+                    dropPrefs(scope, from);
+                } else {
+                    String session = vault.get(fromKey);
+                    String toKey = "omnichat_key_v2_" + scope + "_" + to;
+                    if (!session.isEmpty() && vault.get(toKey).isEmpty()) {
+                        try {
+                            vault.put(toKey, new org.json.JSONObject(session).put("provider", to).toString());
+                            SharedPreferences.Editor e = prefs.edit();
+                            for (String part : new String[]{"_model_", "_models_", "_groups_"}) {
+                                String value = prefs.getString(scope + part + from, "");
+                                if (!value.isEmpty()) e.putString(scope + part + to, value);
+                            }
+                            e.apply();
+                        } catch (org.json.JSONException damaged) { /* an unreadable session is simply dropped */ }
+                    }
+                    vault.remove(fromKey);
+                    dropPrefs(scope, from);
+                }
+                if (from.equals(prefs.getString(scope + "_provider", "")))
+                    prefs.edit().putString(scope + "_provider", to).apply();
+            }
+            String selected = prefs.getString(scope + "_provider", "");
+            if (selected.startsWith("proxy-") && !"proxy-external".equals(selected) || "gemini-antigravity".equals(selected))
+                prefs.edit().remove(scope + "_provider").apply();
+        } catch (RuntimeException ignored) { /* the merge is best-effort; the old data is never exposed again */ }
+    }
+
+    private void dropPrefs(String scope, String provider) {
+        prefs.edit().remove(scope + "_model_" + provider).remove(scope + "_models_" + provider)
+                .remove(scope + "_groups_" + provider).remove(scope + "_config_" + provider).apply();
     }
 
     public OmniChatConnectionStore(Context context, SecureStore vault) {
@@ -125,7 +181,7 @@ public final class OmniChatConnectionStore {
 
     public static Map<String,String> apiSupported(){
         LinkedHashMap<String,String> result=new LinkedHashMap<>();
-        for(Map.Entry<String,String> e:NAMES.entrySet())if(!OAuthSubscriptions.supports(e.getKey())&&!e.getKey().startsWith("proxy-"))result.put(e.getKey(),e.getValue());
+        for(Map.Entry<String,String> e:NAMES.entrySet())if(!OAuthSubscriptions.supports(e.getKey())&&!ConnectionCatalog.isAccount(e.getKey()))result.put(e.getKey(),e.getValue());
         return Collections.unmodifiableMap(result);
     }
 
@@ -175,6 +231,7 @@ public final class OmniChatConnectionStore {
     }
 
     public synchronized String selectedProvider(String account) {
+        migrateAliases(account);
         String selected = prefs.getString(namespace(account) + "_provider", "");
         synchronized (NAMES) { return NAMES.containsKey(selected) ? selected : ""; }
     }
@@ -185,6 +242,7 @@ public final class OmniChatConnectionStore {
     }
 
     public synchronized boolean hasKey(String account, String provider) {
+        migrateAliases(account);
         checkProvider(provider);
         if (poolable(provider)) { ensurePool(account, provider); return pool.hasEnabled(account, provider); }
         return !vault.get(key(account, provider)).isEmpty();
@@ -207,6 +265,7 @@ public final class OmniChatConnectionStore {
     }
 
     public synchronized String credential(String account, String provider) {
+        migrateAliases(account);
         checkProvider(provider);
         if (poolable(provider)) { ensurePool(account, provider); return pool.primarySecret(account, provider); }
         return vault.get(key(account, provider));

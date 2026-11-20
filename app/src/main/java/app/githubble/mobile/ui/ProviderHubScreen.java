@@ -50,7 +50,7 @@ public final class ProviderHubScreen {
         boolean isCurrent(String owner);
         void openProvider(String provider);
         void openAddService();
-        void openSubscriptions(boolean proxy);
+        void openSubscriptions();
         void openNetwork();
         void openModelPicker();
         void openUsage();
@@ -65,10 +65,6 @@ public final class ProviderHubScreen {
     private static final String[] PROTOCOL_NAMES = {"OpenAI Chat", "OpenAI Responses", "Anthropic", "Gemini", "Ollama"};
     private static final String[] POPULAR = {"openai", "anthropic", "gemini", "openrouter", "deepseek", "groq", "xai",
             "mistral", "nvidia", "together", "cerebras", "polza", "vsegpt"};
-    private static final String[] OAUTH = {OAuthSubscriptions.OPENAI, "chatgpt-plan", "openrouter-account", "kilo-account",
-            OAuthSubscriptions.CLINE, OAuthSubscriptions.KIMI, OAuthSubscriptions.GROK,
-            "gemini-antigravity", "claude-subscription", "proxy-chatgpt", "proxy-gemini", "proxy-claude", "proxy-grok"};
-
     private final Activity activity;
     private final LinearLayout content;
     private final HomeScreen.Palette palette;
@@ -140,32 +136,28 @@ public final class ProviderHubScreen {
         }
         for (String provider : services) content.addView(serviceCard(provider), params(-1, -2, 0, 0, 0, 10));
 
-        // ---- OAuth subscriptions (single session each)
-        content.addView(heading("Подписки"));
+        // ---- Accounts & subscriptions (OAuth / device flow): one catalog, one-tap connect
+        content.addView(heading("Аккаунты и подписки"));
         LinearLayout subs = card(0.03f);
-        int shown = 0;
-        for (String provider : OAUTH) {
-            if (!OmniChatConnectionStore.supported().containsKey(provider) || !store.hasKey(owner, provider)) continue;
-            shown++;
+        for (app.githubble.mobile.agent.ConnectionCatalog.Account account : app.githubble.mobile.agent.ConnectionCatalog.accounts()) {
+            String provider = account.id;
+            if (!OmniChatConnectionStore.supported().containsKey(provider)) continue;
+            boolean connected = store.hasKey(owner, provider);
             LinearLayout row = new LinearLayout(activity);
             row.setGravity(Gravity.CENTER_VERTICAL);
             row.setPadding(0, dp(6), 0, dp(6));
             LinearLayout words = column();
             words.addView(label(store.displayName(provider), 14, palette.text, true));
-            words.addView(label(store.models(owner, provider).size() + " моделей"
-                    + (store.isConfigured(owner, provider) ? "" : " · загрузите каталог"), 12, palette.muted, false));
+            words.addView(label(connected
+                    ? store.models(owner, provider).size() + " моделей" + (store.isConfigured(owner, provider) ? "" : " · загрузите каталог")
+                    : (account.freeModels ? "Есть бесплатные модели · " : "") + account.subtitle, 12, palette.muted, false));
             row.addView(words, params(0, -2, 1, 0, 0, 0, 0));
-            row.addView(pill("Подключено", palette.green), params(-2, -2, 0, 8, 0, 0, 0));
-            boolean proxy = provider.startsWith("proxy-");
-            row.setOnClickListener(v -> host.openSubscriptions(proxy));
+            row.addView(connected ? pill("Подключено", palette.green) : pill("Подключить", palette.muted), params(-2, -2, 0, 8, 0, 0, 0));
+            row.setOnClickListener(v -> host.openSubscriptions());
             ripple(row);
             subs.addView(row);
         }
-        if (shown == 0) subs.addView(label("Вход через аккаунт ChatGPT, Claude, Gemini, Grok и другие — без API-ключа.", 13, palette.muted, false));
-        LinearLayout subButtons = new LinearLayout(activity);
-        subButtons.addView(button("Аккаунты", false, v -> host.openSubscriptions(false)), params(0, 44, 1, 0, 0, 0, 0));
-        subButtons.addView(button("Subscription Proxy", false, v -> host.openSubscriptions(true)), params(0, 44, 1, 8, 0, 0, 0));
-        subs.addView(subButtons, params(-1, -2, 0, 10, 0, 0));
+        subs.addView(button("Открыть аккаунты и подписки", false, v -> host.openSubscriptions()), params(-1, 44, 0, 10, 0, 0, 0));
         content.addView(subs, params(-1, -2, 0, 0, 0, 10));
 
         // ---- tools
@@ -267,6 +259,15 @@ public final class ProviderHubScreen {
                 12, palette.muted, false), params(-1, -2, 0, 10, 0, 0));
         LinearLayout endpointButtons = new LinearLayout(activity);
         endpointButtons.addView(button("Изменить endpoint", false, v -> endpointSheet(provider)), params(0, 44, 1, 0, 0, 0, 0));
+        final String keyPage = app.githubble.mobile.agent.ConnectionCatalog.keyPage(provider);
+        if (keyPage != null)
+            endpointButtons.addView(button("Получить ключ", false, v -> {
+                try { activity.startActivity(new android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(keyPage))); }
+                catch (Exception ignored) { }
+            }), params(0, 44, 1, 8, 0, 0, 0));
+        String free = app.githubble.mobile.agent.ConnectionCatalog.freeNote(provider);
+        if (!free.isEmpty())
+            endpoint.addView(label("Бесплатно: " + free, 12, palette.green, false), params(-1, -2, 0, 8, 0, 0));
         endpoint.addView(endpointButtons, params(-1, -2, 0, 10, 0, 0));
         content.addView(endpoint, params(-1, -2, 0, 4, 0, 10));
 

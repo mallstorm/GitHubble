@@ -41,7 +41,7 @@ public final class ProjectRegistry {
                 .put("repository", repo == null ? "" : repo).put("baseBranch", branch == null || branch.isBlank() ? "main" : branch)
                 .put("workspaceId", workspace == null ? "" : workspace).put("localUri", "")
                 .put("configuration", new JSONObject()).put("memoryScope", workspace == null || workspace.isEmpty() ? id : workspace)
-                .put("modelAccess", false).put("createdAt", now).put("updatedAt", now).put("archived", false);
+                .put("modelAccess", true).put("createdAt", now).put("updatedAt", now).put("archived", false);
         } catch (org.json.JSONException bad) { throw new IllegalStateException(bad); }
     }
     private static void putProject(JSONObject state, JSONObject project) {

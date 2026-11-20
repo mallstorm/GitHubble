@@ -70,7 +70,7 @@ final class GitAgentUiChecks {
         org.json.JSONObject oauth=new org.json.JSONObject().put("access_token","local-test-access")
             .put("refresh_token","local-test-refresh").put("expires_at",System.currentTimeMillis()+3600000);
         for(String subscription:new String[]{app.githubble.mobile.agent.OAuthSubscriptions.KIMI,
-                app.githubble.mobile.agent.OAuthSubscriptions.GROK,"chatgpt-plan","proxy-chatgpt","proxy-gemini","proxy-claude","proxy-grok","openrouter-account","kilo-account"}){
+                app.githubble.mobile.agent.OAuthSubscriptions.GROK,"chatgpt-plan","claude-subscription","github-copilot","openrouter-account","kilo-account"}){
         connections.saveSubscription(account,subscription,oauth,java.util.Arrays.asList("verified-test-model"));
         connections=new app.githubble.mobile.agent.OmniChatConnectionStore(context,vault);
         String originalSession=connections.credential(account,subscription);

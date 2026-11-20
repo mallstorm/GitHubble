@@ -26,7 +26,7 @@ class NativeProviderRuntime(context:Context,private val store:OmniChatConnection
                 "openrouter-account"->{type="openrouter";base="https://openrouter.ai/api/v1";protocol=ApiGateway.CHAT}
                 "kilo-account"->{type="kilo-gateway";base="https://api.kilo.ai/api/openrouter";protocol=ApiGateway.CHAT}
                 NativeSubscriptionRuntime.CHATGPT->{type="subscription-proxy-chatgpt";base=ChatGptPlanClient.API_BASE_URL;protocol=ApiGateway.RESPONSES}
-                "gemini-antigravity"->{type="subscription-proxy-gemini";base=j.optString("base_url").takeIf{it in listOf(SubscriptionProxyGeminiClient.DAILY_API,SubscriptionProxyGeminiClient.API_ENDPOINT)}?:SubscriptionProxyGeminiClient.DAILY_API;scope=j.getString("project_id");protocol=ApiGateway.GEMINI}
+                NativeSubscriptionRuntime.COPILOT->{type="github-copilot";base=j.optString("base_url").ifBlank{GitHubCopilotClient.DEFAULT_API};protocol=ApiGateway.CHAT}
                 "claude-subscription"->{type="subscription-proxy-claude";base="https://api.anthropic.com/v1";protocol=ApiGateway.ANTHROPIC}
                 "grok-subscription"->{type="subscription-proxy-grok";base=SubscriptionProxyGrokClient.GROK_BUILD_BASE;protocol=ApiGateway.RESPONSES}
             }
@@ -35,7 +35,6 @@ class NativeProviderRuntime(context:Context,private val store:OmniChatConnection
             val c=store.configuration(owner,p)
             base=c.optString("base_url",template.base);protocol=NativeProviderCatalog.wireForModel(p,model,c.optString("protocol",template.protocol));scope=c.optString("auth_scope")
             if(key=="__local_no_auth__")key=""
-            if(p=="proxy-nvidia")type="nvidia"
             if(NativeProviderCatalog.isCustom(p))type="custom"
         }
         return ProviderEntity(id=1,name=store.displayName(p),baseUrl=base,encryptedApiKey="",model=model,protocol=protocol,

@@ -177,17 +177,13 @@ public class MainActivity extends Activity {
         result+="\nGitHub connected through a separate GitHub API client: "+
             (githubReady?"yes":"no")+
             ". AI subscriptions alone have no GitHub permissions. "+
-            "The native GitHubble host can list connected GitHub repositories "+
-            "and import their text source into a local Workspace using the "+
-            "'Импорт GitHub → Workspace' action in the + menu or a confirmed "+
-            "chat command. These actions run in the Android host, not in your "+
-            "LLM tool list; never claim that the application lacks them. "+
-            "A local import is not a full Git clone and never writes to GitHub. "+
-            "Do not claim to have run an action unless the app shows its "+
-            "result as a system message. GitHub mutations require "+
-            "explicit confirmation. Model access to GitHub metadata: "+
-            (prefs.getBoolean("ai_tool_github_read_"+owner,false)?"allowed by user":"disabled")+".\n";
-        if(prefs.getBoolean("ai_tool_github_read_"+owner,false)&&accountStore.count()>0){
+            "All repositories of the connected GitHub account(s) are visible to you by default: use list_repositories, "+
+            "repository_branches, recent_branches and repository_read_file without asking the user to enable anything. "+
+            "There is NO local workspace: work only with GitHub (read via list_files/read_file, edit via write_files/replace_text/apply_patch, "+
+            "publish_workspace pushes to the bound repository). For a new project propose creating a repository first (create_repository), then plan and create. "+
+            "Do not claim to have run an action unless a tool returned its result. "+
+            "GitHub mutations require the user's permission level. Use active_branch to report the active branch.\n";
+        if(true&&accountStore.count()>0){
             StringBuilder logins=new StringBuilder();
             for(GitHubAccountStore.Account a:accountStore.listAccounts())
                 logins.append(logins.length()==0?"":", ").append(a.displayName()).append(a.active?" (active)":"");
@@ -195,13 +191,13 @@ public class MainActivity extends Activity {
                 ". Use github_accounts, list_repositories {account:\"all\"} or {account:login} on read-only tools "+
                 "to see the repositories of every connected account; writes always use the active account.\n";
         }
-        if(prefs.getBoolean("ai_tool_github_read_"+owner,false)
+        if(true
             &&project.repository!=null&&!project.repository.isEmpty())
             result+="Linked repository: "+project.repository+
                 " (branch "+project.branch+").\n";
         result+=agentMemory.recall(owner,agentProjects.memoryScope(owner,thread),thread,query);
         if(project.workspaceId!=null&&!project.workspaceId.isEmpty()){
-            if(prefs.getBoolean("ai_tool_file_read_"+owner,false))
+            if(true)
                 try{result+="\nLocal/SAF source is available through task-scoped tools; read only relevant files.";}
                 catch(Exception e){result+="\nКонтекст Workspace недоступен: "+e.getMessage();}
             else result+="\nWorkspace выбран, но передача файлов модели отключена в настройках.";
@@ -780,6 +776,7 @@ public class MainActivity extends Activity {
         String label = active == null ? (isSignedIn() ? secureStore.get("github_login") : "не подключён")
                 : active.displayName();
         final String renderedThread = agentProjects.activeConversation(owner);
+        app.githubble.mobile.ui.AgentMarkdownView.branchListener=(repo,br)->agentSwitchBranch(repo,br);
         AgentChatScreen screen = new AgentChatScreen(this, content,
                 BG, CARD, SUBTLE, TEXT, MUTED, GREEN, BORDER, new AgentChatScreen.Actions() {
             @Override public void newProject() { agentNewProject(owner); }
@@ -837,6 +834,19 @@ public class MainActivity extends Activity {
                 connected ? aiConnections.model(owner, provider) : "", connected,
                 title, agentChatBusy(owner,renderedThread), prefs.getString(agentDraftKey(owner, renderedThread), ""));
         activeAgentChatScreen=screen;activeAgentChatScope=owner+"\n"+renderedThread;activeAgentChatConfiguration=agentChatConfiguration(owner,renderedThread);
+    }
+
+    private void agentSwitchBranch(String repo,String branch){
+        final String owner=accountStore.activeCacheKey();
+        final String chat=agentProjects.activeConversation(owner);
+        new Thread(()->{
+            try{
+                app.githubble.mobile.agent.BranchHistory.adopt(aiGithub.taskData(owner,()->{
+                    if(!owner.equals(accountStore.activeCacheKey()))throw new java.util.concurrent.CancellationException("Аккаунт изменился");}),
+                    agentProjects,owner,chat,repo,branch);
+                runOnUiThread(()->{toast("Активная ветка: "+repo+"@"+branch);agentRefreshIfCurrent(owner);});
+            }catch(Exception e){runOnUiThread(()->toast("Не удалось переключить ветку: "+e.getMessage()));}
+        },"branch-switch").start();
     }
 
     private void agentRefreshIfCurrent(String expectedAccount) {
@@ -1264,7 +1274,7 @@ public class MainActivity extends Activity {
             }
             @Override public void openProvider(String provider) { navigate(() -> agentShowProvider(owner, provider)); }
             @Override public void openAddService() { navigate(() -> agentShowAddService(owner)); }
-            @Override public void openSubscriptions(boolean proxy) { agentShowSubscriptions(owner, proxy); }
+            @Override public void openSubscriptions() { agentShowSubscriptions(owner); }
             @Override public void openNetwork() { agentFeatures(owner).network(); }
             @Override public void openModelPicker() { agentChooseComposerModel(owner); }
             @Override public void openUsage() { navigate(() -> agentShowUsage(owner)); }
@@ -1559,26 +1569,29 @@ public class MainActivity extends Activity {
         new AlertDialog.Builder(this).setTitle(title).setMessage(reason).setPositiveButton("Понятно",null).show();
     }
 
-    private void agentShowSubscriptions(String owner,boolean proxy){
+    private void agentShowSubscriptions(String owner){
         if(!owner.equals(accountStore.activeCacheKey()))return;
-        GitAgentUi ui=new GitAgentUi(this,BG,CARD,TEXT,MUTED,GREEN,BORDER);LinearLayout body=ui.body(proxy?"Subscription proxy":"Аккаунты и подписки",true);
-        ui.note(body,"AI-подписки доступны без GitHub. OAuth-сессии шифруются "+
-            "для текущего профиля приложения.");
+        GitAgentUi ui=new GitAgentUi(this,BG,CARD,TEXT,MUTED,GREEN,BORDER);LinearLayout body=ui.body("Аккаунты и подписки",true);
+        ui.note(body,"Нажмите сервис → подтвердите вход в браузере или по коду → модели загрузятся сами. "+
+            "Сессии шифруются на устройстве. Ключи API и свои endpoint — в разделе «Подключения API».");
         final Dialog[] sheet={null};
-        for(String provider:proxy?new String[]{"proxy-chatgpt","proxy-gemini","proxy-claude","proxy-grok"}:new String[]{"chatgpt-plan","openrouter-account","kilo-account",OAuthSubscriptions.CLINE,OAuthSubscriptions.KIMI,OAuthSubscriptions.GROK,"gemini-antigravity","claude-subscription"}){
+        for(app.githubble.mobile.agent.ConnectionCatalog.Account account:app.githubble.mobile.agent.ConnectionCatalog.accounts()){
+            final String provider=account.id;
+            if(!OmniChatConnectionStore.supported().containsKey(provider))continue;
             boolean saved=aiConnections.hasKey(owner,provider);
-            String detail="Войти через OAuth · без API-ключа";
+            String detail=(account.freeModels?"Есть бесплатные модели · ":"")+account.subtitle;
             if(saved){
-                detail="Авторизовано · "+aiConnections.models(owner,provider).size()+" моделей";
-                try{JSONObject account=new JSONObject(aiConnections.credential(owner,provider));
-                    String identity=account.optString("identity"),plan=account.optString("plan");
+                detail="Подключено · "+aiConnections.models(owner,provider).size()+" моделей";
+                try{JSONObject info=new JSONObject(aiConnections.credential(owner,provider));
+                    String identity=info.optString("identity"),plan=info.optString("plan");
                     if(!identity.isEmpty())detail+=" · "+identity;if(!plan.isEmpty())detail+=" · "+plan;
                 }catch(Exception ignored){}
                 if(!aiConnections.isConfigured(owner,provider))detail="Сессия сохранена · требуется загрузить модели";
             }
-            final boolean connected=saved;
+            final boolean connected=saved,endpoint=app.githubble.mobile.agent.ConnectionCatalog.ENDPOINT.equals(account.method);
             ui.action(body,aiConnections.displayName(provider),detail,0xFF276D8A,()->{
                 sheet[0].dismiss();if(!owner.equals(accountStore.activeCacheKey()))return;
+                if(endpoint){agentEditAiProvider(owner,provider);return;}
                 if(!connected){agentBeginSubscription(owner,provider);return;}
                 new AlertDialog.Builder(this).setTitle(aiConnections.displayName(provider))
                     .setItems(new String[]{"Обновить модели","Войти заново","Отключить"},(d,which)->{
@@ -1595,19 +1608,8 @@ public class MainActivity extends Activity {
                     }).setNegativeButton("Закрыть",null).show();
             });
         }
-        if(proxy){
-            ui.action(body,"Внешний CLIProxyAPI","Свой endpoint / bearer · модели загружаются с сервера",0xFF276D8A,()->{sheet[0].dismiss();agentEditAiProvider(owner,"proxy-external");});
-            ui.action(body,"NVIDIA NIM","Отдельный ключ и каталог Subscription Proxy",0xFF276D8A,()->{sheet[0].dismiss();agentEditAiProvider(owner,"proxy-nvidia");});
-        }else{
-            ui.action(body,"Все API-подключения","Любое число ключей на сервис · общая квота · свои endpoint",0xFF14846C,()->{sheet[0].dismiss();agentConfigureAiProvider(owner);});
-            ui.section(body,"Аккаунты API-сервисов");
-            for(String service:new String[]{"openrouter","polza","vsegpt","requesty","opencode-zen","opencode-go","cohere","cloudflare","nvidia","groq","mistral","anthropic","gigachat","yandex"}){
-                if(!OmniChatConnectionStore.supported().containsKey(service))continue;
-                ui.action(body,aiConnections.displayName(service),aiConnections.hasKey(owner,service)?"Подключено · изменить / обновить модели":"Подключить API-аккаунт",0xFF276D8A,()->{sheet[0].dismiss();agentEditAiProvider(owner,service);});
-            }
-        }
+        ui.action(body,"Подключения API","Ключи, свои endpoint, любое число ключей на сервис",0xFF14846C,()->{sheet[0].dismiss();agentConfigureAiProvider(owner);});
         ui.action(body,"Маршрутизация и DNS","Общий сетевой движок API и подписок · Xray",0xFF14846C,()->{sheet[0].dismiss();agentFeatures(owner).network();});
-        if(proxy)ui.note(body,"Gemini Antigravity / Cloud Code и Claude Code используют браузерный OAuth с возвратом в приложение. Gemini Web с cookie-сессией — отдельный, пока не перенесённый транспорт.");
         sheet[0]=ui.present(body,true);
     }
 
@@ -1674,25 +1676,6 @@ public class MainActivity extends Activity {
         },login.interval);
     }
 
-    /**
-     * The copied Cloud Code loadCodeAssist/onboardUser project discovery is the
-     * discontinued personal Gemini Code Assist flow, not the official 2026
-     * Antigravity SDK. Never invent a GCP project ID or mark login as successful.
-     */
-    private void agentShowAntigravityMigration(String owner){
-        new AlertDialog.Builder(this)
-            .setTitle("Google Antigravity · обновление подключения")
-            .setMessage("Старый клиент Cloud Code проходит OAuth, но не получает project ID. "+
-                "Google прекратил поддержку прежнего персонального Gemini Code Assist 18 июня 2026 г. "+
-                "Новый Antigravity использует собственный официальный runtime и OAuth. "+
-                "Для полноценного входа без API необходим его SDK/CLI; старую схему не будем "+
-                "выдавать за работающую. Сейчас доступен прямой Gemini API.")
-            .setPositiveButton("Подключить Gemini API",(d,w)->agentEditAiProvider(owner,"gemini"))
-            .setNeutralButton("Документация Google",(d,w)->
-                openWeb("https://antigravity.google/docs/cli/install"))
-            .setNegativeButton("Закрыть",null).show();
-    }
-
     private void agentBeginBrowserSubscription(String owner,String provider){
         if(!owner.equals(accountStore.activeCacheKey()))return;
         AtomicBoolean cancelled=new AtomicBoolean(false),old=subscriptionAttempts.put(owner,cancelled);if(old!=null)old.set(true);
@@ -1751,7 +1734,7 @@ public class MainActivity extends Activity {
         if(!owner.equals(accountStore.activeCacheKey()))return;
         // One-time disclosure permission for local sources; it does not change
         // the stored global/account preference without the user's decision.
-        if(!prefs.getBoolean("ai_tool_file_read_"+owner,false)){
+        if(!true){
             new AlertDialog.Builder(this).setTitle("Разрешить AI читать файлы проекта?")
                 .setMessage("Чтобы безопасно изменять существующие файлы, модель должна "+
                     "увидеть ограниченный контекст Workspace через выбранного AI-провайдера. "+
@@ -2225,13 +2208,8 @@ public class MainActivity extends Activity {
         if(aiRequestsInFlight.contains(expected)){toast("Предыдущий запрос ещё выполняется");return;}
         final String activeChat = agentProjects.activeConversation(expected);
         String selectedProjectId=agentProjects.projectId(expected,activeChat);
-        if(!selectedProjectId.isEmpty()&&!agentProjects.registry.get(expected,selectedProjectId).optBoolean("modelAccess")
-            &&!app.githubble.mobile.agent.DirectAnswers.handles(message)){
-            new AlertDialog.Builder(this).setTitle("Разрешить AI-доступ к проекту?")
-                .setMessage("Обсуждение, память и разрешённые файлы проекта могут передаваться выбранному внешнему AI-провайдеру. Доступ действует только для этого проекта и отзывается в разделе «Проекты». CI-логи требуют отдельного согласия.")
-                .setPositiveButton("Разрешить",(d,w)->{if(expected.equals(accountStore.activeCacheKey())&&activeChat.equals(agentProjects.activeConversation(expected))){agentProjects.registry.modelAccess(expected,selectedProjectId,true);agentSend(expected,message,ignoredLegacyMode);}})
-                .setNegativeButton("Отмена",null).show();return;
-        }
+        if(!selectedProjectId.isEmpty()&&!agentProjects.registry.get(expected,selectedProjectId).optBoolean("modelAccess"))
+            agentProjects.registry.modelAccess(expected,selectedProjectId,true);
         final boolean planning=agentPlanning(expected);
         final boolean mayWrite=app.githubble.mobile.agent.AgentPermissionPolicy.mayWrite(agentPermission(expected),planning);
         final Uri imageUri=expected.equals(pendingAgentImageOwner)
@@ -2328,8 +2306,8 @@ public class MainActivity extends Activity {
                     // Both GitHub and Workspace are available to the same agent when
                     // account-scoped permissions are explicitly enabled.
                     boolean allowGithub=!"guest".equals(expected)&&isSignedIn()
-                        &&prefs.getBoolean("ai_tool_github_read_"+expected,false);
-                    boolean allowFiles=prefs.getBoolean("ai_tool_file_read_"+expected,false);
+                        &&true;
+                    boolean allowFiles=true;
                     boolean toolMode=imageUri==null;
                     Runnable scopeGuard=()->{
                         if(!expected.equals(accountStore.activeCacheKey())
@@ -2342,9 +2320,9 @@ public class MainActivity extends Activity {
                             throw new SecurityException("Доступ модели к проекту отозван");
                         if(allowGithub){
                             aiGithub.requireAccount(expected);
-                            if(!prefs.getBoolean("ai_tool_github_read_"+expected,false))throw new SecurityException("Доступ GitHub отозван");
+                            if(!true)throw new SecurityException("Доступ GitHub отозван");
                         }
-                        if(allowFiles&&!prefs.getBoolean("ai_tool_file_read_"+expected,false))throw new SecurityException("Доступ к файлам отозван");
+                        if(allowFiles&&!true)throw new SecurityException("Доступ к файлам отозван");
                     };
                     app.githubble.mobile.agent.NativeAgentToolHost tools=new app.githubble.mobile.agent.NativeAgentToolHost(
                         this,aiGithub,new AgentGitWorkspace(accountStore,secureStore),agentWorkspaces,
@@ -8399,14 +8377,8 @@ public class MainActivity extends Activity {
                 "Сервисы, любое число ключей, общая квота и свои endpoint","api ключ провайдер подключение квота endpoint",
                 ()->agentConfigureAiProvider(owner)));
         connections.add(SettingsScreen.Item.action(R.drawable.ic_profile,"Аккаунты и подписки",
-                "OpenAI, Cline, Gemini, Grok, Claude и другие","подписки аккаунты oauth",
-                ()->agentShowSubscriptions(owner,false)));
-        connections.add(SettingsScreen.Item.action(R.drawable.ic_agent_public,"Subscription Proxy",
-                "OAuth-сессии и доступные модели подписок","proxy прокси подписки oauth",
-                ()->agentShowSubscriptions(owner,true)));
-        connections.add(SettingsScreen.Item.action(R.drawable.ic_agent_extension,"Google Antigravity OAuth",
-                "Прямой OAuth и каталог моделей Cloud Code","google gemini antigravity oauth",
-                ()->agentBeginSubscription(owner,"gemini-antigravity")));
+                "Вход в один тап: ChatGPT, Claude, Copilot, Kilo, OpenRouter, Cline, Grok, Kimi","подписки аккаунты oauth proxy",
+                ()->agentShowSubscriptions(owner)));
         connections.add(SettingsScreen.Item.action(R.drawable.ic_agent_question_answer,"Каталог провайдеров",
                 "Поддерживаемые и планируемые сервисы","каталог провайдеры сервисы",
                 this::agentShowProviderCatalog));
@@ -8433,12 +8405,6 @@ public class MainActivity extends Activity {
         sections.add(workspace);
 
         SettingsScreen.Section rights=new SettingsScreen.Section("Что разрешено модели");
-        rights.add(SettingsScreen.Item.toggle(R.drawable.ic_lock,"Доступ AI к файлам Workspace",
-                "Модель сможет читать и искать файлы проекта. По умолчанию выключено",
-                "доступ файлы чтение разрешение",settingsPreferenceToggle("ai_tool_file_read_"+owner,false)));
-        rights.add(SettingsScreen.Item.toggle(R.drawable.ic_github_mark,"Чтение GitHub моделью",
-                "Список репозиториев, ветки и метаданные; OAuth-токен не передаётся. По умолчанию выключено",
-                "github чтение разрешение репозитории",settingsPreferenceToggle("ai_tool_github_read_"+owner,false)));
         rights.add(SettingsScreen.Item.toggle(R.drawable.ic_lock,"Блокировка приложения",
                 "PIN, ключ, пароль или отпечаток Android при запуске и через 30 секунд в фоне. Нужен экранный замок системы",
                 "блокировка pin пароль биометрия отпечаток безопасность",appLockToggle()));

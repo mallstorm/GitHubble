@@ -32,10 +32,6 @@ object NativeMediaRuntime {
             NativeSubscriptionRuntime.base(p)==NativeSubscriptionRuntime.CHATGPT->{
                 val r=runtime.gateway().generateOpenAiResponsesImage(entity,key,prompt,requestedSize=size);blobs+=r.bytes to r.mime
             }
-            NativeSubscriptionRuntime.base(p)=="gemini-antigravity"->{
-                val r=runtime.gateway().generateSubscriptionProxyGeminiImage(entity,key,listOf(MessageEntity(chatId=1,role="user",content=prompt)),when(size){"1536x1024"->"3:2";"1024x1536"->"2:3";else->"1:1"})
-                r.images.forEach{blobs+=it.bytes to it.mime}
-            }
             NativeSubscriptionRuntime.base(p)=="grok-subscription"->{
                 val session=NativeSubscriptionRuntime.current(p,raw,store)
                 val r=SubscriptionProxyGrokClient().generateImagine(NativeSubscriptionRuntime.grok(session),prompt,when(size){"1536x1024"->"3:2";"1024x1536"->"2:3";else->"1:1"})
