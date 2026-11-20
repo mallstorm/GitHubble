@@ -118,7 +118,9 @@ public final class NativeAgentToolHost implements ProjectRuntime.ToolHost {
         if("load_skill".equals(name)||"ask_user".equals(name))return true;
         if("recent_branches".equals(name)||"active_branch".equals(name))return githubEnabled;
         if("set_active_branch".equals(name))return githubEnabled&&!writeDenied&&!planning;
-        if("create_workspace".equals(name)||"detach_workspace".equals(name)||"delete_workspace".equals(name)||"import_repository".equals(name))return false;
+        // Local scratch scaffold only before a repository is bound; lifecycle/import of local copies is gone.
+        if("create_workspace".equals(name))return repository.isEmpty()&&workspaceId.isEmpty()&&!writeDenied&&AgentPermissionPolicy.mayWrite(permission.getAsInt(),planning);
+        if("detach_workspace".equals(name)||"delete_workspace".equals(name)||"import_repository".equals(name))return false;
         if("record_decision".equals(name)||"propose_skill".equals(name))return !writeDenied&&AgentPermissionPolicy.mayWrite(permission.getAsInt(),planning);
         boolean taskSource=(filesEnabled&&!workspaceId.isEmpty())||(githubEnabled&&!repository.isEmpty());
         if(java.util.Arrays.asList("build","ci_failure","ci_status","verify_task_result","await_build").contains(name))return githubEnabled&&!repository.isEmpty()&&( !name.equals("build") || !writeDenied&&AgentPermissionPolicy.mayWrite(permission.getAsInt(),planning));
