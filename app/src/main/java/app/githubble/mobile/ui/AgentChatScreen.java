@@ -360,17 +360,6 @@ public final class AgentChatScreen {
                 speaker.watch(key,sync);sync.run();
                 play.setOnClickListener(v->speaker.toggle(key,body));
                 bar.addView(play,new LinearLayout.LayoutParams(w,h));
-                // Local rating of the answer (kept on the device), tap again to clear.
-                final android.content.SharedPreferences ratings=activity.getSharedPreferences("agent_message_ratings",Context.MODE_PRIVATE);
-                final String ratingKey="r"+Integer.toHexString(body.hashCode())+":"+body.length();
-                final ImageView like=mini(R.drawable.ic_msg_like,"Хороший ответ",null),dislike=mini(R.drawable.ic_msg_dislike,"Плохой ответ",null);
-                Runnable paint=()->{int r=ratings.getInt(ratingKey,0);
-                    like.setImageResource(r>0?R.drawable.ic_msg_like_on:R.drawable.ic_msg_like);like.setColorFilter(r>0?accent:muted);
-                    dislike.setImageResource(r<0?R.drawable.ic_msg_dislike_on:R.drawable.ic_msg_dislike);dislike.setColorFilter(r<0?0xFFE06464:muted);};
-                paint.run();
-                like.setOnClickListener(v->{ratings.edit().putInt(ratingKey,ratings.getInt(ratingKey,0)>0?0:1).apply();paint.run();});
-                dislike.setOnClickListener(v->{ratings.edit().putInt(ratingKey,ratings.getInt(ratingKey,0)<0?0:-1).apply();paint.run();});
-                bar.addView(like,new LinearLayout.LayoutParams(w,h));bar.addView(dislike,new LinearLayout.LayoutParams(w,h));
                 ImageView retry=mini(R.drawable.ic_msg_retry,"Повторить запрос",v->actions.retryLast());
                 retry.setVisibility(View.GONE);retryIcons.put(key,retry);
                 bar.addView(retry,new LinearLayout.LayoutParams(w,h));
