@@ -165,7 +165,12 @@ jobs:
           [[ "$REQUEST_ID" =~ ^[0-9a-f]{32}$ ]] || exit 0
           SECRET_NAME="GITHUBBLE_EXT_IMPORT_${REQUEST_ID^^}"
           # Delete only our own secret; WorkManager retries removal if this fails.
-          curl --fail --silent --show-error --request DELETE --header "Authorization: Bearer $GH_IMPORT_TOKEN" --header "Accept: application/vnd.github+json" "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/secrets/$SECRET_NAME" || echo "::warning::GitHub Actions could not revoke import secret; Android recovery will retry"
+          # The import step normally already removed this secret before pushing
+          # untrusted workflows. GitHub returns 404 for that safe, expected case.
+          status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --request DELETE --header "Authorization: Bearer $GH_IMPORT_TOKEN" --header "Accept: application/vnd.github+json" "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/secrets/$SECRET_NAME")" || status="000"
+          if [[ "$status" != "204" && "$status" != "404" ]]; then
+            echo "::warning::GitHub Actions could not revoke import secret (HTTP $status); Android recovery will retry"
+          fi
 """;
     }
 }
