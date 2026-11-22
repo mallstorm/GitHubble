@@ -66,6 +66,8 @@ public final class AgentChatScreen {
         default void openDiff(String id){}
         default void openCode(){}
         default JSONObject activeRun(){return null;}
+        /** Sends the last user message again. */
+        default void retryLast(){}
     }
 
     private final Activity activity;
@@ -76,6 +78,8 @@ public final class AgentChatScreen {
     private boolean requestBusy;
     private TextView sendControl;
     private EditText inputField;
+    private final java.util.Map<String,View> retryIcons=new java.util.HashMap<>();
+    private String building="";
     private ScrollView transcriptScroll;
     private LinearLayout transcript,streamed;
     private TextView newActions;
@@ -333,18 +337,38 @@ public final class AgentChatScreen {
             }catch(Exception unavailable){/* Keep text history readable when media was removed. */}
         }
         if(!system){
-            TextView copy=label("⧉  Копировать",11,false,muted);
-            copy.setPadding(dp(3),dp(5),dp(3),dp(3));
-            copy.setOnClickListener(v->{
+            final String key=building;
+            LinearLayout bar=horizontal();bar.setGravity(Gravity.CENTER_VERTICAL);bar.setPadding(0,dp(2),0,0);
+            if(!user){
+                final ImageView play=mini(R.drawable.ic_msg_play,"Озвучить",null);
+                final AgentSpeaker speaker=AgentSpeaker.of(activity);
+                Runnable sync=()->{if(!play.isAttachedToWindow()&&play.getParent()!=null)return;boolean on=speaker.speaking(key);
+                    play.setImageResource(on?R.drawable.ic_msg_stop:R.drawable.ic_msg_play);play.setContentDescription(on?"Остановить озвучивание":"Озвучить");
+                    play.setColorFilter(on?accent:muted);};
+                speaker.watch(key,sync);sync.run();
+                play.setOnClickListener(v->speaker.toggle(key,body));
+                bar.addView(play,new LinearLayout.LayoutParams(dp(38),dp(34)));
+            }
+            ImageView copy=mini(R.drawable.ic_msg_copy,"Копировать",v->{
                 ClipboardManager cb=(ClipboardManager)activity.getSystemService(Context.CLIPBOARD_SERVICE);
                 if(cb!=null)cb.setPrimaryClip(ClipData.newPlainText("Hubble Agent",body));
                 android.widget.Toast.makeText(activity,"Скопировано",android.widget.Toast.LENGTH_SHORT).show();
             });
-            bubble.addView(copy);
-            if(!user&&(body.length()>800||body.contains("```")||body.contains("\n## "))){
-                TextView document=label("▤  Открыть документ · .md",11,false,accent);document.setPadding(dp(3),dp(8),dp(3),dp(8));document.setMinHeight(dp(48));
-                document.setOnClickListener(v->AgentDocumentSheet.document(activity,body,text,muted,accent,subtle,border,surface,()->actions.exportMarkdown(body)));bubble.addView(document);
+            bar.addView(copy,new LinearLayout.LayoutParams(dp(38),dp(34)));
+            if(user){
+                bar.addView(mini(R.drawable.ic_msg_edit,"Изменить и отправить заново",v->{if(inputField!=null){inputField.setText(body);inputField.setSelection(body.length());inputField.requestFocus();}}),new LinearLayout.LayoutParams(dp(38),dp(34)));
+            }else{
+                bar.addView(mini(R.drawable.ic_msg_share,"Поделиться",v->{
+                    android.content.Intent send=new android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain").putExtra(android.content.Intent.EXTRA_TEXT,body);
+                    activity.startActivity(android.content.Intent.createChooser(send,"Поделиться ответом"));
+                }),new LinearLayout.LayoutParams(dp(38),dp(34)));
+                if(body.length()>800||body.contains("```")||body.contains("\n## "))
+                    bar.addView(mini(R.drawable.ic_msg_doc,"Открыть документ · .md",v->AgentDocumentSheet.document(activity,body,text,muted,accent,subtle,border,surface,()->actions.exportMarkdown(body))),new LinearLayout.LayoutParams(dp(38),dp(34)));
+                ImageView retry=mini(R.drawable.ic_msg_retry,"Повторить запрос",v->actions.retryLast());
+                retry.setVisibility(View.GONE);retryIcons.put(key,retry);
+                bar.addView(retry,new LinearLayout.LayoutParams(dp(38),dp(34)));
             }
+            bubble.addView(bar);
         }
         wrapper.addView(bubble,new LinearLayout.LayoutParams(user?-2:-1,-2));
         return wrapper;
@@ -391,7 +415,7 @@ public final class AgentChatScreen {
         boolean bottom=transcript.getHeight()-transcriptScroll.getScrollY()-transcriptScroll.getHeight()<dp(90);
         int oldY=transcriptScroll.getScrollY();
         if(rendered.isEmpty()&&messages.length()>0)transcript.removeAllViews();
-        java.util.Set<String> keep=new java.util.HashSet<>();int position=0;
+        java.util.Set<String> keep=new java.util.HashSet<>();int position=0;String lastAgentKey="";
         JSONObject running=actions.activeRun();String entryModel="";
         int lastRun=-1;for(int k=0;k<messages.length();k++){JSONObject m=messages.optJSONObject(k);if(m!=null&&m.optJSONObject("run")!=null&&!m.optJSONObject("run").optString("id").isEmpty())lastRun=k;}
         for(int i=0;i<messages.length();i++){
@@ -409,7 +433,8 @@ public final class AgentChatScreen {
             if(legacy!=null&&view==null)view=legacyGroup(legacy);
             if(run!=null){if(!(view instanceof AgentRunView))view=new AgentRunView(activity,text,muted,accent,subtle,border,run,actions::openDiff);else ((AgentRunView)view).update(run);
                 final String runId=run.optString("id");((AgentRunView)view).setResumeHandler(i==lastRun?()->actions.resumeTask(runId):null);}
-            else if(view==null)view=message(entry,entryModel);
+            else if(view==null){building=key;view=message(entry,entryModel);}
+            if(run==null&&legacy==null&&!"user".equals(entry.optString("role"))&&!"system".equals(entry.optString("role")))lastAgentKey=key;
             rendered.put(key,view);
             if(view.getParent()==null)transcript.addView(view,position,new LinearLayout.LayoutParams(-1,-2));
             else if(transcript.indexOfChild(view)!=position){transcript.removeView(view);transcript.addView(view,position);}
@@ -425,8 +450,9 @@ public final class AgentChatScreen {
             }
         }
         java.util.Iterator<java.util.Map.Entry<String,View>> iterator=rendered.entrySet().iterator();while(iterator.hasNext()){
-            java.util.Map.Entry<String,View> entry=iterator.next();if(!keep.contains(entry.getKey())){transcript.removeView(entry.getValue());iterator.remove();}
+            java.util.Map.Entry<String,View> entry=iterator.next();if(!keep.contains(entry.getKey())){transcript.removeView(entry.getValue());retryIcons.remove(entry.getKey());iterator.remove();}
         }
+        for(java.util.Map.Entry<String,View> retry:retryIcons.entrySet())retry.getValue().setVisibility(!busy&&retry.getKey().equals(lastAgentKey)?View.VISIBLE:View.GONE);
         String preview=busy&&running!=null?running.optString("preview"):"";
         if(!preview.isEmpty()){
             if(streamed==null){streamed=new LinearLayout(activity);streamed.setOrientation(LinearLayout.VERTICAL);streamed.setPadding(dp(5),dp(12),dp(5),dp(8));transcript.addView(streamed);}
@@ -475,6 +501,17 @@ public final class AgentChatScreen {
         label.setContentDescription(description);
         if(click!=null)label.setOnClickListener(v->click.run());
         return label;
+    }
+
+    /** Small unobtrusive icon for the row under a message. */
+    private ImageView mini(int resource,String description,View.OnClickListener click){
+        ImageView icon=new ImageView(activity);
+        icon.setImageResource(resource);icon.setColorFilter(muted);
+        icon.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+        icon.setPadding(dp(9),dp(8),dp(9),dp(8));
+        icon.setContentDescription(description);
+        if(click!=null)icon.setOnClickListener(click);
+        return icon;
     }
 
     private ImageView icon(int resource,String description,int tint){

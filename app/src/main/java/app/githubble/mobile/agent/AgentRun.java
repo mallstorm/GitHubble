@@ -378,6 +378,10 @@ public final class AgentRun {
         return "Поиск символов";
       case "web_search":
         return "Поиск в интернете";
+      case "web_fetch":
+        return "Чтение страницы";
+      case "web_research":
+        return "Исследование в интернете";
       case "write_files":
         return "Изменения файлов";
       case "import_repository":

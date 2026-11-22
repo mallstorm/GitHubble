@@ -26,7 +26,6 @@ object NativeProviderCatalog {
         result["polza"]=Profile("polza","Polza.AI","https://polza.ai/api/v1",ApiGateway.CHAT,"bearer")
         result["vsegpt"]=Profile("vsegpt","VseGPT","https://api.vsegpt.ru/v1",ApiGateway.CHAT,"bearer")
         result["cohere"]=Profile("cohere","Cohere","https://api.cohere.ai/compatibility/v1",ApiGateway.CHAT,"bearer")
-        result["github-models"]=Profile("github-models","GitHub Models (бесплатно)","https://models.github.ai/inference",ApiGateway.CHAT,"bearer")
         result["custom"]=Profile("custom","Свой OpenAI-совместимый API","",ApiGateway.CHAT,"bearer")
         result["proxy-external"]=Profile("proxy-external","Внешний CLIProxyAPI","http://127.0.0.1:8787/v1",ApiGateway.CHAT,"bearer")
         return result

@@ -12,7 +12,7 @@ import java.util.concurrent.TimeUnit
 
 /** The mallstorm OmniChat public-search adapters, available without a Workspace. */
 object NativeWebSearch {
-    @JvmStatic fun enabled(c:Context,owner:String)=c.getSharedPreferences("agent_tool_features",0).getBoolean("web_$owner",false)
+    @JvmStatic fun enabled(c:Context,owner:String)=c.getSharedPreferences("agent_tool_features",0).getBoolean("web_$owner",true)
     @JvmStatic fun enable(c:Context,owner:String,on:Boolean){c.getSharedPreferences("agent_tool_features",0).edit().putBoolean("web_$owner",on).apply()}
     private val client=OkHttpClient.Builder().dns(NetworkDnsPolicy.dns(publicOnly=true)).followRedirects(false).followSslRedirects(false)
         .connectTimeout(10,TimeUnit.SECONDS).readTimeout(15,TimeUnit.SECONDS).callTimeout(20,TimeUnit.SECONDS).build()

@@ -108,5 +108,7 @@ public final class ToolCatalog {
         add(b,"download_artifact","artifact_id:integer expect:object","artifact_id",remote,true,false,true);
         add(b,"artifact_verdict","artifact_id:integer","artifact_id",gh,false,false,true);
         add(b,"web_search","query","query",ToolBroker.Permission.PUBLIC_WEB,false,false,false);
+        add(b,"web_fetch","url","url",ToolBroker.Permission.PUBLIC_WEB,false,false,false);
+        add(b,"web_research","query","query",ToolBroker.Permission.PUBLIC_WEB,false,false,false);
     }
 }

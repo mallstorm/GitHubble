@@ -90,7 +90,6 @@ public final class ConnectionCatalog {
         KEYS.put("cerebras", new String[]{"https://cloud.cerebras.ai/platform", "csk-", "Бесплатный тариф с лимитами"});
         KEYS.put("nvidia", new String[]{"https://build.nvidia.com/settings/api-keys", "nvapi-", "Бесплатные кредиты NVIDIA NIM"});
         KEYS.put("huggingface", new String[]{"https://huggingface.co/settings/tokens", "hf_", "Бесплатные кредиты Inference Providers"});
-        KEYS.put("github-models", new String[]{"https://github.com/settings/personal-access-tokens/new", "github_pat_", "Бесплатно для аккаунта GitHub: нужен доступ Models → Read"});
         KEYS.put("cohere", new String[]{"https://dashboard.cohere.com/api-keys", "", "Пробный бесплатный ключ"});
         KEYS.put("cloudflare", new String[]{"https://dash.cloudflare.com/profile/api-tokens", "", "Workers AI: бесплатная квота"});
         KEYS.put("sambanova", new String[]{"https://cloud.sambanova.ai/apis", "", "Бесплатный тариф"});

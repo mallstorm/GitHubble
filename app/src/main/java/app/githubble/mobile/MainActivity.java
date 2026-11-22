@@ -370,7 +370,7 @@ public class MainActivity extends Activity {
         app.githubble.mobile.agent.GatewayOps.onRepositoryDeleted=(accountId,full)->runOnUiThread(()->forgetDeletedRepository(accountId,full));
         accountOperations = new AccountOperationsController(api);
         profileController = new ProfileController(api);
-        translationController = new TranslationController(secureStore, prefs, translationCache, translationEngine);
+        translationController = new TranslationController(prefs, translationCache, translationEngine, aiConnections, aiChatClient, ()->accountStore.activeCacheKey());
         screenState = new ScreenStateStore(this);
         features = new FeatureControllerRegistry(this, api, graphql, prefs, trackingDb);
         performanceMonitor = new PerformanceMonitor(this);
@@ -815,6 +815,7 @@ public class MainActivity extends Activity {
             }
             @Override public void voiceSettings() { showVoiceLanguageChooser(); }
             @Override public void cancelRequest() { agentCancelRequest(owner); }
+            @Override public void retryLast() { agentRetryLast(owner,renderedThread); }
             @Override public void draftChanged(String value) { prefs.edit().putString(agentDraftKey(owner, renderedThread), value).apply(); }
             @Override public void send(String prompt, boolean agentMode) {
                 agentSend(owner, prompt, agentMode);
@@ -838,6 +839,15 @@ public class MainActivity extends Activity {
                 connected ? aiConnections.model(owner, provider) : "", connected,
                 title, agentChatBusy(owner,renderedThread), prefs.getString(agentDraftKey(owner, renderedThread), ""));
         activeAgentChatScreen=screen;activeAgentChatScope=owner+"\n"+renderedThread;activeAgentChatConfiguration=agentChatConfiguration(owner,renderedThread);
+    }
+
+    private void agentRetryLast(String owner,String thread){
+        if(!owner.equals(accountStore.activeCacheKey()))return;
+        if(agentChatBusy(owner,thread)){toast("Запрос ещё выполняется");return;}
+        JSONArray all=agentProjects.messages(owner);
+        for(int i=all.length()-1;i>=0;i--){JSONObject e=all.optJSONObject(i);
+            if(e!=null&&"user".equals(e.optString("role"))&&!e.optString("body").trim().isEmpty()){agentSend(owner,e.optString("body"),true);return;}}
+        toast("Нет сообщения для повтора");
     }
 
     private void agentSwitchBranch(String repo,String branch){
@@ -1911,13 +1921,13 @@ public class MainActivity extends Activity {
 
     private void agentShowWebSearch(String owner){
         EditText query=new EditText(this);query.setHint("Что найти в интернете?");query.setMinLines(2);
-        new AlertDialog.Builder(this).setTitle("Веб-поиск").setMessage("Поиск отправит запрос публичным поисковым системам. Результаты будут доступны выбранной модели.")
+        new AlertDialog.Builder(this).setTitle("Веб-поиск").setMessage("Агент ищет в интернете и читает найденные страницы сам, когда нужны свежие данные. Запросы уходят публичным поисковикам, текст страниц читает выбранная модель. Страницы с JavaScript открываются через облачный ридер r.jina.ai.")
             .setView(query).setPositiveButton("Найти",(d,w)->{
                 if(!owner.equals(accountStore.activeCacheKey()))return;
                 String q=query.getText().toString().trim();if(q.length()<2){toast("Введите запрос");return;}
                 app.githubble.mobile.agent.NativeWebSearch.enable(this,owner,true);
-                agentSend(owner,"Найди в интернете с помощью web_search и приведи ссылки на реальные источники: "+q,true);
-            }).setNeutralButton("Выключить поиск",(d,w)->app.githubble.mobile.agent.NativeWebSearch.enable(this,owner,false))
+                agentSend(owner,"Найди в интернете с помощью web_research, прочитай источники и ответь со ссылками: "+q,true);
+            }).setNeutralButton("Выключить интернет",(d,w)->{app.githubble.mobile.agent.NativeWebSearch.enable(this,owner,false);toast("Интернет для агента выключен");})
             .setNegativeButton("Отмена",null).show();
     }
 
@@ -4942,6 +4952,9 @@ public class MainActivity extends Activity {
         TextView name=text(shortName,16,true);name.setTextColor(BLUE);name.setMaxLines(2);name.setPadding(0,dp(4),0,0);tile.addView(name);
         TextView owner=text(full.contains("/")?full.substring(0,full.indexOf('/')):"",11,false);owner.setTextColor(MUTED);owner.setPadding(0,0,0,0);tile.addView(owner);
         TextView description=text(app.githubble.mobile.ui.JsonText.of(repository,"description","Без описания"),11,false);description.setTextColor(MUTED);description.setMaxLines(2);description.setPadding(0,dp(7),0,0);tile.addView(description,new LinearLayout.LayoutParams(-1,0,1));
+        rememberRepoPrivacy(full,repository.optBoolean("private",false));
+        {String tileSource=app.githubble.mobile.ui.JsonText.of(repository,"description","");
+         if(!tileSource.isEmpty()){app.githubble.mobile.ui.InlineTranslation tileTranslation=inlineTranslation("desc:"+full);tileTranslation.add(description,tileSource);tileTranslation.bind(null);}}
         TextView meta=text("★ "+repository.optInt("stargazers_count",0)+" · "+app.githubble.mobile.ui.JsonText.of(repository,"language","—"),11,true);meta.setTextColor(MUTED);meta.setPadding(0,dp(6),0,0);tile.addView(meta);
         tile.setOnClickListener(v->navigate(()->showRepository(full)));
         GridLayout.LayoutParams p=new GridLayout.LayoutParams();p.width=0;p.height=dp(isLargeText()?150:124);p.columnSpec=GridLayout.spec(GridLayout.UNDEFINED,1f);p.setMargins(dp(4),dp(4),dp(4),dp(4));grid.addView(tile,p);
@@ -4954,6 +4967,7 @@ public class MainActivity extends Activity {
             int stars,int forks,int issues,String branch,String language,String license){
         String name=full.contains("/")?full.substring(full.indexOf('/')+1):full;
         String owner=full.contains("/")?full.substring(0,full.indexOf('/')):full;
+        rememberRepoPrivacy(full,repo.optBoolean("private",false));translationRepo=full;
         LinearLayout hero=new LinearLayout(this);hero.setOrientation(LinearLayout.VERTICAL);
         hero.setPadding(dp(14),dp(12),dp(14),dp(12));
         hero.setBackground(round(CARD,12,BORDER,1));
@@ -4976,6 +4990,7 @@ public class MainActivity extends Activity {
             TextView body=text(description,13,false);body.setTextColor(MUTED);
             LinearLayout.LayoutParams descP=new LinearLayout.LayoutParams(-1,-2);
             descP.setMargins(0,dp(6),0,dp(4));hero.addView(body,descP);
+            app.githubble.mobile.ui.InlineTranslation heroTranslation=inlineTranslation("desc:"+full);heroTranslation.add(body,description);heroTranslation.bind(hero);
         }
         LinearLayout stats=new LinearLayout(this);stats.setPadding(0,dp(6),0,0);
         repoMetric(stats,"★  "+stars,"Stars");repoMetric(stats,"⑂  "+forks,"Forks");
@@ -5494,7 +5509,7 @@ public class MainActivity extends Activity {
                 String state=issue.optString("state","open");
                 TextView meta=text((author==null?"":author.optString("login",""))+" · "+("open".equals(state)?"Открыта":"Закрыта")+" · "+formatGitHubDate(issue.optString("updated_at","")),11,false);meta.setTextColor(MUTED);card(meta);
                 JSONArray labels=issue.optJSONArray("labels");if(labels!=null&&labels.length()>0){LinearLayout chips=new LinearLayout(this);chips.setOrientation(LinearLayout.HORIZONTAL);for(int i=0;i<Math.min(labels.length(),5);i++){JSONObject l=labels.optJSONObject(i);if(l!=null)chips.addView(pill(app.githubble.mobile.ui.JsonText.of(l,"name","label")));}card(chips);}
-                addTranslatableMarkdownCard("issue:"+full+"#"+number,issue.optString("body","Без описания"),issue.optString("updated_at",""));
+                translationRepo=full;addTranslatableMarkdownCard("issue:"+full+"#"+number,issue.optString("body","Без описания"),issue.optString("updated_at",""));
                 GridLayout actions=new GridLayout(this);actions.setColumnCount(adaptiveColumns(2));
                 addAction(actions,"Комментарий",()->showIssueCommentDialog(full,number));
                 addAction(actions,"Редактировать",()->showIssueEditor(full,number,issue.optString("title",""),issue.optString("body",""),issue.optString("updated_at","")));
@@ -5626,7 +5641,7 @@ public class MainActivity extends Activity {
                 content.removeView(pb);heroBanner(pull.optString("title"),full,R.drawable.ic_pull_request);
                 JSONObject author=pull.optJSONObject("user");String state=pull.optBoolean("merged",false)?"Слит":pull.optString("state","open").equals("open")?"Открыт":"Закрыт";
                 TextView meta=text((author==null?"":author.optString("login",""))+" · "+state+" · "+pull.optJSONObject("head").optString("ref","")+" → "+pull.optJSONObject("base").optString("ref",""),11,false);meta.setTextColor(MUTED);card(meta);
-                addTranslatableMarkdownCard("pr:"+full+"#"+number,pull.optString("body","Без описания"),pull.optString("updated_at",""));
+                translationRepo=full;addTranslatableMarkdownCard("pr:"+full+"#"+number,pull.optString("body","Без описания"),pull.optString("updated_at",""));
                 GridLayout stat=new GridLayout(this);stat.setColumnCount(adaptiveColumns(3));addMiniStat(stat,String.valueOf(pull.optInt("commits")),"Коммиты",BLUE);addMiniStat(stat,String.valueOf(pull.optInt("additions")),"Добавлено",GREEN);addMiniStat(stat,String.valueOf(pull.optInt("deletions")),"Удалено",Color.rgb(220,80,80));content.addView(stat);
                 GridLayout actions=new GridLayout(this);actions.setColumnCount(adaptiveColumns(2));
                 addAction(actions,"Коммиты",()->navigate(() -> showPullCommits(full,number)));
@@ -5655,7 +5670,7 @@ public class MainActivity extends Activity {
     private void showPullCommits(String full,int number){showPullCommitsPage(full,number,1,true);}
     private void showPullCommitsPage(String full,int number,int page,boolean first){
         if(first){setCurrentScreen(()->showPullCommits(full,number));shell("Коммиты PR",true);repoSectionHeader(full,"Коммиты PR","#"+number,R.drawable.ic_pull_request);}ProgressBar pb=new ProgressBar(this);content.addView(pb);
-        io.execute(()->{try{JSONArray commits=getArray("https://api.github.com/repos/"+full+"/pulls/"+number+"/commits?per_page=50&page="+page);runOnUiThread(()->{content.removeView(pb);if(first)sectionTitle("Коммиты",null);for(int i=0;i<commits.length();i++){JSONObject item=commits.optJSONObject(i);if(item==null)continue;JSONObject commit=item.optJSONObject("commit");JSONObject author=commit==null?null:commit.optJSONObject("author");LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.VERTICAL);String message=commit==null?"Коммит":commit.optString("message","Коммит");row.addView(text(firstLine(message),14,true));String sha=item.optString("sha","");TextView meta=text(sha.substring(0,Math.min(7,sha.length()))+(author==null?"":" · "+app.githubble.mobile.ui.JsonText.of(author,"name",""))+" · "+formatGitHubDate(author==null?"":author.optString("date","")),11,false);meta.setTextColor(MUTED);row.addView(meta);if(CommitDetailController.validSha(sha))
+        io.execute(()->{try{JSONArray commits=getArray("https://api.github.com/repos/"+full+"/pulls/"+number+"/commits?per_page=50&page="+page);runOnUiThread(()->{content.removeView(pb);if(first)sectionTitle("Коммиты",null);for(int i=0;i<commits.length();i++){JSONObject item=commits.optJSONObject(i);if(item==null)continue;JSONObject commit=item.optJSONObject("commit");JSONObject author=commit==null?null:commit.optJSONObject("author");LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.VERTICAL);String message=commit==null?"Коммит":commit.optString("message","Коммит");TextView subject=text(firstLine(message),14,true);row.addView(subject);commitTranslation.add(subject,firstLine(message));String sha=item.optString("sha","");TextView meta=text(sha.substring(0,Math.min(7,sha.length()))+(author==null?"":" · "+app.githubble.mobile.ui.JsonText.of(author,"name",""))+" · "+formatGitHubDate(author==null?"":author.optString("date","")),11,false);meta.setTextColor(MUTED);row.addView(meta);if(CommitDetailController.validSha(sha))
                             row.setOnClickListener(v->navigate(()->showCommitDetail(full,sha)));
                         card(row);}if(commits.length()==50)addLoadMoreButton("Показать ещё коммиты",()->showPullCommitsPage(full,number,page+1,false));});}catch(Exception e){runOnUiThread(()->{content.removeView(pb);errorCard("Не удалось загрузить коммиты",e.getMessage());});}});
     }
@@ -6268,30 +6283,107 @@ public class MainActivity extends Activity {
     private void showReadme(String full,String readme){setCurrentScreen(() -> showReadme(full,readme));shell("README",true);repoSectionHeader(full,"README","Документация проекта",R.drawable.ic_repository);showReadmeInline(full,readme);}
     private void showReadmeInline(String full,String readme){sectionTitle("README",null);addTranslatableMarkdownCard("readme:"+full,readme,prefs.getString("cache_repo_updated_"+full,""));}
 
-    private TranslationEngine.Config translationConfig(){return translationController.config();}
+    // ---- Translation: prose only, through the user's connected AI, small chips instead of big buttons ----
+    private final java.util.concurrent.ConcurrentHashMap<String,Boolean> repoPrivacy=new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.Set<String> translating=java.util.Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap<>());
+    private volatile String translationRepo="";
+
+    private void rememberRepoPrivacy(String full,boolean isPrivate){if(full!=null&&!full.isEmpty())repoPrivacy.put(full,isPrivate);}
+    private boolean translationCandidate(String text){return text!=null&&text.trim().length()>=12&&LanguageDetector.needsRussianTranslation(text);}
+    private String translationRepoOf(String scopeKey){
+        java.util.regex.Matcher m=java.util.regex.Pattern.compile("^(?:readme|issue|pr|desc|commit):([^/#\\s]+/[^#\\s]+)").matcher(scopeKey==null?"":scopeKey);
+        return m.find()?m.group(1):translationRepo;
+    }
+    private String translationKind(String scopeKey){
+        String k=scopeKey==null?"":scopeKey;
+        if(k.startsWith("desc:"))return "description";
+        if(k.startsWith("commit:"))return "commits";
+        if(k.startsWith("issue")||k.startsWith("pr:")||k.startsWith("release:"))return "discussions";
+        return "readme";
+    }
+    private boolean translationRepoPrivate(String scopeKey){String full=translationRepoOf(scopeKey);return !full.isEmpty()&&Boolean.TRUE.equals(repoPrivacy.get(full));}
+    /** Automatic translation: global switch or a per-repository choice; private repositories only when asked for that repository. */
+    private boolean autoTranslateAllowed(String scopeKey){
+        if(!translationController.available())return false;
+        String full=translationRepoOf(scopeKey);
+        int choice=full.isEmpty()?0:prefs.getInt("translator_repo_"+full,0);
+        if(choice<0||!translationController.scopeEnabled(translationKind(scopeKey)))return false;
+        if(choice>0)return true;
+        // Only repositories known to be public are translated unasked.
+        return translationController.autoEnabled()&&!full.isEmpty()&&Boolean.FALSE.equals(repoPrivacy.get(full));
+    }
+    /** Private text leaves the device for the AI provider only after a one-time yes. */
+    private void allowTranslationSend(String scopeKey,Runnable proceed){
+        if(!translationRepoPrivate(scopeKey)||prefs.getBoolean("translator_private_ok",false)){proceed.run();return;}
+        new AlertDialog.Builder(this).setTitle("Перевести приватный текст?")
+            .setMessage("Текст приватного репозитория будет отправлен вашей нейросети ("+translationController.serviceLabel()+") для перевода. Код не отправляется.")
+            .setPositiveButton("Перевести",(d,w)->{prefs.edit().putBoolean("translator_private_ok",true).apply();proceed.run();})
+            .setNegativeButton("Отмена",null).show();
+    }
+    private app.githubble.mobile.ui.InlineTranslation inlineTranslation(String scopeKey){
+        return new app.githubble.mobile.ui.InlineTranslation(this,io,translationController,new app.githubble.mobile.ui.InlineTranslation.Host(){
+            @Override public boolean auto(){return autoTranslateAllowed(scopeKey);}
+            @Override public void allowSend(Runnable proceed){allowTranslationSend(scopeKey,proceed);}
+            @Override public void toast(String message){MainActivity.this.toast(message);}
+        },MUTED,SUBTLE);
+    }
+    private void showTranslationChoices(String scopeKey){
+        String full=translationRepoOf(scopeKey);if(full.isEmpty()){showTranslationSettingsHint();return;}
+        int choice=prefs.getInt("translator_repo_"+full,0);
+        String[] items={"Всегда переводить "+full,"Не переводить "+full,"Как в настройках"};
+        new AlertDialog.Builder(this).setTitle("Перевод для репозитория").setSingleChoiceItems(items,choice>0?0:choice<0?1:2,(d,w)->{
+            prefs.edit().putInt("translator_repo_"+full,w==0?1:w==1?-1:0).apply();d.dismiss();toast("Сохранено · откройте страницу заново");}).setNegativeButton("Закрыть",null).show();
+    }
+    private void showTranslationSettingsHint(){toast("Автоперевод: Настройки → Перевод");}
 
     private void addTranslatableMarkdownCard(String scopeKey,String source,String updateMarker){
         LinearLayout panel=translatableMarkdownPanel(scopeKey,source,updateMarker);LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,-2);params.setMargins(0,0,0,dp(12));content.addView(panel,params);
     }
     private LinearLayout translatableMarkdownPanel(String scopeKey,String source,String updateMarker){
-        String safeSource=source==null?"":source;LinearLayout panel=new LinearLayout(this);panel.setOrientation(LinearLayout.VERTICAL);panel.setPadding(dp(12),dp(10),dp(12),dp(10));panel.setBackground(round(CARD,16,BORDER,1));
-        renderTranslatablePanel(panel,scopeKey,safeSource,updateMarker,false);
-        if(prefs.getBoolean("translator_auto",false)&&LanguageDetector.needsRussianTranslation(safeSource)&&!translationConfig().endpoint.isEmpty()&&translationCache.get(safeSource,updateMarker,"ru",translationConfig().identity())==null)new Handler(Looper.getMainLooper()).postDelayed(()->startTranslation(panel,scopeKey,safeSource,updateMarker),180L);
+        String safeSource=source==null?"":source;LinearLayout panel=new LinearLayout(this);panel.setOrientation(LinearLayout.VERTICAL);panel.setPadding(dp(12),dp(8),dp(12),dp(10));panel.setBackground(round(CARD,16,BORDER,1));
+        boolean foreign=translationCandidate(safeSource);boolean auto=foreign&&autoTranslateAllowed(scopeKey);
+        TranslationCache.Entry cached=foreign?translationCache.get(safeSource,updateMarker,"ru",TranslationEngine.IDENTITY):null;
+        renderTranslatablePanel(panel,scopeKey,safeSource,updateMarker,auto&&cached!=null,"");
+        if(auto&&cached==null)new Handler(Looper.getMainLooper()).postDelayed(()->startTranslation(panel,scopeKey,safeSource,updateMarker),180L);
         return panel;
     }
 
-    private void renderTranslatablePanel(LinearLayout panel,String scopeKey,String source,String updateMarker,boolean russian){
-        panel.removeAllViews();TranslationEngine.Config config=translationConfig();LanguageDetector.Result detected=LanguageDetector.detect(source);TranslationCache.Entry cached=translationCache.get(source,updateMarker,"ru",config.identity());
-        LinearLayout header=new LinearLayout(this);header.setGravity(Gravity.CENTER_VERTICAL);TextView language=text(detected.displayName,10,true);language.setTextColor(detected.code.equals("ru")?GREEN:BLUE);language.setBackground(round(SUBTLE,10,Color.TRANSPARENT,0));language.setPadding(dp(8),dp(3),dp(8),dp(3));header.addView(language);TextView cacheState=text(cached==null?"":"  перевод сохранён",10,false);cacheState.setTextColor(MUTED);header.addView(cacheState,new LinearLayout.LayoutParams(0,-2,1));panel.addView(header);
-        String shown=russian&&cached!=null?cached.translated:source;TextView body=markdownView(shown,14);body.setPadding(0,dp(8),0,dp(8));panel.addView(body);
-        LinearLayout actions=new LinearLayout(this);Button original=compactButton("Оригинал");original.setEnabled(russian);original.setOnClickListener(v->renderTranslatablePanel(panel,scopeKey,source,updateMarker,false));actions.addView(original,new LinearLayout.LayoutParams(0,dp(44),1));
-        Button translate=compactButton(cached==null?"Перевести":"Русский");translate.setEnabled(!detected.code.equals("ru"));translate.setOnClickListener(v->{if(cached!=null)renderTranslatablePanel(panel,scopeKey,source,updateMarker,true);else startTranslation(panel,scopeKey,source,updateMarker);});LinearLayout.LayoutParams tp=new LinearLayout.LayoutParams(0,dp(44),1);tp.setMargins(dp(6),0,0,0);actions.addView(translate,tp);panel.addView(actions);
+    /** Body plus one small chip (only for foreign text): «🌐 Перевести» / «🌐 Перевод · оригинал». */
+    private void renderTranslatablePanel(LinearLayout panel,String scopeKey,String source,String updateMarker,boolean showTranslated,String chipNote){
+        panel.removeAllViews();
+        boolean foreign=translationCandidate(source);
+        TranslationCache.Entry cached=foreign?translationCache.get(source,updateMarker,"ru",TranslationEngine.IDENTITY):null;
+        boolean translated=showTranslated&&cached!=null;
+        if(foreign){
+            String label=!chipNote.isEmpty()?chipNote:translated?"🌐 Перевод · оригинал":cached!=null?"🌐 Оригинал · перевод":"🌐 Перевести";
+            TextView chip=app.githubble.mobile.ui.InlineTranslation.chip(this,label,MUTED,SUBTLE);
+            boolean busy=chipNote.startsWith("🌐 Перевожу");
+            if(!busy){
+                chip.setOnClickListener(v->{if(cached!=null)renderTranslatablePanel(panel,scopeKey,source,updateMarker,!translated,"");else allowTranslationSend(scopeKey,()->startTranslation(panel,scopeKey,source,updateMarker));});
+                chip.setOnLongClickListener(v->{showTranslationChoices(scopeKey);return true;});
+            }
+            LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.END);row.addView(chip,new LinearLayout.LayoutParams(-2,-2));panel.addView(row,new LinearLayout.LayoutParams(-1,-2));
+        }
+        TextView body=markdownView(translated?cached.translated:source,14);body.setPadding(0,dp(6),0,dp(2));panel.addView(body);
     }
 
     private void startTranslation(LinearLayout panel,String scopeKey,String source,String updateMarker){
-        TranslationEngine.Config config=translationConfig();if(config.endpoint.isEmpty()){toast("Сначала настройте провайдер перевода");configureTranslatorSettings();return;}
-        panel.removeAllViews();TextView title=text("Переводим на русский…",14,true);panel.addView(title);ProgressBar progress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);progress.setMax(100);progress.setProgress(4);panel.addView(progress,new LinearLayout.LayoutParams(-1,dp(8)));TextView detail=text("Подготовка Markdown и защита технических фрагментов",11,false);detail.setTextColor(MUTED);panel.addView(detail);
-        io.execute(()->{try{String translated=translationEngine.translate(source,"ru",config,(done,total)->runOnUiThread(()->{progress.setProgress(Math.max(4,done*100/Math.max(1,total)));detail.setText("Переведено частей: "+done+"/"+total);}));LanguageDetector.Result detected=LanguageDetector.detect(source);translationCache.put(source,updateMarker,"ru",config.identity(),translated,detected.code);runOnUiThread(()->renderTranslatablePanel(panel,scopeKey,source,updateMarker,true));}catch(Exception e){runOnUiThread(()->{panel.removeAllViews();TextView error=text("Не удалось перевести: "+e.getMessage(),13,false);error.setTextColor(Color.rgb(190,55,60));panel.addView(error);Button retry=compactButton("Повторить");retry.setOnClickListener(v->startTranslation(panel,scopeKey,source,updateMarker));panel.addView(retry,new LinearLayout.LayoutParams(-1,dp(44)));});}});
+        if(!translationController.available()){toast("Подключите ChatGPT, Grok или другую модель в «Подключениях»");return;}
+        String flight=TranslationCache.sha256(source);if(!translating.add(flight))return;
+        renderTranslatablePanel(panel,scopeKey,source,updateMarker,false,"🌐 Перевожу…");
+        io.execute(()->{
+            try{
+                String translated=translationEngine.translate(source,"ru",translationController.completer(),(done,total)->{if(total>1)runOnUiThread(()->renderTranslatablePanel(panel,scopeKey,source,updateMarker,false,"🌐 Перевожу… "+done+"/"+total));});
+                translationCache.put(source,updateMarker,"ru",TranslationEngine.IDENTITY,translated,LanguageDetector.detect(source).code);
+                runOnUiThread(()->{translating.remove(flight);renderTranslatablePanel(panel,scopeKey,source,updateMarker,true,"");});
+            }catch(Exception e){
+                runOnUiThread(()->{translating.remove(flight);renderTranslatablePanel(panel,scopeKey,source,updateMarker,false,"");
+                    TextView chip=app.githubble.mobile.ui.InlineTranslation.chip(this,"🌐 Не удалось · повторить",MUTED,SUBTLE);
+                    chip.setOnClickListener(v->startTranslation(panel,scopeKey,source,updateMarker));
+                    if(panel.getChildCount()>0&&panel.getChildAt(0) instanceof LinearLayout){LinearLayout row=(LinearLayout)panel.getChildAt(0);row.removeAllViews();row.addView(chip,new LinearLayout.LayoutParams(-2,-2));}
+                    toast("Перевод: "+(e.getMessage()==null?"ошибка":e.getMessage()));});
+            }
+        });
     }
 
     private void addAction(GridLayout g,String label,Runnable r){TextView v=text(label,14,true);v.setGravity(Gravity.CENTER);v.setTextColor(BLUE);v.setContentDescription(label);v.setMinHeight(dp(48));v.setBackground(round(CARD,14,BORDER,1));v.setOnClickListener(x->r.run());GridLayout.LayoutParams p=new GridLayout.LayoutParams();p.width=0;p.height=dp(isLargeText()?64:52);p.columnSpec=GridLayout.spec(GridLayout.UNDEFINED,1f);p.setMargins(dp(4),dp(4),dp(4),dp(4));g.addView(v,p);}
@@ -6363,7 +6455,7 @@ public class MainActivity extends Activity {
     }
     void errorCard(String title,String message){LinearLayout b=new LinearLayout(this);b.setOrientation(LinearLayout.VERTICAL);TextView h=text(title,18,true);h.setTextColor(Color.rgb(190,55,60));b.addView(h);TextView m=text(message==null?"Неизвестная ошибка":message,14,false);m.setTextColor(MUTED);b.addView(m);card(b);}
 
-    private void showTranslationInfo(){new AlertDialog.Builder(this).setTitle("Интеллектуальный перевод").setMessage("GitHubble автоматически определяет язык и переводит длинный Markdown частями. Кодовые блоки, inline-код, URL, пути, JSON/YAML, версии, хеши и разметка GFM защищаются плейсхолдерами и восстанавливаются после перевода. Переводы кэшируются по SHA содержимого и дате обновления.").setPositiveButton("Понятно",null).show();}
+    private void showTranslationInfo(){new AlertDialog.Builder(this).setTitle("Как работает перевод").setMessage("Переводит ваша подключённая нейросеть (ChatGPT, Grok или другая) — без отдельных ключей и настроек. Переводится только человеческий текст: описания, README, обсуждения, сообщения коммитов. Код, команды, ссылки, пути, версии и хеши защищаются и не меняются. Приватные репозитории не переводятся сами; ручной перевод спросит подтверждение один раз. Переводы хранятся на устройстве. Долгое нажатие на значок 🌐 — выбрать поведение для репозитория.").setPositiveButton("Понятно",null).show();}
 
     private void showFavorites(){setCurrentScreen(this::showFavorites);shell("Избранное",true);Set<String> f=prefs.getStringSet("favorites",new LinkedHashSet<>());if(f.isEmpty()){card(text("Пока ничего не добавлено. Откройте репозиторий и нажмите «Избранное».",16,false));return;}sectionTitle("Сохранённые проекты",null);for(String s:f){LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);ImageView i=imageIcon(R.drawable.ic_star,Color.rgb(245,191,39),14);row.addView(i,new LinearLayout.LayoutParams(dp(44),dp(44)));TextView t=text(s,16,true);row.addView(t,new LinearLayout.LayoutParams(0,-2,1));row.setOnClickListener(v->navigate(() -> showRepository(s)));card(row);}}
     private void saveFavorite(String s){Set<String> old=new LinkedHashSet<>(prefs.getStringSet("favorites",new LinkedHashSet<>()));old.add(s);prefs.edit().putStringSet("favorites",old).apply();}
@@ -7732,16 +7824,19 @@ public class MainActivity extends Activity {
                 JSONArray commits=getArray("https://api.github.com/repos/"+full+"/commits?sha="+Uri.encode(branch)+"&per_page=30");
                 runOnUiThread(()->{if(!screenRequestCurrent(generation,account,destination))return;
                     content.removeView(pb);sectionTitle("Последние коммиты",null);
+                    final app.githubble.mobile.ui.InlineTranslation commitTranslation=inlineTranslation("commit:"+full);
+                    final LinearLayout chipHost=new LinearLayout(this);chipHost.setOrientation(LinearLayout.VERTICAL);content.addView(chipHost);
                     for(int i=0;i<commits.length();i++){
                         JSONObject item=commits.optJSONObject(i);if(item==null)continue;
                         JSONObject commit=item.optJSONObject("commit");JSONObject author=commit==null?null:commit.optJSONObject("author");
                         LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.VERTICAL);
-                        String message=commit==null?"Коммит":commit.optString("message","Коммит");row.addView(text(firstLine(message),14,true));
+                        String message=commit==null?"Коммит":commit.optString("message","Коммит");TextView subject=text(firstLine(message),14,true);row.addView(subject);commitTranslation.add(subject,firstLine(message));
                         String sha=item.optString("sha","");TextView meta=text(shortSha(sha)+(author==null?"":" · "+app.githubble.mobile.ui.JsonText.of(author,"name",""))+" · "+formatGitHubDate(author==null?"":author.optString("date","")),11,false);meta.setTextColor(MUTED);row.addView(meta);
                         if(CommitDetailController.validSha(sha))
                             row.setOnClickListener(v->navigate(()->showCommitDetail(full,sha)));
                         card(row);
                     }
+                    commitTranslation.bind(chipHost);
                 });
             }catch(Exception e){runOnUiThread(()->{if(!screenRequestCurrent(generation,account,destination))return;content.removeView(pb);errorCard("Не удалось загрузить коммиты",e.getMessage());});}
         });
@@ -8263,17 +8358,19 @@ public class MainActivity extends Activity {
                     @Override public void set(boolean on){featureState.collapseDiffContext=on;prefs.edit().putBoolean("diff_collapse_context",on).apply();}
                 }));
         sections.add(code);
-        SettingsScreen.Section translation=new SettingsScreen.Section("Перевод содержимого");
-        translation.add(SettingsScreen.Item.action(R.drawable.ic_globe,"Провайдер перевода",translatorDisplayName(),
-                "перевод переводчик api ключ endpoint openai libretranslate модель",this::configureTranslatorSettings));
+        SettingsScreen.Section translation=new SettingsScreen.Section("Перевод");
         translation.add(SettingsScreen.Item.toggle(R.drawable.ic_globe,"Автоперевод",
-                "Переводить иностранный текст при открытии","перевод автоматически язык",
+                "Иностранный текст публичных репозиториев переводится сам · приватные только по кнопке","перевод автоматически язык",
                 new SettingsScreen.Toggle(){
-                    @Override public boolean get(){return prefs.getBoolean("translator_auto",false);}
+                    @Override public boolean get(){return translationController.autoEnabled();}
                     @Override public void set(boolean on){prefs.edit().putBoolean("translator_auto",on).apply();}
                 }));
+        translation.add(SettingsScreen.Item.action(R.drawable.ic_ai,"Чем переводить",translationController.serviceLabel(),
+                "перевод сервис нейросеть chatgpt grok модель подключение",this::chooseTranslationService));
+        translation.add(SettingsScreen.Item.action(R.drawable.ic_globe,"Что переводить",translationScopesSummary(),
+                "перевод описание readme коммиты issue",this::chooseTranslationScopes));
         translation.add(SettingsScreen.Item.action(R.drawable.ic_ai,"Как работает перевод",
-                "Код и Markdown не искажаются · в кэше "+translationCache.count()+" документов",
+                "Только текст, не код · в кэше "+translationCache.count()+" переводов",
                 "перевод справка markdown код кэш",this::showTranslationInfo));
         sections.add(translation);
         return sections;
@@ -9128,15 +9225,26 @@ public class MainActivity extends Activity {
 
     private String compactBytes(long bytes){if(bytes<1024)return bytes+" Б";if(bytes<1024L*1024L)return String.format(Locale.ROOT,"%.1f КБ",bytes/1024.0);return String.format(Locale.ROOT,"%.1f МБ",bytes/(1024.0*1024.0));}
 
-    private String translatorDisplayName(){TranslationEngine.Config c=translationConfig();if(c.endpoint.isEmpty())return "Не настроен";String host="";try{host=Uri.parse(c.endpoint).getHost();}catch(Exception ignored){}return TranslationEngine.providerLabel(c.provider)+(host==null||host.isEmpty()?"":" · "+host);}
-    private void configureTranslatorSettings(){
-        LinearLayout form=new LinearLayout(this);form.setOrientation(LinearLayout.VERTICAL);form.setPadding(dp(18),0,dp(18),0);
-        String[] providers={"Универсальный JSON","OpenAI-совместимый","LibreTranslate"};Spinner provider=new Spinner(this);provider.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,providers));String current=secureStore.get("translator_provider");provider.setSelection("openai".equals(current)?1:"libretranslate".equals(current)?2:0);form.addView(provider);
-        EditText endpoint=new EditText(this);endpoint.setSingleLine(true);endpoint.setHint("Endpoint API");endpoint.setText(secureStore.get("translator_endpoint"));form.addView(endpoint);
-        EditText apiKey=new EditText(this);apiKey.setSingleLine(true);apiKey.setHint("API-ключ (необязательно)");apiKey.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD);apiKey.setText(secureStore.get("translator_api_key"));form.addView(apiKey);
-        EditText model=new EditText(this);model.setSingleLine(true);model.setHint("Модель, например gpt-4.1-mini");model.setText(secureStore.get("translator_model"));form.addView(model);
-        TextView help=text("Generic: {text,target} → translatedText. OpenAI: /v1/chat/completions. LibreTranslate: /translate. Endpoint, ключ и модель хранятся зашифрованно через Android Keystore.",11,false);help.setTextColor(MUTED);form.addView(help);
-        new AlertDialog.Builder(this).setTitle("Провайдер перевода").setView(form).setPositiveButton("Сохранить",(d,w)->{String p=provider.getSelectedItemPosition()==1?"openai":provider.getSelectedItemPosition()==2?"libretranslate":"generic";secureStore.put("translator_provider",p);secureStore.put("translator_endpoint",endpoint.getText().toString().trim());secureStore.put("translator_api_key",apiKey.getText().toString().trim());secureStore.put("translator_model",model.getText().toString().trim());toast("Провайдер сохранён");if("Настройки".equals(currentTitle))showSettings();}).setNeutralButton("Очистить",(d,w)->{secureStore.remove("translator_provider");secureStore.remove("translator_endpoint");secureStore.remove("translator_api_key");secureStore.remove("translator_model");translationCache.clear();if("Настройки".equals(currentTitle))showSettings();}).setNegativeButton("Отмена",null).show();
+    private String translationScopesSummary(){
+        StringBuilder out=new StringBuilder();
+        for(int i=0;i<TranslationController.SCOPE_IDS.length;i++)if(translationController.scopeEnabled(TranslationController.SCOPE_IDS[i])){if(out.length()>0)out.append(", ");out.append(TranslationController.SCOPE_TITLES[i]);}
+        return out.length()==0?"Ничего":out.toString();
+    }
+    private void chooseTranslationScopes(){
+        final boolean[] checked=new boolean[TranslationController.SCOPE_IDS.length];
+        for(int i=0;i<checked.length;i++)checked[i]=translationController.scopeEnabled(TranslationController.SCOPE_IDS[i]);
+        new AlertDialog.Builder(this).setTitle("Что переводить автоматически").setMultiChoiceItems(TranslationController.SCOPE_TITLES,checked,(d,w,on)->checked[w]=on)
+            .setPositiveButton("Сохранить",(d,w)->{for(int i=0;i<checked.length;i++)translationController.setScope(TranslationController.SCOPE_IDS[i],checked[i]);showSettings();})
+            .setNegativeButton("Отмена",null).show();
+    }
+    private void chooseTranslationService(){
+        final java.util.List<TranslationController.Candidate> connected=translationController.connected();
+        if(connected.isEmpty()){new AlertDialog.Builder(this).setTitle("Нет подключённых моделей").setMessage("Перевод идёт через ваши подключения: ChatGPT, Grok или любую другую модель. Подключите их в разделе «Подключения» агента.").setPositiveButton("Понятно",null).show();return;}
+        String[] items=new String[connected.size()+1];items[0]="Авто · ChatGPT → Grok → остальные";
+        String current=translationController.service();int selected=0;
+        for(int i=0;i<connected.size();i++){items[i+1]=connected.get(i).title+" · "+connected.get(i).model;if(connected.get(i).provider.equals(current))selected=i+1;}
+        new AlertDialog.Builder(this).setTitle("Чем переводить").setSingleChoiceItems(items,selected,(d,w)->{
+            translationController.setService(w==0?"auto":connected.get(w-1).provider);d.dismiss();showSettings();}).setNegativeButton("Закрыть",null).show();
     }
 
     private String cacheSizeText(){long bytes=0;for(Map.Entry<String,?> entry:prefs.getAll().entrySet()){String key=entry.getKey();if(key.startsWith("cache_")||key.startsWith("translation_")||key.startsWith("github_profile_json_")){Object value=entry.getValue();if(value!=null)bytes+=value.toString().getBytes(StandardCharsets.UTF_8).length;}}File[] files=getFilesDir().listFiles();if(files!=null)for(File file:files)if(file.isFile()&&file.getName().startsWith("github_avatar_")&&file.getName().endsWith(".png"))bytes+=file.length();bytes+=translationCache.sizeBytes()+entityCache.sizeBytes();return bytes<1024?bytes+" Б":bytes<1024*1024?String.format(Locale.ROOT,"%.1f КБ",bytes/1024.0):String.format(Locale.ROOT,"%.1f МБ",bytes/(1024.0*1024.0));}
@@ -9721,6 +9829,7 @@ public class MainActivity extends Activity {
         if(accountInventoryFuture!=null)accountInventoryFuture.cancel(true);
         inventoryIo.shutdownNow();
         io.shutdownNow();
+        try{app.githubble.mobile.ui.AgentSpeaker.of(this).shutdown();}catch(Exception ignored){}
         try{if(translationCache!=null)translationCache.close();}catch(Exception ignored){}
         try{if(trackingDb!=null)trackingDb.close();}catch(Exception ignored){}
         try{if(entityCache!=null)entityCache.close();}catch(Exception ignored){}
