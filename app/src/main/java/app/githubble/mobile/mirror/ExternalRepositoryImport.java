@@ -2,6 +2,8 @@ package app.githubble.mobile.mirror;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import androidx.work.*;
+import java.util.concurrent.TimeUnit;
 
 import app.githubble.mobile.auth.GitHubAccountStore;
 import app.githubble.mobile.network.GitHubApiClient;
@@ -35,9 +37,11 @@ public final class ExternalRepositoryImport {
     public static final String FAILED = "failed";
     private final GitHubAccountStore accounts;
     private final SharedPreferences prefs;
+    private final Context context;
 
     public ExternalRepositoryImport(Context context, GitHubAccountStore accounts) {
         this.accounts = accounts;
+        this.context = context.getApplicationContext();
         this.prefs = context.getApplicationContext().getSharedPreferences("githubble_external_import", Context.MODE_PRIVATE);
     }
 
@@ -55,6 +59,7 @@ public final class ExternalRepositoryImport {
         public String runUrl = "";
         public long runId = 0L;
         public long createdAt = 0L;
+        public boolean secretInstalled = false;
 
         JSONObject json() throws Exception {
             JSONObject o = new JSONObject();
@@ -64,6 +69,7 @@ public final class ExternalRepositoryImport {
             o.put("bootstrapSha", bootstrapSha); o.put("state", state);
             o.put("error", error); o.put("runUrl", runUrl);
             o.put("runId", runId); o.put("createdAt", createdAt);
+            o.put("secretInstalled", secretInstalled);
             return o;
         }
 
@@ -77,6 +83,7 @@ public final class ExternalRepositoryImport {
             j.state = o.optString("state", PREPARING); j.error = o.optString("error");
             j.runUrl = o.optString("runUrl"); j.runId = o.optLong("runId");
             j.createdAt = o.optLong("createdAt");
+            j.secretInstalled = o.optBoolean("secretInstalled", false);
             return j;
         }
     }
@@ -216,6 +223,7 @@ public final class ExternalRepositoryImport {
             requireBranch(job.bootstrapDefault);
             // Refuse to overwrite an unrelated repository even after creation.
             head(client, destination, job.bootstrapDefault);
+            MirrorSecrets.publicKey(client, destination);
             JSONObject workflow = new JSONObject()
                     .put("message", "chore(import): temporary GitHubble import runner")
                     .put("branch", job.bootstrapDefault)
@@ -223,6 +231,10 @@ public final class ExternalRepositoryImport {
                             ExternalImportWorkflow.yaml().getBytes(StandardCharsets.UTF_8)));
             client.putJson(API + destination + "/contents/" + ExternalImportWorkflow.PATH, workflow);
             job.bootstrapSha = head(client, destination, job.bootstrapDefault);
+            save(job);
+            ExternalImportSecrets.put(client, destination, job.id,
+                    accounts.tokenForAccount(account.id));
+            job.secretInstalled = true;
             save(job);
             JSONObject inputs = new JSONObject()
                     .put("request_id", job.id)
@@ -237,14 +249,35 @@ public final class ExternalRepositoryImport {
                     + "/dispatches", dispatch.toString(), true);
             job.state = RUNNING;
             save(job);
+            enqueueRecovery(job.id);
             return job;
         } catch (Exception error) {
             job.state = FAILED;
             job.error = error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage();
+            try { clearCredential(client, job); }
+            catch (Exception cleanup) { job.error += "; очистка секрета: " + cleanup.getMessage(); }
             save(job);
             throw new IllegalStateException("Импорт " + destination + " не запущен: " + job.error
                     + ". Созданный репозиторий не удалён автоматически.", error);
         }
+    }
+
+    private void enqueueRecovery(String id) {
+        Data data = new Data.Builder().putString(ExternalImportWorker.JOB_ID, id).build();
+        Constraints constraints = new Constraints.Builder()
+                .setRequiredNetworkType(NetworkType.CONNECTED).build();
+        OneTimeWorkRequest work = new OneTimeWorkRequest.Builder(ExternalImportWorker.class)
+                .setInputData(data).setConstraints(constraints)
+                .setInitialDelay(60L, TimeUnit.SECONDS)
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 60L, TimeUnit.SECONDS)
+                .build();
+        WorkManager.getInstance(context).enqueue(work);
+    }
+
+    private static void clearCredential(GitHubApiClient client, Job job) throws Exception {
+        if (!job.secretInstalled) return;
+        ExternalImportSecrets.delete(client, job.destination, job.id);
+        job.secretInstalled = false;
     }
 
     /**
@@ -254,9 +287,13 @@ public final class ExternalRepositoryImport {
     public Job refresh(String jobId) throws Exception {
         Job job = find(jobId);
         if (job == null) throw new IllegalArgumentException("Импорт не найден");
-        if (DONE.equals(job.state)) return job;
-        if (FAILED.equals(job.state)) return job;
+        if ((DONE.equals(job.state) || FAILED.equals(job.state)) && !job.secretInstalled) return job;
         GitHubApiClient client = api(job.accountId);
+        if (DONE.equals(job.state) || FAILED.equals(job.state)) {
+            clearCredential(client, job);
+            save(job);
+            return job;
+        }
         JSONObject result = client.getJsonFresh(API + job.destination
                 + "/actions/runs?event=workflow_dispatch&per_page=100");
         JSONArray runs = result.optJSONArray("workflow_runs");
@@ -283,6 +320,8 @@ public final class ExternalRepositoryImport {
             job.state = FAILED;
             job.error = "GitHub Actions: " + matching.optString("conclusion", "failure")
                     + ". Подробности в журнале выполнения.";
+            try { clearCredential(client, job); }
+            catch (Exception cleanup) { job.error += "; очистка секрета: " + cleanup.getMessage(); }
             save(job);
             return job;
         }
@@ -315,6 +354,7 @@ public final class ExternalRepositoryImport {
                     }
                 }
             }
+            clearCredential(client, job);
             job.state = DONE;
             job.error = "";
         } catch (Exception error) {
