@@ -159,11 +159,7 @@ jobs:
           [[ "$REQUEST_ID" =~ ^[0-9a-f]{32}$ ]] || exit 0
           SECRET_NAME="GITHUBBLE_EXT_IMPORT_${REQUEST_ID^^}"
           # Delete only our own secret; WorkManager retries removal if this fails.
-          curl --fail --silent --show-error --request DELETE \
-            --header "Authorization: Bearer $GH_IMPORT_TOKEN" \
-            --header "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/secrets/$SECRET_NAME" \
-            || echo "::warning::GitHub Actions could not revoke import secret; Android recovery will retry"
+          curl --fail --silent --show-error --request DELETE --header "Authorization: Bearer $GH_IMPORT_TOKEN" --header "Accept: application/vnd.github+json" "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/secrets/$SECRET_NAME" || echo "::warning::GitHub Actions could not revoke import secret; Android recovery will retry"
 """;
     }
 }
