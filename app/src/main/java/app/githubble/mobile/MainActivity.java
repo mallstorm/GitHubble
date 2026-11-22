@@ -5126,8 +5126,10 @@ public class MainActivity extends Activity {
                     break;
                 }
             }
-            if(isSignedIn()&&!r.optBoolean("private",false)&&!ownConnectedRepository)
+            if(isSignedIn()&&!r.optBoolean("private",false)&&!ownConnectedRepository){
                 repoActionCard(actions,R.drawable.ic_repository,"Создать копию","Новый репозиторий без Fork",()->showExternalImportDialog(full));
+                repoActionCard(actions,R.drawable.ic_history,"Восстановить","Продолжить неудачную копию",()->showExternalImportRecoveryFromSource(full));
+            }
             ExternalRepositoryImport.Job importJob = externalRepositoryImport.findByDestination(full);
             if(importJob!=null)
                 repoActionCard(actions,R.drawable.ic_history,"Проверить импорт",importJob.state,()->checkExternalImport(importJob.id));
@@ -5485,6 +5487,93 @@ public class MainActivity extends Activity {
                             runOnUiThread(()->{
                                 progress.dismiss();
                                 errorDialog("Импорт не запущен",error.getMessage());
+                            });
+                        }
+                    });
+                }));
+        dialog.show();
+    }
+
+    /**
+     * Recovery starts on the ORIGINAL public project, exactly like creation.
+     * Target selection is explicit because the user may have renamed the copy
+     * or created it under any of their connected accounts.
+     */
+    private void showExternalImportRecoveryFromSource(String source) {
+        try { ExternalRepositoryImport.validateSource(source); }
+        catch(Exception error) { toast(error.getMessage()); return; }
+
+        List<GitHubAccountStore.Account> connected=accountStore.listAccounts();
+        if(connected.isEmpty()) {toast("Сначала подключите GitHub-аккаунт");return;}
+        String suggestedName=source.substring(source.indexOf('/')+1);
+        int suggestedAccount=0;
+        for(ExternalRepositoryImport.Job job:externalRepositoryImport.list()){
+            if(!source.equalsIgnoreCase(job.source))continue;
+            String name=job.destination.substring(job.destination.indexOf('/')+1);
+            suggestedName=name;
+            for(int i=0;i<connected.size();i++)
+                if(connected.get(i).id.equals(job.accountId))suggestedAccount=i;
+        }
+
+        LinearLayout form=new LinearLayout(this);
+        form.setOrientation(LinearLayout.VERTICAL);
+        form.setPadding(dp(18),dp(4),dp(18),dp(8));
+        TextView note=text("Источник: "+source+
+                "\nВыберите аккаунт и имя уже созданного репозитория. "
+                +"GitHubble проверит предыдущий запуск Actions перед повторным копированием. "
+                +"Ничего удалять не нужно.",13,false);
+        note.setTextColor(MUTED);
+        form.addView(note);
+        TextView accountLabel=text("Аккаунт, в котором создана копия",12,true);
+        accountLabel.setPadding(0,dp(14),0,0);
+        form.addView(accountLabel);
+        Spinner accountChoice=new Spinner(this);
+        List<String> accountNames=new ArrayList<>();
+        for(GitHubAccountStore.Account account:connected)accountNames.add("@"+account.login);
+        accountChoice.setAdapter(new ArrayAdapter<>(this,
+                android.R.layout.simple_spinner_dropdown_item,accountNames));
+        accountChoice.setSelection(suggestedAccount);
+        form.addView(accountChoice,new LinearLayout.LayoutParams(-1,dp(48)));
+        TextView nameLabel=text("Название существующего репозитория",12,true);
+        nameLabel.setPadding(0,dp(12),0,0);
+        form.addView(nameLabel);
+        EditText nameInput=new EditText(this);
+        nameInput.setSingleLine(true);
+        nameInput.setText(suggestedName);
+        form.addView(nameInput);
+
+        AlertDialog dialog=new AlertDialog.Builder(this)
+                .setTitle("Восстановить копирование")
+                .setView(form)
+                .setPositiveButton("Найти копию",null)
+                .setNegativeButton("Отмена",null).create();
+        dialog.setOnShowListener(ignored->
+                dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
+                    String name=nameInput.getText().toString().trim();
+                    try {ExternalRepositoryImport.validateName(name);}
+                    catch(Exception error){nameInput.setError(error.getMessage());return;}
+                    int selection=accountChoice.getSelectedItemPosition();
+                    if(selection<0||selection>=connected.size())return;
+                    String destination=connected.get(selection).login+"/"+name;
+                    if(destination.equalsIgnoreCase(source)){
+                        nameInput.setError("Источник и копия должны отличаться");
+                        return;
+                    }
+                    dialog.dismiss();
+                    ProgressDialog progress=ProgressDialog.show(this,"Восстановить копирование",
+                            "Поиск предыдущего запуска GitHub Actions…",true,false);
+                    io.execute(()->{
+                        try {
+                            ExternalRepositoryImport.Job job=
+                                    externalRepositoryImport.recover(destination,source);
+                            runOnUiThread(()->{
+                                progress.dismiss();
+                                showExternalImportStatus(job);
+                            });
+                        }catch(Exception error){
+                            runOnUiThread(()->{
+                                progress.dismiss();
+                                errorDialog("Восстановление копирования",error.getMessage());
                             });
                         }
                     });
