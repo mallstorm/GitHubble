@@ -232,10 +232,11 @@ public final class ExternalRepositoryImport {
             client.putJson(API + destination + "/contents/" + ExternalImportWorkflow.PATH, workflow);
             job.bootstrapSha = head(client, destination, job.bootstrapDefault);
             save(job);
-            ExternalImportSecrets.put(client, destination, job.id,
-                    accounts.tokenForAccount(account.id));
+            // Mark pending first: if a response is lost, cleanup still knows the secret name.
             job.secretInstalled = true;
             save(job);
+            ExternalImportSecrets.put(client, destination, job.id,
+                    accounts.tokenForAccount(account.id));
             JSONObject inputs = new JSONObject()
                     .put("request_id", job.id)
                     .put("source", job.source)
@@ -354,10 +355,10 @@ public final class ExternalRepositoryImport {
         job.sourceSha = newSha;
         save(job);
         try {
-            ExternalImportSecrets.put(client, job.destination, job.id,
-                    accounts.tokenForAccount(job.accountId));
             job.secretInstalled = true;
             save(job);
+            ExternalImportSecrets.put(client, job.destination, job.id,
+                    accounts.tokenForAccount(job.accountId));
             JSONObject inputs = new JSONObject()
                     .put("request_id", job.id)
                     .put("source", job.source)
@@ -437,6 +438,10 @@ public final class ExternalRepositoryImport {
         job.state = VERIFYING;
         save(job);
         try {
+            // The runner has completed. Revoke its credential even if branch
+            // verification or permission-dependent finalization fails.
+            clearCredential(client, job);
+            save(job);
             if (!job.sourceSha.equals(head(client, job.destination, job.sourceDefault)))
                 throw new SecurityException("Git SHA основной ветки не совпадает с исходным");
 
@@ -462,7 +467,6 @@ public final class ExternalRepositoryImport {
                     }
                 }
             }
-            clearCredential(client, job);
             job.state = DONE;
             job.error = "";
         } catch (Exception error) {
