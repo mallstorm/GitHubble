@@ -5118,7 +5118,7 @@ public class MainActivity extends Activity {
             }
             repoActionCard(actions,R.drawable.ic_repository,"Mirror Manager","Копия на другом аккаунте",()->navigate(()->showMirrorManager(full)));
             if(!r.optBoolean("private",false))
-                repoActionCard(actions,R.drawable.ic_repository,"Импортировать в мой GitHub","Независимая копия без Fork",()->showExternalImportDialog(full));
+                repoActionCard(actions,R.drawable.ic_repository,"Создать копию","Новый репозиторий без Fork",()->showExternalImportDialog(full));
             ExternalRepositoryImport.Job importJob = externalRepositoryImport.findByDestination(full);
             if(importJob!=null)
                 repoActionCard(actions,R.drawable.ic_history,"Проверить импорт",importJob.state,()->checkExternalImport(importJob.id));
@@ -5426,9 +5426,9 @@ public class MainActivity extends Activity {
         form.addView(note);
 
         AlertDialog dialog=new AlertDialog.Builder(this)
-                .setTitle("Импорт стороннего репозитория")
+                .setTitle("Создание копии репозитория")
                 .setView(form)
-                .setPositiveButton("Импортировать",null)
+                .setPositiveButton("Создать копию",null)
                 .setNegativeButton("Отмена",null)
                 .create();
         dialog.setOnShowListener(ignored->
