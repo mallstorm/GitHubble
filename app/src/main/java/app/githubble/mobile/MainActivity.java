@@ -35,6 +35,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import app.githubble.mobile.auth.OAuthManager;
 import app.githubble.mobile.auth.GitHubAccountStore;
 import app.githubble.mobile.mirror.MirrorManager;
+import app.githubble.mobile.mirror.ExternalRepositoryImport;
 import app.githubble.mobile.mirror.GoogleMirrorCloudStore;
 import app.githubble.mobile.mirror.MirrorCloudStore;
 import app.githubble.mobile.ui.MirrorManagerScreen;
@@ -128,6 +129,7 @@ public class MainActivity extends Activity {
     private OAuthManager oauth;
     private GitHubAccountStore accountStore;
     private MirrorManager mirrorManager;
+    private ExternalRepositoryImport externalRepositoryImport;
     private AgentProjectStore agentProjects;
     private app.githubble.mobile.agent.AgentController agentController;
     private GitHubAgentBridge aiGithub;
@@ -339,6 +341,7 @@ public class MainActivity extends Activity {
         secureStore = new SecureStore(this);
         accountStore = new GitHubAccountStore(this, secureStore);
         mirrorManager = new MirrorManager(this, accountStore);
+        externalRepositoryImport = new ExternalRepositoryImport(this, accountStore);
         entityCache = new EntityCache(this);
         api = new GitHubApiClient(secureStore, entityCache);
         graphql = new GitHubGraphQlClient(api);
@@ -5114,6 +5117,43 @@ public class MainActivity extends Activity {
                 repoActionCard(actions,R.drawable.ic_settings,"Управление","Настройки проекта",()->navigate(()->showRepositoryAdmin(full,r)));
             }
             repoActionCard(actions,R.drawable.ic_repository,"Mirror Manager","Копия на другом аккаунте",()->navigate(()->showMirrorManager(full)));
+            // External import is offered only for public repos owned by OTHER people,
+            // not for any GitHub account connected to this GitHubble installation.
+            boolean ownConnectedRepository=false;
+            for(GitHubAccountStore.Account account:accountStore.listAccounts()){
+                if(owner.equalsIgnoreCase(account.login)){
+                    ownConnectedRepository=true;
+                    break;
+                }
+            }
+            if(isSignedIn()&&!r.optBoolean("private",false)&&!ownConnectedRepository){
+                repoActionCard(actions,R.drawable.ic_repository,"Создать копию","Новый репозиторий без Fork",()->showExternalImportDialog(full));
+                repoActionCard(actions,R.drawable.ic_history,"Проверить копию","Проверить существующую копию",()->showExternalImportRecoveryFromSource(full));
+            }
+            ExternalRepositoryImport.Job importJob = externalRepositoryImport.findByDestination(full);
+            if(importJob!=null)
+                repoActionCard(actions,R.drawable.ic_history,"Проверить импорт",importJob.state,()->checkExternalImport(importJob.id));
+            else if(ownConnectedRepository && isSignedIn()) {
+                // Recover jobs created by another APK variant or before reinstall.
+                // Keep API and permission checks off the UI thread and only attach
+                // a tile if THIS repository has a real GitHubble Actions import.
+                io.execute(()->{
+                    try {
+                        ExternalRepositoryImport.Job discovered = externalRepositoryImport.discover(full);
+                        if(discovered==null)return;
+                        runOnUiThread(()->{
+                            if(isFinishing() || actions.getParent()!=content
+                                    || externalRepositoryImport.findByDestination(full)!=null)return;
+                            repoActionCard(actions,R.drawable.ic_history,"Проверить импорт",
+                                    ExternalRepositoryImport.FAILED.equals(discovered.state)
+                                            ?"Неудачный импорт найден":"Задание найдено в GitHub",
+                                    ()->recoverExternalImport(full));
+                        });
+                    } catch(Exception ignored) {
+                        // Ordinary repositories are not considered import destinations.
+                    }
+                });
+            }
             repoActionCard(actions,R.drawable.ic_star,"Избранное","Сохранить проект",()->{saveFavorite(full);toast("Добавлено в избранное");});
             repoActionCard(actions,R.drawable.ic_globe,"Открыть GitHub","В браузере",()->openRepoUrl(full,""));
             repoActionCard(actions,R.drawable.ic_history,"Центр наблюдения","Ваша активность",()->navigate(this::showTracking));
@@ -5358,6 +5398,310 @@ public class MainActivity extends Activity {
         MirrorManagerScreen.render(this,content,mirrorManager,accountStore,source,
                 CARD,TEXT,MUTED,GREEN,BORDER,io,()->showMirrorManager(source),
                 this::openWeb,this::showMirrorSetupWizard);
+    }
+
+
+    /**
+     * Public third-party repositories are imported from their own overview page,
+     * without Fork and without downloading their sources to Android.
+     */
+    private void showExternalImportDialog(String source) {
+        if (externalRepositoryImport == null) { toast("Импорт недоступен"); return; }
+        try { ExternalRepositoryImport.validateSource(source); }
+        catch (Exception invalid) { toast(invalid.getMessage()); return; }
+        List<GitHubAccountStore.Account> connected = accountStore.listAccounts();
+        if (connected.isEmpty()) { toast("Сначала подключите GitHub-аккаунт"); return; }
+
+        LinearLayout form = new LinearLayout(this);
+        form.setOrientation(LinearLayout.VERTICAL);
+        form.setPadding(dp(18),0,dp(18),0);
+        TextView sourceText = text("ИСТОЧНИК: " + source,13,true);
+        sourceText.setTextColor(GREEN);
+        form.addView(sourceText);
+
+        TextView targetLabel = text("Аккаунт назначения",12,true);
+        targetLabel.setPadding(0,dp(14),0,dp(5));
+        form.addView(targetLabel);
+        Spinner accountChooser = new Spinner(this);
+        List<String> accountNames = new ArrayList<>();
+        int activeIndex=0;
+        for(int i=0;i<connected.size();i++){
+            GitHubAccountStore.Account account=connected.get(i);
+            accountNames.add("@"+account.login);
+            if(account.active)activeIndex=i;
+        }
+        accountChooser.setAdapter(new ArrayAdapter<>(this,
+                android.R.layout.simple_spinner_dropdown_item,accountNames));
+        accountChooser.setSelection(activeIndex);
+        form.addView(accountChooser,new LinearLayout.LayoutParams(-1,dp(48)));
+
+        TextView nameLabel=text("Название нового репозитория",12,true);
+        nameLabel.setPadding(0,dp(12),0,0);
+        form.addView(nameLabel);
+        EditText name=new EditText(this);
+        name.setSingleLine(true);
+        name.setText(source.substring(source.indexOf('/')+1));
+        name.setSelectAllOnFocus(true);
+        form.addView(name);
+        CheckBox privateDestination=new CheckBox(this);
+        privateDestination.setText("Создать приватный репозиторий");
+        privateDestination.setChecked(true);
+        form.addView(privateDestination);
+
+        TextView note=text("Создаётся новый независимый репозиторий: история коммитов, "
+                +"ветки, теги и Git LFS будут перенесены через GitHub Actions. "
+                +"Issues, Pull Requests, Releases и настройки не переносятся. "
+                +"Лицензия и авторство исходного кода сохраняются. "
+                +"Для завершения переноса понадобится доступ к Actions и управлению репозиторием.",12,false);
+        note.setTextColor(MUTED);
+        note.setPadding(0,dp(9),0,dp(8));
+        form.addView(note);
+
+        AlertDialog dialog=new AlertDialog.Builder(this)
+                .setTitle("Создание копии репозитория")
+                .setView(form)
+                .setPositiveButton("Создать копию",null)
+                .setNegativeButton("Отмена",null)
+                .create();
+        dialog.setOnShowListener(ignored->
+                dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
+                    String newName=name.getText().toString().trim();
+                    try{ExternalRepositoryImport.validateName(newName);}
+                    catch(Exception invalid){name.setError(invalid.getMessage());return;}
+                    int selected=accountChooser.getSelectedItemPosition();
+                    if(selected<0||selected>=connected.size())return;
+                    String destinationAccountId=connected.get(selected).id;
+                    boolean isPrivate=privateDestination.isChecked();
+                    dialog.dismiss();
+                    ProgressDialog progress=ProgressDialog.show(this,"Импорт GitHub",
+                            "Создание независимого репозитория и запуск Actions…",true,false);
+                    io.execute(()->{
+                        try{
+                            ExternalRepositoryImport.Job job=externalRepositoryImport.start(
+                                    source,destinationAccountId,newName,isPrivate);
+                            runOnUiThread(()->{
+                                progress.dismiss();
+                                showExternalImportStatus(job);
+                            });
+                        }catch(Exception error){
+                            runOnUiThread(()->{
+                                progress.dismiss();
+                                errorDialog("Импорт не запущен",error.getMessage());
+                            });
+                        }
+                    });
+                }));
+        dialog.show();
+    }
+
+    /**
+     * Recovery starts on the ORIGINAL public project, exactly like creation.
+     * Target selection is explicit because the user may have renamed the copy
+     * or created it under any of their connected accounts.
+     */
+    private void showExternalImportRecoveryFromSource(String source) {
+        try { ExternalRepositoryImport.validateSource(source); }
+        catch(Exception error) { toast(error.getMessage()); return; }
+
+        List<GitHubAccountStore.Account> connected=accountStore.listAccounts();
+        if(connected.isEmpty()) {toast("Сначала подключите GitHub-аккаунт");return;}
+        String suggestedName=source.substring(source.indexOf('/')+1);
+        int suggestedAccount=0;
+        for(ExternalRepositoryImport.Job job:externalRepositoryImport.list()){
+            if(!source.equalsIgnoreCase(job.source))continue;
+            String name=job.destination.substring(job.destination.indexOf('/')+1);
+            suggestedName=name;
+            for(int i=0;i<connected.size();i++)
+                if(connected.get(i).id.equals(job.accountId))suggestedAccount=i;
+        }
+
+        LinearLayout form=new LinearLayout(this);
+        form.setOrientation(LinearLayout.VERTICAL);
+        form.setPadding(dp(18),dp(4),dp(18),dp(8));
+        TextView note=text("Источник: "+source+
+                "\nВыберите аккаунт и имя уже созданного репозитория. "
+                +"GitHubble проверит предыдущий запуск Actions перед повторным копированием. "
+                +"Ничего удалять не нужно.",13,false);
+        note.setTextColor(MUTED);
+        form.addView(note);
+        TextView accountLabel=text("Аккаунт, в котором создана копия",12,true);
+        accountLabel.setPadding(0,dp(14),0,0);
+        form.addView(accountLabel);
+        Spinner accountChoice=new Spinner(this);
+        List<String> accountNames=new ArrayList<>();
+        for(GitHubAccountStore.Account account:connected)accountNames.add("@"+account.login);
+        accountChoice.setAdapter(new ArrayAdapter<>(this,
+                android.R.layout.simple_spinner_dropdown_item,accountNames));
+        accountChoice.setSelection(suggestedAccount);
+        form.addView(accountChoice,new LinearLayout.LayoutParams(-1,dp(48)));
+        TextView nameLabel=text("Название существующего репозитория",12,true);
+        nameLabel.setPadding(0,dp(12),0,0);
+        form.addView(nameLabel);
+        EditText nameInput=new EditText(this);
+        nameInput.setSingleLine(true);
+        nameInput.setText(suggestedName);
+        form.addView(nameInput);
+
+        AlertDialog dialog=new AlertDialog.Builder(this)
+                .setTitle("Восстановить копирование")
+                .setView(form)
+                .setPositiveButton("Найти копию",null)
+                .setNegativeButton("Отмена",null).create();
+        dialog.setOnShowListener(ignored->
+                dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
+                    String name=nameInput.getText().toString().trim();
+                    try {ExternalRepositoryImport.validateName(name);}
+                    catch(Exception error){nameInput.setError(error.getMessage());return;}
+                    int selection=accountChoice.getSelectedItemPosition();
+                    if(selection<0||selection>=connected.size())return;
+                    String destination=connected.get(selection).login+"/"+name;
+                    if(destination.equalsIgnoreCase(source)){
+                        nameInput.setError("Источник и копия должны отличаться");
+                        return;
+                    }
+                    dialog.dismiss();
+                    ProgressDialog progress=ProgressDialog.show(this,"Восстановить копирование",
+                            "Поиск предыдущего запуска GitHub Actions…",true,false);
+                    io.execute(()->{
+                        try {
+                            ExternalRepositoryImport.Job job=
+                                    externalRepositoryImport.recover(destination,source);
+                            runOnUiThread(()->{
+                                progress.dismiss();
+                                showExternalImportStatus(job);
+                            });
+                        }catch(Exception error){
+                            runOnUiThread(()->{
+                                progress.dismiss();
+                                errorDialog("Восстановление копирования",error.getMessage());
+                            });
+                        }
+                    });
+                }));
+        dialog.show();
+    }
+
+    private void recoverExternalImport(String destination) {
+        ProgressDialog progress=ProgressDialog.show(this,"Создать копию",
+                "Поиск предыдущего запуска GitHub Actions…",true,false);
+        io.execute(()->{
+            try {
+                ExternalRepositoryImport.Job discovered=externalRepositoryImport.discover(destination);
+                runOnUiThread(()->{
+                    progress.dismiss();
+                    if(discovered==null){
+                        errorDialog("Восстановление копирования",
+                                "В GitHub не найден подтверждённый запуск GitHubble.");
+                        return;
+                    }
+                    showExternalImportRecoveryDialog(destination,discovered);
+                });
+            }catch(Exception error){
+                runOnUiThread(()->{
+                    progress.dismiss();
+                    errorDialog("Восстановление копирования",error.getMessage());
+                });
+            }
+        });
+    }
+
+    private void showExternalImportRecoveryDialog(String destination,
+            ExternalRepositoryImport.Job discovered) {
+        EditText sourceField=new EditText(this);
+        sourceField.setSingleLine(true);
+        sourceField.setHint("Владелец/репозиторий");
+        sourceField.setText(discovered.source);
+        sourceField.setPadding(dp(20),dp(12),dp(20),dp(12));
+        String description="В GitHub найден предыдущий запуск импорта для "
+                +destination+". Источник подтвердите перед восстановлением. "
+                +"Существующий репозиторий не удаляется.";
+        LinearLayout layout=new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setPadding(dp(16),dp(6),dp(16),dp(6));
+        TextView explanation=text(description,13,false);
+        layout.addView(explanation);
+        layout.addView(sourceField);
+        AlertDialog dialog=new AlertDialog.Builder(this)
+                .setTitle("Восстановить копирование")
+                .setView(layout)
+                .setPositiveButton("Восстановить",null)
+                .setNegativeButton("Отмена",null)
+                .create();
+        dialog.setOnShowListener(ignored->
+                dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
+                    String source=sourceField.getText().toString().trim();
+                    try { ExternalRepositoryImport.validateSource(source); }
+                    catch(Exception invalid) {sourceField.setError(invalid.getMessage());return;}
+                    dialog.dismiss();
+                    ProgressDialog progress=ProgressDialog.show(this,"Создать копию",
+                            "Проверка источника и сохранённого GitHub Actions…",true,false);
+                    io.execute(()->{
+                        try {
+                            ExternalRepositoryImport.Job job=externalRepositoryImport.recover(
+                                    destination,source);
+                            runOnUiThread(()->{progress.dismiss();showExternalImportStatus(job);});
+                        }catch(Exception error){
+                            runOnUiThread(()->{
+                                progress.dismiss();
+                                errorDialog("Восстановление копирования",error.getMessage());
+                            });
+                        }
+                    });
+                }));
+        dialog.show();
+    }
+
+    private void checkExternalImport(String jobId) {
+        ProgressDialog progress=ProgressDialog.show(this,"Импорт GitHub",
+                "Проверка выполнения GitHub Actions…",true,false);
+        io.execute(()->{
+            try{
+                ExternalRepositoryImport.Job job=externalRepositoryImport.refresh(jobId);
+                runOnUiThread(()->{progress.dismiss();showExternalImportStatus(job);});
+            }catch(Exception error){
+                runOnUiThread(()->{progress.dismiss();errorDialog("Проверка импорта",error.getMessage());});
+            }
+        });
+    }
+
+    private void retryExternalImport(String jobId) {
+        ProgressDialog progress=ProgressDialog.show(this,"Создать копию",
+                "Проверка состояния репозитория и повторный запуск…",true,false);
+        io.execute(()->{
+            try {
+                ExternalRepositoryImport.Job job=externalRepositoryImport.retry(jobId);
+                runOnUiThread(()->{progress.dismiss();showExternalImportStatus(job);});
+            }catch(Exception error){
+                runOnUiThread(()->{
+                    progress.dismiss();
+                    errorDialog("Не удалось повторить копирование",error.getMessage());
+                });
+            }
+        });
+    }
+
+    private void showExternalImportStatus(ExternalRepositoryImport.Job job) {
+        boolean done=ExternalRepositoryImport.DONE.equals(job.state);
+        boolean failed=ExternalRepositoryImport.FAILED.equals(job.state);
+        boolean verifying=ExternalRepositoryImport.VERIFYING.equals(job.state);
+        String title=done?"Импорт завершён":failed?"Ошибка импорта":
+                verifying?"Требуется завершение импорта":"Импорт запущен";
+        String message=job.source+" → "+job.destination+"\n\n"
+                +(done?"Создан независимый репозиторий без Fork. Git-история проверена.":
+                  failed?job.error:
+                  verifying?"GitHub Actions завершился. "+job.error:
+                  "Перенос выполняется на GitHub Actions. Можно закрыть приложение и проверить позднее.");
+        new AlertDialog.Builder(this)
+                .setTitle(title).setMessage(message)
+                .setPositiveButton(done?"Открыть репозиторий":
+                        failed?"Повторить копирование":"Проверить статус",(d,w)->{
+                    if(done)navigate(()->showRepository(job.destination));
+                    else if(failed)retryExternalImport(job.id);
+                    else checkExternalImport(job.id);
+                })
+                .setNeutralButton("Журнал Actions",(d,w)->openWeb(job.runUrl))
+                .setNegativeButton("Закрыть",null)
+                .show();
     }
 
     private void showCreateRepositoryDialog(){
