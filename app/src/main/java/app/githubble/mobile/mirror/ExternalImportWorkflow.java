@@ -146,10 +146,24 @@ jobs:
           print('Verified', len(src), 'heads and tags; imported independent repository')
           PY
           echo "Import complete; the Android client will set the source default branch."
-      - name: Remove temporary credentials
+      - name: Revoke one-time import secret
         if: always()
         shell: bash
-        run: rm -f "$RUNNER_TEMP/githubble-import-askpass"
+        env:
+          REQUEST_ID: ${{ inputs.request_id }}
+          GH_IMPORT_TOKEN: ${{ secrets[format('GITHUBBLE_EXT_IMPORT_{0}', inputs.request_id)] }}
+        run: |
+          set -euo pipefail
+          rm -f "$RUNNER_TEMP/githubble-import-askpass"
+          [[ -n "$GH_IMPORT_TOKEN" ]] || exit 0
+          [[ "$REQUEST_ID" =~ ^[0-9a-f]{32}$ ]] || exit 0
+          SECRET_NAME="GITHUBBLE_EXT_IMPORT_${REQUEST_ID^^}"
+          # Delete only our own secret; WorkManager retries removal if this fails.
+          curl --fail --silent --show-error --request DELETE \
+            --header "Authorization: Bearer $GH_IMPORT_TOKEN" \
+            --header "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/secrets/$SECRET_NAME" \
+            || echo "::warning::GitHub Actions could not revoke import secret; Android recovery will retry"
 """;
     }
 }
