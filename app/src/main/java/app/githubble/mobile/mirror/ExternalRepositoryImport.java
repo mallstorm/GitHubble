@@ -249,7 +249,8 @@ public final class ExternalRepositoryImport {
                     + "/dispatches", dispatch.toString(), true);
             job.state = RUNNING;
             save(job);
-            enqueueRecovery(job.id);
+            try { enqueueRecovery(job.id); }
+            catch (RuntimeException ignored) { /* User can also finalize manually. */ }
             return job;
         } catch (Exception error) {
             job.state = FAILED;
@@ -278,6 +279,113 @@ public final class ExternalRepositoryImport {
         if (!job.secretInstalled) return;
         ExternalImportSecrets.delete(client, job.destination, job.id);
         job.secretInstalled = false;
+    }
+
+
+    /**
+     * Reuse a failed GitHubble destination after checking that it is still
+     * pristine. The importer will not delete or overwrite user-created refs.
+     */
+    public synchronized Job retry(String jobId) throws Exception {
+        Job job = find(jobId);
+        if (job == null || !FAILED.equals(job.state))
+            throw new IllegalStateException("Повтор доступен только для завершившегося сбоя");
+        GitHubApiClient client = api(job.accountId);
+
+        // A local failure must never authorize a second run while the first
+        // run is still active or its outcome is unknown.
+        JSONObject history = client.getJsonFresh(API + job.destination
+                + "/actions/runs?event=workflow_dispatch&per_page=100");
+        JSONArray runs = history.optJSONArray("workflow_runs");
+        JSONObject last = null;
+        if (runs != null) {
+            for (int i = 0; i < runs.length(); i++) {
+                JSONObject run = runs.optJSONObject(i);
+                if (run != null && ("GitHubble Import " + job.id)
+                        .equals(run.optString("display_title", ""))) {
+                    last = run;
+                    break;
+                }
+            }
+        }
+        if (last == null || !"completed".equals(last.optString("status", "")))
+            throw new IllegalStateException("Предыдущий запуск ещё выполняется или не найден");
+        if ("success".equals(last.optString("conclusion", "")))
+            throw new IllegalStateException("Предыдущий запуск успешен; проверьте результат");
+
+        JSONObject dest = client.getJsonFresh(API + job.destination);
+        if (dest.optBoolean("fork", true)
+                || !job.bootstrapDefault.equals(dest.optString("default_branch", "")))
+            throw new IllegalStateException("Репозиторий назначения изменён, перезапись запрещена");
+        JSONArray branches = client.getArray(API + job.destination + "/branches?per_page=100");
+        JSONArray tags = client.getArray(API + job.destination + "/tags?per_page=100");
+        if (branches.length() != 1 || tags.length() != 0
+                || !job.bootstrapDefault.equals(branches.getJSONObject(0).optString("name", ""))
+                || !job.bootstrapSha.equals(head(client, job.destination, job.bootstrapDefault)))
+            throw new IllegalStateException("Репозиторий назначения уже изменён. "
+                    + "Повтор не будет затирать пользовательский код");
+
+        JSONObject source = client.getJsonFresh(API + job.source);
+        if (source.optBoolean("private", true))
+            throw new IllegalStateException("Исходный репозиторий больше не публичный");
+        String defaultBranch = source.optString("default_branch", "");
+        requireBranch(defaultBranch);
+        String newSha = head(client, job.source, defaultBranch);
+
+        clearCredential(client, job);
+        MirrorSecrets.publicKey(client, job.destination);
+        String url = API + job.destination + "/contents/" + ExternalImportWorkflow.PATH;
+        JSONObject existing = client.getJsonFresh(url + "?ref=" + encode(job.bootstrapDefault));
+        String currentYaml = new String(Base64.getMimeDecoder().decode(
+                existing.optString("content", "")), StandardCharsets.UTF_8);
+        if (!currentYaml.contains("name: GitHubble External Import"))
+            throw new SecurityException("Временный workflow был изменён, повтор отменён");
+
+        JSONObject newFile = new JSONObject()
+                .put("sha", existing.getString("sha"))
+                .put("message", "fix(import): use scoped workflow import credential")
+                .put("branch", job.bootstrapDefault)
+                .put("content", Base64.getEncoder().encodeToString(
+                        ExternalImportWorkflow.yaml().getBytes(StandardCharsets.UTF_8)));
+        client.putJson(url, newFile);
+
+        job.bootstrapSha = head(client, job.destination, job.bootstrapDefault);
+        job.sourceDefault = defaultBranch;
+        job.sourceSha = newSha;
+        save(job);
+        try {
+            ExternalImportSecrets.put(client, job.destination, job.id,
+                    accounts.tokenForAccount(job.accountId));
+            job.secretInstalled = true;
+            save(job);
+            JSONObject inputs = new JSONObject()
+                    .put("request_id", job.id)
+                    .put("source", job.source)
+                    .put("source_default", job.sourceDefault)
+                    .put("source_sha", job.sourceSha)
+                    .put("bootstrap_branch", job.bootstrapDefault)
+                    .put("bootstrap_sha", job.bootstrapSha);
+            JSONObject dispatch = new JSONObject()
+                    .put("ref", job.bootstrapDefault).put("inputs", inputs);
+            client.executeText("POST", API + job.destination + "/actions/workflows/"
+                    + ExternalImportWorkflow.PATH.substring(
+                    ExternalImportWorkflow.PATH.lastIndexOf('/') + 1)
+                    + "/dispatches", dispatch.toString(), true);
+            job.state = RUNNING;
+            job.runId = 0L;
+            job.error = "";
+            save(job);
+            try { enqueueRecovery(job.id); }
+            catch (RuntimeException ignored) { /* Manual status remains available. */ }
+            return job;
+        } catch (Exception error) {
+            job.state = FAILED;
+            job.error = error.getMessage() == null ? "Ошибка повтора" : error.getMessage();
+            try { clearCredential(client, job); }
+            catch (Exception cleanup) { job.error += "; очистка: " + cleanup.getMessage(); }
+            save(job);
+            throw error;
+        }
     }
 
     /**
