@@ -29,6 +29,7 @@ import java.util.UUID;
  */
 public final class ExternalRepositoryImport {
     private static final String API = "https://api.github.com/repos/";
+    private static final String MANIFEST_PATH = ".githubble/external-import.json";
     private static final String KEY = "external_repository_import_jobs_v1";
     public static final String PREPARING = "preparing";
     public static final String RUNNING = "running";
@@ -230,6 +231,16 @@ public final class ExternalRepositoryImport {
                     .put("content", Base64.getEncoder().encodeToString(
                             ExternalImportWorkflow.yaml().getBytes(StandardCharsets.UTF_8)));
             client.putJson(API + destination + "/contents/" + ExternalImportWorkflow.PATH, workflow);
+            // GitHub-side recovery marker: survives Android reinstall and Debug/Release separation.
+            JSONObject manifest = new JSONObject()
+                    .put("source", job.source)
+                    .put("source_default", job.sourceDefault)
+                    .put("source_sha", job.sourceSha);
+            client.putJson(API + destination + "/contents/" + MANIFEST_PATH,
+                    new JSONObject().put("message", "chore(import): track GitHubble copy source")
+                            .put("branch", job.bootstrapDefault)
+                            .put("content", Base64.getEncoder().encodeToString(
+                                    manifest.toString().getBytes(StandardCharsets.UTF_8))));
             job.bootstrapSha = head(client, destination, job.bootstrapDefault);
             save(job);
             // Mark pending first: if a response is lost, cleanup still knows the secret name.
@@ -282,6 +293,146 @@ public final class ExternalRepositoryImport {
         job.secretInstalled = false;
     }
 
+
+
+    /**
+     * Discover a GitHubble import using GitHub's own workflow history, even if
+     * the local job journal was lost (e.g. Debug vs Release or reinstall).
+     * This is read-only and must never treat an ordinary repository as an import.
+     */
+    public Job discover(String destination) throws Exception {
+        validateSource(destination);
+        Job local = findByDestination(destination);
+        if (local != null) return local;
+        String owner = destination.substring(0, destination.indexOf('/'));
+        GitHubAccountStore.Account destinationAccount = null;
+        for (GitHubAccountStore.Account item : accounts.listAccounts()) {
+            if (owner.equalsIgnoreCase(item.login)) {
+                destinationAccount = item;
+                break;
+            }
+        }
+        if (destinationAccount == null) return null;
+
+        GitHubApiClient client = api(destinationAccount.id);
+        JSONObject repo = client.getJsonFresh(API + destination);
+        if (repo.optBoolean("fork", true)) return null;
+        String defaultBranch = repo.optString("default_branch", "");
+        requireBranch(defaultBranch);
+
+        // A recognizable, existing destination-side importer is mandatory.
+        JSONObject file;
+        try {
+            file = client.getJsonFresh(API + destination + "/contents/"
+                    + ExternalImportWorkflow.PATH + "?ref=" + encode(defaultBranch));
+        } catch (GitHubApiClient.ApiException absent) {
+            if (absent.statusCode == 404) return null;
+            throw absent;
+        }
+        String yaml = new String(Base64.getMimeDecoder().decode(
+                file.optString("content", "")), StandardCharsets.UTF_8);
+        if (!yaml.contains("name: GitHubble External Import")
+                || !yaml.contains("run-name: GitHubble Import ")
+                || !yaml.contains("workflow_dispatch:"))
+            return null;
+
+        JSONArray runs = client.getJsonFresh(API + destination
+                + "/actions/runs?event=workflow_dispatch&per_page=100")
+                .optJSONArray("workflow_runs");
+        if (runs == null) return null;
+        for (int i = 0; i < runs.length(); i++) {
+            JSONObject run = runs.optJSONObject(i);
+            if (run == null) continue;
+            String title = run.optString("display_title", "");
+            String prefix = "GitHubble Import ";
+            if (!title.matches("GitHubble Import [0-9a-f]{32}")) continue;
+            String path = run.optString("path", "");
+            if (!path.startsWith(ExternalImportWorkflow.PATH)) continue;
+            if (!"workflow_dispatch".equals(run.optString("event", ""))) continue;
+            String runBranch = run.optString("head_branch", "");
+            if (!defaultBranch.equals(runBranch)) continue;
+            String bootstrapSha = run.optString("head_sha", "");
+            if (!bootstrapSha.matches("[0-9a-f]{40}")) continue;
+
+            Job candidate = new Job();
+            candidate.id = title.substring(prefix.length());
+            candidate.destination = destination;
+            candidate.accountId = destinationAccount.id;
+            candidate.bootstrapDefault = runBranch;
+            candidate.bootstrapSha = bootstrapSha;
+            candidate.runId = run.optLong("id");
+            candidate.runUrl = run.optString("html_url",
+                    "https://github.com/" + destination + "/actions");
+            candidate.state = "completed".equals(run.optString("status"))
+                    ? ("success".equals(run.optString("conclusion")) ? VERIFYING : FAILED)
+                    : RUNNING;
+            candidate.error = FAILED.equals(candidate.state)
+                    ? "Найден завершившийся ошибкой импорт GitHub Actions" : "";
+            candidate.createdAt = System.currentTimeMillis();
+
+            // Newer imports store the public source identifier on GitHub.
+            // Old imports need source confirmation because REST run metadata
+            // does not expose workflow_dispatch inputs.
+            try {
+                JSONObject markerFile = client.getJsonFresh(API + destination
+                        + "/contents/" + MANIFEST_PATH + "?ref=" + encode(defaultBranch));
+                JSONObject manifest = new JSONObject(new String(Base64.getMimeDecoder()
+                        .decode(markerFile.optString("content", "")), StandardCharsets.UTF_8));
+                String source = manifest.optString("source", "");
+                validateSource(source);
+                if (!source.equalsIgnoreCase(destination)) candidate.source = source;
+            } catch (GitHubApiClient.ApiException absent) {
+                if (absent.statusCode != 404) throw absent;
+            }
+            return candidate;
+        }
+        return null;
+    }
+
+    /**
+     * Persist a discovered workflow only after the user confirms its source.
+     * Never infer source ownership from the destination name.
+     */
+    public Job recover(String destination, String confirmedSource) throws Exception {
+        validateSource(confirmedSource);
+        Job local = findByDestination(destination);
+        if (local != null) return local;
+        Job candidate = discover(destination);
+        if (candidate == null)
+            throw new IllegalStateException("В GitHub не найдено задание копирования");
+        if (confirmedSource.equalsIgnoreCase(destination))
+            throw new IllegalArgumentException("Источник не может быть назначением");
+        if (!candidate.source.isEmpty()
+                && !confirmedSource.equalsIgnoreCase(candidate.source))
+            throw new IllegalArgumentException("Источник отличается от сохранённого GitHub-маркера");
+
+        GitHubApiClient client = api(candidate.accountId);
+        JSONObject source = client.getJsonFresh(API + confirmedSource);
+        if (source.optBoolean("private", true))
+            throw new IllegalArgumentException("Для восстановления нужен публичный источник");
+        candidate.source = confirmedSource;
+        candidate.sourceDefault = source.optString("default_branch", "");
+        requireBranch(candidate.sourceDefault);
+        candidate.sourceSha = head(client, candidate.source, candidate.sourceDefault);
+
+        // For failed runs, validate the exact bootstrap ref before accepting
+        // the recovered job. A changed destination must never be overwritten.
+        if (FAILED.equals(candidate.state)) {
+            JSONObject destinationRepo = client.getJsonFresh(API + destination);
+            if (!candidate.bootstrapDefault.equals(
+                    destinationRepo.optString("default_branch", "")))
+                throw new IllegalStateException("Основная ветка назначения была изменена");
+            if (!candidate.bootstrapSha.equals(head(client,
+                    destination, candidate.bootstrapDefault)))
+                throw new IllegalStateException("Содержимое назначения изменено после неудачного импорта");
+            JSONArray branches = client.getArray(API + destination + "/branches?per_page=100");
+            JSONArray tags = client.getArray(API + destination + "/tags?per_page=100");
+            if (branches.length() != 1 || tags.length() != 0)
+                throw new IllegalStateException("В назначении появились дополнительные ветки или теги");
+        }
+        save(candidate);
+        return candidate;
+    }
 
     /**
      * Reuse a failed GitHubble destination after checking that it is still
