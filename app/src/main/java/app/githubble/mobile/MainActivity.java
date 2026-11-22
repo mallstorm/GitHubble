@@ -5117,7 +5117,16 @@ public class MainActivity extends Activity {
                 repoActionCard(actions,R.drawable.ic_settings,"Управление","Настройки проекта",()->navigate(()->showRepositoryAdmin(full,r)));
             }
             repoActionCard(actions,R.drawable.ic_repository,"Mirror Manager","Копия на другом аккаунте",()->navigate(()->showMirrorManager(full)));
-            if(!r.optBoolean("private",false))
+            // External import is offered only for public repos owned by OTHER people,
+            // not for any GitHub account connected to this GitHubble installation.
+            boolean ownConnectedRepository=false;
+            for(GitHubAccountStore.Account account:accountStore.listAccounts()){
+                if(owner.equalsIgnoreCase(account.login)){
+                    ownConnectedRepository=true;
+                    break;
+                }
+            }
+            if(isSignedIn()&&!r.optBoolean("private",false)&&!ownConnectedRepository)
                 repoActionCard(actions,R.drawable.ic_repository,"Создать копию","Новый репозиторий без Fork",()->showExternalImportDialog(full));
             ExternalRepositoryImport.Job importJob = externalRepositoryImport.findByDestination(full);
             if(importJob!=null)
