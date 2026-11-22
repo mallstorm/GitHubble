@@ -170,6 +170,24 @@ public final class AgentProjectStore {
     }
   }
 
+  /**
+   * Puts a repository in focus for the active conversation. Choosing a repository in chat is the user's own act,
+   * so model access is granted to the project that ends up bound; a different repository never inherits another
+   * project's identity. Returns the id of the bound project.
+   */
+  public synchronized String focus(String accountId, String repository, String branch) {
+    ensureUnified(accountId);
+    String chat = conversations.activeId(accountId);
+    Project current = project(accountId);
+    if (!current.repository.isEmpty() && !current.repository.equalsIgnoreCase(repository))
+      registry.bindTask(accountId, chat, "", "", "", "");
+    String name = repository.contains("/") ? repository.substring(repository.indexOf('/') + 1) : repository;
+    save(new Project(accountId, name, repository, branch, ""));
+    String id = projectId(accountId, chat);
+    if (!id.isEmpty()) registry.modelAccess(accountId, id, true);
+    return id;
+  }
+
   /** Multi-conversation repository (legacy messages are migrated once). */
   public synchronized JSONArray messages(String accountId) {
     return conversations.messages(accountId);

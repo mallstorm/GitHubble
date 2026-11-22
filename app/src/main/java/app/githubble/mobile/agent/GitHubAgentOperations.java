@@ -167,7 +167,7 @@ public final class GitHubAgentOperations {
         }
         if("github_get".equals(name)){
             GatewayPolicy.Decision d=GatewayPolicy.classify("GET",a.optString("path"));
-            if(d.blocked())throw new SecurityException(d.reason);
+            if(d.blocked())throw new ToolDenied(d.reason);
             return new JSONObject().put("path",d.path).put("response",GatewayOps.get(api,d));
         }
         String base="https://api.github.com/repos/"+repository(a,linked);
@@ -199,7 +199,7 @@ public final class GitHubAgentOperations {
             case "verify_build":return verifyBuild(api,repository(a,linked),a.optString("branch",branch),runId(a),a.optString("sha",""));
             case "repository_read_file":{
                 String path=required(a,"path",220);
-                if(!WorkspaceChangeReview.writablePath(path))throw new SecurityException("Защищённый путь");
+                if(!WorkspaceChangeReview.writablePath(path))throw new ToolDenied("Защищённый путь");
                 JSONObject file=api.getJson(base+"/contents/"+enc(path)+"?ref="+enc(a.optString("branch",branch)));
                 if(file.optLong("size",0)>AgentFilePlan.MAX_FILE_BYTES)throw new IllegalArgumentException("Файл слишком большой");
                 if(!"base64".equals(file.optString("encoding")))throw new IllegalArgumentException("Нет текстового содержимого");
@@ -208,12 +208,12 @@ public final class GitHubAgentOperations {
                 return new JSONObject().put("path",path).put("sha",file.optString("sha"))
                     .put("content",app.githubble.mobile.memory.MemoryPolicy.INSTANCE.redactSecrets(content));
             }
-            default:throw new SecurityException("Неизвестный инструмент чтения: "+name);
+            default:throw new ToolDenied("Неизвестный инструмент чтения: "+name);
         }
     }
     public static JSONObject write(GitHubAgentBridge bridge,String account,String name,JSONObject a,
             String linked,String branch)throws Exception{
-        if(!WRITES.contains(name)||GATEWAY_WRITES.contains(name))throw new SecurityException("Неизвестная операция");
+        if(!WRITES.contains(name)||GATEWAY_WRITES.contains(name))throw new ToolDenied("Неизвестная операция");
         GitHubApiClient api=bridge.toolApi(account);
         if("create_repository".equals(name))return bridge.createRepository(account,required(a,"name",100),a.optString("description"),a.optBoolean("private",true));
         if("update_account_profile".equals(name)){
@@ -305,7 +305,7 @@ public final class GitHubAgentOperations {
                 }else result.put("warning","Запуск не найден за 17 с; проверьте список запусков позже. Повторно не запускайте до проверки.");
                 break;
             }
-            default:throw new SecurityException("Операция не разрешена");
+            default:throw new ToolDenied("Операция не разрешена");
         }
         api.invalidatePrefix(base);return result;
     }

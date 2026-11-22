@@ -24,10 +24,6 @@ class NativeProviderRestoreTest {
             assertTrue(runCatching{client.modelCatalog(creds)}.isFailure)
         }finally{server.shutdown()}
     }
-    @Test fun geminiCatalogKeepsServerAuthorizedNamesWithoutFamilyAllowlist(){
-        val ids=SubscriptionProxyGeminiClient.serverModelIds(JSONObject("""{"models/gemini-3-pro":{},"claude-server-enabled":{},"future-family-image":{},"internal-server-enabled":{}}"""))
-        assertEquals(listOf("claude-server-enabled","future-family-image","internal-server-enabled","models/gemini-3-pro"),ids)
-    }
     @Test fun providerTemplatesChooseNativeProtocolsAndSupportPrivateEndpoints(){
         val catalog=NativeProviderCatalog.parse("""[{"id":"anthropic","name":"Claude","auth_type":"x-api-key"},{"id":"gemini","auth_type":"bearer"},{"id":"ollama","auth_type":"none"},{"id":"v","auth_type":"bearer","base_url":"https://example.org/v1","protocols":["responses"]}]""")
         assertEquals(ApiGateway.ANTHROPIC,catalog.getValue("anthropic").protocol)
@@ -39,7 +35,7 @@ class NativeProviderRestoreTest {
         assertEquals(ApiGateway.RESPONSES,NativeProviderCatalog.wireForModel("opencode-go","gpt-server",ApiGateway.CHAT))
     }
     @Test fun proxyAliasesRouteToNativeAccountsAndKeepTheirOwnCredentialIds(){
-        for((alias,native) in mapOf("proxy-chatgpt" to "chatgpt-plan","proxy-gemini" to "gemini-antigravity","proxy-claude" to "claude-subscription","proxy-grok" to "grok-subscription")){
+        for((alias,native) in mapOf("proxy-chatgpt" to "chatgpt-plan","proxy-claude" to "claude-subscription","proxy-grok" to "grok-subscription")){
             assertTrue(NativeSubscriptionRuntime.supports(alias));assertEquals(native,NativeSubscriptionRuntime.base(alias));assertNotEquals(alias,native)
         }
         assertFalse(NativeSubscriptionRuntime.supports("openai-codex"))

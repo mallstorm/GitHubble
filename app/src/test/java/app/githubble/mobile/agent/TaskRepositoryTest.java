@@ -24,4 +24,24 @@ public class TaskRepositoryTest {
         UnifiedAgentStore s=new UnifiedAgentStore(new UnifiedAgentTestSupport.Memory());TaskRepository t=new TaskRepository(s);
         String id=t.create("a","","task","goal").getString("taskId");t.update("a",id,v->AgentController.put(v,"accountKey","b"));
     }
+    @Test public void everyMessageOpensItsOwnBudgetWindowAndKeepsTheAudit() throws Exception {
+        UnifiedAgentStore store=new UnifiedAgentStore(new UnifiedAgentTestSupport.Memory());TaskRepository t=new TaskRepository(store);
+        String id=t.create("a","","task","goal").getString("taskId");
+        t.update("a",id,v->{try{JSONObject b=v.getJSONObject("budget");b.put("rounds",12).put("tools",40).put("inputTokens",170000);}catch(JSONException e){throw new IllegalStateException(e);}});
+        t.renewBudget("a",id);
+        JSONObject b=t.get("a",id).getJSONObject("budget");
+        assertEquals(12,b.getInt("rounds"));assertEquals(12,b.getInt("roundWindowStart"));assertEquals(24,b.getInt("maxRounds"));
+        assertEquals(140,b.getInt("maxTools"));assertTrue(b.getLong("maxTokens")>=350000);
+        new AgentBudget(b,v->{}).round(100);
+    }
+    @Test public void switchingRepositoryNeverReusesAnotherProjectAndReturningFindsTheOld() throws Exception {
+        UnifiedAgentStore store=new UnifiedAgentStore(new UnifiedAgentTestSupport.Memory());ProjectRegistry p=new ProjectRegistry(store);TaskRepository t=new TaskRepository(store);
+        String a=p.create("a","a","o/a","main").getString("projectId");
+        String task=t.create("a",a,"chat","goal").getString("taskId");
+        p.bindTask("a",task,"","","","");assertEquals("",t.get("a",task).optString("projectId"));
+        p.bindTask("a",task,"b","o/b","main","");String b=t.get("a",task).getString("projectId");
+        assertNotEquals(a,b);assertEquals("o/a",p.get("a",a).getString("repository"));
+        p.bindTask("a",task,"","","","");p.bindTask("a",task,"a","o/a","main","");
+        assertEquals(a,t.get("a",task).getString("projectId"));
+    }
 }

@@ -38,4 +38,10 @@ public class AgentControllerTest {
         try{new AgentController(tasks,projects).executeLoop(session,"Inspect", "",(prompt,tools,history)->{fail("private context reached model");return null;},broker,n->{});fail();}
         catch(SecurityException expected){}assertEquals(0,tasks.get("a",task).getJSONObject("budget").getInt("rounds"));
     }
+    @Test public void onlyBarePromisesAreNudged() {
+        assertTrue(AgentController.promisesWithoutAction("Хорошо, сейчас сделаю."));
+        assertFalse(AgentController.promisesWithoutAction("Какой репозиторий взять?"));
+        assertFalse(AgentController.promisesWithoutAction("Готово: изменил 3 файла."));
+        assertFalse(AgentController.promisesWithoutAction(null));
+    }
 }

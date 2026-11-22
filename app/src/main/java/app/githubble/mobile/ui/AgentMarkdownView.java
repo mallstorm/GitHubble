@@ -24,6 +24,38 @@ import org.commonmark.node.*;
 
 /** Native block renderer. No HTML interpretation, JavaScript or automatic resource downloads. */
 public final class AgentMarkdownView {
+  /** Receives taps on branch links produced by the agent (repository, branch). */
+  public interface BranchListener {
+    void pick(String repository, String branch);
+  }
+
+  public static volatile BranchListener branchListener;
+
+  /** Receives taps on in-chat action links such as «Продолжить» (githubble-action://continue). */
+  public static volatile java.util.function.Consumer<String> actionListener;
+
+  private static Object linkSpan(String url) {
+    if (url != null && url.startsWith("githubble-action://")) {
+      final String action = url.substring("githubble-action://".length());
+      return new ClickableSpan() {
+        @Override
+        public void onClick(View widget) {
+          java.util.function.Consumer<String> l = actionListener;
+          if (l != null) l.accept(action);
+        }
+      };
+    }
+    final String[] branch = app.githubble.mobile.agent.BranchHistory.parse(url);
+    if (branch == null) return new URLSpan(url);
+    return new ClickableSpan() {
+      @Override
+      public void onClick(View widget) {
+        BranchListener l = branchListener;
+        if (l != null) l.pick(branch[0], branch[1]);
+      }
+    };
+  }
+
   private final Activity activity;
   private final int text, muted, accent, soft, border;
 
@@ -161,7 +193,7 @@ public final class AgentMarkdownView {
       out.setSpan(
           new BackgroundColorSpan(soft), start, out.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
     } else if (n instanceof Link && AgentMarkdown.safeLink(((Link) n).getDestination()))
-      span = new URLSpan(((Link) n).getDestination());
+      span = linkSpan(((Link) n).getDestination());
     else if (n instanceof Image && AgentMarkdown.safeLink(((Image) n).getDestination()))
       span = new URLSpan(((Image) n).getDestination());
     if (span != null) out.setSpan(span, start, out.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);

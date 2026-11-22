@@ -26,4 +26,19 @@ public class AgentLoopTest {
         try{new AgentBudget(saved.get(),saved::set).round(100);fail();}catch(AgentBudget.Exhausted expected){}
         assertEquals(1,saved.get().getInt("rounds"));
     }
+    @Test public void deniedToolIsReportedToModelAndTheRunContinues() throws Exception {
+        TaskSession s=new TaskSession("a","p","t",()->{});java.util.concurrent.atomic.AtomicInteger round=new java.util.concurrent.atomic.AtomicInteger();
+        ToolBroker b=new ToolBroker(s,d->true,(d,a)->true,(n,a)->{throw new ToolDenied("not in this mode");},UnifiedAgentTestSupport.journal());b.register(UnifiedAgentTestSupport.read());
+        ModelTransport model=(prompt,schema,history)->{
+            if(round.incrementAndGet()==2){assertTrue(history.toString().contains("not in this mode"));return new ModelTransport.Turn("switched to another way",null,null,0,0);}
+            JSONArray calls=new JSONArray().put(new JSONObject().put("name","read_file").put("args",new JSONObject().put("path","a")));return new ModelTransport.Turn("",calls,null,0,0);
+        };
+        assertEquals("switched to another way",new AgentLoop().run(model,b,s,UnifiedAgentTestSupport.budget(3),"inspect","",new JSONArray(),h->{},i->{}).answer);
+    }
+    @Test(expected=SecurityException.class) public void scopeViolationStillEndsTheRun() throws Exception {
+        TaskSession s=new TaskSession("a","p","t",()->{});
+        ToolBroker b=new ToolBroker(s,d->true,(d,a)->true,(n,a)->{throw new SecurityException("consent revoked");},UnifiedAgentTestSupport.journal());b.register(UnifiedAgentTestSupport.read());
+        ModelTransport model=(prompt,schema,history)->new ModelTransport.Turn("",new JSONArray().put(new JSONObject().put("name","read_file").put("args",new JSONObject().put("path","a"))),null,0,0);
+        new AgentLoop().run(model,b,s,UnifiedAgentTestSupport.budget(3),"inspect","",new JSONArray(),h->{},i->{});
+    }
 }

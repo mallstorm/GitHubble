@@ -81,10 +81,12 @@ public final class ToolCatalog {
         add(b,"publication_status","","",gh,false,false,true);
         add(b,"reconcile_publication","","",remote,true,true,true);
         add(b,"create_workspace","name instructions","name",local,true,false,false);
+        add(b,"focus_repository","repository branch","repository",gh,false,false,false);
+        add(b,"recent_branches","repository limit:integer","",gh,false,false,false);
+        add(b,"active_branch","","",gh,false,false,false);
+        add(b,"set_active_branch","repository branch","branch",gh,false,false,false);
         add(b,"write_files","summary commit_message files:array","files",local,true,false,true);
-        add(b,"detach_workspace","","",local,true,true,true);
-        add(b,"delete_workspace","mode","mode",local,true,true,true);
-        for (String n:Arrays.asList("attach_repository","import_repository")) add(b,n,"repository branch","repository",local,true,false,false);
+        add(b,"attach_repository","repository branch","repository",local,true,false,false);
         add(b,"publish_workspace","commit_message","",remote,true,false,true);
         add(b,"create_repository","name description private:boolean","name",remote,true,false,false);
         add(b,"create_branch","repository branch from_ref","branch",remote,true,false,true);
@@ -106,5 +108,7 @@ public final class ToolCatalog {
         add(b,"download_artifact","artifact_id:integer expect:object","artifact_id",remote,true,false,true);
         add(b,"artifact_verdict","artifact_id:integer","artifact_id",gh,false,false,true);
         add(b,"web_search","query","query",ToolBroker.Permission.PUBLIC_WEB,false,false,false);
+        add(b,"web_fetch","url","url",ToolBroker.Permission.PUBLIC_WEB,false,false,false);
+        add(b,"web_research","query","query",ToolBroker.Permission.PUBLIC_WEB,false,false,false);
     }
 }

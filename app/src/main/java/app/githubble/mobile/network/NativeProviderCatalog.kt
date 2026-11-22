@@ -28,7 +28,6 @@ object NativeProviderCatalog {
         result["cohere"]=Profile("cohere","Cohere","https://api.cohere.ai/compatibility/v1",ApiGateway.CHAT,"bearer")
         result["custom"]=Profile("custom","Свой OpenAI-совместимый API","",ApiGateway.CHAT,"bearer")
         result["proxy-external"]=Profile("proxy-external","Внешний CLIProxyAPI","http://127.0.0.1:8787/v1",ApiGateway.CHAT,"bearer")
-        result["proxy-nvidia"]=Profile("proxy-nvidia","NVIDIA NIM · Subscription Proxy","https://integrate.api.nvidia.com/v1",ApiGateway.CHAT,"bearer")
         return result
     }
     internal fun wireForModel(provider:String,model:String,fallback:String):String{

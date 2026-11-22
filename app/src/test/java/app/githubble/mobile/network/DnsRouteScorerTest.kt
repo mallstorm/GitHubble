@@ -72,7 +72,7 @@ class DnsRouteScorerTest {
 
     @Test
     fun hostnamesResolveToStableAiCapabilities() {
-        assertEquals(AiServiceResolver.GEMINI, AiServiceResolver.serviceForHost("daily-cloudcode-pa.googleapis.com"))
+        assertEquals(AiServiceResolver.GEMINI, AiServiceResolver.serviceForHost("generativelanguage.googleapis.com"))
         assertEquals(AiServiceResolver.OPENAI, AiServiceResolver.serviceForHost("api.openai.com"))
         assertEquals(AiServiceResolver.GITHUB_COPILOT, AiServiceResolver.serviceForHost("api.githubcopilot.com"))
         assertEquals(AiServiceResolver.CLAUDE, AiServiceResolver.serviceForHost("api.anthropic.com"))

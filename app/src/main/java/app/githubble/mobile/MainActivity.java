@@ -177,17 +177,13 @@ public class MainActivity extends Activity {
         result+="\nGitHub connected through a separate GitHub API client: "+
             (githubReady?"yes":"no")+
             ". AI subscriptions alone have no GitHub permissions. "+
-            "The native GitHubble host can list connected GitHub repositories "+
-            "and import their text source into a local Workspace using the "+
-            "'Импорт GitHub → Workspace' action in the + menu or a confirmed "+
-            "chat command. These actions run in the Android host, not in your "+
-            "LLM tool list; never claim that the application lacks them. "+
-            "A local import is not a full Git clone and never writes to GitHub. "+
-            "Do not claim to have run an action unless the app shows its "+
-            "result as a system message. GitHub mutations require "+
-            "explicit confirmation. Model access to GitHub metadata: "+
-            (prefs.getBoolean("ai_tool_github_read_"+owner,false)?"allowed by user":"disabled")+".\n";
-        if(prefs.getBoolean("ai_tool_github_read_"+owner,false)&&accountStore.count()>0){
+            "All repositories of the connected GitHub account(s) are visible to you by default: use list_repositories, "+
+            "repository_branches, recent_branches and repository_read_file without asking the user to enable anything. "+
+            "There is NO local workspace: work only with GitHub (read via list_files/read_file, edit via write_files/replace_text/apply_patch, "+
+            "publish_workspace pushes to the bound repository). For a new project propose creating a repository first (create_repository), then plan and create. "+
+            "Do not claim to have run an action unless a tool returned its result. "+
+            "GitHub mutations require the user's permission level. Use active_branch to report the active branch.\n";
+        if(true&&accountStore.count()>0){
             StringBuilder logins=new StringBuilder();
             for(GitHubAccountStore.Account a:accountStore.listAccounts())
                 logins.append(logins.length()==0?"":", ").append(a.displayName()).append(a.active?" (active)":"");
@@ -195,13 +191,13 @@ public class MainActivity extends Activity {
                 ". Use github_accounts, list_repositories {account:\"all\"} or {account:login} on read-only tools "+
                 "to see the repositories of every connected account; writes always use the active account.\n";
         }
-        if(prefs.getBoolean("ai_tool_github_read_"+owner,false)
+        if(true
             &&project.repository!=null&&!project.repository.isEmpty())
             result+="Linked repository: "+project.repository+
                 " (branch "+project.branch+").\n";
         result+=agentMemory.recall(owner,agentProjects.memoryScope(owner,thread),thread,query);
         if(project.workspaceId!=null&&!project.workspaceId.isEmpty()){
-            if(prefs.getBoolean("ai_tool_file_read_"+owner,false))
+            if(true)
                 try{result+="\nLocal/SAF source is available through task-scoped tools; read only relevant files.";}
                 catch(Exception e){result+="\nКонтекст Workspace недоступен: "+e.getMessage();}
             else result+="\nWorkspace выбран, но передача файлов модели отключена в настройках.";
@@ -374,7 +370,7 @@ public class MainActivity extends Activity {
         app.githubble.mobile.agent.GatewayOps.onRepositoryDeleted=(accountId,full)->runOnUiThread(()->forgetDeletedRepository(accountId,full));
         accountOperations = new AccountOperationsController(api);
         profileController = new ProfileController(api);
-        translationController = new TranslationController(secureStore, prefs, translationCache, translationEngine);
+        translationController = new TranslationController(prefs, translationCache, translationEngine, aiConnections, aiChatClient, ()->accountStore.activeCacheKey());
         screenState = new ScreenStateStore(this);
         features = new FeatureControllerRegistry(this, api, graphql, prefs, trackingDb);
         performanceMonitor = new PerformanceMonitor(this);
@@ -780,6 +776,11 @@ public class MainActivity extends Activity {
         String label = active == null ? (isSignedIn() ? secureStore.get("github_login") : "не подключён")
                 : active.displayName();
         final String renderedThread = agentProjects.activeConversation(owner);
+        app.githubble.mobile.ui.AgentMarkdownView.branchListener=(repo,br)->agentSwitchBranch(repo,br);
+        app.githubble.mobile.ui.AgentMarkdownView.actionListener=action->{
+            if("continue".equals(action)){String continueFor=accountStore.activeCacheKey();if(!aiRequestsInFlight.contains(continueFor))agentSend(continueFor,"Продолжай",false);}
+        };
+        app.githubble.mobile.ui.AgentChatScreen.headerNote=()->agentHeaderNote(accountStore.activeCacheKey());
         AgentChatScreen screen = new AgentChatScreen(this, content,
                 BG, CARD, SUBTLE, TEXT, MUTED, GREEN, BORDER, new AgentChatScreen.Actions() {
             @Override public void newProject() { agentNewProject(owner); }
@@ -814,6 +815,7 @@ public class MainActivity extends Activity {
             }
             @Override public void voiceSettings() { showVoiceLanguageChooser(); }
             @Override public void cancelRequest() { agentCancelRequest(owner); }
+            @Override public void retryLast() { agentRetryLast(owner,renderedThread); }
             @Override public void draftChanged(String value) { prefs.edit().putString(agentDraftKey(owner, renderedThread), value).apply(); }
             @Override public void send(String prompt, boolean agentMode) {
                 agentSend(owner, prompt, agentMode);
@@ -837,6 +839,28 @@ public class MainActivity extends Activity {
                 connected ? aiConnections.model(owner, provider) : "", connected,
                 title, agentChatBusy(owner,renderedThread), prefs.getString(agentDraftKey(owner, renderedThread), ""));
         activeAgentChatScreen=screen;activeAgentChatScope=owner+"\n"+renderedThread;activeAgentChatConfiguration=agentChatConfiguration(owner,renderedThread);
+    }
+
+    private void agentRetryLast(String owner,String thread){
+        if(!owner.equals(accountStore.activeCacheKey()))return;
+        if(agentChatBusy(owner,thread)){toast("Запрос ещё выполняется");return;}
+        JSONArray all=agentProjects.messages(owner);
+        for(int i=all.length()-1;i>=0;i--){JSONObject e=all.optJSONObject(i);
+            if(e!=null&&"user".equals(e.optString("role"))&&!e.optString("body").trim().isEmpty()){agentSend(owner,e.optString("body"),true);return;}}
+        toast("Нет сообщения для повтора");
+    }
+
+    private void agentSwitchBranch(String repo,String branch){
+        final String owner=accountStore.activeCacheKey();
+        final String chat=agentProjects.activeConversation(owner);
+        new Thread(()->{
+            try{
+                app.githubble.mobile.agent.BranchHistory.adopt(aiGithub.taskData(owner,()->{
+                    if(!owner.equals(accountStore.activeCacheKey()))throw new java.util.concurrent.CancellationException("Аккаунт изменился");}),
+                    agentProjects,owner,chat,repo,branch);
+                runOnUiThread(()->{toast("Активная ветка: "+repo+"@"+branch);agentRefreshIfCurrent(owner);});
+            }catch(Exception e){runOnUiThread(()->toast("Не удалось переключить ветку: "+e.getMessage()));}
+        },"branch-switch").start();
     }
 
     private void agentRefreshIfCurrent(String expectedAccount) {
@@ -1264,7 +1288,7 @@ public class MainActivity extends Activity {
             }
             @Override public void openProvider(String provider) { navigate(() -> agentShowProvider(owner, provider)); }
             @Override public void openAddService() { navigate(() -> agentShowAddService(owner)); }
-            @Override public void openSubscriptions(boolean proxy) { agentShowSubscriptions(owner, proxy); }
+            @Override public void openSubscriptions() { agentShowSubscriptions(owner); }
             @Override public void openNetwork() { agentFeatures(owner).network(); }
             @Override public void openModelPicker() { agentChooseComposerModel(owner); }
             @Override public void openUsage() { navigate(() -> agentShowUsage(owner)); }
@@ -1536,6 +1560,21 @@ public class MainActivity extends Activity {
 
     // The agent plans naturally. Write authority remains controlled by AgentPermissionPolicy.
     private boolean agentPlanning(String owner){return false;}
+    /** Short status for the chat header: permission level and what is left of the current budget window. */
+    private String agentHeaderNote(String owner){
+        try{
+            String[] levels={"Чтение","Ручной","Полуавто","Авто"};
+            StringBuilder note=new StringBuilder(levels[agentPermission(owner)]);
+            String chat=agentProjects.activeConversation(owner);
+            JSONObject b=agentProjects.tasks.get(owner,chat).optJSONObject("budget");
+            if(b!=null){
+                int left=Math.max(0,Math.min(b.optInt("roundWindowStart")+25,b.optInt("maxRounds",12))-b.optInt("rounds"));
+                long tokens=Math.max(0,b.optLong("maxTokens",180000)-b.optLong("inputTokens")-b.optLong("outputTokens"));
+                note.append(" · ").append(left).append(" р. · ").append(tokens/1000).append("k ток.");
+            }
+            return note.toString();
+        }catch(Exception unavailable){return "";}
+    }
     private int agentPermission(String owner){
         return app.githubble.mobile.agent.AgentPermissionPolicy.normalize(
             prefs.getInt("ai_execution_permission_"+owner,1));
@@ -1559,26 +1598,29 @@ public class MainActivity extends Activity {
         new AlertDialog.Builder(this).setTitle(title).setMessage(reason).setPositiveButton("Понятно",null).show();
     }
 
-    private void agentShowSubscriptions(String owner,boolean proxy){
+    private void agentShowSubscriptions(String owner){
         if(!owner.equals(accountStore.activeCacheKey()))return;
-        GitAgentUi ui=new GitAgentUi(this,BG,CARD,TEXT,MUTED,GREEN,BORDER);LinearLayout body=ui.body(proxy?"Subscription proxy":"Аккаунты и подписки",true);
-        ui.note(body,"AI-подписки доступны без GitHub. OAuth-сессии шифруются "+
-            "для текущего профиля приложения.");
+        GitAgentUi ui=new GitAgentUi(this,BG,CARD,TEXT,MUTED,GREEN,BORDER);LinearLayout body=ui.body("Аккаунты и подписки",true);
+        ui.note(body,"Нажмите сервис → подтвердите вход в браузере или по коду → модели загрузятся сами. "+
+            "Сессии шифруются на устройстве. Ключи API и свои endpoint — в разделе «Подключения API».");
         final Dialog[] sheet={null};
-        for(String provider:proxy?new String[]{"proxy-chatgpt","proxy-gemini","proxy-claude","proxy-grok"}:new String[]{"chatgpt-plan","openrouter-account","kilo-account",OAuthSubscriptions.CLINE,OAuthSubscriptions.KIMI,OAuthSubscriptions.GROK,"gemini-antigravity","claude-subscription"}){
+        for(app.githubble.mobile.agent.ConnectionCatalog.Account account:app.githubble.mobile.agent.ConnectionCatalog.accounts()){
+            final String provider=account.id;
+            if(!OmniChatConnectionStore.supported().containsKey(provider))continue;
             boolean saved=aiConnections.hasKey(owner,provider);
-            String detail="Войти через OAuth · без API-ключа";
+            String detail=(account.freeModels?"Есть бесплатные модели · ":"")+account.subtitle;
             if(saved){
-                detail="Авторизовано · "+aiConnections.models(owner,provider).size()+" моделей";
-                try{JSONObject account=new JSONObject(aiConnections.credential(owner,provider));
-                    String identity=account.optString("identity"),plan=account.optString("plan");
+                detail="Подключено · "+aiConnections.models(owner,provider).size()+" моделей";
+                try{JSONObject info=new JSONObject(aiConnections.credential(owner,provider));
+                    String identity=info.optString("identity"),plan=info.optString("plan");
                     if(!identity.isEmpty())detail+=" · "+identity;if(!plan.isEmpty())detail+=" · "+plan;
                 }catch(Exception ignored){}
                 if(!aiConnections.isConfigured(owner,provider))detail="Сессия сохранена · требуется загрузить модели";
             }
-            final boolean connected=saved;
+            final boolean connected=saved,endpoint=app.githubble.mobile.agent.ConnectionCatalog.ENDPOINT.equals(account.method);
             ui.action(body,aiConnections.displayName(provider),detail,0xFF276D8A,()->{
                 sheet[0].dismiss();if(!owner.equals(accountStore.activeCacheKey()))return;
+                if(endpoint){agentEditAiProvider(owner,provider);return;}
                 if(!connected){agentBeginSubscription(owner,provider);return;}
                 new AlertDialog.Builder(this).setTitle(aiConnections.displayName(provider))
                     .setItems(new String[]{"Обновить модели","Войти заново","Отключить"},(d,which)->{
@@ -1595,19 +1637,8 @@ public class MainActivity extends Activity {
                     }).setNegativeButton("Закрыть",null).show();
             });
         }
-        if(proxy){
-            ui.action(body,"Внешний CLIProxyAPI","Свой endpoint / bearer · модели загружаются с сервера",0xFF276D8A,()->{sheet[0].dismiss();agentEditAiProvider(owner,"proxy-external");});
-            ui.action(body,"NVIDIA NIM","Отдельный ключ и каталог Subscription Proxy",0xFF276D8A,()->{sheet[0].dismiss();agentEditAiProvider(owner,"proxy-nvidia");});
-        }else{
-            ui.action(body,"Все API-подключения","Любое число ключей на сервис · общая квота · свои endpoint",0xFF14846C,()->{sheet[0].dismiss();agentConfigureAiProvider(owner);});
-            ui.section(body,"Аккаунты API-сервисов");
-            for(String service:new String[]{"openrouter","polza","vsegpt","requesty","opencode-zen","opencode-go","cohere","cloudflare","nvidia","groq","mistral","anthropic","gigachat","yandex"}){
-                if(!OmniChatConnectionStore.supported().containsKey(service))continue;
-                ui.action(body,aiConnections.displayName(service),aiConnections.hasKey(owner,service)?"Подключено · изменить / обновить модели":"Подключить API-аккаунт",0xFF276D8A,()->{sheet[0].dismiss();agentEditAiProvider(owner,service);});
-            }
-        }
+        ui.action(body,"Подключения API","Ключи, свои endpoint, любое число ключей на сервис",0xFF14846C,()->{sheet[0].dismiss();agentConfigureAiProvider(owner);});
         ui.action(body,"Маршрутизация и DNS","Общий сетевой движок API и подписок · Xray",0xFF14846C,()->{sheet[0].dismiss();agentFeatures(owner).network();});
-        if(proxy)ui.note(body,"Gemini Antigravity / Cloud Code и Claude Code используют браузерный OAuth с возвратом в приложение. Gemini Web с cookie-сессией — отдельный, пока не перенесённый транспорт.");
         sheet[0]=ui.present(body,true);
     }
 
@@ -1674,25 +1705,6 @@ public class MainActivity extends Activity {
         },login.interval);
     }
 
-    /**
-     * The copied Cloud Code loadCodeAssist/onboardUser project discovery is the
-     * discontinued personal Gemini Code Assist flow, not the official 2026
-     * Antigravity SDK. Never invent a GCP project ID or mark login as successful.
-     */
-    private void agentShowAntigravityMigration(String owner){
-        new AlertDialog.Builder(this)
-            .setTitle("Google Antigravity · обновление подключения")
-            .setMessage("Старый клиент Cloud Code проходит OAuth, но не получает project ID. "+
-                "Google прекратил поддержку прежнего персонального Gemini Code Assist 18 июня 2026 г. "+
-                "Новый Antigravity использует собственный официальный runtime и OAuth. "+
-                "Для полноценного входа без API необходим его SDK/CLI; старую схему не будем "+
-                "выдавать за работающую. Сейчас доступен прямой Gemini API.")
-            .setPositiveButton("Подключить Gemini API",(d,w)->agentEditAiProvider(owner,"gemini"))
-            .setNeutralButton("Документация Google",(d,w)->
-                openWeb("https://antigravity.google/docs/cli/install"))
-            .setNegativeButton("Закрыть",null).show();
-    }
-
     private void agentBeginBrowserSubscription(String owner,String provider){
         if(!owner.equals(accountStore.activeCacheKey()))return;
         AtomicBoolean cancelled=new AtomicBoolean(false),old=subscriptionAttempts.put(owner,cancelled);if(old!=null)old.set(true);
@@ -1708,7 +1720,13 @@ public class MainActivity extends Activity {
                         .setMessage(login.getDetail()+"\n\nОткройте браузер и подтвердите вход. Ключ API не требуется.")
                         .setPositiveButton("Открыть браузер",null).setNegativeButton("Отмена",null).create();
                     dialog.setOnDismissListener(d->{cancelled.set(true);subscriptionAttempts.remove(owner,cancelled);login.cancel();java.util.concurrent.Future<?> f=waiting.get();if(f!=null)f.cancel(true);});
-                    dialog.setOnShowListener(d->dialog.getButton(-1).setOnClickListener(v->{if(subscriptionAttemptCurrent(owner,cancelled))openWeb(login.getUrl());}));dialog.show();
+                    dialog.setOnShowListener(d->dialog.getButton(-1).setOnClickListener(v->{if(!subscriptionAttemptCurrent(owner,cancelled))return;
+                        java.util.regex.Matcher code=java.util.regex.Pattern.compile("Код [^:]*: (\\S+)").matcher(login.getDetail());
+                        if(code.find()){
+                            android.content.ClipboardManager clip=(android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE);
+                            if(clip!=null){clip.setPrimaryClip(android.content.ClipData.newPlainText("code",code.group(1)));toast("Код скопирован: "+code.group(1));}
+                        }
+                        openWeb(login.getUrl());}));dialog.show();
                     waiting.set(io.submit(()->{
                         try{
                             JSONObject session=app.githubble.mobile.network.NativeSubscriptionRuntime.await(login);session.put("owner",owner);
@@ -1751,7 +1769,7 @@ public class MainActivity extends Activity {
         if(!owner.equals(accountStore.activeCacheKey()))return;
         // One-time disclosure permission for local sources; it does not change
         // the stored global/account preference without the user's decision.
-        if(!prefs.getBoolean("ai_tool_file_read_"+owner,false)){
+        if(!true){
             new AlertDialog.Builder(this).setTitle("Разрешить AI читать файлы проекта?")
                 .setMessage("Чтобы безопасно изменять существующие файлы, модель должна "+
                     "увидеть ограниченный контекст Workspace через выбранного AI-провайдера. "+
@@ -1903,13 +1921,13 @@ public class MainActivity extends Activity {
 
     private void agentShowWebSearch(String owner){
         EditText query=new EditText(this);query.setHint("Что найти в интернете?");query.setMinLines(2);
-        new AlertDialog.Builder(this).setTitle("Веб-поиск").setMessage("Поиск отправит запрос публичным поисковым системам. Результаты будут доступны выбранной модели.")
+        new AlertDialog.Builder(this).setTitle("Веб-поиск").setMessage("Агент ищет в интернете и читает найденные страницы сам, когда нужны свежие данные. Запросы уходят публичным поисковикам, текст страниц читает выбранная модель. Страницы с JavaScript открываются через облачный ридер r.jina.ai.")
             .setView(query).setPositiveButton("Найти",(d,w)->{
                 if(!owner.equals(accountStore.activeCacheKey()))return;
                 String q=query.getText().toString().trim();if(q.length()<2){toast("Введите запрос");return;}
                 app.githubble.mobile.agent.NativeWebSearch.enable(this,owner,true);
-                agentSend(owner,"Найди в интернете с помощью web_search и приведи ссылки на реальные источники: "+q,true);
-            }).setNeutralButton("Выключить поиск",(d,w)->app.githubble.mobile.agent.NativeWebSearch.enable(this,owner,false))
+                agentSend(owner,"Найди в интернете с помощью web_research, прочитай источники и ответь со ссылками: "+q,true);
+            }).setNeutralButton("Выключить интернет",(d,w)->{app.githubble.mobile.agent.NativeWebSearch.enable(this,owner,false);toast("Интернет для агента выключен");})
             .setNegativeButton("Отмена",null).show();
     }
 
@@ -2000,16 +2018,27 @@ public class MainActivity extends Activity {
                 dialog[0].dismiss();if(!owner.equals(accountStore.activeCacheKey()))return;
                 switch(action){case 0:agentPhotoTool(owner,false);break;case 1:agentPhotoTool(owner,true);break;case 2:agentGenerateImage(owner);break;case 3:agentShowWebSearch(owner);break;case 4:agentShowPlugins(owner);break;}
             });}
-        ui.section(body,"Инструменты GitHubble");
-        String[] tools={"Создать или изменить код","Импорт GitHub → Workspace","Привязать репозиторий","GitHub Actions","APK и артефакты","Проекты","AI-подключения","Все инструменты"};
+        ui.section(body,"GitHub и ветки");
+        ui.note(body,"Агент видит все репозитории подключённого аккаунта и работает только с GitHub — без локального Workspace.");
+        final String[] tools={"Свежие ветки","Какая ветка активна","Создать репозиторий","Привязать репозиторий","Залить всё в репозиторий",
+            "Создать или изменить код","GitHub Actions","APK и артефакты","Проекты и чаты","Подключения и подписки","Все инструменты"};
+        final String[] hints={"Две последние ветки с датами и тем, что менялось; нажмите ветку — она станет рабочей","Репозиторий и ветка, в которой агент сейчас работает",
+            "Агент начнёт проект с нового репозитория","Выбрать существующий репозиторий и ветку","Опубликовать подтверждённые изменения в привязанный репозиторий","Предпросмотр файлов и подтверждение коммита","","","","OAuth в один тап и API-ключи",""};
         for(int i=0;i<tools.length;i++){final int action=i;
-            ui.action(body,tools[i],i==0?"Предпросмотр файлов и подтверждение коммита":"",0xFF435B69,()->{
+            ui.action(body,tools[i],hints[i],0xFF435B69,()->{
                 dialog[0].dismiss();if(!owner.equals(accountStore.activeCacheKey()))return;
-                switch(action){case 0:agentGenerateProjectCode(owner,"");break;
-                    case 1:agentImportRepositoryToWorkspace(owner,"");break;
-                    case 2:agentAttachRepository(owner);break;case 3:agentChooseWorkflow(owner);break;
-                    case 4:agentShowBuildArtifacts(owner);break;case 5:agentShowConversations(owner);break;
-                    case 6:navigate(this::showSettingsGitAgentWorkspace);break;default:agentShowChatTools(owner);}
+                switch(action){
+                    case 0:agentSend(owner,"Покажи самые свежие ветки в репозитории: даты создания и обновления и что менялось последним. Каждая ветка должна быть кликабельной.",false);break;
+                    case 1:agentSend(owner,"Какая ветка сейчас активна?",false);break;
+                    case 2:agentCreateRepository(owner,"",true);break;
+                    case 3:agentAttachRepository(owner);break;
+                    case 4:agentSend(owner,"Залей всё в репозиторий и обнови его.",false);break;
+                    case 5:agentGenerateProjectCode(owner,"");break;
+                    case 6:agentChooseWorkflow(owner);break;
+                    case 7:agentShowBuildArtifacts(owner);break;
+                    case 8:agentShowConversations(owner);break;
+                    case 9:navigate(()->agentShowConnections(owner));break;
+                    default:agentShowChatTools(owner);}
             });}
         dialog[0]=ui.present(body,true);
     }
@@ -2028,8 +2057,6 @@ public class MainActivity extends Activity {
                         "▶  GitHub Actions",
                         "↓  APK / артефакты",
                         "⚑  Диагностика CI → исправление",
-                        "▣  Workspace — локальные проекты",
-                        "↓  Импорт GitHub в Workspace",
                         "≋  Изменения задачи: diff и откат"
                 }, (d, index) -> {
                     switch (index) {
@@ -2056,9 +2083,7 @@ public class MainActivity extends Activity {
                         case 6: agentChooseWorkflow(owner); break;
                         case 7: agentShowBuildArtifacts(owner); break;
                         case 8: agentDiagnoseBuild(owner); break;
-                        case 9: agentFeatures(owner).workspace(); break;
-                        case 10: agentImportRepositoryToWorkspace(owner,""); break;
-                        case 11: agentTaskChanges(owner,agentProjects.activeConversation(owner),false);break;
+                        case 9: agentTaskChanges(owner,agentProjects.activeConversation(owner),false);break;
                     }
                 }).setNegativeButton("Закрыть", null).show();
     }
@@ -2225,13 +2250,8 @@ public class MainActivity extends Activity {
         if(aiRequestsInFlight.contains(expected)){toast("Предыдущий запрос ещё выполняется");return;}
         final String activeChat = agentProjects.activeConversation(expected);
         String selectedProjectId=agentProjects.projectId(expected,activeChat);
-        if(!selectedProjectId.isEmpty()&&!agentProjects.registry.get(expected,selectedProjectId).optBoolean("modelAccess")
-            &&!app.githubble.mobile.agent.DirectAnswers.handles(message)){
-            new AlertDialog.Builder(this).setTitle("Разрешить AI-доступ к проекту?")
-                .setMessage("Обсуждение, память и разрешённые файлы проекта могут передаваться выбранному внешнему AI-провайдеру. Доступ действует только для этого проекта и отзывается в разделе «Проекты». CI-логи требуют отдельного согласия.")
-                .setPositiveButton("Разрешить",(d,w)->{if(expected.equals(accountStore.activeCacheKey())&&activeChat.equals(agentProjects.activeConversation(expected))){agentProjects.registry.modelAccess(expected,selectedProjectId,true);agentSend(expected,message,ignoredLegacyMode);}})
-                .setNegativeButton("Отмена",null).show();return;
-        }
+        if(!selectedProjectId.isEmpty()&&!agentProjects.registry.get(expected,selectedProjectId).optBoolean("modelAccess"))
+            agentProjects.registry.modelAccess(expected,selectedProjectId,true);
         final boolean planning=agentPlanning(expected);
         final boolean mayWrite=app.githubble.mobile.agent.AgentPermissionPolicy.mayWrite(agentPermission(expected),planning);
         final Uri imageUri=expected.equals(pendingAgentImageOwner)
@@ -2285,12 +2305,7 @@ public class MainActivity extends Activity {
         String explicitMemory;
         try{explicitMemory=agentMemory.explicit(expected,agentProjects.memoryScope(expected,activeChat),activeChat,message);}catch(Exception e){explicitMemory="Память: "+e.getMessage();}
         if(explicitMemory!=null){agentProjects.appendToConversation(expected,activeChat,"system",explicitMemory);agentRefreshIfCurrent(expected);return;}
-        java.util.regex.Matcher attach=java.util.regex.Pattern.compile("(?iu)^(?:/repo|закрепи репозиторий|привяжи репозиторий)\\s+([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)\\s*$").matcher(message.trim());
-        if(agentMode&&attach.matches()){
-            final String repo=attach.group(1);
-            new AlertDialog.Builder(this).setTitle("Закрепить репозиторий за этим диалогом?").setMessage(repo)
-                .setPositiveButton("Закрепить",(d,w)->{if(expected.equals(accountStore.activeCacheKey())&&activeChat.equals(agentProjects.activeConversation(expected))){agentProjects.save(new AgentProjectStore.Project(expected,p.name,repo,p.branch,p.workspaceId));agentRefreshIfCurrent(expected);}}).setNegativeButton("Отмена",null).show();return;
-        }
+        // «/repo owner/name», «закрепи репозиторий …»: the host puts it in focus before the model runs (no dialog).
         String lower = message.toLowerCase(java.util.Locale.ROOT);
         if(imageUri==null&&(lower.matches("(?s)^(?:/repo delete|удали репозиторий)\\s+[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\\s*$"))){
             String target=message.trim().substring(message.trim().lastIndexOf(' ')+1);
@@ -2323,13 +2338,13 @@ public class MainActivity extends Activity {
                 try {
                     String context=agentContext(expected,activeProject,activeChat,message)+
                         (planning?"\nPLANNING: inspect, reason and plan only. Do not write, create, publish or run builds.":
-                        "\nYou are an agent by default. Discuss and reason normally until the user requests implementation.");
+                        "\nYou are an agent by default: read and explore on your own, ask the user only before changes.");
                     String response;
                     // Both GitHub and Workspace are available to the same agent when
                     // account-scoped permissions are explicitly enabled.
                     boolean allowGithub=!"guest".equals(expected)&&isSignedIn()
-                        &&prefs.getBoolean("ai_tool_github_read_"+expected,false);
-                    boolean allowFiles=prefs.getBoolean("ai_tool_file_read_"+expected,false);
+                        &&true;
+                    boolean allowFiles=true;
                     boolean toolMode=imageUri==null;
                     Runnable scopeGuard=()->{
                         if(!expected.equals(accountStore.activeCacheKey())
@@ -2342,9 +2357,9 @@ public class MainActivity extends Activity {
                             throw new SecurityException("Доступ модели к проекту отозван");
                         if(allowGithub){
                             aiGithub.requireAccount(expected);
-                            if(!prefs.getBoolean("ai_tool_github_read_"+expected,false))throw new SecurityException("Доступ GitHub отозван");
+                            if(!true)throw new SecurityException("Доступ GitHub отозван");
                         }
-                        if(allowFiles&&!prefs.getBoolean("ai_tool_file_read_"+expected,false))throw new SecurityException("Доступ к файлам отозван");
+                        if(allowFiles&&!true)throw new SecurityException("Доступ к файлам отозван");
                     };
                     app.githubble.mobile.agent.NativeAgentToolHost tools=new app.githubble.mobile.agent.NativeAgentToolHost(
                         this,aiGithub,new AgentGitWorkspace(accountStore,secureStore),agentWorkspaces,
@@ -2358,8 +2373,20 @@ public class MainActivity extends Activity {
                             aiUsage.record(expected,provider,model,OmniChatChatClient.takeUsage());return result;
                         };
                         app.githubble.mobile.agent.ModelTransport transport=aiChatClient.agentTransport(expected,provider,model,credential,completion,usage->aiUsage.record(expected,provider,model,usage));
-                        response=agentController.execute(expected,activeChat,message,context,transport,tools,
-                            allowGithub,allowFiles,scopeGuard,run).answer;
+                        app.githubble.mobile.agent.AgentLoop.Outcome outcome=agentController.execute(expected,activeChat,message,context,transport,tools,
+                            allowGithub,allowFiles,scopeGuard,run);
+                        response=outcome.answer;
+                        if(outcome.budgetExhausted)response+="\n\n[Продолжить](githubble-action://continue)";
+                        if(prefs.getBoolean("ai_subagent_"+expected,false)&&response!=null&&!response.trim().isEmpty()
+                            &&app.githubble.mobile.agent.IntentRouter.changesRepository(message)){
+                            scopeGuard.run();
+                            response=app.githubble.mobile.agent.SubagentReview.orchestrate(prompt->{
+                                scopeGuard.run();
+                                String reply=aiChatClient.completeForAccount(expected,provider,model,credential,
+                                    new JSONArray().put(new JSONObject().put("role","user").put("body",prompt)),"Hubble agent and reviewer subagent","");
+                                aiUsage.record(expected,provider,model,OmniChatChatClient.takeUsage());return reply;
+                            },message,context,response,2);
+                        }
                     }else if(imageUri!=null){
                         scopeGuard.run();
                         String mime=getContentResolver().getType(imageUri);
@@ -2397,6 +2424,9 @@ public class MainActivity extends Activity {
                     boolean interrupted=error instanceof InterruptedException||error instanceof java.util.concurrent.CancellationException||Thread.currentThread().isInterrupted();
                     String detail=app.githubble.mobile.agent.AgentLogRedactor.redact(error.getMessage());
                     if(credential!=null&&!credential.isEmpty())detail=detail.replace(credential,"[REDACTED]");
+                    if(!cancelled&&!interrupted&&java.util.Objects.equals(aiRequestTickets.get(expected),ticket))
+                        agentProjects.appendToConversation(expected,activeChat,"agent","Остановился: "+detail
+                            +"\n\nЧто сделано до остановки сохранено.\n\n[Продолжить](githubble-action://continue)");
                     run.finish(cancelled?"cancelled":interrupted?"interrupted":"failed",cancelled?"Остановлено пользователем":interrupted?"Задача прервана · контекст изменился":"Задача: "+detail);
                 } finally {
                     if(run.active())run.finish("interrupted","Задача прервана");
@@ -4922,6 +4952,9 @@ public class MainActivity extends Activity {
         TextView name=text(shortName,16,true);name.setTextColor(BLUE);name.setMaxLines(2);name.setPadding(0,dp(4),0,0);tile.addView(name);
         TextView owner=text(full.contains("/")?full.substring(0,full.indexOf('/')):"",11,false);owner.setTextColor(MUTED);owner.setPadding(0,0,0,0);tile.addView(owner);
         TextView description=text(app.githubble.mobile.ui.JsonText.of(repository,"description","Без описания"),11,false);description.setTextColor(MUTED);description.setMaxLines(2);description.setPadding(0,dp(7),0,0);tile.addView(description,new LinearLayout.LayoutParams(-1,0,1));
+        rememberRepoPrivacy(full,repository.optBoolean("private",false));
+        {String tileSource=app.githubble.mobile.ui.JsonText.of(repository,"description","");
+         if(!tileSource.isEmpty()){app.githubble.mobile.ui.InlineTranslation tileTranslation=inlineTranslation("desc:"+full);tileTranslation.add(description,tileSource);tileTranslation.bind(null);}}
         TextView meta=text("★ "+repository.optInt("stargazers_count",0)+" · "+app.githubble.mobile.ui.JsonText.of(repository,"language","—"),11,true);meta.setTextColor(MUTED);meta.setPadding(0,dp(6),0,0);tile.addView(meta);
         tile.setOnClickListener(v->navigate(()->showRepository(full)));
         GridLayout.LayoutParams p=new GridLayout.LayoutParams();p.width=0;p.height=dp(isLargeText()?150:124);p.columnSpec=GridLayout.spec(GridLayout.UNDEFINED,1f);p.setMargins(dp(4),dp(4),dp(4),dp(4));grid.addView(tile,p);
@@ -4934,6 +4967,7 @@ public class MainActivity extends Activity {
             int stars,int forks,int issues,String branch,String language,String license){
         String name=full.contains("/")?full.substring(full.indexOf('/')+1):full;
         String owner=full.contains("/")?full.substring(0,full.indexOf('/')):full;
+        rememberRepoPrivacy(full,repo.optBoolean("private",false));translationRepo=full;
         LinearLayout hero=new LinearLayout(this);hero.setOrientation(LinearLayout.VERTICAL);
         hero.setPadding(dp(14),dp(12),dp(14),dp(12));
         hero.setBackground(round(CARD,12,BORDER,1));
@@ -4956,6 +4990,7 @@ public class MainActivity extends Activity {
             TextView body=text(description,13,false);body.setTextColor(MUTED);
             LinearLayout.LayoutParams descP=new LinearLayout.LayoutParams(-1,-2);
             descP.setMargins(0,dp(6),0,dp(4));hero.addView(body,descP);
+            app.githubble.mobile.ui.InlineTranslation heroTranslation=inlineTranslation("desc:"+full);heroTranslation.add(body,description);heroTranslation.bind(hero);
         }
         LinearLayout stats=new LinearLayout(this);stats.setPadding(0,dp(6),0,0);
         repoMetric(stats,"★  "+stars,"Stars");repoMetric(stats,"⑂  "+forks,"Forks");
@@ -5474,7 +5509,7 @@ public class MainActivity extends Activity {
                 String state=issue.optString("state","open");
                 TextView meta=text((author==null?"":author.optString("login",""))+" · "+("open".equals(state)?"Открыта":"Закрыта")+" · "+formatGitHubDate(issue.optString("updated_at","")),11,false);meta.setTextColor(MUTED);card(meta);
                 JSONArray labels=issue.optJSONArray("labels");if(labels!=null&&labels.length()>0){LinearLayout chips=new LinearLayout(this);chips.setOrientation(LinearLayout.HORIZONTAL);for(int i=0;i<Math.min(labels.length(),5);i++){JSONObject l=labels.optJSONObject(i);if(l!=null)chips.addView(pill(app.githubble.mobile.ui.JsonText.of(l,"name","label")));}card(chips);}
-                addTranslatableMarkdownCard("issue:"+full+"#"+number,issue.optString("body","Без описания"),issue.optString("updated_at",""));
+                translationRepo=full;addTranslatableMarkdownCard("issue:"+full+"#"+number,issue.optString("body","Без описания"),issue.optString("updated_at",""));
                 GridLayout actions=new GridLayout(this);actions.setColumnCount(adaptiveColumns(2));
                 addAction(actions,"Комментарий",()->showIssueCommentDialog(full,number));
                 addAction(actions,"Редактировать",()->showIssueEditor(full,number,issue.optString("title",""),issue.optString("body",""),issue.optString("updated_at","")));
@@ -5606,7 +5641,7 @@ public class MainActivity extends Activity {
                 content.removeView(pb);heroBanner(pull.optString("title"),full,R.drawable.ic_pull_request);
                 JSONObject author=pull.optJSONObject("user");String state=pull.optBoolean("merged",false)?"Слит":pull.optString("state","open").equals("open")?"Открыт":"Закрыт";
                 TextView meta=text((author==null?"":author.optString("login",""))+" · "+state+" · "+pull.optJSONObject("head").optString("ref","")+" → "+pull.optJSONObject("base").optString("ref",""),11,false);meta.setTextColor(MUTED);card(meta);
-                addTranslatableMarkdownCard("pr:"+full+"#"+number,pull.optString("body","Без описания"),pull.optString("updated_at",""));
+                translationRepo=full;addTranslatableMarkdownCard("pr:"+full+"#"+number,pull.optString("body","Без описания"),pull.optString("updated_at",""));
                 GridLayout stat=new GridLayout(this);stat.setColumnCount(adaptiveColumns(3));addMiniStat(stat,String.valueOf(pull.optInt("commits")),"Коммиты",BLUE);addMiniStat(stat,String.valueOf(pull.optInt("additions")),"Добавлено",GREEN);addMiniStat(stat,String.valueOf(pull.optInt("deletions")),"Удалено",Color.rgb(220,80,80));content.addView(stat);
                 GridLayout actions=new GridLayout(this);actions.setColumnCount(adaptiveColumns(2));
                 addAction(actions,"Коммиты",()->navigate(() -> showPullCommits(full,number)));
@@ -6248,30 +6283,117 @@ public class MainActivity extends Activity {
     private void showReadme(String full,String readme){setCurrentScreen(() -> showReadme(full,readme));shell("README",true);repoSectionHeader(full,"README","Документация проекта",R.drawable.ic_repository);showReadmeInline(full,readme);}
     private void showReadmeInline(String full,String readme){sectionTitle("README",null);addTranslatableMarkdownCard("readme:"+full,readme,prefs.getString("cache_repo_updated_"+full,""));}
 
-    private TranslationEngine.Config translationConfig(){return translationController.config();}
+    // ---- Translation: prose only, through the user's connected AI, small chips instead of big buttons ----
+    private final java.util.concurrent.ConcurrentHashMap<String,Boolean> repoPrivacy=new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.Set<String> translating=java.util.Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap<>());
+    private volatile String translationRepo="";
+
+    private void rememberRepoPrivacy(String full,boolean isPrivate){if(full!=null&&!full.isEmpty())repoPrivacy.put(full,isPrivate);}
+    private boolean translationCandidate(String text){return text!=null&&text.trim().length()>=12&&LanguageDetector.needsRussianTranslation(text);}
+    private String translationRepoOf(String scopeKey){
+        java.util.regex.Matcher m=java.util.regex.Pattern.compile("^(?:readme|issue|pr|desc|commit):([^/#\\s]+/[^#\\s]+)").matcher(scopeKey==null?"":scopeKey);
+        return m.find()?m.group(1):translationRepo;
+    }
+    private String translationKind(String scopeKey){
+        String k=scopeKey==null?"":scopeKey;
+        if(k.startsWith("desc:"))return "description";
+        if(k.startsWith("commit:"))return "commits";
+        if(k.startsWith("issue")||k.startsWith("pr:")||k.startsWith("release:"))return "discussions";
+        return "readme";
+    }
+    private boolean translationRepoPrivate(String scopeKey){String full=translationRepoOf(scopeKey);return !full.isEmpty()&&Boolean.TRUE.equals(repoPrivacy.get(full));}
+    /** Automatic translation: global switch or a per-repository choice; private repositories only when asked for that repository. */
+    private boolean autoTranslateAllowed(String scopeKey){
+        if(!translationController.available())return false;
+        String full=translationRepoOf(scopeKey);
+        int choice=full.isEmpty()?0:prefs.getInt("translator_repo_"+full,0);
+        if(choice<0||!translationController.scopeEnabled(translationKind(scopeKey)))return false;
+        if(choice>0)return true;
+        // Only repositories known to be public are translated unasked.
+        return translationController.autoEnabled()&&!full.isEmpty()&&Boolean.FALSE.equals(repoPrivacy.get(full));
+    }
+    /** Private text leaves the device for the AI provider only after a one-time yes. */
+    private void allowTranslationSend(String scopeKey,Runnable proceed){
+        if(!translationRepoPrivate(scopeKey)||prefs.getBoolean("translator_private_ok",false)){proceed.run();return;}
+        new AlertDialog.Builder(this).setTitle("Перевести приватный текст?")
+            .setMessage("Текст приватного репозитория будет отправлен вашей нейросети ("+translationController.serviceLabel()+") для перевода. Код не отправляется.")
+            .setPositiveButton("Перевести",(d,w)->{prefs.edit().putBoolean("translator_private_ok",true).apply();proceed.run();})
+            .setNegativeButton("Отмена",null).show();
+    }
+    private app.githubble.mobile.ui.InlineTranslation inlineTranslation(String scopeKey){
+        return new app.githubble.mobile.ui.InlineTranslation(this,io,translationController,new app.githubble.mobile.ui.InlineTranslation.Host(){
+            @Override public boolean auto(){return autoTranslateAllowed(scopeKey);}
+            @Override public void allowSend(Runnable proceed){allowTranslationSend(scopeKey,proceed);}
+            @Override public void toast(String message){MainActivity.this.toast(message);}
+        },MUTED,SUBTLE);
+    }
+    private void showTranslationChoices(String scopeKey){
+        String full=translationRepoOf(scopeKey);if(full.isEmpty()){showTranslationSettingsHint();return;}
+        int choice=prefs.getInt("translator_repo_"+full,0);
+        String[] items={"Всегда переводить "+full,"Не переводить "+full,"Как в настройках"};
+        new AlertDialog.Builder(this).setTitle("Перевод для репозитория").setSingleChoiceItems(items,choice>0?0:choice<0?1:2,(d,w)->{
+            prefs.edit().putInt("translator_repo_"+full,w==0?1:w==1?-1:0).apply();d.dismiss();toast("Сохранено · откройте страницу заново");}).setNegativeButton("Закрыть",null).show();
+    }
+    private void showTranslationSettingsHint(){toast("Автоперевод: Настройки → Перевод");}
 
     private void addTranslatableMarkdownCard(String scopeKey,String source,String updateMarker){
         LinearLayout panel=translatableMarkdownPanel(scopeKey,source,updateMarker);LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,-2);params.setMargins(0,0,0,dp(12));content.addView(panel,params);
     }
     private LinearLayout translatableMarkdownPanel(String scopeKey,String source,String updateMarker){
-        String safeSource=source==null?"":source;LinearLayout panel=new LinearLayout(this);panel.setOrientation(LinearLayout.VERTICAL);panel.setPadding(dp(12),dp(10),dp(12),dp(10));panel.setBackground(round(CARD,16,BORDER,1));
-        renderTranslatablePanel(panel,scopeKey,safeSource,updateMarker,false);
-        if(prefs.getBoolean("translator_auto",false)&&LanguageDetector.needsRussianTranslation(safeSource)&&!translationConfig().endpoint.isEmpty()&&translationCache.get(safeSource,updateMarker,"ru",translationConfig().identity())==null)new Handler(Looper.getMainLooper()).postDelayed(()->startTranslation(panel,scopeKey,safeSource,updateMarker),180L);
+        String safeSource=source==null?"":source;LinearLayout panel=new LinearLayout(this);panel.setOrientation(LinearLayout.VERTICAL);panel.setPadding(dp(12),dp(8),dp(12),dp(10));panel.setBackground(round(CARD,16,BORDER,1));
+        boolean foreign=translationCandidate(safeSource);boolean auto=foreign&&autoTranslateAllowed(scopeKey);
+        TranslationCache.Entry cached=foreign?translationCache.get(safeSource,updateMarker,"ru",TranslationEngine.IDENTITY):null;
+        renderTranslatablePanel(panel,scopeKey,safeSource,updateMarker,auto&&cached!=null,"");
+        if(auto&&cached==null)new Handler(Looper.getMainLooper()).postDelayed(()->startTranslation(panel,scopeKey,safeSource,updateMarker),180L);
         return panel;
     }
 
-    private void renderTranslatablePanel(LinearLayout panel,String scopeKey,String source,String updateMarker,boolean russian){
-        panel.removeAllViews();TranslationEngine.Config config=translationConfig();LanguageDetector.Result detected=LanguageDetector.detect(source);TranslationCache.Entry cached=translationCache.get(source,updateMarker,"ru",config.identity());
-        LinearLayout header=new LinearLayout(this);header.setGravity(Gravity.CENTER_VERTICAL);TextView language=text(detected.displayName,10,true);language.setTextColor(detected.code.equals("ru")?GREEN:BLUE);language.setBackground(round(SUBTLE,10,Color.TRANSPARENT,0));language.setPadding(dp(8),dp(3),dp(8),dp(3));header.addView(language);TextView cacheState=text(cached==null?"":"  перевод сохранён",10,false);cacheState.setTextColor(MUTED);header.addView(cacheState,new LinearLayout.LayoutParams(0,-2,1));panel.addView(header);
-        String shown=russian&&cached!=null?cached.translated:source;TextView body=markdownView(shown,14);body.setPadding(0,dp(8),0,dp(8));panel.addView(body);
-        LinearLayout actions=new LinearLayout(this);Button original=compactButton("Оригинал");original.setEnabled(russian);original.setOnClickListener(v->renderTranslatablePanel(panel,scopeKey,source,updateMarker,false));actions.addView(original,new LinearLayout.LayoutParams(0,dp(44),1));
-        Button translate=compactButton(cached==null?"Перевести":"Русский");translate.setEnabled(!detected.code.equals("ru"));translate.setOnClickListener(v->{if(cached!=null)renderTranslatablePanel(panel,scopeKey,source,updateMarker,true);else startTranslation(panel,scopeKey,source,updateMarker);});LinearLayout.LayoutParams tp=new LinearLayout.LayoutParams(0,dp(44),1);tp.setMargins(dp(6),0,0,0);actions.addView(translate,tp);panel.addView(actions);
+    /** Body plus one small chip (only for foreign text): «🌐 Перевести» / «🌐 Перевод · оригинал». */
+    private void renderTranslatablePanel(LinearLayout panel,String scopeKey,String source,String updateMarker,boolean showTranslated,String chipNote){
+        panel.removeAllViews();
+        boolean foreign=translationCandidate(source);
+        TranslationCache.Entry cached=foreign?translationCache.get(source,updateMarker,"ru",TranslationEngine.IDENTITY):null;
+        boolean translated=showTranslated&&cached!=null;
+        if(foreign){
+            String label=!chipNote.isEmpty()?chipNote:translated?"🌐 Перевод · оригинал":cached!=null?"🌐 Оригинал · перевод":"🌐 Перевести";
+            TextView chip=app.githubble.mobile.ui.InlineTranslation.chip(this,label,MUTED,SUBTLE);
+            boolean busy=chipNote.startsWith("🌐 Перевожу");
+            if(!busy){
+                chip.setOnClickListener(v->{if(cached!=null)renderTranslatablePanel(panel,scopeKey,source,updateMarker,!translated,"");else allowTranslationSend(scopeKey,()->startTranslation(panel,scopeKey,source,updateMarker));});
+                chip.setOnLongClickListener(v->{showTranslationChoices(scopeKey);return true;});
+            }
+            LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.END);row.addView(chip,new LinearLayout.LayoutParams(-2,-2));panel.addView(row,new LinearLayout.LayoutParams(-1,-2));
+        }
+        TextView body=markdownView(translated?cached.translated:source,14);body.setPadding(0,dp(6),0,dp(2));panel.addView(body);
+    }
+
+    /** The finished beginning of a long translation: reading can start while the rest is still coming. */
+    private void renderPartialTranslation(LinearLayout panel,String translatedPrefix,String note){
+        panel.removeAllViews();
+        LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.END);
+        row.addView(app.githubble.mobile.ui.InlineTranslation.chip(this,note,MUTED,SUBTLE),new LinearLayout.LayoutParams(-2,-2));panel.addView(row,new LinearLayout.LayoutParams(-1,-2));
+        TextView body=markdownView(translatedPrefix,14);body.setPadding(0,dp(6),0,dp(2));panel.addView(body);
     }
 
     private void startTranslation(LinearLayout panel,String scopeKey,String source,String updateMarker){
-        TranslationEngine.Config config=translationConfig();if(config.endpoint.isEmpty()){toast("Сначала настройте провайдер перевода");configureTranslatorSettings();return;}
-        panel.removeAllViews();TextView title=text("Переводим на русский…",14,true);panel.addView(title);ProgressBar progress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);progress.setMax(100);progress.setProgress(4);panel.addView(progress,new LinearLayout.LayoutParams(-1,dp(8)));TextView detail=text("Подготовка Markdown и защита технических фрагментов",11,false);detail.setTextColor(MUTED);panel.addView(detail);
-        io.execute(()->{try{String translated=translationEngine.translate(source,"ru",config,(done,total)->runOnUiThread(()->{progress.setProgress(Math.max(4,done*100/Math.max(1,total)));detail.setText("Переведено частей: "+done+"/"+total);}));LanguageDetector.Result detected=LanguageDetector.detect(source);translationCache.put(source,updateMarker,"ru",config.identity(),translated,detected.code);runOnUiThread(()->renderTranslatablePanel(panel,scopeKey,source,updateMarker,true));}catch(Exception e){runOnUiThread(()->{panel.removeAllViews();TextView error=text("Не удалось перевести: "+e.getMessage(),13,false);error.setTextColor(Color.rgb(190,55,60));panel.addView(error);Button retry=compactButton("Повторить");retry.setOnClickListener(v->startTranslation(panel,scopeKey,source,updateMarker));panel.addView(retry,new LinearLayout.LayoutParams(-1,dp(44)));});}});
+        if(!translationController.available()){toast("Подключите ChatGPT, Grok или другую модель в «Подключениях»");return;}
+        String flight=TranslationCache.sha256(source);if(!translating.add(flight))return;
+        renderTranslatablePanel(panel,scopeKey,source,updateMarker,false,"🌐 Перевожу…");
+        io.execute(()->{
+            try{
+                final int[] progressState={0,0};
+                String translated=translationEngine.translate(source,"ru",translationController.completer(),(done,total)->{progressState[0]=done;progressState[1]=total;},
+                    prefix->runOnUiThread(()->{if(translating.contains(flight))renderPartialTranslation(panel,prefix,"🌐 Перевожу… "+progressState[0]+"/"+progressState[1]);}));
+                translationCache.put(source,updateMarker,"ru",TranslationEngine.IDENTITY,translated,LanguageDetector.detect(source).code);
+                runOnUiThread(()->{translating.remove(flight);renderTranslatablePanel(panel,scopeKey,source,updateMarker,true,"");});
+            }catch(Exception e){
+                runOnUiThread(()->{translating.remove(flight);renderTranslatablePanel(panel,scopeKey,source,updateMarker,false,"");
+                    TextView chip=app.githubble.mobile.ui.InlineTranslation.chip(this,"🌐 Не удалось · повторить",MUTED,SUBTLE);
+                    chip.setOnClickListener(v->startTranslation(panel,scopeKey,source,updateMarker));
+                    if(panel.getChildCount()>0&&panel.getChildAt(0) instanceof LinearLayout){LinearLayout row=(LinearLayout)panel.getChildAt(0);row.removeAllViews();row.addView(chip,new LinearLayout.LayoutParams(-2,-2));}
+                    toast("Перевод: "+(e.getMessage()==null?"ошибка":e.getMessage()));});
+            }
+        });
     }
 
     private void addAction(GridLayout g,String label,Runnable r){TextView v=text(label,14,true);v.setGravity(Gravity.CENTER);v.setTextColor(BLUE);v.setContentDescription(label);v.setMinHeight(dp(48));v.setBackground(round(CARD,14,BORDER,1));v.setOnClickListener(x->r.run());GridLayout.LayoutParams p=new GridLayout.LayoutParams();p.width=0;p.height=dp(isLargeText()?64:52);p.columnSpec=GridLayout.spec(GridLayout.UNDEFINED,1f);p.setMargins(dp(4),dp(4),dp(4),dp(4));g.addView(v,p);}
@@ -6343,7 +6465,7 @@ public class MainActivity extends Activity {
     }
     void errorCard(String title,String message){LinearLayout b=new LinearLayout(this);b.setOrientation(LinearLayout.VERTICAL);TextView h=text(title,18,true);h.setTextColor(Color.rgb(190,55,60));b.addView(h);TextView m=text(message==null?"Неизвестная ошибка":message,14,false);m.setTextColor(MUTED);b.addView(m);card(b);}
 
-    private void showTranslationInfo(){new AlertDialog.Builder(this).setTitle("Интеллектуальный перевод").setMessage("GitHubble автоматически определяет язык и переводит длинный Markdown частями. Кодовые блоки, inline-код, URL, пути, JSON/YAML, версии, хеши и разметка GFM защищаются плейсхолдерами и восстанавливаются после перевода. Переводы кэшируются по SHA содержимого и дате обновления.").setPositiveButton("Понятно",null).show();}
+    private void showTranslationInfo(){new AlertDialog.Builder(this).setTitle("Как работает перевод").setMessage("Переводит ваша подключённая нейросеть (ChatGPT, Grok или другая) — без отдельных ключей и настроек. Переводится только человеческий текст: описания, README, обсуждения, сообщения коммитов. Код, команды, ссылки, пути, версии и хеши защищаются и не меняются. Приватные репозитории не переводятся сами; ручной перевод спросит подтверждение один раз. Переводы хранятся на устройстве. Долгое нажатие на значок 🌐 — выбрать поведение для репозитория.").setPositiveButton("Понятно",null).show();}
 
     private void showFavorites(){setCurrentScreen(this::showFavorites);shell("Избранное",true);Set<String> f=prefs.getStringSet("favorites",new LinkedHashSet<>());if(f.isEmpty()){card(text("Пока ничего не добавлено. Откройте репозиторий и нажмите «Избранное».",16,false));return;}sectionTitle("Сохранённые проекты",null);for(String s:f){LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);ImageView i=imageIcon(R.drawable.ic_star,Color.rgb(245,191,39),14);row.addView(i,new LinearLayout.LayoutParams(dp(44),dp(44)));TextView t=text(s,16,true);row.addView(t,new LinearLayout.LayoutParams(0,-2,1));row.setOnClickListener(v->navigate(() -> showRepository(s)));card(row);}}
     private void saveFavorite(String s){Set<String> old=new LinkedHashSet<>(prefs.getStringSet("favorites",new LinkedHashSet<>()));old.add(s);prefs.edit().putStringSet("favorites",old).apply();}
@@ -7712,16 +7834,19 @@ public class MainActivity extends Activity {
                 JSONArray commits=getArray("https://api.github.com/repos/"+full+"/commits?sha="+Uri.encode(branch)+"&per_page=30");
                 runOnUiThread(()->{if(!screenRequestCurrent(generation,account,destination))return;
                     content.removeView(pb);sectionTitle("Последние коммиты",null);
+                    final app.githubble.mobile.ui.InlineTranslation commitTranslation=inlineTranslation("commit:"+full);
+                    final LinearLayout chipHost=new LinearLayout(this);chipHost.setOrientation(LinearLayout.VERTICAL);content.addView(chipHost);
                     for(int i=0;i<commits.length();i++){
                         JSONObject item=commits.optJSONObject(i);if(item==null)continue;
                         JSONObject commit=item.optJSONObject("commit");JSONObject author=commit==null?null:commit.optJSONObject("author");
                         LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.VERTICAL);
-                        String message=commit==null?"Коммит":commit.optString("message","Коммит");row.addView(text(firstLine(message),14,true));
+                        String message=commit==null?"Коммит":commit.optString("message","Коммит");TextView subject=text(firstLine(message),14,true);row.addView(subject);commitTranslation.add(subject,firstLine(message));
                         String sha=item.optString("sha","");TextView meta=text(shortSha(sha)+(author==null?"":" · "+app.githubble.mobile.ui.JsonText.of(author,"name",""))+" · "+formatGitHubDate(author==null?"":author.optString("date","")),11,false);meta.setTextColor(MUTED);row.addView(meta);
                         if(CommitDetailController.validSha(sha))
                             row.setOnClickListener(v->navigate(()->showCommitDetail(full,sha)));
                         card(row);
                     }
+                    commitTranslation.bind(chipHost);
                 });
             }catch(Exception e){runOnUiThread(()->{if(!screenRequestCurrent(generation,account,destination))return;content.removeView(pb);errorCard("Не удалось загрузить коммиты",e.getMessage());});}
         });
@@ -8243,17 +8368,19 @@ public class MainActivity extends Activity {
                     @Override public void set(boolean on){featureState.collapseDiffContext=on;prefs.edit().putBoolean("diff_collapse_context",on).apply();}
                 }));
         sections.add(code);
-        SettingsScreen.Section translation=new SettingsScreen.Section("Перевод содержимого");
-        translation.add(SettingsScreen.Item.action(R.drawable.ic_globe,"Провайдер перевода",translatorDisplayName(),
-                "перевод переводчик api ключ endpoint openai libretranslate модель",this::configureTranslatorSettings));
+        SettingsScreen.Section translation=new SettingsScreen.Section("Перевод");
         translation.add(SettingsScreen.Item.toggle(R.drawable.ic_globe,"Автоперевод",
-                "Переводить иностранный текст при открытии","перевод автоматически язык",
+                "Иностранный текст публичных репозиториев переводится сам · приватные только по кнопке","перевод автоматически язык",
                 new SettingsScreen.Toggle(){
-                    @Override public boolean get(){return prefs.getBoolean("translator_auto",false);}
+                    @Override public boolean get(){return translationController.autoEnabled();}
                     @Override public void set(boolean on){prefs.edit().putBoolean("translator_auto",on).apply();}
                 }));
+        translation.add(SettingsScreen.Item.action(R.drawable.ic_ai,"Чем переводить",translationController.serviceLabel(),
+                "перевод сервис нейросеть chatgpt grok модель подключение",this::chooseTranslationService));
+        translation.add(SettingsScreen.Item.action(R.drawable.ic_globe,"Что переводить",translationScopesSummary(),
+                "перевод описание readme коммиты issue",this::chooseTranslationScopes));
         translation.add(SettingsScreen.Item.action(R.drawable.ic_ai,"Как работает перевод",
-                "Код и Markdown не искажаются · в кэше "+translationCache.count()+" документов",
+                "Только текст, не код · в кэше "+translationCache.count()+" переводов",
                 "перевод справка markdown код кэш",this::showTranslationInfo));
         sections.add(translation);
         return sections;
@@ -8399,14 +8526,8 @@ public class MainActivity extends Activity {
                 "Сервисы, любое число ключей, общая квота и свои endpoint","api ключ провайдер подключение квота endpoint",
                 ()->agentConfigureAiProvider(owner)));
         connections.add(SettingsScreen.Item.action(R.drawable.ic_profile,"Аккаунты и подписки",
-                "OpenAI, Cline, Gemini, Grok, Claude и другие","подписки аккаунты oauth",
-                ()->agentShowSubscriptions(owner,false)));
-        connections.add(SettingsScreen.Item.action(R.drawable.ic_agent_public,"Subscription Proxy",
-                "OAuth-сессии и доступные модели подписок","proxy прокси подписки oauth",
-                ()->agentShowSubscriptions(owner,true)));
-        connections.add(SettingsScreen.Item.action(R.drawable.ic_agent_extension,"Google Antigravity OAuth",
-                "Прямой OAuth и каталог моделей Cloud Code","google gemini antigravity oauth",
-                ()->agentBeginSubscription(owner,"gemini-antigravity")));
+                "Вход в один тап: ChatGPT, Claude, Copilot, Kilo, OpenRouter, Cline, Grok, Kimi","подписки аккаунты oauth proxy",
+                ()->agentShowSubscriptions(owner)));
         connections.add(SettingsScreen.Item.action(R.drawable.ic_agent_question_answer,"Каталог провайдеров",
                 "Поддерживаемые и планируемые сервисы","каталог провайдеры сервисы",
                 this::agentShowProviderCatalog));
@@ -8433,12 +8554,9 @@ public class MainActivity extends Activity {
         sections.add(workspace);
 
         SettingsScreen.Section rights=new SettingsScreen.Section("Что разрешено модели");
-        rights.add(SettingsScreen.Item.toggle(R.drawable.ic_lock,"Доступ AI к файлам Workspace",
-                "Модель сможет читать и искать файлы проекта. По умолчанию выключено",
-                "доступ файлы чтение разрешение",settingsPreferenceToggle("ai_tool_file_read_"+owner,false)));
-        rights.add(SettingsScreen.Item.toggle(R.drawable.ic_github_mark,"Чтение GitHub моделью",
-                "Список репозиториев, ветки и метаданные; OAuth-токен не передаётся. По умолчанию выключено",
-                "github чтение разрешение репозитории",settingsPreferenceToggle("ai_tool_github_read_"+owner,false)));
+        rights.add(SettingsScreen.Item.toggle(R.drawable.ic_agent_extension,"Режим субагента",
+                "Второй агент проверяет ответ основного, при ошибке они исправляют её вместе. Выключено по умолчанию",
+                "субагент агент проверка оркестрация ревью",settingsPreferenceToggle("ai_subagent_"+owner,false)));
         rights.add(SettingsScreen.Item.toggle(R.drawable.ic_lock,"Блокировка приложения",
                 "PIN, ключ, пароль или отпечаток Android при запуске и через 30 секунд в фоне. Нужен экранный замок системы",
                 "блокировка pin пароль биометрия отпечаток безопасность",appLockToggle()));
@@ -9117,15 +9235,26 @@ public class MainActivity extends Activity {
 
     private String compactBytes(long bytes){if(bytes<1024)return bytes+" Б";if(bytes<1024L*1024L)return String.format(Locale.ROOT,"%.1f КБ",bytes/1024.0);return String.format(Locale.ROOT,"%.1f МБ",bytes/(1024.0*1024.0));}
 
-    private String translatorDisplayName(){TranslationEngine.Config c=translationConfig();if(c.endpoint.isEmpty())return "Не настроен";String host="";try{host=Uri.parse(c.endpoint).getHost();}catch(Exception ignored){}return TranslationEngine.providerLabel(c.provider)+(host==null||host.isEmpty()?"":" · "+host);}
-    private void configureTranslatorSettings(){
-        LinearLayout form=new LinearLayout(this);form.setOrientation(LinearLayout.VERTICAL);form.setPadding(dp(18),0,dp(18),0);
-        String[] providers={"Универсальный JSON","OpenAI-совместимый","LibreTranslate"};Spinner provider=new Spinner(this);provider.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,providers));String current=secureStore.get("translator_provider");provider.setSelection("openai".equals(current)?1:"libretranslate".equals(current)?2:0);form.addView(provider);
-        EditText endpoint=new EditText(this);endpoint.setSingleLine(true);endpoint.setHint("Endpoint API");endpoint.setText(secureStore.get("translator_endpoint"));form.addView(endpoint);
-        EditText apiKey=new EditText(this);apiKey.setSingleLine(true);apiKey.setHint("API-ключ (необязательно)");apiKey.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD);apiKey.setText(secureStore.get("translator_api_key"));form.addView(apiKey);
-        EditText model=new EditText(this);model.setSingleLine(true);model.setHint("Модель, например gpt-4.1-mini");model.setText(secureStore.get("translator_model"));form.addView(model);
-        TextView help=text("Generic: {text,target} → translatedText. OpenAI: /v1/chat/completions. LibreTranslate: /translate. Endpoint, ключ и модель хранятся зашифрованно через Android Keystore.",11,false);help.setTextColor(MUTED);form.addView(help);
-        new AlertDialog.Builder(this).setTitle("Провайдер перевода").setView(form).setPositiveButton("Сохранить",(d,w)->{String p=provider.getSelectedItemPosition()==1?"openai":provider.getSelectedItemPosition()==2?"libretranslate":"generic";secureStore.put("translator_provider",p);secureStore.put("translator_endpoint",endpoint.getText().toString().trim());secureStore.put("translator_api_key",apiKey.getText().toString().trim());secureStore.put("translator_model",model.getText().toString().trim());toast("Провайдер сохранён");if("Настройки".equals(currentTitle))showSettings();}).setNeutralButton("Очистить",(d,w)->{secureStore.remove("translator_provider");secureStore.remove("translator_endpoint");secureStore.remove("translator_api_key");secureStore.remove("translator_model");translationCache.clear();if("Настройки".equals(currentTitle))showSettings();}).setNegativeButton("Отмена",null).show();
+    private String translationScopesSummary(){
+        StringBuilder out=new StringBuilder();
+        for(int i=0;i<TranslationController.SCOPE_IDS.length;i++)if(translationController.scopeEnabled(TranslationController.SCOPE_IDS[i])){if(out.length()>0)out.append(", ");out.append(TranslationController.SCOPE_TITLES[i]);}
+        return out.length()==0?"Ничего":out.toString();
+    }
+    private void chooseTranslationScopes(){
+        final boolean[] checked=new boolean[TranslationController.SCOPE_IDS.length];
+        for(int i=0;i<checked.length;i++)checked[i]=translationController.scopeEnabled(TranslationController.SCOPE_IDS[i]);
+        new AlertDialog.Builder(this).setTitle("Что переводить автоматически").setMultiChoiceItems(TranslationController.SCOPE_TITLES,checked,(d,w,on)->checked[w]=on)
+            .setPositiveButton("Сохранить",(d,w)->{for(int i=0;i<checked.length;i++)translationController.setScope(TranslationController.SCOPE_IDS[i],checked[i]);showSettings();})
+            .setNegativeButton("Отмена",null).show();
+    }
+    private void chooseTranslationService(){
+        final java.util.List<TranslationController.Candidate> connected=translationController.connected();
+        if(connected.isEmpty()){new AlertDialog.Builder(this).setTitle("Нет подключённых моделей").setMessage("Перевод идёт через ваши подключения: ChatGPT, Grok или любую другую модель. Подключите их в разделе «Подключения» агента.").setPositiveButton("Понятно",null).show();return;}
+        String[] items=new String[connected.size()+1];items[0]="Авто · ChatGPT → Grok → остальные";
+        String current=translationController.service();int selected=0;
+        for(int i=0;i<connected.size();i++){items[i+1]=connected.get(i).title+" · "+connected.get(i).model;if(connected.get(i).provider.equals(current))selected=i+1;}
+        new AlertDialog.Builder(this).setTitle("Чем переводить").setSingleChoiceItems(items,selected,(d,w)->{
+            translationController.setService(w==0?"auto":connected.get(w-1).provider);d.dismiss();showSettings();}).setNegativeButton("Закрыть",null).show();
     }
 
     private String cacheSizeText(){long bytes=0;for(Map.Entry<String,?> entry:prefs.getAll().entrySet()){String key=entry.getKey();if(key.startsWith("cache_")||key.startsWith("translation_")||key.startsWith("github_profile_json_")){Object value=entry.getValue();if(value!=null)bytes+=value.toString().getBytes(StandardCharsets.UTF_8).length;}}File[] files=getFilesDir().listFiles();if(files!=null)for(File file:files)if(file.isFile()&&file.getName().startsWith("github_avatar_")&&file.getName().endsWith(".png"))bytes+=file.length();bytes+=translationCache.sizeBytes()+entityCache.sizeBytes();return bytes<1024?bytes+" Б":bytes<1024*1024?String.format(Locale.ROOT,"%.1f КБ",bytes/1024.0):String.format(Locale.ROOT,"%.1f МБ",bytes/(1024.0*1024.0));}
@@ -9710,6 +9839,7 @@ public class MainActivity extends Activity {
         if(accountInventoryFuture!=null)accountInventoryFuture.cancel(true);
         inventoryIo.shutdownNow();
         io.shutdownNow();
+        try{app.githubble.mobile.ui.AgentSpeaker.of(this).shutdown();}catch(Exception ignored){}
         try{if(translationCache!=null)translationCache.close();}catch(Exception ignored){}
         try{if(trackingDb!=null)trackingDb.close();}catch(Exception ignored){}
         try{if(entityCache!=null)entityCache.close();}catch(Exception ignored){}

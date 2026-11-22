@@ -75,7 +75,7 @@ public final class ToolBroker {
     public String execute(String name, JSONObject arguments) throws Exception {
         session.check();
         Definition tool = catalog.get(name);
-        if (tool == null) throw new SecurityException("Инструмент не зарегистрирован: " + name);
+        if (tool == null) throw new ToolDenied("Инструмент не зарегистрирован: " + name);
         JSONObject args = UnifiedAgentStore.copy(arguments);
         String id = journal.started(name, redact(args));
         try {
@@ -87,7 +87,7 @@ public final class ToolBroker {
                 synchronized (lock) {
                     String key=name+":"+canonical(args);
                     // build owns a durable dispatch ledger; repeated calls perform read-only reconciliation.
-                    if(!name.equals("build")&&!attemptedWrites.add(key))throw new SecurityException("Повтор изменения заблокирован; сначала проверьте фактическое состояние");
+                    if(!name.equals("build")&&!attemptedWrites.add(key))throw new ToolDenied("Повтор изменения заблокирован; сначала проверьте фактическое состояние");
                     return dispatch(tool,args,id);
                 }
             }
@@ -101,7 +101,7 @@ public final class ToolBroker {
     private void checkAccess(Definition tool) {
         session.check();
         if (!access.allowed(tool) || (tool.projectRequired && session.projectId.isEmpty()))
-            throw new SecurityException("Нет доступа к инструменту: " + tool.name);
+            throw new ToolDenied("Нет доступа к инструменту: " + tool.name);
     }
     private String dispatch(Definition tool, JSONObject args, String id) throws Exception {
         checkAccess(tool);

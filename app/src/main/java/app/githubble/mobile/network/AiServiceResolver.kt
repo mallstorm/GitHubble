@@ -41,8 +41,6 @@ object AiServiceResolver {
             host == "gemini.google.com" || host == "gemini.google" ||
                 host == "aistudio.google.com" || host == "ai.google.dev" ||
                 host == "generativelanguage.googleapis.com" ||
-                host == "daily-cloudcode-pa.googleapis.com" ||
-                host == "cloudcode-pa.googleapis.com" ||
                 host == "geminiweb-pa.clients6.google.com" ||
                 host == "oauth2.googleapis.com" -> GEMINI
 
