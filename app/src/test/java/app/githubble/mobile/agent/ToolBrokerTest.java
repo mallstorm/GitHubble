@@ -45,4 +45,10 @@ public class ToolBrokerTest {
         broker.restoreMutationLedger(new JSONArray().put(new JSONObject().put("pendingCall",new JSONObject().put("name","write").put("args",new JSONObject().put("path","file")))));
         try{broker.execute("write",new JSONObject().put("path","file"));fail();}catch(SecurityException expected){}
     }
+    @Test public void projectBoundByTheHostMidRunUnlocksProjectTools() throws Exception {
+        TaskSession s=new TaskSession("a","","t",()->{});ToolBroker b=new ToolBroker(s,d->true,(d,a)->true,(n,a)->"ok",UnifiedAgentTestSupport.journal());b.register(UnifiedAgentTestSupport.read());
+        try{b.execute("read_file",new JSONObject().put("path","x"));fail();}catch(ToolDenied expected){}
+        s.rebind("p");
+        assertEquals("ok",b.execute("read_file",new JSONObject().put("path","x")));
+    }
 }

@@ -38,7 +38,6 @@ public final class AgentController {
         String projectId=projects.projectId(account,thread);
         // The pin follows binding changes made by the host itself (focus_repository), never by anything else.
         java.util.concurrent.atomic.AtomicReference<String> pinned=new java.util.concurrent.atomic.AtomicReference<>(projectId);
-        host.onProjectBound(pinned::set);
         TaskSession session=new TaskSession(account,projectId,thread,() -> {
             guard.run();
             String pin=pinned.get();
@@ -46,6 +45,7 @@ public final class AgentController {
             if (!pin.isEmpty() && !projects.registry.get(account,pin).optBoolean("modelAccess"))
                 throw new SecurityException("Доступ модели к проекту отозван");
         });
+        host.onProjectBound(id->{pinned.set(id);session.rebind(id);});
         if (sessions.putIfAbsent(account,session)!=null) throw new IllegalStateException("Задача уже выполняется");
         try {
             ToolBroker broker=new ToolBroker(session,d -> {
@@ -80,11 +80,15 @@ public final class AgentController {
             // The context builder truncates the tail, so the host facts go first.
             String hostNote=hostFirstStep(host,run,allowGithub,kind,IntentRouter.route(message,log,host.currentRepository()));
             context=SessionFocus.of(projects.projectForChat(account,thread),log).contextBlock()+hostNote+"\n"+context;
+            int toolsBefore=toolsUsed(account,thread);
             AgentLoop.Outcome outcome=executeLoop(session,message,context,transport,broker,run::round);
+            if(kind==IntentRouter.Kind.TASK&&!outcome.budgetExhausted&&toolsUsed(account,thread)==toolsBefore&&promisesWithoutAction(outcome.answer))
+                outcome=executeLoop(session,message,context+"\nHOST: your previous reply promised work but called no tool: \""+outcome.answer.substring(0,Math.min(300,outcome.answer.length()))
+                    +"\". Do the work now with tools, or say exactly what blocks you and ask one question.",transport,broker,run::round);
             JSONObject evidence=outcome.budgetExhausted?null:host.completionStatus();
             if(evidence!=null){
                 boolean accepted=evidence.optBoolean("accepted");
-                outcome=new AgentLoop.Outcome(accepted?"Результат подтверждён: "+evidence.toString():"Задача ещё не завершена. Проверка результата: "+evidence.optJSONArray("issues"),false);
+                outcome=new AgentLoop.Outcome(accepted?"Результат подтверждён: "+evidence.toString():"Задача ещё не завершена. Проверка результата: "+evidence.optJSONArray("issues")+"\n\n[Продолжить](githubble-action://continue)",false);
             }
             // A model answer is not engineering completion. Stage III's evidence supervisor owns DONE.
             run.finish(outcome.budgetExhausted?"interrupted":evidence!=null&&!evidence.optBoolean("accepted")?"interrupted":"succeeded",
@@ -94,6 +98,16 @@ public final class AgentController {
             edit(account,thread,t -> put(t,"state",error instanceof java.util.concurrent.CancellationException
                 ||error instanceof InterruptedException?"INTERRUPTED":"FAILED")); throw error;
         } finally { sessions.remove(account,session); }
+    }
+    private int toolsUsed(String account,String thread){
+        try{return tasks.get(account,thread).getJSONObject("budget").optInt("tools");}catch(Exception unknown){return -1;}
+    }
+    /** A reply that announces work ("сейчас сделаю…") without a question, a result or a single tool call. */
+    static boolean promisesWithoutAction(String answer){
+        if(answer==null)return false;
+        String text=answer.trim();
+        if(text.isEmpty()||text.length()>600||text.contains("?")||text.contains("```"))return false;
+        return text.toLowerCase(java.util.Locale.ROOT).matches("(?s).*(?:сейчас|приступ|начну|начинаю|сделаю|выполню|займусь|i will|i'll|let me|starting).*");
     }
     /**
      * The host does the obvious first step itself, so a weak or cautious model cannot answer «хорошо» and stop:
