@@ -396,7 +396,12 @@ public final class ExternalRepositoryImport {
     public Job recover(String destination, String confirmedSource) throws Exception {
         validateSource(confirmedSource);
         Job local = findByDestination(destination);
-        if (local != null) return local;
+        if (local != null) {
+            if (!confirmedSource.equalsIgnoreCase(local.source))
+                throw new IllegalArgumentException("Эта копия была создана из другого источника: "
+                        + local.source);
+            return local;
+        }
         Job candidate = discover(destination);
         if (candidate == null)
             throw new IllegalStateException("В GitHub не найдено задание копирования");
