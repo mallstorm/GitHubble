@@ -4,7 +4,7 @@
 
 Open any public GitHub repository from global search, then:
 
-**Additional actions → Create copy**.
+**Additional actions → Create copy** for a new repository; **Additional actions → Recover** on the SAME original public repository to resume a failed import into a previously created destination.
 
 The dialog selects a connected destination account, repository name, and visibility (private by default). No changes are made to the original repository.
 
@@ -30,7 +30,7 @@ Git history and commit authorship are preserved; GitHub does NOT mark the destin
 
 ## Retry after an interrupted/failed copy
 
-Open the newly created destination and select **Check import → Retry copying**. The importer refuses to overwrite the destination unless its default branch still equals the original bootstrap SHA and it has no additional branches/tags. The failed REA case was caused by denied workflow writes under the default Actions token; this is fixed by the sealed workflow-authorized account credential. A real retry still requires appropriate Workflows and Secrets write permissions on the GitHub App installation.
+Open the ORIGINAL public repository and select **Recover → destination account → existing repository name**. GitHubble verifies the destination's previous Actions run. Confirm the recovery and then choose **Retry copying**. (The destination repository's own **Check import** tile remains available as an alternative.) The importer refuses to overwrite the destination unless its default branch still equals the original bootstrap SHA and it has no additional branches/tags. The failed REA case was caused by denied workflow writes under the default Actions token; this is fixed by the sealed workflow-authorized account credential. A real retry still requires appropriate Workflows and Secrets write permissions on the GitHub App installation.
 
 ## Lost local import history: recover from GitHub Actions
 
@@ -39,3 +39,7 @@ If GitHubble is reinstalled or the user switches between Debug and Release build
 Selecting the tile recovers the original request identifier, job status, bootstrap branch/SHA and destination account from the GitHub Actions metadata. For new imports a lightweight source marker stored in the bootstrap branch supplies the original public source. For older imports, GitHub Actions REST does not expose workflow_dispatch inputs, so the user confirms the exact `owner/repo` of the source once. The client validates the source and pristine destination before allowing **Retry copying**.
 
 No other repository or existing user changes are overwritten, and the destination is never deleted automatically. New retries get a fresh unique request ID to avoid matching an older failed run.
+
+## UI convention
+
+On external public repositories, show **Create copy** and **Recover** in Additional actions. On repositories belonging to any connected user account, hide both actions. Recovery explicitly selects the connected destination account and existing repository name; it never creates a new repository or deletes one. Reject a source mismatch for saved local jobs. If the original destination name was changed, the user can specify that name.
