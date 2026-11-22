@@ -5131,6 +5131,27 @@ public class MainActivity extends Activity {
             ExternalRepositoryImport.Job importJob = externalRepositoryImport.findByDestination(full);
             if(importJob!=null)
                 repoActionCard(actions,R.drawable.ic_history,"Проверить импорт",importJob.state,()->checkExternalImport(importJob.id));
+            else if(ownConnectedRepository && isSignedIn()) {
+                // Recover jobs created by another APK variant or before reinstall.
+                // Keep API and permission checks off the UI thread and only attach
+                // a tile if THIS repository has a real GitHubble Actions import.
+                io.execute(()->{
+                    try {
+                        ExternalRepositoryImport.Job discovered = externalRepositoryImport.discover(full);
+                        if(discovered==null)return;
+                        runOnUiThread(()->{
+                            if(isFinishing() || actions.getParent()!=content
+                                    || externalRepositoryImport.findByDestination(full)!=null)return;
+                            repoActionCard(actions,R.drawable.ic_history,"Восстановить копирование",
+                                    ExternalRepositoryImport.FAILED.equals(discovered.state)
+                                            ?"Неудачный импорт найден":"Задание найдено в GitHub",
+                                    ()->recoverExternalImport(full));
+                        });
+                    } catch(Exception ignored) {
+                        // Ordinary repositories are not considered import destinations.
+                    }
+                });
+            }
             repoActionCard(actions,R.drawable.ic_star,"Избранное","Сохранить проект",()->{saveFavorite(full);toast("Добавлено в избранное");});
             repoActionCard(actions,R.drawable.ic_globe,"Открыть GitHub","В браузере",()->openRepoUrl(full,""));
             repoActionCard(actions,R.drawable.ic_history,"Центр наблюдения","Ваша активность",()->navigate(this::showTracking));
@@ -5464,6 +5485,76 @@ public class MainActivity extends Activity {
                             runOnUiThread(()->{
                                 progress.dismiss();
                                 errorDialog("Импорт не запущен",error.getMessage());
+                            });
+                        }
+                    });
+                }));
+        dialog.show();
+    }
+
+    private void recoverExternalImport(String destination) {
+        ProgressDialog progress=ProgressDialog.show(this,"Создать копию",
+                "Поиск предыдущего запуска GitHub Actions…",true,false);
+        io.execute(()->{
+            try {
+                ExternalRepositoryImport.Job discovered=externalRepositoryImport.discover(destination);
+                runOnUiThread(()->{
+                    progress.dismiss();
+                    if(discovered==null){
+                        errorDialog("Восстановление копирования",
+                                "В GitHub не найден подтверждённый запуск GitHubble.");
+                        return;
+                    }
+                    showExternalImportRecoveryDialog(destination,discovered);
+                });
+            }catch(Exception error){
+                runOnUiThread(()->{
+                    progress.dismiss();
+                    errorDialog("Восстановление копирования",error.getMessage());
+                });
+            }
+        });
+    }
+
+    private void showExternalImportRecoveryDialog(String destination,
+            ExternalRepositoryImport.Job discovered) {
+        EditText sourceField=new EditText(this);
+        sourceField.setSingleLine(true);
+        sourceField.setHint("Владелец/репозиторий, например morluto/rea");
+        sourceField.setText(discovered.source);
+        sourceField.setPadding(dp(20),dp(12),dp(20),dp(12));
+        String description="В GitHub найден предыдущий запуск импорта для "
+                +destination+". Источник подтвердите перед восстановлением. "
+                +"Существующий репозиторий не удаляется.";
+        LinearLayout layout=new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setPadding(dp(16),dp(6),dp(16),dp(6));
+        TextView explanation=text(description,13,false);
+        layout.addView(explanation);
+        layout.addView(sourceField);
+        AlertDialog dialog=new AlertDialog.Builder(this)
+                .setTitle("Восстановить копирование")
+                .setView(layout)
+                .setPositiveButton("Восстановить",null)
+                .setNegativeButton("Отмена",null)
+                .create();
+        dialog.setOnShowListener(ignored->
+                dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
+                    String source=sourceField.getText().toString().trim();
+                    try { ExternalRepositoryImport.validateSource(source); }
+                    catch(Exception invalid) {sourceField.setError(invalid.getMessage());return;}
+                    dialog.dismiss();
+                    ProgressDialog progress=ProgressDialog.show(this,"Создать копию",
+                            "Проверка источника и сохранённого GitHub Actions…",true,false);
+                    io.execute(()->{
+                        try {
+                            ExternalRepositoryImport.Job job=externalRepositoryImport.recover(
+                                    destination,source);
+                            runOnUiThread(()->{progress.dismiss();showExternalImportStatus(job);});
+                        }catch(Exception error){
+                            runOnUiThread(()->{
+                                progress.dismiss();
+                                errorDialog("Восстановление копирования",error.getMessage());
                             });
                         }
                     });
