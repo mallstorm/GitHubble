@@ -5128,7 +5128,7 @@ public class MainActivity extends Activity {
             }
             if(isSignedIn()&&!r.optBoolean("private",false)&&!ownConnectedRepository){
                 repoActionCard(actions,R.drawable.ic_repository,"Создать копию","Новый репозиторий без Fork",()->showExternalImportDialog(full));
-                repoActionCard(actions,R.drawable.ic_history,"Восстановить","Продолжить неудачную копию",()->showExternalImportRecoveryFromSource(full));
+                repoActionCard(actions,R.drawable.ic_history,"Проверить","Проверить существующую копию",()->showExternalImportRecoveryFromSource(full));
             }
             ExternalRepositoryImport.Job importJob = externalRepositoryImport.findByDestination(full);
             if(importJob!=null)
