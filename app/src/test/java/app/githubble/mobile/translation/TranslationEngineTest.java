@@ -11,7 +11,7 @@ public class TranslationEngineTest {
     private static final String CODE = "Run `npm install` then:\n```bash\nnpm run build\n```\nSee https://example.com/docs and v1.2.3 (abcdef1).";
 
     @Test public void codeLinksVersionsAndHashesSurviveTranslation() throws Exception {
-        List<String> prompts = new ArrayList<>();
+        List<String> prompts = java.util.Collections.synchronizedList(new ArrayList<>());
         TranslationEngine engine = new TranslationEngine();
         String out = engine.translate("Установите так: " + CODE.replace("Run", "Run now:"), "ru", prompt -> {
             prompts.add(prompt);
@@ -90,6 +90,32 @@ public class TranslationEngineTest {
         assertTrue(done[1] > 1);
         assertEquals(done[1], done[0]);
         assertTrue(out.contains("line number 399"));
+    }
+
+    @Test public void chunksRunInParallelAndPartialResultGrowsFromTheStart() throws Exception {
+        StringBuilder text = new StringBuilder();
+        for (int i = 0; i < 400; i++) text.append("This is line number ").append(i).append(" of the readme.\n");
+        java.util.concurrent.atomic.AtomicInteger running = new java.util.concurrent.atomic.AtomicInteger(), peak = new java.util.concurrent.atomic.AtomicInteger();
+        List<String> partials = java.util.Collections.synchronizedList(new ArrayList<>());
+        String out = new TranslationEngine().translate(text.toString(), "ru", prompt -> {
+            int now = running.incrementAndGet(); peak.accumulateAndGet(now, Math::max);
+            Thread.sleep(60); running.decrementAndGet();
+            return prompt.substring(prompt.indexOf("<text>\n") + 7, prompt.lastIndexOf("\n</text>"));
+        }, null, partials::add);
+        assertTrue(peak.get() > 1);
+        assertTrue(out.startsWith("This is line number 0 of"));
+        assertTrue(out.contains("line number 399"));
+        for (int i = 1; i < partials.size(); i++) assertTrue(partials.get(i).length() >= partials.get(i - 1).length());
+        for (String partial : partials) assertTrue(out.startsWith(partial.substring(0, Math.min(partial.length(), 200))));
+    }
+
+    @Test public void oneFailingChunkFailsTheWholeTranslation() {
+        StringBuilder text = new StringBuilder();
+        for (int i = 0; i < 400; i++) text.append("This is line number ").append(i).append(" of the readme.\n");
+        try {
+            new TranslationEngine().translate(text.toString(), "ru", prompt -> { if (prompt.contains("number 300 ")) throw new java.io.IOException("HTTP 429"); return "x"; }, null);
+            fail();
+        } catch (Exception expected) { assertTrue(expected.getMessage().contains("429")); }
     }
 
     @Test public void emptyModelAnswerIsAnError() {

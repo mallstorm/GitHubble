@@ -741,6 +741,8 @@ class ApiGateway(private val context: Context) {
                     true
                 )).also {
                     if (isOpenAiPlanResponses(provider.providerType)) {
+                        // Short utility requests (translation) ask for little reasoning: answers arrive several times faster.
+                        if (provider.systemPrompt.contains("[fast]")) it.put("reasoning", JSONObject().put("effort", "low"))
                         it.put("store", false)
                         it.put(
                             "instructions",

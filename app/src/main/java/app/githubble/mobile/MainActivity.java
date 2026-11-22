@@ -6367,13 +6367,23 @@ public class MainActivity extends Activity {
         TextView body=markdownView(translated?cached.translated:source,14);body.setPadding(0,dp(6),0,dp(2));panel.addView(body);
     }
 
+    /** The finished beginning of a long translation: reading can start while the rest is still coming. */
+    private void renderPartialTranslation(LinearLayout panel,String translatedPrefix,String note){
+        panel.removeAllViews();
+        LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.END);
+        row.addView(app.githubble.mobile.ui.InlineTranslation.chip(this,note,MUTED,SUBTLE),new LinearLayout.LayoutParams(-2,-2));panel.addView(row,new LinearLayout.LayoutParams(-1,-2));
+        TextView body=markdownView(translatedPrefix,14);body.setPadding(0,dp(6),0,dp(2));panel.addView(body);
+    }
+
     private void startTranslation(LinearLayout panel,String scopeKey,String source,String updateMarker){
         if(!translationController.available()){toast("Подключите ChatGPT, Grok или другую модель в «Подключениях»");return;}
         String flight=TranslationCache.sha256(source);if(!translating.add(flight))return;
         renderTranslatablePanel(panel,scopeKey,source,updateMarker,false,"🌐 Перевожу…");
         io.execute(()->{
             try{
-                String translated=translationEngine.translate(source,"ru",translationController.completer(),(done,total)->{if(total>1)runOnUiThread(()->renderTranslatablePanel(panel,scopeKey,source,updateMarker,false,"🌐 Перевожу… "+done+"/"+total));});
+                final int[] progressState={0,0};
+                String translated=translationEngine.translate(source,"ru",translationController.completer(),(done,total)->{progressState[0]=done;progressState[1]=total;},
+                    prefix->runOnUiThread(()->{if(translating.contains(flight))renderPartialTranslation(panel,prefix,"🌐 Перевожу… "+progressState[0]+"/"+progressState[1]);}));
                 translationCache.put(source,updateMarker,"ru",TranslationEngine.IDENTITY,translated,LanguageDetector.detect(source).code);
                 runOnUiThread(()->{translating.remove(flight);renderTranslatablePanel(panel,scopeKey,source,updateMarker,true,"");});
             }catch(Exception e){

@@ -91,8 +91,16 @@ public final class TranslationController {
             for (Candidate c : list) {
                 try {
                     JSONArray transcript = new JSONArray().put(new JSONObject().put("role", "user").put("body", prompt));
-                    String answer = client.completeForAccount(account, c.provider, c.model, store.credential(account, c.provider),
-                            transcript, "Translation", "");
+                    String answer;
+                    try {
+                        answer = client.completeForAccount(account, c.provider, c.model, store.credential(account, c.provider), transcript, "Translation [fast]", "");
+                    } catch (Exception fastFailed) {
+                        // A model that rejects the low-effort hint is asked again the ordinary way.
+                        if (fastFailed instanceof InterruptedException || Thread.currentThread().isInterrupted()) throw fastFailed;
+                        String why = String.valueOf(fastFailed.getMessage()).toLowerCase(java.util.Locale.ROOT);
+                        if (!(why.contains("reason") || why.contains("unsupported") || why.contains("400") || why.contains("invalid"))) throw fastFailed;
+                        answer = client.completeForAccount(account, c.provider, c.model, store.credential(account, c.provider), transcript, "Translation", "");
+                    }
                     OmniChatChatClient.takeUsage();
                     if (answer != null && !answer.trim().isEmpty()) { lastWorking = c.provider; return answer; }
                 } catch (Exception failure) {

@@ -21,10 +21,12 @@ public final class TranslationEngine {
     public interface Progress { void onProgress(int completed, int total); }
     /** One model call. The prompt already contains every instruction. */
     public interface Completer { String complete(String prompt) throws Exception; }
+    /** Translated beginning of the text (already restored), delivered as chunks finish in order. */
+    public interface Partial { void onPartial(String translatedPrefix); }
 
     /** Cache identity: a translation does not depend on which model produced it. */
     public static final String IDENTITY = "ai-v2";
-    static final int CHUNK = 3800;
+    static final int CHUNK = 2400, PARALLEL = 4;
     static final int BATCH_LIMIT = 24, BATCH_CHARS = 6000;
 
     private static final Pattern[] PROTECTED_PATTERNS = new Pattern[]{
@@ -39,18 +41,61 @@ public final class TranslationEngine {
 
     /** Long Markdown (README, issue body): chunked, placeholders protected. */
     public String translate(String source, String target, Completer ai, Progress progress) throws Exception {
+        return translate(source, target, ai, progress, null);
+    }
+
+    /**
+     * Chunks are translated in parallel (a README takes about as long as its slowest chunk);
+     * {@code partial} receives the finished beginning so the reader can start before the end is ready.
+     */
+    public String translate(String source, String target, Completer ai, Progress progress, Partial partial) throws Exception {
         if (source == null || source.trim().isEmpty()) return "";
-        ProtectedText protectedText = protect(source);
-        List<String> chunks = splitMarkdown(protectedText.text, CHUNK);
-        StringBuilder translated = new StringBuilder(source.length() + source.length() / 5);
-        for (int i = 0; i < chunks.size(); i++) {
-            String part = unwrap(ai.complete(markdownPrompt(chunks.get(i), target)));
-            if (part.trim().isEmpty()) throw new IllegalStateException("Модель вернула пустой перевод");
+        final ProtectedText protectedText = protect(source);
+        final List<String> chunks = splitMarkdown(protectedText.text, CHUNK);
+        final int total = chunks.size();
+        final String[] parts = new String[total];
+        final Object lock = new Object();
+        final int[] finished = {0}, prefix = {0};
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(Math.max(1, Math.min(PARALLEL, total)));
+        try {
+            List<java.util.concurrent.Future<?>> futures = new ArrayList<>();
+            for (int i = 0; i < total; i++) {
+                final int index = i;
+                futures.add(pool.submit(() -> {
+                    String part = unwrap(ai.complete(markdownPrompt(chunks.get(index), target)));
+                    if (part.trim().isEmpty()) throw new IllegalStateException("Модель вернула пустой перевод");
+                    synchronized (lock) {
+                        parts[index] = part;
+                        int done = ++finished[0], before = prefix[0];
+                        if (progress != null) progress.onProgress(done, total);
+                        while (prefix[0] < total && parts[prefix[0]] != null) prefix[0]++;
+                        // Delivered under the lock so the reader never sees the text shrink.
+                        if (partial != null && prefix[0] > before && prefix[0] < total) partial.onPartial(restore(join(parts, prefix[0]), protectedText.tokens));
+                    }
+                    return null;
+                }));
+            }
+            for (java.util.concurrent.Future<?> future : futures) {
+                try { future.get(); }
+                catch (java.util.concurrent.ExecutionException failure) {
+                    pool.shutdownNow();
+                    Throwable cause = failure.getCause();
+                    if (cause instanceof Exception) throw (Exception) cause;
+                    throw new IllegalStateException(String.valueOf(cause));
+                }
+            }
+        } finally { pool.shutdownNow(); }
+        return restore(join(parts, total), protectedText.tokens);
+    }
+
+    private static String join(String[] parts, int count) {
+        StringBuilder translated = new StringBuilder();
+        for (int i = 0; i < count; i++) {
+            String part = parts[i];
             if (translated.length() > 0 && !endsWithWhitespace(translated) && !part.startsWith("\n")) translated.append('\n');
             translated.append(part);
-            if (progress != null) progress.onProgress(i + 1, chunks.size());
         }
-        return restore(translated.toString(), protectedText.tokens);
+        return translated.toString();
     }
 
     /**

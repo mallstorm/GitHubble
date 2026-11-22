@@ -339,7 +339,19 @@ public final class AgentChatScreen {
         if(!system){
             final String key=building;
             LinearLayout bar=horizontal();bar.setGravity(Gravity.CENTER_VERTICAL);bar.setPadding(0,dp(2),0,0);
-            if(!user){
+            final int w=dp(36),h=dp(34);
+            bar.addView(mini(R.drawable.ic_msg_copy,"Копировать",v->{
+                ClipboardManager cb=(ClipboardManager)activity.getSystemService(Context.CLIPBOARD_SERVICE);
+                if(cb!=null)cb.setPrimaryClip(ClipData.newPlainText("Hubble Agent",body));
+                android.widget.Toast.makeText(activity,"Скопировано",android.widget.Toast.LENGTH_SHORT).show();
+            }),new LinearLayout.LayoutParams(w,h));
+            if(user){
+                bar.addView(mini(R.drawable.ic_msg_edit,"Изменить и отправить заново",v->{if(inputField!=null){inputField.setText(body);inputField.setSelection(body.length());inputField.requestFocus();}}),new LinearLayout.LayoutParams(w,h));
+            }else{
+                bar.addView(mini(R.drawable.ic_msg_share,"Поделиться",v->{
+                    android.content.Intent send=new android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain").putExtra(android.content.Intent.EXTRA_TEXT,body);
+                    activity.startActivity(android.content.Intent.createChooser(send,"Поделиться ответом"));
+                }),new LinearLayout.LayoutParams(w,h));
                 final ImageView play=mini(R.drawable.ic_msg_play,"Озвучить",null);
                 final AgentSpeaker speaker=AgentSpeaker.of(activity);
                 Runnable sync=()->{if(!play.isAttachedToWindow()&&play.getParent()!=null)return;boolean on=speaker.speaking(key);
@@ -347,28 +359,26 @@ public final class AgentChatScreen {
                     play.setColorFilter(on?accent:muted);};
                 speaker.watch(key,sync);sync.run();
                 play.setOnClickListener(v->speaker.toggle(key,body));
-                bar.addView(play,new LinearLayout.LayoutParams(dp(38),dp(34)));
-            }
-            ImageView copy=mini(R.drawable.ic_msg_copy,"Копировать",v->{
-                ClipboardManager cb=(ClipboardManager)activity.getSystemService(Context.CLIPBOARD_SERVICE);
-                if(cb!=null)cb.setPrimaryClip(ClipData.newPlainText("Hubble Agent",body));
-                android.widget.Toast.makeText(activity,"Скопировано",android.widget.Toast.LENGTH_SHORT).show();
-            });
-            bar.addView(copy,new LinearLayout.LayoutParams(dp(38),dp(34)));
-            if(user){
-                bar.addView(mini(R.drawable.ic_msg_edit,"Изменить и отправить заново",v->{if(inputField!=null){inputField.setText(body);inputField.setSelection(body.length());inputField.requestFocus();}}),new LinearLayout.LayoutParams(dp(38),dp(34)));
-            }else{
-                bar.addView(mini(R.drawable.ic_msg_share,"Поделиться",v->{
-                    android.content.Intent send=new android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain").putExtra(android.content.Intent.EXTRA_TEXT,body);
-                    activity.startActivity(android.content.Intent.createChooser(send,"Поделиться ответом"));
-                }),new LinearLayout.LayoutParams(dp(38),dp(34)));
-                if(body.length()>800||body.contains("```")||body.contains("\n## "))
-                    bar.addView(mini(R.drawable.ic_msg_doc,"Открыть документ · .md",v->AgentDocumentSheet.document(activity,body,text,muted,accent,subtle,border,surface,()->actions.exportMarkdown(body))),new LinearLayout.LayoutParams(dp(38),dp(34)));
+                bar.addView(play,new LinearLayout.LayoutParams(w,h));
+                // Local rating of the answer (kept on the device), tap again to clear.
+                final android.content.SharedPreferences ratings=activity.getSharedPreferences("agent_message_ratings",Context.MODE_PRIVATE);
+                final String ratingKey="r"+Integer.toHexString(body.hashCode())+":"+body.length();
+                final ImageView like=mini(R.drawable.ic_msg_like,"Хороший ответ",null),dislike=mini(R.drawable.ic_msg_dislike,"Плохой ответ",null);
+                Runnable paint=()->{int r=ratings.getInt(ratingKey,0);
+                    like.setImageResource(r>0?R.drawable.ic_msg_like_on:R.drawable.ic_msg_like);like.setColorFilter(r>0?accent:muted);
+                    dislike.setImageResource(r<0?R.drawable.ic_msg_dislike_on:R.drawable.ic_msg_dislike);dislike.setColorFilter(r<0?0xFFE06464:muted);};
+                paint.run();
+                like.setOnClickListener(v->{ratings.edit().putInt(ratingKey,ratings.getInt(ratingKey,0)>0?0:1).apply();paint.run();});
+                dislike.setOnClickListener(v->{ratings.edit().putInt(ratingKey,ratings.getInt(ratingKey,0)<0?0:-1).apply();paint.run();});
+                bar.addView(like,new LinearLayout.LayoutParams(w,h));bar.addView(dislike,new LinearLayout.LayoutParams(w,h));
                 ImageView retry=mini(R.drawable.ic_msg_retry,"Повторить запрос",v->actions.retryLast());
                 retry.setVisibility(View.GONE);retryIcons.put(key,retry);
-                bar.addView(retry,new LinearLayout.LayoutParams(dp(38),dp(34)));
+                bar.addView(retry,new LinearLayout.LayoutParams(w,h));
+                if(body.length()>800||body.contains("```")||body.contains("\n## "))
+                    bar.addView(mini(R.drawable.ic_msg_doc,"Открыть документ · .md",v->AgentDocumentSheet.document(activity,body,text,muted,accent,subtle,border,surface,()->actions.exportMarkdown(body))),new LinearLayout.LayoutParams(w,h));
             }
             bubble.addView(bar);
+            if(!user)sourcesChip(bubble,body);
         }
         wrapper.addView(bubble,new LinearLayout.LayoutParams(user?-2:-1,-2));
         return wrapper;
@@ -501,6 +511,31 @@ public final class AgentChatScreen {
         label.setContentDescription(description);
         if(click!=null)label.setOnClickListener(v->click.run());
         return label;
+    }
+
+    /** "● ● ● 3 источника": overlapping letter badges plus a count; tap lists the pages. */
+    private void sourcesChip(LinearLayout bubble,String body){
+        final java.util.List<MessageSources.Source> sources=MessageSources.extract(body);
+        if(sources.isEmpty())return;
+        LinearLayout chip=horizontal();chip.setGravity(Gravity.CENTER_VERTICAL);chip.setPadding(dp(3),dp(2),dp(8),dp(2));
+        int shown=Math.min(3,sources.size());
+        for(int i=0;i<shown;i++){
+            TextView badge=label(MessageSources.letter(sources.get(i)),10,true,0xFFFFFFFF);badge.setGravity(Gravity.CENTER);
+            int[] palette={0xFF2E9D68,0xFF4A7BD0,0xFFD0804A,0xFF8A5CC8};
+            badge.setBackground(shape(palette[Math.abs(sources.get(i).host.hashCode())%palette.length],50,background,2));
+            LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(dp(24),dp(24));if(i>0)p.setMargins(-dp(7),0,0,0);chip.addView(badge,p);
+        }
+        TextView count=label(MessageSources.count(sources.size()),12,false,muted);count.setPadding(dp(8),0,0,0);chip.addView(count);
+        chip.setMinimumHeight(dp(34));chip.setContentDescription(MessageSources.count(sources.size()));
+        chip.setOnClickListener(v->{
+            String[] titles=new String[sources.size()];
+            for(int i=0;i<titles.length;i++)titles[i]=sources.get(i).title+"\n"+sources.get(i).host;
+            new android.app.AlertDialog.Builder(activity).setTitle(MessageSources.count(sources.size())).setItems(titles,(d,which)->{
+                try{activity.startActivity(new android.content.Intent(android.content.Intent.ACTION_VIEW,android.net.Uri.parse(sources.get(which).url)));}
+                catch(Exception ignored){android.widget.Toast.makeText(activity,"Нет приложения для открытия ссылки",android.widget.Toast.LENGTH_SHORT).show();}
+            }).setNegativeButton("Закрыть",null).show();
+        });
+        bubble.addView(chip,new LinearLayout.LayoutParams(-2,-2));
     }
 
     /** Small unobtrusive icon for the row under a message. */
