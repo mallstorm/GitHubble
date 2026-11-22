@@ -778,7 +778,7 @@ public class MainActivity extends Activity {
         final String renderedThread = agentProjects.activeConversation(owner);
         app.githubble.mobile.ui.AgentMarkdownView.branchListener=(repo,br)->agentSwitchBranch(repo,br);
         app.githubble.mobile.ui.AgentMarkdownView.actionListener=action->{
-            if("continue".equals(action)){String owner=accountStore.activeCacheKey();if(!aiRequestsInFlight.contains(owner))agentSend(owner,"Продолжай",false);}
+            if("continue".equals(action)){String continueFor=accountStore.activeCacheKey();if(!aiRequestsInFlight.contains(continueFor))agentSend(continueFor,"Продолжай",false);}
         };
         app.githubble.mobile.ui.AgentChatScreen.headerNote=()->agentHeaderNote(accountStore.activeCacheKey());
         AgentChatScreen screen = new AgentChatScreen(this, content,
