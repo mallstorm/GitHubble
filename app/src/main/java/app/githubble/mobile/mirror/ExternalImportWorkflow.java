@@ -2,8 +2,10 @@ package app.githubble.mobile.mirror;
 
 /**
  * Disposable destination-side runner for importing a public third-party Git repository.
- * Uses only the destination repository's short-lived GITHUB_TOKEN and copies no token
- * or repository archive to the Android device.
+ * Uses a per-run sealed GitHub Actions secret containing the connected destination
+ * account's workflow-authorized credential. GitHub's default GITHUB_TOKEN cannot
+ * write workflow files in imported branches and tags. No token is logged or copied
+ * into the Git repository or kept on the runner beyond the job.
  */
 public final class ExternalImportWorkflow {
     private ExternalImportWorkflow() {}
@@ -58,7 +60,7 @@ jobs:
           BOOTSTRAP_BRANCH: ${{ inputs.bootstrap_branch }}
           BOOTSTRAP_SHA: ${{ inputs.bootstrap_sha }}
           REQUEST_ID: ${{ inputs.request_id }}
-          GH_IMPORT_TOKEN: ${{ github.token }}
+          GH_IMPORT_TOKEN: ${{ secrets[format('GITHUBBLE_EXT_IMPORT_{0}', inputs.request_id)] }}
         run: |
           set -euo pipefail
           umask 077
@@ -78,7 +80,7 @@ jobs:
               assert re.fullmatch(r'[0-9a-f]{40}', a[key])
           assert re.fullmatch(r'[0-9a-f]{32}', a['REQUEST_ID'])
           assert a['SOURCE'].lower() != os.environ['GITHUB_REPOSITORY'].lower()
-          assert bool(a['GH_IMPORT_TOKEN'])
+          assert bool(a['GH_IMPORT_TOKEN']), 'Missing import credential; grant Secrets and Workflows write permissions to GitHubble'
           PY
 
           cat > "$RUNNER_TEMP/githubble-import-askpass" <<'ASKPASS'
@@ -122,6 +124,9 @@ jobs:
           git remote add destination "$DST_URL"
           git lfs push --all destination
           # Only Git heads and tags: never copy PR refs or GitHub-internal refs.
+          # An installation or OAuth token with Workflows:write is REQUIRED when
+          # those refs contain .github/workflows/*.yml. The default GITHUB_TOKEN
+          # cannot authorize this GitHub API policy check.
           git push --atomic --force destination 'refs/heads/*:refs/heads/*' 'refs/tags/*:refs/tags/*'
 
           git show-ref --heads --tags > "$RUNNER_TEMP/source-refs.tsv"
