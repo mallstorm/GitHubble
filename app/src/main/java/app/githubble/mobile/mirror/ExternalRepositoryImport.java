@@ -334,6 +334,7 @@ public final class ExternalRepositoryImport {
         String newSha = head(client, job.source, defaultBranch);
 
         clearCredential(client, job);
+        save(job);
         MirrorSecrets.publicKey(client, job.destination);
         String url = API + job.destination + "/contents/" + ExternalImportWorkflow.PATH;
         JSONObject existing = client.getJsonFresh(url + "?ref=" + encode(job.bootstrapDefault));
@@ -350,9 +351,20 @@ public final class ExternalRepositoryImport {
                         ExternalImportWorkflow.yaml().getBytes(StandardCharsets.UTF_8)));
         client.putJson(url, newFile);
 
-        job.bootstrapSha = head(client, job.destination, job.bootstrapDefault);
-        job.sourceDefault = defaultBranch;
-        job.sourceSha = newSha;
+        // Each dispatch must use a NEW request ID. Otherwise a stale failed
+        // Actions run can be mistaken for the new run and its token revoked.
+        Job next = new Job();
+        next.id = UUID.randomUUID().toString().replace("-", "");
+        next.source = job.source;
+        next.destination = job.destination;
+        next.accountId = job.accountId;
+        next.bootstrapDefault = job.bootstrapDefault;
+        next.bootstrapSha = head(client, job.destination, job.bootstrapDefault);
+        next.sourceDefault = defaultBranch;
+        next.sourceSha = newSha;
+        next.createdAt = System.currentTimeMillis();
+        next.runUrl = "https://github.com/" + next.destination + "/actions";
+        job = next;
         save(job);
         try {
             job.secretInstalled = true;
