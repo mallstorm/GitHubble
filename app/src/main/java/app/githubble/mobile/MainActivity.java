@@ -5484,6 +5484,22 @@ public class MainActivity extends Activity {
         });
     }
 
+    private void retryExternalImport(String jobId) {
+        ProgressDialog progress=ProgressDialog.show(this,"Создать копию",
+                "Проверка состояния репозитория и повторный запуск…",true,false);
+        io.execute(()->{
+            try {
+                ExternalRepositoryImport.Job job=externalRepositoryImport.retry(jobId);
+                runOnUiThread(()->{progress.dismiss();showExternalImportStatus(job);});
+            }catch(Exception error){
+                runOnUiThread(()->{
+                    progress.dismiss();
+                    errorDialog("Не удалось повторить копирование",error.getMessage());
+                });
+            }
+        });
+    }
+
     private void showExternalImportStatus(ExternalRepositoryImport.Job job) {
         boolean done=ExternalRepositoryImport.DONE.equals(job.state);
         boolean failed=ExternalRepositoryImport.FAILED.equals(job.state);
@@ -5497,8 +5513,10 @@ public class MainActivity extends Activity {
                   "Перенос выполняется на GitHub Actions. Можно закрыть приложение и проверить позднее.");
         new AlertDialog.Builder(this)
                 .setTitle(title).setMessage(message)
-                .setPositiveButton(done?"Открыть репозиторий":"Проверить статус",(d,w)->{
+                .setPositiveButton(done?"Открыть репозиторий":
+                        failed?"Повторить копирование":"Проверить статус",(d,w)->{
                     if(done)navigate(()->showRepository(job.destination));
+                    else if(failed)retryExternalImport(job.id);
                     else checkExternalImport(job.id);
                 })
                 .setNeutralButton("Журнал Actions",(d,w)->openWeb(job.runUrl))
