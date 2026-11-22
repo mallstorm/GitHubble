@@ -25,6 +25,31 @@ public final class NativeAgentToolHost implements ProjectRuntime.ToolHost {
     private final boolean githubEnabled,filesEnabled,planning;
     private AgentRun run;
     public NativeAgentToolHost withRun(AgentRun value){run=value;return this;}
+    private java.util.function.Consumer<String> projectListener=id->{};
+    /** The controller pins the project id of a run; a focus change made by the host itself must move that pin. */
+    public NativeAgentToolHost onProjectBound(java.util.function.Consumer<String> listener){projectListener=listener==null?id->{}:listener;return this;}
+    public String currentRepository(){return repository;}
+    /**
+     * Puts a repository in focus without a confirmation dialog: it only chooses what to read. Returns the
+     * focus and a compact overview (README, top level, branches, recent commits, workflows).
+     */
+    public String focus(String repo,String requestedBranch)throws Exception{
+        check();
+        boolean keepBranch=(requestedBranch==null||requestedBranch.isBlank());
+        AgentGitWorkspace.validateRepository(repo,keepBranch?"main":requestedBranch);
+        github.requireAccount(account);
+        GitDataApi data=github.taskData(account,guard);
+        JSONObject details=data.get(GitDataApi.base(repo));
+        String canonical=details.optString("full_name",repo);
+        String ref=!keepBranch?requestedBranch:canonical.equalsIgnoreCase(repository)&&!branch.isEmpty()?branch:details.optString("default_branch","main");
+        String projectId=projects.focus(account,canonical,ref);
+        projectListener.accept(projectId);
+        AgentProjectStore.Project now=projects.project(account);
+        repository=now.repository;branch=now.branch;workspaceId=now.workspaceId==null?"":now.workspaceId;taskService=null;taskTools=null;
+        JSONObject overview=RepositoryOverview.build(data,canonical,ref,details);
+        event("✓ Репозиторий в фокусе · "+canonical+"@"+ref,null);
+        return new JSONObject().put("focus",new JSONObject().put("repository",canonical).put("branch",ref)).put("overview",overview).toString();
+    }
     private final Runnable guard,refresh;
     private final IntSupplier permission;
     public NativeAgentToolHost(Activity activity,GitHubAgentBridge github,AgentGitWorkspace git,
@@ -87,6 +112,9 @@ public final class NativeAgentToolHost implements ProjectRuntime.ToolHost {
                 result+=" publish_workspace {commit_message} (only linked repository/branch; only the confirmed task delta, never the full Workspace).";
             }
         }
+        if(githubEnabled)result+="\nFOCUS: focus_repository {repository:\"owner/repo\",branch?} puts a repository of the user's GitHub account in focus WITHOUT any confirmation and returns an overview "+
+            "(README, top-level files, newest branches, recent commits, workflows). Use it the moment the user picks or names a repository (\"возьмём этот\", \"первый\", a name or link). "+
+            "It works in every mode, including read-only. After it, files of that repository are readable with list_files/read_file/search_files. Switching repositories later is just another call.";
         if(githubEnabled)result+="\nBRANCHES: recent_branches {repository?,limit?:1-5} returns the newest worked branches with created/updated dates and what changed last; ALWAYS show each as the markdown link from its 'link' field (tap = that branch becomes the active working branch). active_branch {} says which repository/branch is active now. set_active_branch {repository?,branch} switches the working branch. Every repository of the connected GitHub account is visible: list_repositories, github_accounts.";
         if(githubEnabled&&!repository.isEmpty())result+="\nCI: build {workflow_id?} finds an exact SHA run or dispatches once, ci_failure {run_id,include_logs:false} returns durable retry policy; include_logs:true needs separate user consent. ci_status {} reads durable state. verify_task_result {run_id?,artifact_id?,pull_number?} is mandatory before delivery claims. WAIT_EXTERNAL/FAIL forbid source edits; FIX_SOURCE requires a new published SHA before rebuilding. Never claim completion from model text.\nBUILD WAIT: await_build {run_id,timeout_s<=60} polls ONE Actions run of the linked repository; "+
             "on failure it classifies the error and returns the host's retry decision (FIX_SOURCE | RETRY_AFTER | WAIT_EXTERNAL | FAIL). "+
@@ -116,7 +144,7 @@ public final class NativeAgentToolHost implements ProjectRuntime.ToolHost {
     }
     public boolean handles(String name){
         if("load_skill".equals(name)||"ask_user".equals(name))return true;
-        if("recent_branches".equals(name)||"active_branch".equals(name))return githubEnabled;
+        if("focus_repository".equals(name)||"recent_branches".equals(name)||"active_branch".equals(name))return githubEnabled;
         if("set_active_branch".equals(name))return githubEnabled&&!writeDenied&&!planning;
         // Local scratch scaffold only before a repository is bound; lifecycle/import of local copies is gone.
         if("create_workspace".equals(name))return repository.isEmpty()&&workspaceId.isEmpty()&&!writeDenied&&AgentPermissionPolicy.mayWrite(permission.getAsInt(),planning);
@@ -267,7 +295,8 @@ public final class NativeAgentToolHost implements ProjectRuntime.ToolHost {
     }
     public String execute(String name,JSONObject arguments)throws Exception{
         check();
-        if(!handles(name))throw new SecurityException("Операция недоступна в текущем режиме");
+        if(!handles(name))throw new ToolDenied("Операция недоступна в текущем режиме: "+name);
+        if("focus_repository".equals(name))return focus(GitHubAgentOperations.repository(new JSONObject(arguments.toString()),""),arguments.optString("branch",""));
         if(arguments.toString().length()>300000)throw new IllegalArgumentException("Аргументы превышают лимит");
         JSONObject a=new JSONObject(arguments.toString());
         if("recent_branches".equals(name)||"active_branch".equals(name)||"set_active_branch".equals(name)){

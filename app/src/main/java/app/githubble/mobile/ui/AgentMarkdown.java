@@ -28,6 +28,7 @@ public final class AgentMarkdown {
 
   public static boolean safeLink(String url) {
     if (url == null) return false;
+    if (url.equals("githubble-action://continue")) return true;
     if (url.startsWith(app.githubble.mobile.agent.BranchHistory.SCHEME))
       return app.githubble.mobile.agent.BranchHistory.parse(url) != null;
     try {

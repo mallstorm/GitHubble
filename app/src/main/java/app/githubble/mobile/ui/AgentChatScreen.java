@@ -32,6 +32,9 @@ import app.githubble.mobile.agent.AgentProjectStore;
  * but the main view is a conversation, never a settings dashboard.
  */
 public final class AgentChatScreen {
+  /** Permission level and budget left, shown in the header; set by the host activity. */
+  public static volatile java.util.function.Supplier<String> headerNote;
+
     public interface Actions {
         /** Restart the task of the given run with its recorded context (not a loop continuation). */
         default void resumeTask(String runId){}
@@ -122,8 +125,9 @@ public final class AgentChatScreen {
         TextView brand=label(conversationTitle.isEmpty()?"Новый диалог":conversationTitle,16,true,this.text);
         brand.setSingleLine();brand.setEllipsize(TextUtils.TruncateAt.END);
         titleBox.addView(brand);
-        String scope=project.repository.isEmpty()?(project.name.isEmpty()?"Проект не выбран":project.name)
+        String scope=project.repository.isEmpty()?(project.name.isEmpty()?"Репозиторий не выбран":project.name)
                 :project.repository+" · "+project.branch;
+        try{java.util.function.Supplier<String> hn=headerNote;String note=hn==null?"":hn.get();if(note!=null&&!note.isEmpty())scope+=" · "+note;}catch(RuntimeException ignored){}
         if(project.workspaceId!=null&&!project.workspaceId.isEmpty())scope+=" · Workspace";
         TextView sub=label(scope,12,false,muted);sub.setSingleLine();sub.setEllipsize(TextUtils.TruncateAt.END);
         titleBox.addView(sub);

@@ -81,6 +81,7 @@ public final class ToolCatalog {
         add(b,"publication_status","","",gh,false,false,true);
         add(b,"reconcile_publication","","",remote,true,true,true);
         add(b,"create_workspace","name instructions","name",local,true,false,false);
+        add(b,"focus_repository","repository branch","repository",gh,false,false,false);
         add(b,"recent_branches","repository limit:integer","",gh,false,false,false);
         add(b,"active_branch","","",gh,false,false,false);
         add(b,"set_active_branch","repository branch","branch",gh,false,false,false);

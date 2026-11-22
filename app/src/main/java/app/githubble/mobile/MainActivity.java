@@ -777,6 +777,10 @@ public class MainActivity extends Activity {
                 : active.displayName();
         final String renderedThread = agentProjects.activeConversation(owner);
         app.githubble.mobile.ui.AgentMarkdownView.branchListener=(repo,br)->agentSwitchBranch(repo,br);
+        app.githubble.mobile.ui.AgentMarkdownView.actionListener=action->{
+            if("continue".equals(action)){String owner=accountStore.activeCacheKey();if(!aiRequestsInFlight.contains(owner))agentSend(owner,"Продолжай",false);}
+        };
+        app.githubble.mobile.ui.AgentChatScreen.headerNote=()->agentHeaderNote(accountStore.activeCacheKey());
         AgentChatScreen screen = new AgentChatScreen(this, content,
                 BG, CARD, SUBTLE, TEXT, MUTED, GREEN, BORDER, new AgentChatScreen.Actions() {
             @Override public void newProject() { agentNewProject(owner); }
@@ -1546,6 +1550,21 @@ public class MainActivity extends Activity {
 
     // The agent plans naturally. Write authority remains controlled by AgentPermissionPolicy.
     private boolean agentPlanning(String owner){return false;}
+    /** Short status for the chat header: permission level and what is left of the current budget window. */
+    private String agentHeaderNote(String owner){
+        try{
+            String[] levels={"Чтение","Ручной","Полуавто","Авто"};
+            StringBuilder note=new StringBuilder(levels[agentPermission(owner)]);
+            String chat=agentProjects.activeConversation(owner);
+            JSONObject b=agentProjects.tasks.get(owner,chat).optJSONObject("budget");
+            if(b!=null){
+                int left=Math.max(0,Math.min(b.optInt("roundWindowStart")+25,b.optInt("maxRounds",12))-b.optInt("rounds"));
+                long tokens=Math.max(0,b.optLong("maxTokens",180000)-b.optLong("inputTokens")-b.optLong("outputTokens"));
+                note.append(" · ").append(left).append(" р. · ").append(tokens/1000).append("k ток.");
+            }
+            return note.toString();
+        }catch(Exception unavailable){return "";}
+    }
     private int agentPermission(String owner){
         return app.githubble.mobile.agent.AgentPermissionPolicy.normalize(
             prefs.getInt("ai_execution_permission_"+owner,1));
@@ -2276,12 +2295,7 @@ public class MainActivity extends Activity {
         String explicitMemory;
         try{explicitMemory=agentMemory.explicit(expected,agentProjects.memoryScope(expected,activeChat),activeChat,message);}catch(Exception e){explicitMemory="Память: "+e.getMessage();}
         if(explicitMemory!=null){agentProjects.appendToConversation(expected,activeChat,"system",explicitMemory);agentRefreshIfCurrent(expected);return;}
-        java.util.regex.Matcher attach=java.util.regex.Pattern.compile("(?iu)^(?:/repo|закрепи репозиторий|привяжи репозиторий)\\s+([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)\\s*$").matcher(message.trim());
-        if(agentMode&&attach.matches()){
-            final String repo=attach.group(1);
-            new AlertDialog.Builder(this).setTitle("Закрепить репозиторий за этим диалогом?").setMessage(repo)
-                .setPositiveButton("Закрепить",(d,w)->{if(expected.equals(accountStore.activeCacheKey())&&activeChat.equals(agentProjects.activeConversation(expected))){agentProjects.save(new AgentProjectStore.Project(expected,p.name,repo,p.branch,p.workspaceId));agentRefreshIfCurrent(expected);}}).setNegativeButton("Отмена",null).show();return;
-        }
+        // «/repo owner/name», «закрепи репозиторий …»: the host puts it in focus before the model runs (no dialog).
         String lower = message.toLowerCase(java.util.Locale.ROOT);
         if(imageUri==null&&(lower.matches("(?s)^(?:/repo delete|удали репозиторий)\\s+[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\\s*$"))){
             String target=message.trim().substring(message.trim().lastIndexOf(' ')+1);
@@ -2314,7 +2328,7 @@ public class MainActivity extends Activity {
                 try {
                     String context=agentContext(expected,activeProject,activeChat,message)+
                         (planning?"\nPLANNING: inspect, reason and plan only. Do not write, create, publish or run builds.":
-                        "\nYou are an agent by default. Discuss and reason normally until the user requests implementation.");
+                        "\nYou are an agent by default: read and explore on your own, ask the user only before changes.");
                     String response;
                     // Both GitHub and Workspace are available to the same agent when
                     // account-scoped permissions are explicitly enabled.
@@ -2349,9 +2363,12 @@ public class MainActivity extends Activity {
                             aiUsage.record(expected,provider,model,OmniChatChatClient.takeUsage());return result;
                         };
                         app.githubble.mobile.agent.ModelTransport transport=aiChatClient.agentTransport(expected,provider,model,credential,completion,usage->aiUsage.record(expected,provider,model,usage));
-                        response=agentController.execute(expected,activeChat,message,context,transport,tools,
-                            allowGithub,allowFiles,scopeGuard,run).answer;
-                        if(prefs.getBoolean("ai_subagent_"+expected,false)&&response!=null&&!response.trim().isEmpty()){
+                        app.githubble.mobile.agent.AgentLoop.Outcome outcome=agentController.execute(expected,activeChat,message,context,transport,tools,
+                            allowGithub,allowFiles,scopeGuard,run);
+                        response=outcome.answer;
+                        if(outcome.budgetExhausted)response+="\n\n[Продолжить](githubble-action://continue)";
+                        if(prefs.getBoolean("ai_subagent_"+expected,false)&&response!=null&&!response.trim().isEmpty()
+                            &&app.githubble.mobile.agent.IntentRouter.changesRepository(message)){
                             scopeGuard.run();
                             response=app.githubble.mobile.agent.SubagentReview.orchestrate(prompt->{
                                 scopeGuard.run();
@@ -2397,6 +2414,9 @@ public class MainActivity extends Activity {
                     boolean interrupted=error instanceof InterruptedException||error instanceof java.util.concurrent.CancellationException||Thread.currentThread().isInterrupted();
                     String detail=app.githubble.mobile.agent.AgentLogRedactor.redact(error.getMessage());
                     if(credential!=null&&!credential.isEmpty())detail=detail.replace(credential,"[REDACTED]");
+                    if(!cancelled&&!interrupted&&java.util.Objects.equals(aiRequestTickets.get(expected),ticket))
+                        agentProjects.appendToConversation(expected,activeChat,"agent","Остановился: "+detail
+                            +"\n\nЧто сделано до остановки сохранено.\n\n[Продолжить](githubble-action://continue)");
                     run.finish(cancelled?"cancelled":interrupted?"interrupted":"failed",cancelled?"Остановлено пользователем":interrupted?"Задача прервана · контекст изменился":"Задача: "+detail);
                 } finally {
                     if(run.active())run.finish("interrupted","Задача прервана");

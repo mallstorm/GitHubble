@@ -52,6 +52,9 @@ public final class AgentLoop {
                     try {
                         String data=broker.execute(name,args);
                         item.put("data",data == null ? "" : data.length()>18000 ? data.substring(0,18000)+" [truncated]" : data);
+                    } catch (ToolDenied denied) {
+                        item.put("error",AgentLogRedactor.redact(denied.getMessage())).put("instruction",
+                            "This tool is not available right now. Choose another way to reach the goal, or explain to the user what is missing; do not stop silently.");
                     } catch (java.util.concurrent.CancellationException | InterruptedException | SecurityException stop) { throw stop;
                     } catch (Exception failed) {
                         item.put("error",AgentLogRedactor.redact(failed.getMessage())).put("instruction",
@@ -67,7 +70,7 @@ public final class AgentLoop {
                 checkpoint.save(history);
             }
         } catch (AgentBudget.Exhausted exhausted) {
-            return new Outcome(exhausted.getMessage()+". Задача сохранена. Продолжение требует разрешения пользователя.",true);
+            return new Outcome(exhausted.getMessage()+". Задача сохранена. Нажмите «Продолжить» или напишите «продолжай».",true);
         }
     }
 }

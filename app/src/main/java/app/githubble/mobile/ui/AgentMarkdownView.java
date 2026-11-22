@@ -31,7 +31,20 @@ public final class AgentMarkdownView {
 
   public static volatile BranchListener branchListener;
 
+  /** Receives taps on in-chat action links such as «Продолжить» (githubble-action://continue). */
+  public static volatile java.util.function.Consumer<String> actionListener;
+
   private static Object linkSpan(String url) {
+    if (url != null && url.startsWith("githubble-action://")) {
+      final String action = url.substring("githubble-action://".length());
+      return new ClickableSpan() {
+        @Override
+        public void onClick(View widget) {
+          java.util.function.Consumer<String> l = actionListener;
+          if (l != null) l.accept(action);
+        }
+      };
+    }
     final String[] branch = app.githubble.mobile.agent.BranchHistory.parse(url);
     if (branch == null) return new URLSpan(url);
     return new ClickableSpan() {

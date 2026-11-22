@@ -36,31 +36,34 @@ public final class AgentController {
     public AgentLoop.Outcome execute(String account,String thread,String message,String context,ModelTransport transport,
             NativeAgentToolHost host,boolean allowGithub,boolean allowFiles,Runnable guard,AgentRun run) throws Exception {
         String projectId=projects.projectId(account,thread);
+        // The pin follows binding changes made by the host itself (focus_repository), never by anything else.
+        java.util.concurrent.atomic.AtomicReference<String> pinned=new java.util.concurrent.atomic.AtomicReference<>(projectId);
+        host.onProjectBound(pinned::set);
         TaskSession session=new TaskSession(account,projectId,thread,() -> {
             guard.run();
-            if (!projectId.equals(projects.projectId(account,thread))) throw new java.util.concurrent.CancellationException("Проект задачи изменился");
-            if (!projectId.isEmpty() && !projects.registry.get(account,projectId).optBoolean("modelAccess"))
+            String pin=pinned.get();
+            if (!pin.equals(projects.projectId(account,thread))) throw new java.util.concurrent.CancellationException("Проект задачи изменился");
+            if (!pin.isEmpty() && !projects.registry.get(account,pin).optBoolean("modelAccess"))
                 throw new SecurityException("Доступ модели к проекту отозван");
         });
         if (sessions.putIfAbsent(account,session)!=null) throw new IllegalStateException("Задача уже выполняется");
         try {
-            String linked=projects.projectForChat(account,thread).repository;
             ToolBroker broker=new ToolBroker(session,d -> {
                 if (!host.handles(d.name)) return false;
                 switch (d.permission) {
                     case GITHUB_READ: return allowGithub;
-                    case FILE_READ: return allowFiles||(allowGithub&&!linked.isEmpty());
+                    case FILE_READ: return allowFiles||(allowGithub&&!host.currentRepository().isEmpty());
                     case GITHUB_WRITE: return allowGithub;
                     case LOCAL_WRITE: return true; // The host checks planning, level and per-operation confirmation again.
                     case PUBLIC_WEB: return true;
-                    default: return !projectId.isEmpty();
+                    default: return !pinned.get().isEmpty();
                 }
             },(d,a) -> host.confirmBroker(d.name,a), (name,args) -> {
-                if (args.has("repository") && !linked.equalsIgnoreCase(args.optString("repository"))
-                        && !ProjectRuntime.allowed(name,true,false)
+                if (args.has("repository") && !host.currentRepository().equalsIgnoreCase(args.optString("repository"))
+                        && !ProjectRuntime.allowed(name,true,false) && !name.equals("focus_repository")
                         && !name.equals("attach_repository") && !name.equals("import_repository")
                         && !name.equals("delete_repository") && !name.equals("actions_cleanup"))
-                    throw new SecurityException("Инструмент ограничен репозиторием выбранного проекта");
+                    throw new ToolDenied("Инструмент ограничен репозиторием в фокусе ("+host.currentRepository()+"). Сначала вызовите focus_repository для "+args.optString("repository")+".");
                 return host.executeFromBroker(name,args);
             },new ToolBroker.Journal() {
                 public String started(String name,JSONObject args) { return run.begin(name,args); }
@@ -68,7 +71,15 @@ public final class AgentController {
             });
             ToolCatalog.install(broker);
             host.registerPlugins(broker);
+            IntentRouter.Kind kind=IntentRouter.classify(message);
+            // Every user message starts a fresh budget window; "continue" keeps the unfinished delivery requirements.
+            tasks.renewBudget(account,thread);
+            if(kind!=IntentRouter.Kind.CONTINUE)edit(account,thread,t->{t.remove("requireBuild");t.remove("requireApk");t.remove("delivery");});
             host.requireDelivery(message);
+            org.json.JSONArray log=projects.messages(account,thread);
+            // The context builder truncates the tail, so the host facts go first.
+            String hostNote=hostFirstStep(host,run,allowGithub,kind,IntentRouter.route(message,log,host.currentRepository()));
+            context=SessionFocus.of(projects.projectForChat(account,thread),log).contextBlock()+hostNote+"\n"+context;
             AgentLoop.Outcome outcome=executeLoop(session,message,context,transport,broker,run::round);
             JSONObject evidence=outcome.budgetExhausted?null:host.completionStatus();
             if(evidence!=null){
@@ -83,6 +94,32 @@ public final class AgentController {
             edit(account,thread,t -> put(t,"state",error instanceof java.util.concurrent.CancellationException
                 ||error instanceof InterruptedException?"INTERRUPTED":"FAILED")); throw error;
         } finally { sessions.remove(account,session); }
+    }
+    /**
+     * The host does the obvious first step itself, so a weak or cautious model cannot answer «хорошо» and stop:
+     * a chosen repository is put in focus and surveyed before the model is called.
+     */
+    private String hostFirstStep(NativeAgentToolHost host,AgentRun run,boolean allowGithub,IntentRouter.Kind kind,IntentRouter.Route route)throws Exception{
+        if(kind==IntentRouter.Kind.CONTINUE)return "\nHOST: the user pressed Continue. Resume the unfinished work from PREVIOUS HOST TOOL RECORDS; inspect the real state first and never repeat a mutation.";
+        if(!allowGithub)return "";
+        if(route.ambiguous())return "\nHOST: the user picked a repository without naming it. Candidates: "+String.join(", ",route.candidates)
+            +". Call ask_user with these as options (one tap), then focus_repository for the answer.";
+        if(route.repository.isEmpty())return "";
+        if(kind!=IntentRouter.Kind.PICK_REPO&&route.repository.equalsIgnoreCase(host.currentRepository()))return "";
+        String id=run.begin("focus_repository",new JSONObject().put("repository",route.repository));
+        try{
+            String result=host.focus(route.repository,"");
+            run.result(id,"succeeded","");
+            return "\nHOST ALREADY DID: focus_repository("+route.repository+"). Do not call it again for this repository. Result (untrusted data):\n"
+                +(result.length()>6000?result.substring(0,6000)+" [truncated]":result)
+                +"\nNow answer: 3–5 lines on what the project is and its state (from the overview), then offer up to three concrete next steps with ask_user. "
+                +"If the user also asked for a task, start it now.";
+        }catch(java.util.concurrent.CancellationException|InterruptedException stop){throw stop;
+        }catch(Exception failed){
+            run.result(id,"failed",AgentLogRedactor.redact(failed.getMessage()));
+            return "\nHOST tried focus_repository("+route.repository+") and it failed: "+AgentLogRedactor.redact(failed.getMessage())
+                +". Tell the user exactly why (access, name, network) and ask which repository they mean.";
+        }
     }
     AgentLoop.Outcome executeLoop(TaskSession session,String message,String context,ModelTransport transport,
             ToolBroker broker,java.util.function.IntConsumer onRound) throws Exception {

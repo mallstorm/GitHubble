@@ -5,6 +5,8 @@ public final class DirectAnswers {
     private DirectAnswers() {}
     public static boolean handles(String question) {
         if(question==null||question.length()>300)return false;
+        IntentRouter.Kind kind=IntentRouter.classify(question);
+        if(kind==IntentRouter.Kind.PICK_REPO||kind==IntentRouter.Kind.CONTINUE)return false;
         String q=question.toLowerCase(java.util.Locale.ROOT);
         if(q.matches("(?s).*(?:исправ|измен|проанализ|анализ|созда|добав|собер|сборк|repair|fix|edit|build|review|analy).*"))return false;
         return GitHubReadLoop.isDirectRepositoryQuestion(question);
