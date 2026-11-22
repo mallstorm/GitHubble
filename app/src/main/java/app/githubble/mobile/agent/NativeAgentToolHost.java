@@ -195,7 +195,7 @@ public final class NativeAgentToolHost implements ProjectRuntime.ToolHost {
     /** typedToken != null: irreversible action, needs the exact text typed in the dialog at EVERY permission level. */
     private boolean approve(String name,String preview,boolean remote,boolean sensitive,String typedToken)throws Exception{
         check();
-        if(!AgentPermissionPolicy.mayWrite(permission.getAsInt(),planning))throw new SecurityException("Запись запрещена");
+        if(!AgentPermissionPolicy.mayWrite(permission.getAsInt(),planning))throw new ToolDenied("Запись запрещена");
         // Destructive Workspace lifecycle operations always need a physical UI approval,
         // even when the agent otherwise runs with local-auto permissions.
         if(typedToken==null&&brokerApprovalInUse&&!name.startsWith("ChangeSet")){check();return true;}
@@ -313,7 +313,7 @@ public final class NativeAgentToolHost implements ProjectRuntime.ToolHost {
         String colleague=colleagueTool(name,a);
         if(colleague!=null)return colleague;
         if(skillCeiling!=null&&isMutation(name)&&!skillCeiling.contains(name))
-            throw new SecurityException("Активный навык ограничивает изменения: «"+name+"» не входит в его инструменты. Загрузите другой навык или спросите пользователя.");
+            throw new ToolDenied("Активный навык ограничивает изменения: «"+name+"» не входит в его инструменты. Загрузите другой навык или спросите пользователя.");
         // Reading another repository (or any repository without a selected project) goes through the read-only GitHub path below.
         boolean externalRead=("repository_read_file".equals(name)||"repository_files".equals(name))
             &&(projects.projectId(account,thread).isEmpty()||a.has("account")
@@ -373,7 +373,7 @@ public final class NativeAgentToolHost implements ProjectRuntime.ToolHost {
         }
         if("detach_workspace".equals(name)||"delete_workspace".equals(name)){
             if(workspaceId.isEmpty()||!filesEnabled)
-                throw new SecurityException("В этом диалоге нет доступного Workspace");
+                throw new ToolDenied("В этом диалоге нет доступного Workspace");
             JSONObject metadata=workspace.info(account,workspaceId);
             String title=metadata.optString("name","Workspace"),id=workspaceId;
             boolean delete="delete_workspace".equals(name);
@@ -467,7 +467,7 @@ public final class NativeAgentToolHost implements ProjectRuntime.ToolHost {
         }
         if("dispatch_workflow".equals(name)){
             requireWrite();requireDelivery("/build");
-            if(a.has("ref")&&!branch.equals(a.getString("ref")))throw new SecurityException("CI ограничен веткой задачи");
+            if(a.has("ref")&&!branch.equals(a.getString("ref")))throw new ToolDenied("CI ограничен веткой задачи");
             return ci().build(a.getString("workflow_id")).toString();
         }
         if(GitHubAgentOperations.GATEWAY_WRITES.contains(name))return gateway(name,a);
@@ -611,7 +611,7 @@ public final class NativeAgentToolHost implements ProjectRuntime.ToolHost {
             method="DELETE";path="/repos/"+repo;body="";
         }else{method=a.getString("method");path=a.getString("path");}
         GatewayPolicy.Decision d=GatewayPolicy.classify(method,path,body);
-        if(d.blocked())throw new SecurityException(d.reason);
+        if(d.blocked())throw new ToolDenied(d.reason);
         if(d.risk==GatewayPolicy.Risk.READ)throw new IllegalArgumentException("Для GET используйте github_get");
         if(!body.trim().isEmpty())new JSONObject(body);
         String preview=d.method+" "+d.path+(body.trim().isEmpty()?"":"\n"+body)+(d.reason.isEmpty()?"":"\n"+d.reason);
@@ -678,7 +678,7 @@ public final class NativeAgentToolHost implements ProjectRuntime.ToolHost {
         check();requireWrite();
         if(repository.isEmpty())throw new IllegalArgumentException("Сначала привяжите репозиторий");
         String requested=a.optString("repository","");
-        if(!requested.isEmpty()&&!requested.equals(repository))throw new SecurityException("Скачивание разрешено только для привязанного репозитория");
+        if(!requested.isEmpty()&&!requested.equals(repository))throw new ToolDenied("Скачивание разрешено только для привязанного репозитория");
         long id=a.optLong("artifact_id",0);
         if(id<=0)throw new IllegalArgumentException("Укажите artifact_id");
         github.requireAccount(account);
