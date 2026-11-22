@@ -5142,7 +5142,7 @@ public class MainActivity extends Activity {
                         runOnUiThread(()->{
                             if(isFinishing() || actions.getParent()!=content
                                     || externalRepositoryImport.findByDestination(full)!=null)return;
-                            repoActionCard(actions,R.drawable.ic_history,"Восстановить копирование",
+                            repoActionCard(actions,R.drawable.ic_history,"Проверить импорт",
                                     ExternalRepositoryImport.FAILED.equals(discovered.state)
                                             ?"Неудачный импорт найден":"Задание найдено в GitHub",
                                     ()->recoverExternalImport(full));
@@ -5520,7 +5520,7 @@ public class MainActivity extends Activity {
             ExternalRepositoryImport.Job discovered) {
         EditText sourceField=new EditText(this);
         sourceField.setSingleLine(true);
-        sourceField.setHint("Владелец/репозиторий, например morluto/rea");
+        sourceField.setHint("Владелец/репозиторий");
         sourceField.setText(discovered.source);
         sourceField.setPadding(dp(20),dp(12),dp(20),dp(12));
         String description="В GitHub найден предыдущий запуск импорта для "
