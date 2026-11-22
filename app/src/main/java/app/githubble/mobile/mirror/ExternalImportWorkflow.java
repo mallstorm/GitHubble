@@ -121,6 +121,12 @@ jobs:
           }
 
           git lfs fetch --all origin
+          # Delete the stored OAuth secret BEFORE untrusted imported workflows
+          # can be triggered by the push. The running shell already has the
+          # credential in its process environment; deleting a secret does not
+          # revoke the credential itself or interrupt this import step.
+          SECRET_NAME="GITHUBBLE_EXT_IMPORT_${REQUEST_ID^^}"
+          curl --fail --silent --show-error --request DELETE --header "Authorization: Bearer $GH_IMPORT_TOKEN" --header "Accept: application/vnd.github+json" "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/secrets/$SECRET_NAME" || { echo "::error::Could not revoke secret before importing third-party workflow files"; exit 25; }
           git remote add destination "$DST_URL"
           git lfs push --all destination
           # Only Git heads and tags: never copy PR refs or GitHub-internal refs.
