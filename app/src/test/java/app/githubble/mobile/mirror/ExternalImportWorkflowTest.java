@@ -31,6 +31,13 @@ public final class ExternalImportWorkflowTest {
         assertTrue(yaml.contains("Custom .lfsconfig requires manual review"));
         assertFalse(yaml.contains("git push --mirror"));
         assertFalse(yaml.contains("secrets.DESTINATION_TOKEN"));
+        assertFalse(yaml.contains("GH_IMPORT_TOKEN: ${{ github.token }}"));
+        assertTrue(yaml.contains("GITHUBBLE_EXT_IMPORT_{0}"));
+        assertTrue(yaml.contains("GH_IMPORT_TOKEN: ${{ secrets[format("));
+        assertEquals("GITHUBBLE_EXT_IMPORT_0123456789ABCDEF0123456789ABCDEF",
+                ExternalImportSecrets.name("0123456789abcdef0123456789abcdef"));
+        try { ExternalImportSecrets.name("../../bad"); fail("Unsafe secret name"); }
+        catch (IllegalArgumentException expected) { }
         assertFalse(yaml.contains("/forks"));
         assertTrue(ExternalImportWorkflow.PATH.startsWith(".github/workflows/"));
     }
