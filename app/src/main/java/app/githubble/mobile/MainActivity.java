@@ -5486,6 +5486,39 @@ public class MainActivity extends Activity {
         return active;
     }
 
+    /** Horizontal task progress with stage description positioned below the bar. */
+    private static final class FullProgressUi {
+        final AlertDialog dialog;
+        final ProgressBar progress;
+        final TextView detail;
+        FullProgressUi(AlertDialog dialog,ProgressBar progress,TextView detail){
+            this.dialog=dialog;this.progress=progress;this.detail=detail;
+        }
+        void update(int percentage,String text){
+            progress.setProgress(Math.max(0,Math.min(100,percentage)));
+            detail.setText(text);
+        }
+        void dismiss(){dialog.dismiss();}
+    }
+
+    private FullProgressUi showFullProgressDialog(String title,String initial){
+        LinearLayout panel=new LinearLayout(this);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setPadding(dp(20),dp(16),dp(20),dp(16));
+        ProgressBar bar=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);
+        bar.setMax(100);bar.setProgress(0);
+        panel.addView(bar,new LinearLayout.LayoutParams(-1,dp(12)));
+        TextView label=text(initial,13,false);
+        label.setTextColor(MUTED);
+        LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,-2);
+        params.setMargins(0,dp(14),0,0);
+        panel.addView(label,params);
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle(title)
+                .setView(panel).setCancelable(false).create();
+        dialog.show();
+        return new FullProgressUi(dialog,bar,label);
+    }
+
     /** Native backup wizard; the heavy Git and LFS work runs in GitHub Actions. */
     private void startFullRepositoryBackup(String repository) {
         GitHubAccountStore.Account owner;
@@ -5503,8 +5536,9 @@ public class MainActivity extends Activity {
                 .setNegativeButton("Отмена",null)
                 .setPositiveButton("Создать",(dialog,which)->{
                     final boolean includeReleases=releases.isChecked();
-                    ProgressDialog loading=ProgressDialog.show(this,"Резервирование",
-                            "Сверка информации · подготовка GitHub Actions…",true,false);
+                    FullProgressUi loading=showFullProgressDialog("Создание резервной копии",
+                            "5% · Сверка информации · подготовка GitHub Actions…");
+                    loading.update(5,"Сверка информации · подготовка GitHub Actions…");
                     io.execute(()->{
                         try{
                             FullRepositoryBackupController.Job job=
@@ -5633,14 +5667,15 @@ public class MainActivity extends Activity {
     }
 
     private void handleFullRepositoryArchive(Uri selected){
-        ProgressDialog checking=ProgressDialog.show(this,"Сверка информации",
-                "Проверяем ZIP, Git bundle, LFS и контрольные суммы…",true,false);
+        FullProgressUi checking=showFullProgressDialog("Сверка информации",
+                "Проверяем ZIP, Git bundle, LFS и контрольные суммы…");
+        checking.update(5,"Сверка информации · проверка структуры ZIP");
         io.execute(()->{
             try{
                 PortableRepositoryArchive.Inspection report;
                 try(InputStream in=getContentResolver().openInputStream(selected)){
                     report=PortableRepositoryArchive.inspect(in,(pct,step)->runOnUiThread(()->
-                            checking.setMessage(pct+"% · "+step)));
+                            checking.update(pct,step)));
                 }
                 runOnUiThread(()->{
                     checking.dismiss();
@@ -5686,15 +5721,16 @@ public class MainActivity extends Activity {
                     final String accountId=available.get(picker.getSelectedItemPosition()).id;
                     try{app.githubble.mobile.mirror.MirrorPolicy.requireName(targetName);}
                     catch(Exception error){errorDialog("Имя назначения",error.getMessage());return;}
-                    ProgressDialog stage=ProgressDialog.show(this,"Восстановление",
-                            "Сверка информации · создание нового приватного репозитория…",true,false);
+                    FullProgressUi stage=showFullProgressDialog("Восстановление",
+                            "Сверка информации · создание нового приватного репозитория…");
+                    stage.update(5,"Сверка информации · создание нового приватного репозитория…");
                     io.execute(()->{
                         try{
                             FullRepositoryRestoreController manager=
                                     new FullRepositoryRestoreController(this,accountStore);
                             FullRepositoryRestoreController.Job job=manager.begin(
                                     archive,report,accountId,targetName,(pct,msg)->
-                                        runOnUiThread(()->stage.setMessage(pct+"% · "+msg)));
+                                        runOnUiThread(()->stage.update(pct,msg)));
                             runOnUiThread(()->{
                                 stage.dismiss();
                                 if(!isFinishing())navigate(()->showFullBackupOperationProgress(job.target,true));
