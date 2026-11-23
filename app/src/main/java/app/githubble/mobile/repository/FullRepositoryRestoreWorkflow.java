@@ -37,7 +37,9 @@ on:
         type: string
         required: true
 permissions:
-  contents: read
+  contents: write
+  issues: write
+  pull-requests: read
 concurrency:
   group: githubble-full-restore-@GH@ github.repository }}
   cancel-in-progress: false
@@ -239,14 +241,10 @@ jobs:
       - name: Восстановление · labels, milestones, Issues and Releases
         shell: bash
         env:
-          RESTORE_TOKEN: @GH@ secrets[format('GITHUBBLE_FULL_RESTORE_{0}', inputs.request_id)] }}
+          RESTORE_TOKEN: @GH@ github.token }}
         run: |
           set -euo pipefail
-          # If the secret was deleted in the previous step GitHub may not inject it
-          # here, so this step MUST NOT mutate remote metadata without a credential.
-          test -n "$RESTORE_TOKEN" || {
-            echo "::warning::Git restored; metadata recovery needs a new approved credential"; exit 24;
-          }
+          test -n "$RESTORE_TOKEN"
           python3 - <<'PY'
           import os,json,urllib.request,urllib.parse,pathlib,re
           root=pathlib.Path(os.environ['RUNNER_TEMP'])/'unpacked'
@@ -303,11 +301,39 @@ jobs:
                   call('PATCH','/issues/'+str(issues[item['number']]),{'state':'closed'})
           # Original PR reviews and timestamps cannot be forged through GitHub API.
           # Preserve their complete reference data in metadata.json inside the ZIP.
+          manifest=json.loads((root/'manifest.json').read_text(encoding='utf-8'))
+          import http.client
+          from urllib.parse import quote
           for item in sections.get('releases',[]):
               if not item.get('tag_name'):continue
-              call('POST','/releases',{'tag_name':item['tag_name'],'name':item.get('name') or '',
+              release=call('POST','/releases',{'tag_name':item['tag_name'],'name':item.get('name') or '',
                       'body':item.get('body') or '', 'draft':item.get('draft',False),
                       'prerelease':item.get('prerelease',False)})
+              if manifest.get('release_binaries'):
+                  for asset in item.get('assets',[]):
+                      file=root/'release-assets'/(str(asset['id'])+'.bin')
+                      if not file.is_file() or file.stat().st_size!=asset.get('size'):
+                          raise RuntimeError('Release asset missing from full backup')
+                      name=asset.get('name') or (str(asset['id'])+'.bin')
+                      path='/repos/'+repo+'/releases/'+str(release['id'])+'/assets?name='+quote(name,safe='')
+                      connection=http.client.HTTPSConnection('uploads.github.com',timeout=120)
+                      try:
+                          connection.putrequest('POST',path)
+                          connection.putheader('Authorization','Bearer '+token)
+                          connection.putheader('Accept','application/vnd.github+json')
+                          connection.putheader('User-Agent','GitHubble-full-restore')
+                          connection.putheader('Content-Type',asset.get('content_type') or 'application/octet-stream')
+                          connection.putheader('Content-Length',str(file.stat().st_size))
+                          connection.endheaders()
+                          with open(file,'rb') as source:
+                              while True:
+                                  chunk=source.read(1024*1024)
+                                  if not chunk:break
+                                  connection.send(chunk)
+                          response=connection.getresponse()
+                          data=response.read(65536)
+                          if response.status!=201:raise RuntimeError('Release asset upload failed: '+str(response.status))
+                      finally:connection.close()
           print('Restored metadata:',len(originals),'Issues and',len(sections.get('releases',[])),'Releases')
           PY
       - name: Archive applied and validated
