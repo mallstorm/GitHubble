@@ -3855,6 +3855,88 @@ public class MainActivity extends Activity {
                 }).show();
     }
 
+    /**
+     * CI Doctor is a native, read-only entry point on an individual failed Actions run.
+     * Reuses account-bound AgentBuildDiagnostics and its bounded, redacted log reader.
+     * Any AI repair remains behind the existing workspace/HEAD/consent gate.
+     */
+    private void showCiDoctor(String repository,long runId){
+        if(!CommitDetailController.validRepository(repository)||runId<=0L){
+            errorDialog("CI Doctor","Некорректный запуск GitHub Actions.");return;
+        }
+        if(!isSignedIn()){accountRequiredCard("Подключите GitHub.");return;}
+        final String account=accountStore.activeCacheKey();
+        final long generation=screenGeneration.get();
+        ProgressDialog progress=ProgressDialog.show(this,"CI Doctor",
+                "Проверяем задания и получаем безопасные фрагменты журналов…",true,false);
+        io.execute(()->{
+            try{
+                AgentBuildDiagnostics service=new AgentBuildDiagnostics(accountStore,secureStore);
+                JSONObject report=service.summarizeWithErrors(account,repository,runId);
+                app.githubble.mobile.build.CiDoctorAdvisor.Advice advice=
+                        app.githubble.mobile.build.CiDoctorAdvisor.explain(
+                                report.optString("failure_class","UNKNOWN"));
+                String conclusion=report.optString("conclusion","");
+                StringBuilder body=new StringBuilder();
+                body.append("Репозиторий: ").append(repository)
+                        .append("\nВетка: ").append(report.optString("branch",""))
+                        .append("\nКоммит: ").append(shortSha(report.optString("sha","")))
+                        .append("\nРезультат: ").append(conclusion.isEmpty()?"выполняется":conclusion);
+                if(!"failure".equals(conclusion)&&!"timed_out".equals(conclusion)){
+                    body.append("\n\nОшибку сборки не подтверждено. Исправление недоступно.");
+                }else{
+                    body.append("\n\nПредварительный диагноз: ").append(advice.title)
+                            .append("\n").append(advice.reason)
+                            .append("\n\nРекомендуемое действие:\n").append(advice.nextStep);
+                    if(advice.transientFailure)body.append("\n\nПовторный запуск возможен вручную после проверки причины.");
+                    if(advice.sourceFixable)body.append("\n\nВозможна подготовка правки через агент с подтверждением.");
+                    JSONArray failed=report.optJSONArray("failures");
+                    for(int i=0;failed!=null&&i<Math.min(8,failed.length());i++){
+                        JSONObject job=failed.optJSONObject(i);if(job==null)continue;
+                        body.append("\n\nЗадание: ").append(job.optString("job",""))
+                                .append("\nШаги: ").append(job.optJSONArray("steps"));
+                    }
+                    if(failed!=null&&failed.length()>8)body.append("\nЧасть заданий не показана.");
+                    String excerpt=report.optString("error_excerpt","");
+                    if(!excerpt.isEmpty()){
+                        if(excerpt.length()>4000)excerpt=excerpt.substring(0,4000)+"\n[Фрагмент сокращён]";
+                        body.append("\n\nЖурнал (известные секреты удалены):\n").append(excerpt);
+                    }
+                }
+                body.append("\n\nДиагноз предварительный. Журналы GitHub могут быть неполными.");
+                final String visible=body.toString();
+                runOnUiThread(()->{
+                    progress.dismiss();
+                    if(generation!=screenGeneration.get()||!account.equals(accountStore.activeCacheKey()))return;
+                    TextView message=text(visible,12,false);
+                    message.setTextIsSelectable(true);
+                    message.setPadding(dp(15),dp(12),dp(15),dp(12));
+                    ScrollView scroll=new ScrollView(this);scroll.addView(message);
+                    AlertDialog.Builder dialog=new AlertDialog.Builder(this)
+                            .setTitle("CI Doctor · #"+runId).setView(scroll)
+                            .setPositiveButton("GitHub Actions",(d,w)->openWeb(
+                                    "https://github.com/"+repository+"/actions/runs/"+runId))
+                            .setNegativeButton("Закрыть",null);
+                    AgentProjectStore.Project project=agentProjects.project(account);
+                    if(advice.sourceFixable&&("failure".equals(conclusion)||"timed_out".equals(conclusion))
+                            &&repository.equals(project.repository)
+                            &&report.optString("branch","").equals(project.branch)){
+                        dialog.setNeutralButton("Исправление через агента",(d,w)->
+                                agentPrepareBuildRepair(account,project,report));
+                    }
+                    dialog.show();
+                });
+            }catch(Exception error){
+                runOnUiThread(()->{
+                    progress.dismiss();
+                    if(generation==screenGeneration.get()&&account.equals(accountStore.activeCacheKey()))
+                        errorDialog("CI Doctor",error.getMessage()==null?
+                                "Не удалось прочитать сведения Actions.":error.getMessage());
+                });
+            }
+        });
+    }
+
     /** Native Actions run and job details; browser is optional for raw log files. */
     private void showBuildRunDetail(String full,long runId){
         if(!CommitDetailController.validRepository(full)||runId<=0){
@@ -3883,6 +3965,13 @@ public class MainActivity extends Activity {
                             run.optString("head_branch","")+" · "+
                             shortSha(run.optString("head_sha",""))+"\nЗапуск: "+
                             formatGitHubDate(run.optString("created_at","")),12,false));
+                    String conclusion=run.optString("conclusion","");
+                    if("failure".equals(conclusion)||"timed_out".equals(conclusion)){
+                        Button doctor=compactButton("CI Doctor  ·  Разобрать ошибку");
+                        doctor.setContentDescription("CI Doctor: диагностика упавшей сборки");
+                        doctor.setOnClickListener(v->showCiDoctor(full,runId));
+                        destination.addView(doctor,new LinearLayout.LayoutParams(-1,dp(48)));
+                    }
                     sectionTitle("Задания · "+details.jobs.length(),null);
                     for(int i=0;i<details.jobs.length();i++){
                         JSONObject job=details.jobs.optJSONObject(i);if(job==null)continue;
