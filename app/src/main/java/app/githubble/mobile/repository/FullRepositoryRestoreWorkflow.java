@@ -133,7 +133,7 @@ jobs:
               for entry in z.infolist():
                   name=entry.filename
                   parts=name.split('/')
-                  if not name or len(name)>300 or name.startswith('/') or '\\' in name or ':' in name or any(p in ('','.', '..') for p in parts):
+                  if not name or len(name)>300 or name.startswith('/') or '\\\\' in name or ':' in name or any(p in ('','.', '..') for p in parts):
                       raise RuntimeError('Unsafe archive entry path')
                   if name!='manifest.json' and not (name in required or name.startswith('lfs/objects/') or name.startswith('release-assets/')):
                       raise RuntimeError('Unrecognized file in ZIP')
@@ -172,8 +172,8 @@ jobs:
           cat > "$RUNNER_TEMP/restore-askpass" <<'ASKPASS'
           #!/bin/sh
           case "$1" in
-            *Username*) printf '%s\n' x-access-token ;;
-            *Password*) printf '%s\n' "$RESTORE_TOKEN" ;;
+            *Username*) printf '%s\\n' x-access-token ;;
+            *Password*) printf '%s\\n' "$RESTORE_TOKEN" ;;
             *) exit 1 ;;
           esac
           ASKPASS
@@ -209,8 +209,8 @@ jobs:
           fi
           # Revoke the staging credential before importing any untrusted workflow.
           SECRET_NAME="GITHUBBLE_FULL_RESTORE_$(echo "$REQUEST_ID" | tr '[:lower:]' '[:upper:]')"
-          curl --fail --silent --show-error -X DELETE -H "Authorization: Bearer $RESTORE_TOKEN" \
-            -H 'Accept: application/vnd.github+json' \
+          curl --fail --silent --show-error -X DELETE -H "Authorization: Bearer $RESTORE_TOKEN" \\
+            -H 'Accept: application/vnd.github+json' \\
             "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/secrets/$SECRET_NAME"
           # An existing main bootstrap is the ONLY ref that may be replaced.
           specs=()
@@ -223,7 +223,7 @@ jobs:
           done < <(git for-each-ref --format='%(refname)' refs/heads refs/tags)
           test "${#specs[@]}" -gt 0
           git push --atomic --force-with-lease="refs/heads/$BOOTSTRAP_BRANCH:$BOOTSTRAP_SHA" "$DST" "${specs[@]}"
-          git show-ref --heads --tags | awk '$2 ~ /^refs\/(heads|tags)\//' > "$RUNNER_TEMP/source-refs.txt"
+          git show-ref --heads --tags | awk '$2 ~ /^refs\\/(heads|tags)\\//' > "$RUNNER_TEMP/source-refs.txt"
           git ls-remote --heads --tags "$DST" > "$RUNNER_TEMP/target-refs.txt"
           python3 - "$RUNNER_TEMP/source-refs.txt" "$RUNNER_TEMP/target-refs.txt" <<'PY'
           import sys
@@ -284,7 +284,7 @@ jobs:
           issues={}
           for item in originals:
               number=item['number']
-              provenance='Restored from '+data['repository']+'/issues/'+str(number)+'\nOriginal author: '+item.get('user',{}).get('login','unknown')+'\nOriginal date: '+item.get('created_at','')+'\n\n'
+              provenance='Restored from '+data['repository']+'/issues/'+str(number)+'\\nOriginal author: '+item.get('user',{}).get('login','unknown')+'\\nOriginal date: '+item.get('created_at','')+'\\n\\n'
               payload={'title':item.get('title') or 'Restored Issue','body':provenance+(item.get('body') or ''),
                        'labels':[x.get('name','') for x in item.get('labels',[]) if x.get('name')]}
               if item.get('milestone') and item['milestone']['number'] in number_map:
@@ -294,7 +294,7 @@ jobs:
               m=re.search(r'/issues/([0-9]+)$',item.get('issue_url',''))
               if not m or int(m.group(1)) not in issues:continue
               new=issues[int(m.group(1))]
-              body='Original comment by '+item.get('user',{}).get('login','unknown')+' ('+item.get('created_at','')+'):\n\n'+(item.get('body') or '')
+              body='Original comment by '+item.get('user',{}).get('login','unknown')+' ('+item.get('created_at','')+'):\\n\\n'+(item.get('body') or '')
               call('POST','/issues/'+str(new)+'/comments',{'body':body})
           for item in originals:
               if item.get('state')=='closed':
