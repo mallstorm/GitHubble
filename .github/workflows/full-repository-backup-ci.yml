@@ -24,3 +24,38 @@ jobs:
           gradle-version: '9.5.1'
       - name: Compile Android, run unit tests and R8 shrink
         run: ./gradlew --no-daemon --max-workers=2 test assembleDebug assembleRelease lintRelease
+      - name: Validate generated full backup and restore YAML
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/backup-test-classes"
+          javac -d "$RUNNER_TEMP/backup-test-classes" \
+            app/src/main/java/app/githubble/mobile/repository/FullRepositoryBackupWorkflow.java \
+            app/src/main/java/app/githubble/mobile/repository/FullRepositoryRestoreWorkflow.java
+          cat > "$RUNNER_TEMP/EmitBackup.java" <<'JAVA'
+          public class EmitBackup {
+              public static void main(String[] args) throws Exception {
+                  java.nio.file.Files.writeString(java.nio.file.Paths.get(args[0]),
+                      app.githubble.mobile.repository.FullRepositoryBackupWorkflow.yaml());
+                  java.nio.file.Files.writeString(java.nio.file.Paths.get(args[1]),
+                      app.githubble.mobile.repository.FullRepositoryRestoreWorkflow.yaml());
+              }
+          }
+          JAVA
+          javac -cp "$RUNNER_TEMP/backup-test-classes" -d "$RUNNER_TEMP/backup-test-classes" "$RUNNER_TEMP/EmitBackup.java"
+          java -cp "$RUNNER_TEMP/backup-test-classes" EmitBackup "$RUNNER_TEMP/full-backup.yml" "$RUNNER_TEMP/full-restore.yml"
+          ruby -ryaml -e '
+            ARGV.each do |f|
+              obj = YAML.load_file(f)
+              jobs = obj.fetch("jobs")
+              abort "no jobs" if jobs.empty?
+              jobs.each_value do |job|
+                job.fetch("steps").each do |step|
+                  next unless step["run"]
+                  File.write("/tmp/full-backup-step.sh",step["run"])
+                  abort "invalid bash script in #{f}" unless system("bash","-n","/tmp/full-backup-step.sh")
+                end
+              end
+              puts "Workflow valid: #{f}"
+            end
+          ' "$RUNNER_TEMP/full-backup.yml" "$RUNNER_TEMP/full-restore.yml"
