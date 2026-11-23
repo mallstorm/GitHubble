@@ -30,6 +30,23 @@ public final class RepositoryMetadataBackupTest {
         assertTrue(names.contains("feature"));
         assertTrue(names.contains("docs"));
     }
+    @Test public void originalRepositoryIsEligibleForSafeMetadataRecovery() {
+        assertTrue(RepositoryMetadataBackup.isOriginalRepository(
+                "mallstorm/Telegram-Premium","mallstorm/Telegram-Premium"));
+        assertTrue(RepositoryMetadataBackup.isOriginalRepository(
+                "MALLSTORM/Telegram-Premium","mallstorm/telegram-premium"));
+        assertFalse(RepositoryMetadataBackup.isOriginalRepository(
+                "mallstorm/Telegram-Premium","marwell4/Telegram-Premium"));
+        assertFalse(RepositoryMetadataBackup.isOriginalRepository(null,"mallstorm/Telegram-Premium"));
+    }
+    @Test public void issueRecoveryOnlyAllowedIntoEmptyEnabledTarget() {
+        assertTrue(RepositoryMetadataBackup.canRecreateIssues(1,0,true));
+        assertTrue(RepositoryMetadataBackup.canRecreateIssues(200,0,true));
+        assertFalse(RepositoryMetadataBackup.canRecreateIssues(0,0,true));
+        assertFalse(RepositoryMetadataBackup.canRecreateIssues(201,0,true));
+        assertFalse(RepositoryMetadataBackup.canRecreateIssues(1,1,true));
+        assertFalse(RepositoryMetadataBackup.canRecreateIssues(1,0,false));
+    }
     @Test public void rejectsEmptyNameRatherThanCreatingBrokenPartialRecords() throws Exception {
         try {
             RepositoryMetadataBackup.countNew(
