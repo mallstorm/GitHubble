@@ -310,6 +310,9 @@ public final class FullRepositoryRestoreController {
         if(!"success".equals(match.optString("conclusion"))){
             j.state="failed";j.error="GitHub Actions: "+match.optString("conclusion");
             j.stage="Восстановление прервано · проверьте Actions и данные назначения";
+            try {FullBackupSecrets.delete(gh,destination,j.id);}
+            catch(Exception cleanup){j.error+="; не удалось удалить временный секрет: "+
+                    cleanup.getClass().getSimpleName();}
             save(j);return j;
         }
         j.state="validating";j.percent=97;j.stage="Архив применён · сверка Git SHA назначения";save(j);
