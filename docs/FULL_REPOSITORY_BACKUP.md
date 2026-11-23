@@ -49,3 +49,5 @@ Percentages are completed workflow stages, not an estimate of bytes or elapsed t
 - Do not merge until Android unit tests, debug/release, R8 and a real two-repository create→download→restore test pass. The source and destination must be disposable test repositories for the end-to-end test.
 
 **Status:** experimental implementation. CI compilation and an actual GitHub Actions backup/restore run are necessary before a release-ready claim.
+
+CI validation trigger: full-backup tests and Android release build required.
