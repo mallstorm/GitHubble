@@ -29,7 +29,7 @@ Do not select repository workflows, credentials, symbolic links, submodules, or 
 
 A GitHub response with truncated trees is treated as an error. Branch heads are checked before and after copying. Any failure after the PR branch was created is shown to the user with the branch name so they can inspect it before retrying.
 
-The parser limits each tree to 15,000 entries. First 200 differences are rendered; all unrendered differences remain unselectable.
+The parser limits each tree to 15,000 entries. A path filter narrows large comparisons; the first 160 matches are rendered per filter, with selections kept while changing the filter.
 
 ## Future: distinct functionality only
 
