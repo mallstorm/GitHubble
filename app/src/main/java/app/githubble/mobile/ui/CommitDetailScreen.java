@@ -43,7 +43,7 @@ public final class CommitDetailScreen {
     private LinearLayout filesHost;
     private LinearLayout expandedPatch;
     private int expandedIndex=-1;
-    private String viewingRepository="", viewingRevision="";
+    private String viewingRepository="", viewingRevision="", firstParentRevision="";
 
     public CommitDetailScreen(Activity activity,LinearLayout host,Actions actions,
                               int card,int foreground,int muted,int accent,int border) {
@@ -94,6 +94,12 @@ public final class CommitDetailScreen {
         id.setTypeface(Typeface.MONOSPACE);
         add(id,0,9);
         JSONArray parents=result.optJSONArray("parents");
+        firstParentRevision="";
+        if(parents!=null&&parents.length()>0){
+            JSONObject firstParent=parents.optJSONObject(0);
+            String first=firstParent==null?"":firstParent.optString("sha","");
+            if(CommitDetailController.validSha(first)) firstParentRevision=first;
+        }
         if(parents!=null&&parents.length()>0) {
             StringBuilder values=new StringBuilder("Родительские коммиты: ");
             for(int i=0;i<Math.min(4,parents.length());i++){
@@ -180,12 +186,16 @@ public final class CommitDetailScreen {
                 expandedIndex=index;
                 more.setText("⌃");
                 renderPatch(file,diffHost);
+                boolean removed="removed".equals(file.optString("status", ""));
+                String restoreFrom=removed?firstParentRevision:viewingRevision;
                 if(actions.canRestoreHistoricalFile()
-                        && !"removed".equals(file.optString("status", ""))
+                        && CommitDetailController.validSha(restoreFrom)
                         && app.githubble.mobile.repository.RepositoryFileComparison.safePath(filename)) {
-                    TextView recover=action("Восстановить эту версию через PR",
+                    TextView recover=action(removed
+                            ?"Вернуть удалённый файл из родительского коммита"
+                            :"Восстановить эту версию через PR",
                             ()->actions.restoreHistoricalFile(
-                                    viewingRepository, viewingRevision, filename));
+                                    viewingRepository, restoreFrom, filename));
                     addTo(diffHost,recover,44,6);
                 }
             });
