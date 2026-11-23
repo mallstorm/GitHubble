@@ -29,6 +29,8 @@ public final class CommitDetailScreen {
         void openParent(String parentSha);
         void openExternalCommit(String fullName,String sha);
         void openRemoteFile(JSONObject file);
+        boolean canRestoreHistoricalFile();
+        void restoreHistoricalFile(String repository, String revision, String path);
     }
 
     private final Activity activity;
@@ -41,6 +43,7 @@ public final class CommitDetailScreen {
     private LinearLayout filesHost;
     private LinearLayout expandedPatch;
     private int expandedIndex=-1;
+    private String viewingRepository="", viewingRevision="";
 
     public CommitDetailScreen(Activity activity,LinearLayout host,Actions actions,
                               int card,int foreground,int muted,int accent,int border) {
@@ -55,6 +58,8 @@ public final class CommitDetailScreen {
     }
 
     public void render(String repo,String sha,CommitDetailController.Detail detail) {
+        viewingRepository=repo;
+        viewingRevision=sha;
         JSONObject result=detail.commit;
         JSONObject gitCommit=result.optJSONObject("commit");
         if(gitCommit==null)gitCommit=new JSONObject();
@@ -175,6 +180,14 @@ public final class CommitDetailScreen {
                 expandedIndex=index;
                 more.setText("⌃");
                 renderPatch(file,diffHost);
+                if(actions.canRestoreHistoricalFile()
+                        && !"removed".equals(file.optString("status", ""))
+                        && app.githubble.mobile.repository.RepositoryFileComparison.safePath(filename)) {
+                    TextView recover=action("Восстановить эту версию через PR",
+                            ()->actions.restoreHistoricalFile(
+                                    viewingRepository, viewingRevision, filename));
+                    addTo(diffHost,recover,44,6);
+                }
             });
             LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,-2);
             params.setMargins(0,0,0,dp(7));
