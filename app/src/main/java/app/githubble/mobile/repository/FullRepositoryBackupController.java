@@ -28,7 +28,7 @@ public final class FullRepositoryBackupController {
     }
 
     public static final class Job {
-        public String id="",repository="",accountId="",defaultBranch="",baselineSha="";
+        public String id="",repository="",accountId="",defaultBranch="",baselineSha="",bootstrapSha="";
         public String state="preparing",stage="Подготовка резервной копии",error="",runUrl="";
         public int percent=0;
         public long runId=0,artifactId=0,artifactBytes=0;
@@ -36,7 +36,7 @@ public final class FullRepositoryBackupController {
         public JSONObject json()throws Exception {
             return new JSONObject().put("id",id).put("repository",repository)
                     .put("accountId",accountId).put("defaultBranch",defaultBranch)
-                    .put("baselineSha",baselineSha).put("state",state)
+                    .put("baselineSha",baselineSha).put("bootstrapSha",bootstrapSha).put("state",state)
                     .put("stage",stage).put("error",error).put("runUrl",runUrl)
                     .put("percent",percent).put("runId",runId).put("artifactId",artifactId)
                     .put("artifactBytes",artifactBytes).put("includeReleases",includeReleases)
@@ -48,6 +48,7 @@ public final class FullRepositoryBackupController {
             j.accountId=v.optString("accountId","");
             j.defaultBranch=v.optString("defaultBranch","");
             j.baselineSha=v.optString("baselineSha","");
+            j.bootstrapSha=v.optString("bootstrapSha","");
             j.state=v.optString("state","preparing");j.stage=v.optString("stage","");
             j.error=v.optString("error","");j.runUrl=v.optString("runUrl","");
             j.percent=v.optInt("percent");j.runId=v.optLong("runId");
@@ -151,6 +152,7 @@ public final class FullRepositoryBackupController {
             String current=head(api,repository,branch);
             if(current.equals(j.baselineSha)&&j.workflowInstalled)
                 throw new IllegalStateException("GitHub пока не опубликовал служебный workflow");
+            j.bootstrapSha=current;save(j);
             JSONObject inputs=new JSONObject()
                     .put("request_id",j.id)
                     .put("source_sha",j.baselineSha)
@@ -235,6 +237,29 @@ public final class FullRepositoryBackupController {
                 j.artifactBytes=artifact.optLong("size_in_bytes");
                 j.percent=100;j.state="ready";
                 j.stage="Архив создан и валидирован · сохраните ZIP вне GitHub";
+                // Remove only the temporary workflow we installed, and only when
+                // the source HEAD is still exactly the known bootstrap commit.
+                // No force-push, no reset, and no deletion of somebody else's file.
+                if(j.workflowInstalled) {
+                    try {
+                        if(j.bootstrapSha.equalsIgnoreCase(head(api,j.repository,j.defaultBranch))) {
+                            String path=API+j.repository+"/contents/"+FullRepositoryBackupWorkflow.PATH;
+                            JSONObject workflow=api.getJsonFresh(path+"?ref="+
+                                java.net.URLEncoder.encode(j.defaultBranch,"UTF-8"));
+                            String actual=new String(Base64.getMimeDecoder().decode(
+                                workflow.optString("content","")),StandardCharsets.UTF_8);
+                            if(FullRepositoryBackupWorkflow.yaml().equals(actual)) {
+                                api.executeText("DELETE",path,new JSONObject()
+                                    .put("message","chore(backup): remove temporary GitHubble workflow")
+                                    .put("branch",j.defaultBranch)
+                                    .put("sha",workflow.getString("sha")).toString(),true);
+                                j.workflowInstalled=false;
+                            }
+                        }
+                    } catch(Exception cleanup) {
+                        j.stage+="\nСлужебный workflow не удалён; проверьте репозиторий.";
+                    }
+                }
                 save(j);return j;
             }
         }
