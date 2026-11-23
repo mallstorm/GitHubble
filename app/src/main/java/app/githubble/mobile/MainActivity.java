@@ -5447,7 +5447,8 @@ public class MainActivity extends Activity {
             limited.setTextColor(MUTED);card(limited);
         }
 
-        TextView disclaimer=text("При восстановлении существующие метки и этапы не перезаписываются. "
+        TextView disclaimer=text("Архив ZIP не шифруется и может содержать приватные задачи: храните его в защищённом месте. "
+                +"При восстановлении существующие метки и этапы не перезаписываются. "
                 +"Задачи создаются заново только по отдельному подтверждению и только "
                 +"если в целевом репозитории ещё нет Issues. Pull Requests и файлы "
                 +"Releases сохраняются в архиве только как справочные данные.",12,false);
@@ -5539,14 +5540,14 @@ public class MainActivity extends Activity {
         frame.setOrientation(LinearLayout.VERTICAL);
         frame.setPadding(dp(20),dp(10),dp(20),dp(8));
         TextView summary=text("Источник: "+archive.manifest.optString("repository")
-                +"\\nНазначение: "+plan.target
-                +"\\nСнимок: "+archive.manifest.optString("created_at")
-                +"\\n\\nНовых меток: "+plan.newLabels+" (уже есть: "+plan.existingLabels+")"
-                +"\\nНовых этапов: "+plan.newMilestones+" (уже есть: "+plan.existingMilestones+")"
-                +"\\nЗадач в архиве: "+plan.issues
-                +"\\nКомментариев: "+plan.comments
-                +"\\nЗадач в назначении: "+plan.existingTargetIssues
-                +"\\n\\nИстория Git и LFS здесь не восстанавливаются. "
+                +"\nНазначение: "+plan.target
+                +"\nСнимок: "+archive.manifest.optString("created_at")
+                +"\n\nНовых меток: "+plan.newLabels+" (уже есть: "+plan.existingLabels+")"
+                +"\nНовых этапов: "+plan.newMilestones+" (уже есть: "+plan.existingMilestones+")"
+                +"\nЗадач в архиве: "+plan.issues
+                +"\nКомментариев: "+plan.comments
+                +"\nЗадач в назначении: "+plan.existingTargetIssues
+                +"\n\nИстория Git и LFS здесь не восстанавливаются. "
                 +"Это отдельная операция Mirror Manager.",13,false);
         frame.addView(summary);
         CheckBox issues=new CheckBox(this);
@@ -5575,10 +5576,10 @@ public class MainActivity extends Activity {
                                 if(!isFinishing())new AlertDialog.Builder(this)
                                         .setTitle("Восстановление завершено")
                                         .setMessage("Добавлено меток: "+done.labels
-                                                +"\\nЭтапов: "+done.milestones
-                                                +"\\nЗадач: "+done.issues
-                                                +"\\nКомментариев: "+done.comments
-                                                +"\\nЗакрыто восстановленных задач: "+done.closed)
+                                                +"\nЭтапов: "+done.milestones
+                                                +"\nЗадач: "+done.issues
+                                                +"\nКомментариев: "+done.comments
+                                                +"\nЗакрыто восстановленных задач: "+done.closed)
                                         .setPositiveButton("Готово",null).show();
                             });
                         } catch(Exception error) {
