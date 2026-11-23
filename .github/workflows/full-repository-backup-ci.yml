@@ -49,7 +49,14 @@ jobs:
           import sys, subprocess, re
           for file in sys.argv[1:]:
               text=open(file).read()
-              assert '${{' in text and '@GH@' not in text, 'Unexpanded GitHub expressions'
+              assert (', 'Unexpanded GitHub expressions'
+              for block in re.findall(r'(?m)^          run: \|\n((?:^(?:            ).*\n|^\n)*)',text):
+                  script='\n'.join(line[12:] for line in block.splitlines())+'\n'
+                  p=subprocess.run(['bash','-n'],input=script,text=True,capture_output=True)
+                  if p.returncode: raise RuntimeError(file+': '+p.stderr)
+              print('Generated bash syntax valid:',file)
+          PY
++'{{') in text and '@GH@' not in text, 'Unexpanded GitHub expressions'
               for block in re.findall(r'(?m)^          run: \|\n((?:^(?:            ).*\n|^\n)*)',text):
                   script='\n'.join(line[12:] for line in block.splitlines())+'\n'
                   p=subprocess.run(['bash','-n'],input=script,text=True,capture_output=True)
