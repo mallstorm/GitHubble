@@ -40,6 +40,7 @@ import app.githubble.mobile.mirror.GoogleMirrorCloudStore;
 import app.githubble.mobile.mirror.MirrorCloudStore;
 import app.githubble.mobile.ui.MirrorManagerScreen;
 import app.githubble.mobile.ui.MirrorSetupWizardScreen;
+import app.githubble.mobile.ui.RepositoryComparisonScreen;
 import app.githubble.mobile.auth.GitHubAppInstallationGate;
 import app.githubble.mobile.auth.DeviceCodeAssist;
 import app.githubble.mobile.network.GitHubApiClient;
@@ -5117,6 +5118,8 @@ public class MainActivity extends Activity {
                 repoActionCard(actions,R.drawable.ic_settings,"Управление","Настройки проекта",()->navigate(()->showRepositoryAdmin(full,r)));
             }
             repoActionCard(actions,R.drawable.ic_repository,"Mirror Manager","Копия на другом аккаунте",()->navigate(()->showMirrorManager(full)));
+            if(isSignedIn())
+                repoActionCard(actions,R.drawable.ic_repository,"Сравнить файлы","Выборочный перенос через PR",()->navigate(()->showRepositoryComparison(full)));
             // External import is offered only for public repos owned by OTHER people,
             // not for any GitHub account connected to this GitHubble installation.
             boolean ownConnectedRepository=false;
@@ -5159,6 +5162,14 @@ public class MainActivity extends Activity {
             repoActionCard(actions,R.drawable.ic_history,"Центр наблюдения","Ваша активность",()->navigate(this::showTracking));
             content.addView(actions);
             repoReadmePreview(full,finalReadme);
+    }
+
+    /** New capability: per-file diff and selective draft PR, not full Mirror Manager sync. */
+    private void showRepositoryComparison(String full) {
+        setCurrentScreen(() -> showRepositoryComparison(full));
+        shell("Сравнение файлов",true);
+        RepositoryComparisonScreen.render(this,content,accountStore,full,
+                CARD,TEXT,MUTED,GREEN,BORDER,io,this::openWeb);
     }
 
     private void showRepository(String full){
