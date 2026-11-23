@@ -94,3 +94,5 @@ GitHub API mutations. If some data was removed, only missing labels or milestone
 are recreated. Existing Issues are never duplicated; with any current Issues the
 optional recreation is disabled, even if some old Issues are missing. No branch,
 tag, release binary or Pull Request is modified by metadata recovery.
+
+Validation: same-repository metadata recovery is covered by RepositoryMetadataBackupTest and must pass Android/Release checks before merge.
