@@ -187,14 +187,14 @@ public final class RepositoryComparisonScreen {
         summary.addView(text(activity, comparison.source + " (" + comparison.sourceBranch + ")"
                 + "\n→ " + comparison.destination + " (" + comparison.destinationBranch + ")",
                 13, muted, false));
-        int add = 0, change = 0, onlyDest = 0, available = 0;
+        int add = 0, modifiedCount = 0, onlyDest = 0, available = 0;
         for (RepositoryFileComparison.Delta item : comparison.changes) {
             if (RepositoryFileComparison.ADD.equals(item.status)) add++;
-            else if (RepositoryFileComparison.UPDATE.equals(item.status)) change++;
+            else if (RepositoryFileComparison.UPDATE.equals(item.status)) modifiedCount++;
             else onlyDest++;
             if (item.selectable()) available++;
         }
-        summary.addView(text(activity, "Новых: " + add + " · Изменённых: " + change
+        summary.addView(text(activity, "Новых: " + add + " · Изменённых: " + modifiedCount
                 + " · Только в назначении: " + onlyDest, 13, colorText, false));
         summary.addView(text(activity, "Доступно для выбора: " + available
                 + " · максимум 12 файлов / 4 МиБ. Целевые файлы не удаляются.",
