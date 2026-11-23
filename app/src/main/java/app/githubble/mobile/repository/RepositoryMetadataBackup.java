@@ -157,7 +157,7 @@ public final class RepositoryMetadataBackup {
     }
 
     /** Source and destination may be identical: this is a recovery operation, not a Git copy. */
-    static boolean isOriginalRepository(String archivedRepository,String destination) {
+    public static boolean isOriginalRepository(String archivedRepository,String destination) {
         return archivedRepository!=null && destination!=null
                 && archivedRepository.equalsIgnoreCase(destination);
     }
