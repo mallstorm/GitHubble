@@ -156,6 +156,18 @@ public final class RepositoryMetadataBackup {
         return result;
     }
 
+    /** Source and destination may be identical: this is a recovery operation, not a Git copy. */
+    static boolean isOriginalRepository(String archivedRepository,String destination) {
+        return archivedRepository!=null && destination!=null
+                && archivedRepository.equalsIgnoreCase(destination);
+    }
+
+    /** Restoring Issues is non-idempotent. Never recreate them into a non-empty repository. */
+    static boolean canRecreateIssues(int archivedIssues,int targetIssues,boolean issuesEnabled) {
+        return archivedIssues>0 && archivedIssues<=MAX_RESTORE_ISSUES
+                && targetIssues==0 && issuesEnabled;
+    }
+
     static int countNew(JSONArray imported,Set<String> existing,String key) throws Exception {
         int count=0;
         for(int i=0;i<imported.length();i++) {
@@ -170,8 +182,8 @@ public final class RepositoryMetadataBackup {
     public Plan preview(RepositoryBackupArchive.Archive backup,
                         String target,String accountId) throws Exception {
         MirrorPolicy.requireRepository(target);
-        if(backup.manifest.optString("repository").equalsIgnoreCase(target))
-            throw new IllegalArgumentException("Нельзя восстановить архив в исходный репозиторий");
+        // A same-repository restore is valid. It remains additive: existing labels and
+        // milestones are never replaced, and Issue creation requires an empty target.
         GitHubAccountStore.Account a=account(accountId);
         if(!target.substring(0,target.indexOf('/')).equalsIgnoreCase(a.login))
             throw new SecurityException("Репозиторий назначения не принадлежит выбранному аккаунту");
@@ -198,8 +210,7 @@ public final class RepositoryMetadataBackup {
         return new Plan(target,accountId,sha,newLabels,oldLabels.length()-newLabels,
                 newMilestones,oldMilestones.length()-newMilestones,
                 issueCount,commentCount,totalIssues,
-                totalIssues==0&&issueCount<=MAX_RESTORE_ISSUES
-                        &&repo.optBoolean("has_issues",true));
+                canRecreateIssues(issueCount,totalIssues,repo.optBoolean("has_issues",true)));
     }
 
     /**
@@ -215,7 +226,8 @@ public final class RepositoryMetadataBackup {
                 ||latest.newLabels!=accepted.newLabels
                 ||latest.newMilestones!=accepted.newMilestones
                 ||latest.existingTargetIssues!=accepted.existingTargetIssues
-                ||latest.issues!=accepted.issues)
+                ||latest.issues!=accepted.issues
+                ||latest.issueRestoreAllowed!=accepted.issueRestoreAllowed)
             throw new IllegalStateException("Репозиторий изменён после предпросмотра. Повторите проверку");
         if(includeIssues&&!latest.issueRestoreAllowed)
             throw new SecurityException("Issues можно восстановить только в пустой по задачам "
