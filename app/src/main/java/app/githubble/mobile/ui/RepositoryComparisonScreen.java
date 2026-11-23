@@ -4,6 +4,8 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.ProgressDialog;
 import android.graphics.Typeface;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.graphics.drawable.GradientDrawable;
 import android.view.Gravity;
 import android.view.View;
@@ -213,51 +215,81 @@ public final class RepositoryComparisonScreen {
         TextView counter = text(activity, "Выбрано: 0 файлов", 13, colorText, true);
         list.addView(counter);
 
-        int preview = Math.min(200, comparison.changes.size());
-        for (int i = 0; i < preview; i++) {
-            RepositoryFileComparison.Delta change = comparison.changes.get(i);
-            String mode = RepositoryFileComparison.ADD.equals(change.status) ? "Добавить"
-                    : RepositoryFileComparison.UPDATE.equals(change.status) ? "Обновить"
-                    : "Только в назначении";
-            if (!change.selectable()) {
-                TextView disabled = text(activity, mode + " · " + change.path
-                        + "\n" + change.disabledReason, 12, muted, false);
-                list.addView(disabled);
-            } else {
-                CheckBox item = new CheckBox(activity);
-                item.setText(mode + " · " + change.path + "  (" + change.source.size + " Б)");
-                item.setTextSize(13);
-                item.setTextColor(colorText);
-                item.setPadding(0, dp(activity, 5), 0, dp(activity, 5));
-                item.setOnCheckedChangeListener((button, checked) -> {
-                    if (checked) {
-                        long total = change.source.size;
-                        for (RepositoryFileComparison.Delta existing : comparison.changes)
-                            if (selected.contains(existing.path)) total += existing.source.size;
-                        if (selected.size() >= RepositoryFileComparison.MAX_SELECTED_FILES
-                                || total > RepositoryFileComparison.MAX_SELECTED_BYTES) {
-                            button.setChecked(false);
-                            Toast.makeText(activity, "Лимит 12 файлов / 4 МиБ", Toast.LENGTH_SHORT).show();
-                            return;
-                        }
-                        selected.add(change.path);
-                    } else selected.remove(change.path);
-                    counter.setText("Выбрано: " + selected.size() + " файлов");
-                });
-                list.addView(item);
+        EditText filter = new EditText(activity);
+        filter.setSingleLine(true);
+        filter.setHint("Фильтр по пути файла или папки");
+        filter.setTextSize(13);
+        list.addView(filter);
+        LinearLayout visible = new LinearLayout(activity);
+        visible.setOrientation(LinearLayout.VERTICAL);
+        list.addView(visible);
+        final int pageLimit = 160;
+
+        Runnable refresh = () -> {
+            visible.removeAllViews();
+            String needle = filter.getText().toString().trim().toLowerCase(java.util.Locale.ROOT);
+            int shown = 0, matched = 0;
+            for (RepositoryFileComparison.Delta change : comparison.changes) {
+                if (!needle.isEmpty() && !change.path.toLowerCase(java.util.Locale.ROOT)
+                        .contains(needle)) continue;
+                matched++;
+                if (shown >= pageLimit) continue;
+                shown++;
+                String mode = RepositoryFileComparison.ADD.equals(change.status) ? "Добавить"
+                        : RepositoryFileComparison.UPDATE.equals(change.status) ? "Обновить"
+                        : "Только в назначении";
+                if (!change.selectable()) {
+                    visible.addView(text(activity, mode + " · " + change.path
+                            + "\n" + change.disabledReason, 12, muted, false));
+                } else {
+                    CheckBox item = new CheckBox(activity);
+                    item.setText(mode + " · " + change.path + " (" + change.source.size + " Б)");
+                    item.setTextSize(13);
+                    item.setTextColor(colorText);
+                    item.setPadding(0, dp(activity, 5), 0, dp(activity, 5));
+                    item.setChecked(selected.contains(change.path));
+                    item.setOnCheckedChangeListener((button, checked) -> {
+                        if (checked) {
+                            long total = change.source.size;
+                            for (RepositoryFileComparison.Delta existing : comparison.changes)
+                                if (selected.contains(existing.path)) total += existing.source.size;
+                            if (selected.size() >= RepositoryFileComparison.MAX_SELECTED_FILES
+                                    || total > RepositoryFileComparison.MAX_SELECTED_BYTES) {
+                                button.setChecked(false);
+                                Toast.makeText(activity, "Лимит 12 файлов / 4 МиБ",
+                                        Toast.LENGTH_SHORT).show();
+                                return;
+                            }
+                            selected.add(change.path);
+                        } else selected.remove(change.path);
+                        counter.setText("Выбрано: " + selected.size() + " файлов");
+                    });
+                    visible.addView(item);
+                }
             }
-        }
-        if (comparison.changes.size() > preview) {
-            list.addView(text(activity, "Показаны первые " + preview + " изменений из "
-                    + comparison.changes.size() + ". Для остальных файлов нужен "
-                    + "более узкий набор репозиториев.", 12, muted, false));
-        }
+            if (matched > shown)
+                visible.addView(text(activity, "Показаны первые " + shown + " из " + matched
+                        + " совпадений. Уточните фильтр, чтобы выбрать другие файлы.",
+                        12, muted, false));
+            if (matched == 0)
+                visible.addView(text(activity, "По этому фильтру файлов нет",
+                        12, muted, false));
+        };
+        filter.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
+                refresh.run();
+            }
+            @Override public void afterTextChanged(Editable e) { }
+        });
+        refresh.run();
         panel(activity, host, list, card, border);
 
         Button stage = new Button(activity);
         stage.setAllCaps(false);
         stage.setText("Подготовить Draft Pull Request");
         host.addView(stage, new LinearLayout.LayoutParams(-1, dp(activity, 52)));
+        if (comparison.sourcePrivate && !comparison.destinationPrivate) stage.setEnabled(false);
         stage.setOnClickListener(view -> {
             if (selected.isEmpty()) {
                 Toast.makeText(activity, "Отметьте нужные файлы", Toast.LENGTH_SHORT).show();
