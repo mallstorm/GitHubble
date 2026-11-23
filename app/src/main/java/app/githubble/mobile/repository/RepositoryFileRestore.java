@@ -186,7 +186,7 @@ public final class RepositoryFileRestore {
                 api, snapshot.repository, snapshot.branchSha, snapshot.path);
         requireRestorable(old, current);
         if (!old.sha.equals(snapshot.oldBlobSha) || !old.mode.equals(snapshot.oldMode)
-                || (current == null) != !snapshot.currentlyExists
+                || (current != null) != snapshot.currentlyExists
                 || (current != null && (!current.sha.equals(snapshot.currentBlobSha)
                     || !current.mode.equals(snapshot.currentMode))))
             throw new IllegalStateException("Версия файла изменилась. Повторите проверку");
