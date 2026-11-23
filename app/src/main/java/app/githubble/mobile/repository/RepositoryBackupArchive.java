@@ -4,6 +4,9 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
+import java.io.FilterInputStream;
+import java.io.FilterOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
@@ -52,6 +55,36 @@ public final class RepositoryBackupArchive {
         }
     }
 
+    private static final class BoundedInput extends FilterInputStream {
+        private long count;
+        BoundedInput(InputStream input) { super(input); }
+        private void add(int n) throws IOException {
+            if(n>0&&(count+=n)>MAX_ARCHIVE_BYTES)
+                throw new IOException("ZIP превышает 24 МиБ");
+        }
+        @Override public int read() throws IOException {
+            int b=super.read();if(b!=-1)add(1);return b;
+        }
+        @Override public int read(byte[] bytes,int offset,int length) throws IOException {
+            int n=super.read(bytes,offset,length);add(n);return n;
+        }
+    }
+
+    private static final class BoundedOutput extends FilterOutputStream {
+        private long count;
+        BoundedOutput(OutputStream output) { super(output); }
+        private void add(int n) throws IOException {
+            if(n>0&&(count+=n)>MAX_ARCHIVE_BYTES)
+                throw new IOException("Сжатый ZIP превышает 24 МиБ");
+        }
+        @Override public void write(int b) throws IOException {
+            add(1);out.write(b);
+        }
+        @Override public void write(byte[] bytes,int offset,int length) throws IOException {
+            add(length);out.write(bytes,offset,length);
+        }
+    }
+
     static String sha256(byte[] bytes) throws Exception {
         byte[] digest=MessageDigest.getInstance("SHA-256").digest(bytes);
         StringBuilder str=new StringBuilder();
@@ -96,7 +129,7 @@ public final class RepositoryBackupArchive {
                     .put("bytes",raw.length));
         }
         manifest.put("entries",hashes);
-        try(ZipOutputStream zip=new ZipOutputStream(output)) {
+        try(ZipOutputStream zip=new ZipOutputStream(new BoundedOutput(output))) {
             zip.setLevel(6);
             for(Map.Entry<String,byte[]> e:bytes.entrySet()) {
                 zip.putNextEntry(new ZipEntry(e.getKey()));
@@ -117,7 +150,7 @@ public final class RepositoryBackupArchive {
         for(String s:SECTIONS)allow.add(file(s));
         allow.add("manifest.json");
         long total=0;
-        try(ZipInputStream zip=new ZipInputStream(input)) {
+        try(ZipInputStream zip=new ZipInputStream(new BoundedInput(input))) {
             ZipEntry entry;
             while((entry=zip.getNextEntry())!=null) {
                 String name=entry.getName();
