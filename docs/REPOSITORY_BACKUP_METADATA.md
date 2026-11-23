@@ -45,7 +45,11 @@ Before writing GitHub data, the app:
 - verifies all ZIP entries and SHA-256 checksums; rejects unknown entries,
   duplicates, malformed files and overlarge/untrusted ZIPs;
 - checks the chosen destination belongs to a connected GitHub account and has
-  write permission; rejects restore to the source repo itself;
+  write permission; **the original source repository is allowed** for additive
+  recovery of missing metadata (e.g. after accidentally removing labels);
+- same-source restoration never rewrites surviving metadata: existing labels
+  and milestones are skipped, Issues are recreated only when zero Issues remain
+  in the destination and the user opts in separately;
 - **blocks** a private archive going into a public repository;
 - previews exact numbers of missing / existing labels and milestones;
 - restores only missing labels and milestones, never overwriting existing
@@ -80,3 +84,13 @@ GitHub mutations; a failure reports what was created and requires inspection.
 Server-hosted scheduled immutable Git bundle backups, incremental binary LFS
 archives, encrypted offsite backups, and full-fidelity GitHub PR/Release recovery
 are separate projects; do not promise them based on this metadata archive.
+
+## Same-repository recovery (fix)
+
+A ZIP exported from `mallstorm/Telegram-Premium` can be selected while viewing
+that *same* repository. Preview first compares labels and milestones by normalized
+names/titles. If nothing is missing, choosing Restore without Issues makes no
+GitHub API mutations. If some data was removed, only missing labels or milestones
+are recreated. Existing Issues are never duplicated; with any current Issues the
+optional recreation is disabled, even if some old Issues are missing. No branch,
+tag, release binary or Pull Request is modified by metadata recovery.
