@@ -1,0 +1,90 @@
+name: GitHubble Full Backup branch CI
+on:
+  push:
+    branches: [feature/full-repository-backup]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'ndk;28.2.13676358'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.1'
+      - name: Compile Android, run unit tests and R8 shrink
+        run: ./gradlew --no-daemon --max-workers=2 test assembleDebug assembleRelease lintRelease
+      - name: Validate generated full backup and restore YAML
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/backup-test-classes"
+          javac -d "$RUNNER_TEMP/backup-test-classes" \
+            app/src/main/java/app/githubble/mobile/repository/FullRepositoryBackupWorkflow.java \
+            app/src/main/java/app/githubble/mobile/repository/FullRepositoryRestoreWorkflow.java
+          cat > "$RUNNER_TEMP/EmitBackup.java" <<'JAVA'
+          public class EmitBackup {
+              public static void main(String[] args) throws Exception {
+                  java.nio.file.Files.writeString(java.nio.file.Paths.get(args[0]),
+                      app.githubble.mobile.repository.FullRepositoryBackupWorkflow.yaml());
+                  java.nio.file.Files.writeString(java.nio.file.Paths.get(args[1]),
+                      app.githubble.mobile.repository.FullRepositoryRestoreWorkflow.yaml());
+              }
+          }
+          JAVA
+          javac -cp "$RUNNER_TEMP/backup-test-classes" -d "$RUNNER_TEMP/backup-test-classes" "$RUNNER_TEMP/EmitBackup.java"
+          java -cp "$RUNNER_TEMP/backup-test-classes" EmitBackup "$RUNNER_TEMP/full-backup.yml" "$RUNNER_TEMP/full-restore.yml"
+          ruby -ryaml -e '
+            ARGV.each do |f|
+              obj = YAML.load_file(f)
+              jobs = obj.fetch("jobs")
+              abort "no jobs" if jobs.empty?
+              jobs.each_value do |job|
+                job.fetch("steps").each do |step|
+                  next unless step["run"]
+                  File.write("/tmp/full-backup-step.sh",step["run"])
+                  abort "invalid bash script in #{f}" unless system("bash","-n","/tmp/full-backup-step.sh")
+                end
+              end
+              puts "Workflow valid: #{f}"
+            end
+          ' "$RUNNER_TEMP/full-backup.yml" "$RUNNER_TEMP/full-restore.yml"
+      - name: Publish installable test APK and SHA-256 checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          source version.properties
+          mkdir -p dist-full-backup
+          name="GitHubble-${VERSION_NAME}-full-backup-${GITHUB_SHA:0:12}-debug.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk "dist-full-backup/$name"
+          test -s "dist-full-backup/$name"
+          "${ANDROID_HOME}/build-tools/36.0.0/apksigner" verify --verbose --print-certs "dist-full-backup/$name" > dist-full-backup/APK_VERIFICATION.txt
+          python3 - "dist-full-backup/$name" <<'PY'
+          import sys,zipfile
+          with zipfile.ZipFile(sys.argv[1]) as apk:
+              libs=[name for name in apk.namelist() if name.startswith('lib/') and name.endswith('.so')]
+              assert 'lib/arm64-v8a/libgojni.so' in libs, 'ARM64 Xray not found'
+              assert all(name.startswith('lib/arm64-v8a/') for name in libs), 'Wrong ABI: '+str(libs)
+          PY
+          (cd dist-full-backup && sha256sum *.apk > SHA256SUMS.txt)
+          printf '%s\n' "$GITHUB_SHA" > dist-full-backup/SOURCE_COMMIT.txt
+          printf '%s\n' 'DEBUG TEST BUILD. app.githubble.mobile.debug, not production-signed. Cannot update the release APK in-place.' > dist-full-backup/INSTALL_NOTES.txt
+
+      - name: Upload GitHubble test APK to this Actions run
+        uses: actions/upload-artifact@v4
+        with:
+          name: GitHubble-FullBackup-Debug-${{ github.sha }}
+          path: dist-full-backup/*
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0

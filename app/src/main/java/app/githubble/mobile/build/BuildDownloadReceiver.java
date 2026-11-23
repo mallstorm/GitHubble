@@ -64,6 +64,13 @@ public final class BuildDownloadReceiver extends BroadcastReceiver {
                 }
                 BuildMonitor.downloadFinished(context,info,true);
             }
+            // Full repository archives are not APK builds. Never scan multi-GB Git/LFS
+            // bundles for APKs or publish misleading package-verification records.
+            if(info.optString("name","").startsWith("githubble-full-")){
+                notify(context,"Резервная копия сохранена",
+                        "Полный ZIP в Загрузках/GitHubble. Храните вне исходного GitHub.",null,id);
+                return;
+            }
             if(Build.VERSION.SDK_INT<29){
                 notify(context,"Артефакт скачан",info.optString("name","")+
                         " — откройте ZIP в Загрузках/GitHubble",null,id);

@@ -40,6 +40,7 @@ import app.githubble.mobile.mirror.GoogleMirrorCloudStore;
 import app.githubble.mobile.mirror.MirrorCloudStore;
 import app.githubble.mobile.ui.MirrorManagerScreen;
 import app.githubble.mobile.ui.MirrorSetupWizardScreen;
+import app.githubble.mobile.ui.RepositoryComparisonScreen;
 import app.githubble.mobile.auth.GitHubAppInstallationGate;
 import app.githubble.mobile.auth.DeviceCodeAssist;
 import app.githubble.mobile.network.GitHubApiClient;
@@ -113,6 +114,13 @@ import app.githubble.mobile.search.SearchMode;
 import app.githubble.mobile.search.SearchFilters;
 import app.githubble.mobile.search.AdvancedSearchPlanner;
 import app.githubble.mobile.repository.RepositoryStore;
+import app.githubble.mobile.repository.RepositorySelectiveTransfer;
+import app.githubble.mobile.repository.RepositoryFileRestore;
+import app.githubble.mobile.repository.RepositoryBackupArchive;
+import app.githubble.mobile.repository.RepositoryMetadataBackup;
+import app.githubble.mobile.repository.FullRepositoryBackupController;
+import app.githubble.mobile.repository.FullRepositoryRestoreController;
+import app.githubble.mobile.repository.PortableRepositoryArchive;
 import app.githubble.mobile.activity.RepositoryActivityFeed;
 
 public class MainActivity extends Activity {
@@ -289,6 +297,9 @@ public class MainActivity extends Activity {
     private static final int REQUEST_REPOSITORY_FOLDER = 2710;
     private static final int REQUEST_REPOSITORY_ZIP = 2711;
     private static final int REQUEST_REPOSITORY_FILE = 2712;
+    private static final int REQUEST_EXPORT_REPO_METADATA = 2730;
+    private static final int REQUEST_IMPORT_REPO_METADATA = 2731;
+    private static final int REQUEST_IMPORT_REPO_FULL = 2732;
     private static final int REQUEST_VOICE_AUDIO = 2720;
     private static final int REQUEST_LOCAL_AVATAR = 2721;
     private static final int REQUEST_SETTINGS_NOTIFICATIONS = 2722;
@@ -300,6 +311,8 @@ public class MainActivity extends Activity {
     private String pendingAvatarAccount = "";
     private ImageView profileEditorAvatar;
     private String pendingPortableExport = "";
+    private JSONObject pendingRepositoryBackup = null;
+    private String pendingRepositoryBackupTarget = "";
     private String pendingUserDataExport = "";
     private String pendingRepositoryImportFull = "";
     private String pendingRepositoryImportBranch = "main";
@@ -5117,6 +5130,10 @@ public class MainActivity extends Activity {
                 repoActionCard(actions,R.drawable.ic_settings,"Управление","Настройки проекта",()->navigate(()->showRepositoryAdmin(full,r)));
             }
             repoActionCard(actions,R.drawable.ic_repository,"Mirror Manager","Копия на другом аккаунте",()->navigate(()->showMirrorManager(full)));
+            if(isSignedIn())
+                repoActionCard(actions,R.drawable.ic_repository,"Сравнить файлы","Выборочный перенос через PR",()->navigate(()->showRepositoryComparison(full)));
+            if(isSignedIn())
+                repoActionCard(actions,R.drawable.ic_history,"Архив репозитория","Git и GitHub-метаданные",()->navigate(()->showRepositoryBackup(full)));
             // External import is offered only for public repos owned by OTHER people,
             // not for any GitHub account connected to this GitHubble installation.
             boolean ownConnectedRepository=false;
@@ -5159,6 +5176,14 @@ public class MainActivity extends Activity {
             repoActionCard(actions,R.drawable.ic_history,"Центр наблюдения","Ваша активность",()->navigate(this::showTracking));
             content.addView(actions);
             repoReadmePreview(full,finalReadme);
+    }
+
+    /** New capability: per-file diff and selective draft PR, not full Mirror Manager sync. */
+    private void showRepositoryComparison(String full) {
+        setCurrentScreen(() -> showRepositoryComparison(full));
+        shell("Сравнение файлов",true);
+        RepositoryComparisonScreen.render(this,content,accountStore,full,
+                CARD,TEXT,MUTED,GREEN,BORDER,io,this::openWeb);
     }
 
     private void showRepository(String full){
@@ -5388,6 +5413,483 @@ public class MainActivity extends Activity {
             showMirrorSetupWizard();
             toast("Облачный реестр отключён; локальные связи сохранены");
         }catch(Exception e){errorDialog("Отключение облака",e.getMessage());}
+    }
+
+    /** Portable full repository ZIP, optional lightweight metadata ZIP and Mirror Manager. */
+    private void showRepositoryBackup(String full) {
+        if(!CommitDetailController.validRepository(full))return;
+        setCurrentScreen(()->showRepositoryBackup(full));
+        shell("Архив репозитория",true);
+        repoSectionHeader(full,"Резервное копирование","Git и данные GitHub",R.drawable.ic_history);
+
+        TextView note=text("Полная резервная копия содержит Git-историю, все ветки, теги, "
+                +"LFS, метки, задачи, комментарии и сведения Releases/PR. APK и файлы релизов "
+                +"можно включить отдельно. ZIP нужно скачать на телефон или в облако: "
+                +"артефакты GitHub Actions хранятся ограниченное время. "
+                +"Git-подмодули сохраняются как ссылки на внешние репозитории; "
+                +"для автономного восстановления их содержимое нужно архивировать отдельно.",13,false);
+        note.setTextColor(MUTED);
+        card(note);
+
+        sectionTitle("Полная резервная копия",null);
+        Button fullCopy=button("Создать полную копию репозитория");
+        fullCopy.setOnClickListener(v->startFullRepositoryBackup(full));
+        content.addView(fullCopy,new LinearLayout.LayoutParams(-1,dp(52)));
+        Button fullImport=button("Восстановить полную копию из ZIP");
+        fullImport.setOnClickListener(v->selectFullRepositoryArchive());
+        content.addView(fullImport,new LinearLayout.LayoutParams(-1,dp(52)));
+        FullRepositoryBackupController.Job lastFull=
+                new FullRepositoryBackupController(this,accountStore).latest(full);
+        if(lastFull!=null&&!lastFull.id.isEmpty()){
+            Button recent=compactButton("Последняя полная копия · "+lastFull.percent+"%");
+            recent.setOnClickListener(v->navigate(()->showFullBackupOperationProgress(full,false)));
+            content.addView(recent,new LinearLayout.LayoutParams(-1,dp(48)));
+        }
+
+        sectionTitle("История и исходники",null);
+        Button git=button("Открыть Mirror Manager · Git / LFS");
+        git.setOnClickListener(v->navigate(()->showMirrorManager(full)));
+        content.addView(git,new LinearLayout.LayoutParams(-1,dp(52)));
+
+        sectionTitle("Лёгкий архив · только метаданные",null);
+        Button export=button("Экспортировать GitHub-метаданные в ZIP");
+        export.setOnClickListener(v->startRepositoryMetadataExport(full));
+        content.addView(export,new LinearLayout.LayoutParams(-1,dp(52)));
+
+        String owner=full.substring(0,full.indexOf('/'));
+        boolean ours=false;
+        for(GitHubAccountStore.Account a:accountStore.listAccounts())
+            if(owner.equalsIgnoreCase(a.login)){ours=true;break;}
+        if(ours){
+            Button restore=button("Восстановить метаданные из ZIP");
+            restore.setOnClickListener(v->startRepositoryMetadataImport(full));
+            content.addView(restore,new LinearLayout.LayoutParams(-1,dp(52)));
+        } else {
+            TextView limited=text("Восстановление доступно в репозитории подключённого аккаунта-владельца.",12,false);
+            limited.setTextColor(MUTED);card(limited);
+        }
+
+        TextView disclaimer=text("Архив ZIP не шифруется и может содержать приватные задачи: храните его в защищённом месте. "
+                +"При восстановлении существующие метки и этапы не перезаписываются. "
+                +"Задачи создаются заново только по отдельному подтверждению и только "
+                +"если в целевом репозитории ещё нет Issues. Pull Requests и файлы "
+                +"Releases сохраняются в архиве только как справочные данные.",12,false);
+        disclaimer.setTextColor(MUTED);card(disclaimer);
+    }
+
+    private GitHubAccountStore.Account backupAccount(String full,boolean ownerRequired) {
+        String owner=full.substring(0,full.indexOf('/'));
+        for(GitHubAccountStore.Account a:accountStore.listAccounts())
+            if(owner.equalsIgnoreCase(a.login))return a;
+        if(ownerRequired)throw new IllegalStateException(
+                "Не подключён аккаунт владельца репозитория "+full);
+        GitHubAccountStore.Account active=accountStore.activeAccount();
+        if(active==null)throw new IllegalStateException("GitHub-аккаунт не подключён");
+        return active;
+    }
+
+    /** Horizontal task progress with stage description positioned below the bar. */
+    private static final class FullProgressUi {
+        final AlertDialog dialog;
+        final ProgressBar progress;
+        final TextView detail;
+        FullProgressUi(AlertDialog dialog,ProgressBar progress,TextView detail){
+            this.dialog=dialog;this.progress=progress;this.detail=detail;
+        }
+        void update(int percentage,String text){
+            progress.setProgress(Math.max(0,Math.min(100,percentage)));
+            detail.setText(text);
+        }
+        void dismiss(){dialog.dismiss();}
+    }
+
+    private FullProgressUi showFullProgressDialog(String title,String initial){
+        LinearLayout panel=new LinearLayout(this);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setPadding(dp(20),dp(16),dp(20),dp(16));
+        ProgressBar bar=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);
+        bar.setMax(100);bar.setProgress(0);
+        panel.addView(bar,new LinearLayout.LayoutParams(-1,dp(12)));
+        TextView label=text(initial,13,false);
+        label.setTextColor(MUTED);
+        LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,-2);
+        params.setMargins(0,dp(14),0,0);
+        panel.addView(label,params);
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle(title)
+                .setView(panel).setCancelable(false).create();
+        dialog.show();
+        return new FullProgressUi(dialog,bar,label);
+    }
+
+    /** Native backup wizard; the heavy Git and LFS work runs in GitHub Actions. */
+    private void startFullRepositoryBackup(String repository) {
+        GitHubAccountStore.Account owner;
+        try {owner=backupAccount(repository,true);}
+        catch(Exception error){errorDialog("Полная копия",error.getMessage());return;}
+        CheckBox releases=new CheckBox(this);
+        releases.setText("Также сохранять APK и файлы Releases (увеличит размер)");
+        releases.setTextSize(13);
+        releases.setPadding(dp(16),dp(8),dp(16),dp(8));
+        new AlertDialog.Builder(this).setTitle("Создание резервной копии репозитория")
+                .setMessage("Полный Git bundle, ветки, теги, LFS и метаданные. "
+                        +"GitHub Actions создаст ZIP, который нужно сохранить вне репозитория. "
+                        +"Для запуска добавляется служебный workflow в основную ветку.")
+                .setView(releases)
+                .setNegativeButton("Отмена",null)
+                .setPositiveButton("Создать",(dialog,which)->{
+                    final boolean includeReleases=releases.isChecked();
+                    FullProgressUi loading=showFullProgressDialog("Создание резервной копии",
+                            "5% · Сверка информации · подготовка GitHub Actions…");
+                    loading.update(5,"Сверка информации · подготовка GitHub Actions…");
+                    io.execute(()->{
+                        try{
+                            FullRepositoryBackupController.Job job=
+                                    new FullRepositoryBackupController(this,accountStore)
+                                            .begin(repository,owner.id,includeReleases);
+                            runOnUiThread(()->{
+                                loading.dismiss();
+                                if(!isFinishing())navigate(()->showFullBackupOperationProgress(repository,false));
+                            });
+                        }catch(Exception error){
+                            runOnUiThread(()->{
+                                loading.dismiss();
+                                errorDialog("Создание архива",error.getMessage());
+                            });
+                        }
+                    });
+                }).show();
+    }
+
+    /** Shared visual structure for backup creation and restore, showing actual workflow steps. */
+    private void showFullBackupOperationProgress(String repository,boolean restoring) {
+        setCurrentScreen(()->showFullBackupOperationProgress(repository,restoring));
+        shell(restoring?"Восстановление репозитория":"Резервная копия",true);
+        repoSectionHeader(repository,restoring?"Восстановление":"Создание резервной копии",
+                "GitHubble · GitHub Actions",R.drawable.ic_history);
+        final long generation=screenGeneration.get();
+        final LinearLayout target=content;
+        final String account=currentAccountId();
+        ProgressBar progress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);
+        progress.setMax(100);progress.setProgress(0);
+        LinearLayout.LayoutParams bar=new LinearLayout.LayoutParams(-1,dp(12));
+        bar.setMargins(dp(7),dp(16),dp(7),dp(12));
+        target.addView(progress,bar);
+        TextView value=text("0% · Сверка информации",16,true);
+        value.setPadding(dp(8),0,dp(8),dp(6));target.addView(value);
+        TextView stage=text("Подготавливаем сведения о резервной копии…",13,false);
+        stage.setTextColor(MUTED);stage.setPadding(dp(8),0,dp(8),dp(16));
+        target.addView(stage);
+        Button refresh=compactButton("Проверить прогресс");
+        Button open=compactButton("Открыть журнал GitHub Actions");
+        Button download=button("Скачать полную резервную копию ZIP");
+        if(!restoring)target.addView(download,new LinearLayout.LayoutParams(-1,dp(52)));
+        target.addView(refresh,new LinearLayout.LayoutParams(-1,dp(48)));
+        target.addView(open,new LinearLayout.LayoutParams(-1,dp(48)));
+        final Runnable repaint=()->{
+            if(generation!=screenGeneration.get()||target!=content||
+                    !account.equals(currentAccountId()))return;
+            if(restoring){
+                FullRepositoryRestoreController.Job job=
+                        new FullRepositoryRestoreController(this,accountStore).latest(repository);
+                if(job==null||job.id.isEmpty())return;
+                progress.setProgress(job.percent);
+                value.setText(job.percent+"% · "+job.stage);
+                stage.setText("Назначение: "+job.target+"\n"
+                        +("done".equals(job.state)?"Архив применён и валидирован. Восстановление завершено.":
+                        "Сверка информации → Архив применён и валидирован → Восстановление")
+                        +(job.error.isEmpty()?"":"\n"+job.error));
+                open.setOnClickListener(v->openWeb(job.runUrl));
+            }else{
+                FullRepositoryBackupController.Job job=
+                        new FullRepositoryBackupController(this,accountStore).latest(repository);
+                if(job==null||job.id.isEmpty())return;
+                progress.setProgress(job.percent);
+                value.setText(job.percent+"% · "+job.stage);
+                stage.setText("Источник: "+job.repository+"\n"
+                        +"Создание резервной копии репозитория · "
+                        +("ready".equals(job.state)?"ZIP готов и валидирован":"Git, LFS и данные GitHub")
+                        +(job.error.isEmpty()?"":"\n"+job.error));
+                download.setEnabled("ready".equals(job.state)&&job.artifactId>0);
+                download.setOnClickListener(v->{
+                    if(!job.accountId.equals(accountStore.activeCacheKey())){
+                        errorDialog("Загрузка ZIP","Переключитесь на аккаунт владельца "+repository);
+                        return;
+                    }
+                    try{
+                        JSONObject artifact=new JSONObject().put("id",job.artifactId)
+                                .put("name","githubble-full-"+job.id)
+                                .put("size_in_bytes",job.artifactBytes).put("expired",false);
+                        startArtifactDownload(repository,artifact);
+                    }catch(Exception error){errorDialog("Загрузка ZIP",error.getMessage());}
+                });
+                open.setOnClickListener(v->openWeb(job.runUrl));
+            }
+        };
+        repaint.run();
+        final Runnable poll=()->io.execute(()->{
+            for(int attempt=0;attempt<18;attempt++){
+                if(generation!=screenGeneration.get()||!account.equals(currentAccountId()))break;
+                try{
+                    if(restoring){
+                        FullRepositoryRestoreController.Job job=
+                                new FullRepositoryRestoreController(this,accountStore).refresh(repository);
+                        runOnUiThread(repaint);
+                        if("done".equals(job.state)||"failed".equals(job.state))break;
+                    }else{
+                        FullRepositoryBackupController.Job job=
+                                new FullRepositoryBackupController(this,accountStore).refresh(repository);
+                        runOnUiThread(repaint);
+                        if("ready".equals(job.state)||"failed".equals(job.state))break;
+                    }
+                }catch(Exception error){
+                    runOnUiThread(()->{
+                        if(generation==screenGeneration.get()&&target==content)
+                            stage.setText("Не удалось обновить статус: "+error.getMessage());
+                    });
+                    break;
+                }
+                try{Thread.sleep(4000);}catch(InterruptedException e){Thread.currentThread().interrupt();break;}
+            }
+        });
+        refresh.setOnClickListener(v->{
+            repaint.run();poll.run();
+        });
+        poll.run();
+    }
+
+    private void selectFullRepositoryArchive(){
+        Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("application/zip");
+        intent.putExtra(Intent.EXTRA_MIME_TYPES,new String[]{
+                "application/zip","application/x-zip-compressed","application/octet-stream"});
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|
+                Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+        startActivityForResult(intent,REQUEST_IMPORT_REPO_FULL);
+    }
+
+    private void handleFullRepositoryArchive(Uri selected){
+        FullProgressUi checking=showFullProgressDialog("Сверка информации",
+                "Проверяем ZIP, Git bundle, LFS и контрольные суммы…");
+        checking.update(5,"Сверка информации · проверка структуры ZIP");
+        io.execute(()->{
+            try{
+                PortableRepositoryArchive.Inspection report;
+                try(InputStream in=getContentResolver().openInputStream(selected)){
+                    report=PortableRepositoryArchive.inspect(in,(pct,step)->runOnUiThread(()->
+                            checking.update(pct,step)));
+                }
+                runOnUiThread(()->{
+                    checking.dismiss();
+                    if(!isFinishing())confirmFullRepositoryRestore(selected,report);
+                });
+            }catch(Exception error){
+                runOnUiThread(()->{
+                    checking.dismiss();errorDialog("Архив не принят",error.getMessage());
+                });
+            }
+        });
+    }
+
+    private void confirmFullRepositoryRestore(Uri archive,PortableRepositoryArchive.Inspection report){
+        java.util.List<GitHubAccountStore.Account> available=accountStore.listAccounts();
+        if(available.isEmpty()){errorDialog("Восстановление","Подключите GitHub-аккаунт");return;}
+        LinearLayout form=new LinearLayout(this);form.setOrientation(LinearLayout.VERTICAL);
+        form.setPadding(dp(18),dp(10),dp(18),dp(8));
+        TextView details=text("Источник: "+report.source
+                +"\nОсновная ветка: "+report.branch
+                +"\nSHA: "+shortSha(report.sha)
+                +"\nЗаписей ZIP: "+report.files+" · refs: "+report.refs
+                +"\nРазмер данных: "+formatAccountBytes(report.unpackedBytes)
+                +"\n\nРезультат проверки: ZIP проверен, контрольные суммы совпадают."
+                +"\n\nРепозиторий назначения будет создан НОВЫМ и ПРИВАТНЫМ. "
+                +"Ни один существующий проект не перезаписывается.",13,false);
+        form.addView(details);
+        String[] names=new String[available.size()];
+        for(int i=0;i<available.size();i++)names[i]=available.get(i).displayName();
+        Spinner picker=new Spinner(this);
+        ArrayAdapter<String> adapter=new ArrayAdapter<>(this,
+                android.R.layout.simple_spinner_dropdown_item,names);
+        picker.setAdapter(adapter);form.addView(picker);
+        EditText name=new EditText(this);name.setSingleLine(true);
+        String suffix=report.source.substring(report.source.indexOf('/')+1);
+        name.setText(suffix+"-restored");name.setHint("Имя нового репозитория");
+        form.addView(name);
+        ScrollView scroll=new ScrollView(this);scroll.addView(form);
+        new AlertDialog.Builder(this).setTitle("Восстановить репозиторий?")
+                .setView(scroll).setNegativeButton("Отмена",null)
+                .setPositiveButton("Восстановление",(dialog,which)->{
+                    final String targetName=name.getText().toString().trim();
+                    final String accountId=available.get(picker.getSelectedItemPosition()).id;
+                    try{app.githubble.mobile.mirror.MirrorPolicy.requireName(targetName);}
+                    catch(Exception error){errorDialog("Имя назначения",error.getMessage());return;}
+                    FullProgressUi stage=showFullProgressDialog("Восстановление",
+                            "Сверка информации · создание нового приватного репозитория…");
+                    stage.update(5,"Сверка информации · создание нового приватного репозитория…");
+                    io.execute(()->{
+                        try{
+                            FullRepositoryRestoreController manager=
+                                    new FullRepositoryRestoreController(this,accountStore);
+                            FullRepositoryRestoreController.Job job=manager.begin(
+                                    archive,report,accountId,targetName,(pct,msg)->
+                                        runOnUiThread(()->stage.update(pct,msg)));
+                            runOnUiThread(()->{
+                                stage.dismiss();
+                                if(!isFinishing())navigate(()->showFullBackupOperationProgress(job.target,true));
+                            });
+                        }catch(Exception error){
+                            runOnUiThread(()->{
+                                stage.dismiss();
+                                errorDialog("Восстановление",error.getMessage());
+                            });
+                        }
+                    });
+                }).show();
+    }
+
+    private void startRepositoryMetadataExport(String full) {
+        final String accountId;
+        try{accountId=backupAccount(full,false).id;}
+        catch(Exception e){errorDialog("Архив репозитория",e.getMessage());return;}
+        ProgressDialog progress=ProgressDialog.show(this,"Архив GitHub",
+                "Читаются все страницы метаданных репозитория…",true,false);
+        io.execute(()->{
+            try {
+                JSONObject snapshot=new RepositoryMetadataBackup(accountStore).capture(full,accountId);
+                runOnUiThread(()->{
+                    progress.dismiss();
+                    if(isFinishing())return;
+                    pendingRepositoryBackup=snapshot;
+                    Intent intent=new Intent(Intent.ACTION_CREATE_DOCUMENT);
+                    intent.addCategory(Intent.CATEGORY_OPENABLE);
+                    intent.setType("application/zip");
+                    String name="GitHubble-"+full.replace('/','-')+"-metadata-"
+                            +new java.text.SimpleDateFormat("yyyyMMdd-HHmm",Locale.ROOT)
+                                .format(new Date())+".zip";
+                    intent.putExtra(Intent.EXTRA_TITLE,name);
+                    startActivityForResult(intent,REQUEST_EXPORT_REPO_METADATA);
+                });
+            } catch(Exception e) {
+                runOnUiThread(()->{progress.dismiss();errorDialog("Ошибка создания архива",
+                        e.getMessage());});
+            }
+        });
+    }
+
+    private void startRepositoryMetadataImport(String full) {
+        try{backupAccount(full,true);}
+        catch(Exception e){errorDialog("Восстановление метаданных",e.getMessage());return;}
+        pendingRepositoryBackupTarget=full;
+        Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("application/zip");
+        intent.putExtra(Intent.EXTRA_MIME_TYPES,new String[]{
+                "application/zip","application/x-zip-compressed",
+                "application/octet-stream"});
+        startActivityForResult(intent,REQUEST_IMPORT_REPO_METADATA);
+    }
+
+    private void handleRepositoryMetadataImport(Uri selected,String target) {
+        final String accountId;
+        try{accountId=backupAccount(target,true).id;}
+        catch(Exception error){errorDialog("Восстановление",error.getMessage());return;}
+        ProgressDialog progress=ProgressDialog.show(this,"Проверка архива",
+                "Проверка ZIP, SHA-256 и состояния репозитория…",true,false);
+        io.execute(()->{
+            try {
+                RepositoryBackupArchive.Archive archive;
+                try(InputStream in=getContentResolver().openInputStream(selected)) {
+                    archive=RepositoryBackupArchive.read(in);
+                }
+                RepositoryMetadataBackup manager=new RepositoryMetadataBackup(accountStore);
+                RepositoryMetadataBackup.Plan plan=manager.preview(archive,target,accountId);
+                runOnUiThread(()->{
+                    progress.dismiss();
+                    if(isFinishing())return;
+                    showRepositoryMetadataRestorePreview(manager,archive,plan);
+                });
+            } catch(Exception error) {
+                runOnUiThread(()->{progress.dismiss();errorDialog(
+                        "Архив не принят",error.getMessage());});
+            }
+        });
+    }
+
+    private void showRepositoryMetadataRestorePreview(RepositoryMetadataBackup manager,
+                    RepositoryBackupArchive.Archive archive,RepositoryMetadataBackup.Plan plan) {
+        final boolean originalRepository=RepositoryMetadataBackup.isOriginalRepository(
+                archive.manifest.optString("repository",""),plan.target);
+        LinearLayout frame=new LinearLayout(this);
+        frame.setOrientation(LinearLayout.VERTICAL);
+        frame.setPadding(dp(20),dp(10),dp(20),dp(8));
+        TextView summary=text("Источник: "+archive.manifest.optString("repository")
+                +"\nНазначение: "+plan.target
+                +"\nСнимок: "+archive.manifest.optString("created_at")
+                +"\n\nНовых меток: "+plan.newLabels+" (уже есть: "+plan.existingLabels+")"
+                +"\nНовых этапов: "+plan.newMilestones+" (уже есть: "+plan.existingMilestones+")"
+                +"\nЗадач в архиве: "+plan.issues
+                +"\nКомментариев: "+plan.comments
+                +"\nЗадач в назначении: "+plan.existingTargetIssues
+                +"\n\nИстория Git и LFS здесь не восстанавливаются. "
+                +"Это отдельная операция Mirror Manager."
+                +(originalRepository?"\n\nВосстановление в исходный репозиторий: "
+                +"сохранённые метки, этапы и задачи не перезаписываются.":"") ,13,false);
+        frame.addView(summary);
+        CheckBox issues=new CheckBox(this);
+        issues.setText("Дополнительно создать Issues и комментарии");
+        issues.setTextSize(13);
+        issues.setChecked(false);
+        issues.setEnabled(plan.issueRestoreAllowed);
+        frame.addView(issues);
+        if(!plan.issueRestoreAllowed) {
+            String reason=plan.issues==0
+                    ?"В ZIP нет задач для восстановления."
+                    :plan.existingTargetIssues>0
+                    ?"В назначении уже есть Issues: повторное создание запрещено для защиты от дубликатов."
+                    :"Для восстановления Issues требуется включённый раздел Issues, пустой по задачам "
+                            +"репозиторий и не более 200 записей.";
+            TextView issueNotice=text(reason,11,false);
+            issueNotice.setTextColor(MUTED);
+            frame.addView(issueNotice);
+        }
+        TextView warning=text("Изменения выполняются через GitHub API. В случае сетевой ошибки "
+                +"часть записей может быть создана; автоматического повтора нет.",12,false);
+        warning.setTextColor(MUTED);frame.addView(warning);
+        new AlertDialog.Builder(this).setTitle("Восстановить метаданные?")
+                .setView(frame).setNegativeButton("Отмена",null)
+                .setPositiveButton("Восстановить",(dialog,which)->{
+                    boolean withIssues=issues.isChecked();
+                    if(plan.newLabels==0&&plan.newMilestones==0&&!withIssues){
+                        new AlertDialog.Builder(this).setTitle("Данные уже на месте")
+                                .setMessage("Новых меток и этапов нет. Существующие данные "
+                                        +"не изменены; повторное создание Issues не запрашивалось.")
+                                .setPositiveButton("Готово",null).show();
+                        return;
+                    }
+                    ProgressDialog working=ProgressDialog.show(this,"Восстановление",
+                            "Создаются только отсутствующие метки и этапы…",true,false);
+                    io.execute(()->{
+                        try {
+                            RepositoryMetadataBackup.Result done=manager.apply(archive,plan,withIssues);
+                            runOnUiThread(()->{
+                                working.dismiss();
+                                if(!isFinishing())new AlertDialog.Builder(this)
+                                        .setTitle("Восстановление завершено")
+                                        .setMessage("Добавлено меток: "+done.labels
+                                                +"\nЭтапов: "+done.milestones
+                                                +"\nЗадач: "+done.issues
+                                                +"\nКомментариев: "+done.comments
+                                                +"\nЗакрыто восстановленных задач: "+done.closed)
+                                        .setPositiveButton("Готово",null).show();
+                            });
+                        } catch(Exception error) {
+                            runOnUiThread(()->{
+                                working.dismiss();
+                                errorDialog("Восстановление прервано",error.getMessage());
+                            });
+                        }
+                    });
+                }).show();
     }
 
     private void showMirrorManager(String full){
@@ -8107,6 +8609,91 @@ public class MainActivity extends Activity {
      * GitHub commit details, changed files and per-file unified diffs remain in
      * native GitHubble UI. The official web link is an optional fallback only.
      */
+    /** Restore a single historical file via a new branch + draft PR, not a direct HEAD edit. */
+    private void showHistoricalFileRestore(String full,String revision,String path) {
+        if(!CommitDetailController.validRepository(full)
+                ||!CommitDetailController.validSha(revision)
+                ||!app.githubble.mobile.repository.RepositoryFileComparison.safePath(path)){
+            errorDialog("Восстановление файла","Некорректное имя файла или Git-коммит");
+            return;
+        }
+        String owner=full.substring(0,full.indexOf('/'));
+        GitHubAccountStore.Account repositoryAccount=null;
+        for(GitHubAccountStore.Account a:accountStore.listAccounts())
+            if(a.login.equalsIgnoreCase(owner)){repositoryAccount=a;break;}
+        if(repositoryAccount==null){
+            errorDialog("Восстановление файла","Подключите аккаунт владельца репозитория");
+            return;
+        }
+        final String accountId=repositoryAccount.id;
+        final String active=currentAccountId();
+        final long generation=screenGeneration.get();
+        final LinearLayout host=content;
+        RepositoryFileRestore restore=new RepositoryFileRestore(
+                new RepositorySelectiveTransfer(accountStore));
+        ProgressDialog progress=ProgressDialog.show(this,"Проверка версии файла",
+                "Чтение исторического Git-объекта и состояния основной ветки…",true,false);
+        io.execute(()->{
+            try{
+                RepositoryFileRestore.Snapshot snapshot=restore.preview(
+                        accountId,full,revision,path);
+                runOnUiThread(()->{
+                    progress.dismiss();
+                    if(!screenRequestCurrent(generation,active,host))return;
+                    String change=snapshot.currentlyExists
+                            ?"Заменить текущую версию файла"
+                            :"Вернуть удалённый файл";
+                    String message="Репозиторий: "+full
+                            +"\nФайл: "+path
+                            +"\nИз коммита: "+shortSha(revision)
+                            +"\nВетка назначения: "+snapshot.branch
+                            +"\nРазмер: "+snapshot.bytes+" Б"
+                            +"\n\n"+change+" через отдельную ветку и Draft PR."
+                            +"\nОсновная ветка не изменяется автоматически.";
+                    new AlertDialog.Builder(this)
+                        .setTitle("Восстановить версию файла?")
+                        .setMessage(message)
+                        .setNegativeButton("Отмена",null)
+                        .setPositiveButton("Создать Draft PR",(dialog,which)->{
+                            ProgressDialog working=ProgressDialog.show(this,
+                                    "Восстановление файла","Проверка SHA и создание Pull Request…",
+                                    true,false);
+                            io.execute(()->{
+                                try{
+                                    RepositoryFileRestore.Prepared pr=restore.prepareDraftPr(snapshot);
+                                    runOnUiThread(()->{
+                                        working.dismiss();
+                                        if(!screenRequestCurrent(generation,active,host))return;
+                                        new AlertDialog.Builder(this)
+                                            .setTitle("Черновик PR создан")
+                                            .setMessage("Версия файла подготовлена к восстановлению."
+                                                +"\nВетка: "+pr.branch
+                                                +"\nИзменения попадут в main только после merge.")
+                                            .setPositiveButton("Открыть Pull Request",
+                                                    (d,w)->openWeb(pr.url))
+                                            .setNegativeButton("Закрыть",null).show();
+                                    });
+                                }catch(Exception error){
+                                    runOnUiThread(()->{
+                                        working.dismiss();
+                                        if(screenRequestCurrent(generation,active,host))
+                                            errorDialog("Не удалось создать Pull Request",
+                                                    error.getMessage());
+                                    });
+                                }
+                            });
+                        }).show();
+                });
+            }catch(Exception error){
+                runOnUiThread(()->{
+                    progress.dismiss();
+                    if(screenRequestCurrent(generation,active,host))
+                        errorDialog("Восстановление файла",error.getMessage());
+                });
+            }
+        });
+    }
+
     private void showCommitDetail(String full,String sha){
         if(!CommitDetailController.validRepository(full)
                 ||!CommitDetailController.validSha(sha)){
@@ -8146,6 +8733,17 @@ public class MainActivity extends Activity {
                                     String name=file.optString("filename","Файл");
                                     navigate(()->showRemotePreview(name,url,
                                             file.optString("blob_url","")));
+                                }
+                                @Override public boolean canRestoreHistoricalFile(){
+                                    if(!isSignedIn())return false;
+                                    String owner=full.substring(0,full.indexOf('/'));
+                                    for(GitHubAccountStore.Account a:accountStore.listAccounts())
+                                        if(a.login.equalsIgnoreCase(owner))return true;
+                                    return false;
+                                }
+                                @Override public void restoreHistoricalFile(
+                                        String repository,String revision,String path){
+                                    showHistoricalFileRestore(repository,revision,path);
                                 }
                             },CARD,TEXT,MUTED,GREEN,BORDER);
                     screen.render(full,sha,detail);
@@ -9490,7 +10088,40 @@ public class MainActivity extends Activity {
                 importLocalAvatar(data.getData(),account);
             return;
         }
-        if(resultCode!=RESULT_OK||data==null||data.getData()==null){if(requestCode==REQUEST_REPOSITORY_FOLDER||requestCode==REQUEST_REPOSITORY_ZIP||requestCode==REQUEST_REPOSITORY_FILE)clearPendingRepositoryImport();return;}Uri uri=data.getData();
+        if(resultCode!=RESULT_OK||data==null||data.getData()==null){
+            if(requestCode==REQUEST_REPOSITORY_FOLDER||requestCode==REQUEST_REPOSITORY_ZIP||requestCode==REQUEST_REPOSITORY_FILE)clearPendingRepositoryImport();
+            if(requestCode==REQUEST_EXPORT_REPO_METADATA)pendingRepositoryBackup=null;
+            if(requestCode==REQUEST_IMPORT_REPO_METADATA)pendingRepositoryBackupTarget="";
+            return;
+        }
+        Uri uri=data.getData();
+        if(requestCode==REQUEST_EXPORT_REPO_METADATA){
+            JSONObject snapshot=pendingRepositoryBackup;
+            pendingRepositoryBackup=null;
+            if(snapshot==null){errorDialog("Экспорт","Снимок архива не сохранился. Повторите экспорт.");return;}
+            ProgressDialog saving=ProgressDialog.show(this,"Архив GitHub",
+                    "Сохранение ZIP и контрольных сумм SHA-256…",true,false);
+            io.execute(()->{
+                try(OutputStream out=getContentResolver().openOutputStream(uri)){
+                    RepositoryBackupArchive.write(snapshot,out);
+                    runOnUiThread(()->{saving.dismiss();toast("Архив метаданных GitHub сохранён");});
+                }catch(Exception e){
+                    runOnUiThread(()->{saving.dismiss();errorDialog("Экспорт архива",e.getMessage());});
+                }
+            });
+            return;
+        }
+        if(requestCode==REQUEST_IMPORT_REPO_FULL){
+            handleFullRepositoryArchive(uri);
+            return;
+        }
+        if(requestCode==REQUEST_IMPORT_REPO_METADATA){
+            String target=pendingRepositoryBackupTarget;
+            pendingRepositoryBackupTarget="";
+            if(target.isEmpty()){errorDialog("Импорт архива","Не выбран репозиторий назначения");return;}
+            handleRepositoryMetadataImport(uri,target);
+            return;
+        }
         if(requestCode==REQUEST_REPOSITORY_FOLDER||requestCode==REQUEST_REPOSITORY_ZIP||requestCode==REQUEST_REPOSITORY_FILE){handleRepositoryImportUri(requestCode,uri);return;}
         if(requestCode==REQUEST_EXPORT_PORTABLE){try(OutputStream out=getContentResolver().openOutputStream(uri)){if(out==null)throw new IOException("Не удалось открыть файл");out.write(pendingPortableExport.getBytes(StandardCharsets.UTF_8));out.flush();pendingPortableExport="";toast("Резервная копия сохранена");}catch(Exception e){errorDialog("Ошибка экспорта",e.getMessage());}}
         else if(requestCode==REQUEST_EXPORT_USER_DATA){try(OutputStream out=getContentResolver().openOutputStream(uri)){if(out==null)throw new IOException("Не удалось открыть файл");out.write(pendingUserDataExport.getBytes(StandardCharsets.UTF_8));out.flush();pendingUserDataExport="";toast("Данные пользователя экспортированы");}catch(Exception e){errorDialog("Ошибка экспорта данных",e.getMessage());}}
