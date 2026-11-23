@@ -69,11 +69,11 @@ public final class RepositoryMetadataBackup {
         return all;
     }
 
-    private static JSONObject asSection(JSONArray values) {
+    private static JSONObject asSection(JSONArray values) throws Exception {
         return new JSONObject().put("items",values);
     }
 
-    private static JSONObject minimalRepository(JSONObject source) {
+    private static JSONObject minimalRepository(JSONObject source) throws Exception {
         JSONObject result=new JSONObject();
         for(String key:new String[]{"full_name","name","description","homepage",
                 "private","archived","disabled","default_branch","has_issues",
@@ -156,7 +156,7 @@ public final class RepositoryMetadataBackup {
         return result;
     }
 
-    private static int countNew(JSONArray imported,Set<String> existing,String key) {
+    private static int countNew(JSONArray imported,Set<String> existing,String key) throws Exception {
         int count=0;
         for(int i=0;i<imported.length();i++) {
             String v=imported.getJSONObject(i).optString(key,"");
