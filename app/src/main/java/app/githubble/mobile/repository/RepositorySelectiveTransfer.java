@@ -210,7 +210,7 @@ public final class RepositorySelectiveTransfer {
                 || !branch(destinationRepo).equals(comparison.destinationBranch)
                 || sourceRepo.optBoolean("archived", false)
                 || destinationRepo.optBoolean("archived", false)
-                || (comparison.sourcePrivate && !sourceRepo.optBoolean("private", false))
+                || sourceRepo.optBoolean("private", false) != comparison.sourcePrivate
                 || destinationRepo.optBoolean("private", false) != comparison.destinationPrivate)
             throw new IllegalStateException("Настройки репозитория изменились — повторите сравнение");
         verifyHeads(comparison, source, destination);
@@ -233,7 +233,7 @@ public final class RepositorySelectiveTransfer {
                     || !sha1GitBlob(decoded).equalsIgnoreCase(item.source.sha))
                 throw new SecurityException("Не совпал Git SHA содержимого: " + item.path);
             String asText = new String(decoded, StandardCharsets.UTF_8);
-            if (asText.startsWith("version https://git-lfs.github.com/spec/v1\n"))
+            if (asText.startsWith("version https://git-lfs.github.com/spec/v1"))
                 throw new IllegalStateException("Файл хранится в Git LFS; выборочный перенос LFS "
                         + "пока не поддерживается: " + item.path);
             JSONObject created = destination.postJson(API + comparison.destination + "/git/blobs",
