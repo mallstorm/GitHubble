@@ -97,8 +97,8 @@ public final class CommitDetailScreen {
         firstParentRevision="";
         if(parents!=null&&parents.length()>0){
             JSONObject firstParent=parents.optJSONObject(0);
-            String first=firstParent==null?"":firstParent.optString("sha","");
-            if(CommitDetailController.validSha(first)) firstParentRevision=first;
+            String parentCandidate=firstParent==null?"":firstParent.optString("sha","");
+            if(CommitDetailController.validSha(parentCandidate)) firstParentRevision=parentCandidate;
         }
         if(parents!=null&&parents.length()>0) {
             StringBuilder values=new StringBuilder("Родительские коммиты: ");
