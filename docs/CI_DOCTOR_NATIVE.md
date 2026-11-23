@@ -12,3 +12,5 @@ CI Doctor is available from **Центр сборок → Детали запу�
 
 ## Validation
 Android, Mirror Manager CI and R8 workflows are required before merge. Six focused JUnit tests verify safety decisions and fail-closed treatment of unknown classes. End-to-end inspection of a failed private job log still needs an authenticated device smoke test.
+
+Validation note: PR checks target main temporarily; the final review PR is stacked on the metadata backup branch.
