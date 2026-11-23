@@ -1,0 +1,58 @@
+name: GitHubble Full Backup branch CI
+on:
+  push:
+    branches: [feature/full-repository-backup]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'ndk;28.2.13676358'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.1'
+      - name: Compile Java/Android and test full backup
+        run: ./gradlew --no-daemon --max-workers=2 test assembleDebug assembleRelease lintRelease
+      - name: Validate generated backup and restore workflow syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/gh-workflows"
+          javac -d "$RUNNER_TEMP/gh-workflows" \
+            app/src/main/java/app/githubble/mobile/repository/FullRepositoryBackupWorkflow.java \
+            app/src/main/java/app/githubble/mobile/repository/FullRepositoryRestoreWorkflow.java
+          cat > "$RUNNER_TEMP/gh-workflows/Emit.java" <<'JAVA'
+          public class Emit {
+            public static void main(String[] args) throws Exception {
+              java.nio.file.Files.writeString(java.nio.file.Paths.get(args[0]),
+                app.githubble.mobile.repository.FullRepositoryBackupWorkflow.yaml());
+              java.nio.file.Files.writeString(java.nio.file.Paths.get(args[1]),
+                app.githubble.mobile.repository.FullRepositoryRestoreWorkflow.yaml());
+            }
+          }
+          JAVA
+          javac -cp "$RUNNER_TEMP/gh-workflows" -d "$RUNNER_TEMP/gh-workflows" "$RUNNER_TEMP/gh-workflows/Emit.java"
+          java -cp "$RUNNER_TEMP/gh-workflows" Emit "$RUNNER_TEMP/backup.yml" "$RUNNER_TEMP/restore.yml"
+          ruby -ryaml -e 'ARGV.each { |f| doc=YAML.load_file(f); abort "Missing job" unless doc.fetch("jobs").size==1; puts "Valid workflow: #{f}" }' "$RUNNER_TEMP/backup.yml" "$RUNNER_TEMP/restore.yml"
+          python3 - "$RUNNER_TEMP/backup.yml" "$RUNNER_TEMP/restore.yml" <<'PY'
+          import sys, subprocess, re
+          for file in sys.argv[1:]:
+              text=open(file).read()
+              assert '${{' in text and '@GH@' not in text, 'Unexpanded GitHub expressions'
+              for block in re.findall(r'(?m)^          run: \|\n((?:^(?:            ).*\n|^\n)*)',text):
+                  script='\n'.join(line[12:] for line in block.splitlines())+'\n'
+                  p=subprocess.run(['bash','-n'],input=script,text=True,capture_output=True)
+                  if p.returncode: raise RuntimeError(file+': '+p.stderr)
+              print('Generated bash syntax valid:',file)
+          PY
