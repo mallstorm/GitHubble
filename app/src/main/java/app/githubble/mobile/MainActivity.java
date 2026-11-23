@@ -5502,13 +5502,14 @@ public class MainActivity extends Activity {
                 .setView(releases)
                 .setNegativeButton("Отмена",null)
                 .setPositiveButton("Создать",(dialog,which)->{
+                    final boolean includeReleases=releases.isChecked();
                     ProgressDialog loading=ProgressDialog.show(this,"Резервирование",
                             "Сверка информации · подготовка GitHub Actions…",true,false);
                     io.execute(()->{
                         try{
                             FullRepositoryBackupController.Job job=
                                     new FullRepositoryBackupController(this,accountStore)
-                                            .begin(repository,owner.id,releases.isChecked());
+                                            .begin(repository,owner.id,includeReleases);
                             runOnUiThread(()->{
                                 loading.dismiss();
                                 if(!isFinishing())navigate(()->showFullBackupOperationProgress(repository,false));
@@ -5663,7 +5664,7 @@ public class MainActivity extends Activity {
                 +"\nSHA: "+shortSha(report.sha)
                 +"\nЗаписей ZIP: "+report.files+" · refs: "+report.refs
                 +"\nРазмер данных: "+formatAccountBytes(report.unpackedBytes)
-                +"\n\nРезультат проверки: архив применён к проверке и валидирован."
+                +"\n\nРезультат проверки: ZIP проверен, контрольные суммы совпадают."
                 +"\n\nРепозиторий назначения будет создан НОВЫМ и ПРИВАТНЫМ. "
                 +"Ни один существующий проект не перезаписывается.",13,false);
         form.addView(details);
