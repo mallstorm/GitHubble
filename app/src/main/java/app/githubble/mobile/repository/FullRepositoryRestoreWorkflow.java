@@ -284,7 +284,7 @@ jobs:
           issues={}
           for item in originals:
               number=item['number']
-              provenance='Restored from '+data['repository']+'/issues/'+str(number)+'\\nOriginal author: '+item.get('user',{}).get('login','unknown')+'\\nOriginal date: '+item.get('created_at','')+'\\n\\n'
+              provenance='Restored from '+data['repository']+'/issues/'+str(number)+'\\nOriginal author: '+(item.get('user') or {}).get('login','unknown')+'\\nOriginal date: '+item.get('created_at','')+'\\n\\n'
               payload={'title':item.get('title') or 'Restored Issue','body':provenance+(item.get('body') or ''),
                        'labels':[x.get('name','') for x in item.get('labels',[]) if x.get('name')]}
               if item.get('milestone') and item['milestone']['number'] in number_map:
@@ -294,7 +294,7 @@ jobs:
               m=re.search(r'/issues/([0-9]+)$',item.get('issue_url',''))
               if not m or int(m.group(1)) not in issues:continue
               new=issues[int(m.group(1))]
-              body='Original comment by '+item.get('user',{}).get('login','unknown')+' ('+item.get('created_at','')+'):\\n\\n'+(item.get('body') or '')
+              body='Original comment by '+(item.get('user') or {}).get('login','unknown')+' ('+item.get('created_at','')+'):\\n\\n'+(item.get('body') or '')
               call('POST','/issues/'+str(new)+'/comments',{'body':body})
           for item in originals:
               if item.get('state')=='closed':
@@ -344,6 +344,21 @@ jobs:
         run: |
           set -euo pipefail
           echo "Full restoration completed; original Git refs were verified."
+      - name: Revoke temporary restore credential
+        if: always()
+        shell: bash
+        env:
+          RESTORE_TOKEN: @GH@ secrets[format('GITHUBBLE_FULL_RESTORE_{0}', inputs.request_id)] }}
+          REQUEST_ID: @GH@ inputs.request_id }}
+        run: |
+          set -euo pipefail
+          [[ "$REQUEST_ID" =~ ^[0-9a-f]{32}$ ]] || exit 1
+          [[ -n "$RESTORE_TOKEN" ]] || exit 0
+          SECRET_NAME="GITHUBBLE_FULL_RESTORE_$(echo "$REQUEST_ID" | tr '[:lower:]' '[:upper:]')"
+          status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' -X DELETE -H "Authorization: Bearer $RESTORE_TOKEN" -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/secrets/$SECRET_NAME")" || status="000"
+          if [[ "$status" != "204" && "$status" != "404" ]]; then
+            echo "::warning::Restore secret cleanup returned HTTP $status"
+          fi
       - name: Remove runner files
         if: always()
         run: rm -rf "$RUNNER_TEMP/restore.zip" "$RUNNER_TEMP/unpacked" "$RUNNER_TEMP/source.git" "$RUNNER_TEMP/restore-askpass"
