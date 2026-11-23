@@ -269,9 +269,10 @@ public final class RepositoryMetadataBackup {
                     int number=original.getInt("number");
                     String originalUrl="https://github.com/"+backup.manifest.getString("repository")
                             +"/issues/"+number;
+                    JSONObject oldAuthor=original.optJSONObject("user");
                     String provenance="Восстановлено из архива GitHubble.\n"
                             +"Оригинал: "+originalUrl+"\n"
-                            +"Автор: "+original.optJSONObject("user").optString("login","unknown")+"\n"
+                            +"Автор: "+(oldAuthor==null?"unknown":oldAuthor.optString("login","unknown"))+"\n"
                             +"Создано: "+original.optString("created_at","")+"\n\n";
                     JSONObject request=new JSONObject()
                             .put("title",original.optString("title","Восстановленная задача"))
@@ -295,6 +296,9 @@ public final class RepositoryMetadataBackup {
                 for(int i=0;i<comments.length();i++) {
                     JSONObject c=comments.getJSONObject(i);
                     String issueUrl=c.optString("issue_url","");
+                    String prefix="https://api.github.com/repos/"
+                            +backup.manifest.getString("repository")+"/issues/";
+                    if(!issueUrl.startsWith(prefix))continue;
                     String id=issueUrl.substring(issueUrl.lastIndexOf('/')+1);
                     int old;
                     try{old=Integer.parseInt(id);}catch(NumberFormatException bad){continue;}
