@@ -59,3 +59,32 @@ jobs:
               puts "Workflow valid: #{f}"
             end
           ' "$RUNNER_TEMP/full-backup.yml" "$RUNNER_TEMP/full-restore.yml"
+      - name: Publish installable test APK and SHA-256 checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          source version.properties
+          mkdir -p dist-full-backup
+          name="GitHubble-${VERSION_NAME}-full-backup-${GITHUB_SHA:0:12}-debug.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk "dist-full-backup/$name"
+          test -s "dist-full-backup/$name"
+          "${ANDROID_HOME}/build-tools/36.0.0/apksigner" verify --verbose --print-certs "dist-full-backup/$name" > dist-full-backup/APK_VERIFICATION.txt
+          python3 - "dist-full-backup/$name" <<'PY'
+          import sys,zipfile
+          with zipfile.ZipFile(sys.argv[1]) as apk:
+              libs=[name for name in apk.namelist() if name.startswith('lib/') and name.endswith('.so')]
+              assert 'lib/arm64-v8a/libgojni.so' in libs, 'ARM64 Xray not found'
+              assert all(name.startswith('lib/arm64-v8a/') for name in libs), 'Wrong ABI: '+str(libs)
+          PY
+          (cd dist-full-backup && sha256sum *.apk > SHA256SUMS.txt)
+          printf '%s\n' "$GITHUB_SHA" > dist-full-backup/SOURCE_COMMIT.txt
+          printf '%s\n' 'DEBUG TEST BUILD. app.githubble.mobile.debug, not production-signed. Cannot update the release APK in-place.' > dist-full-backup/INSTALL_NOTES.txt
+
+      - name: Upload GitHubble test APK to this Actions run
+        uses: actions/upload-artifact@v4
+        with:
+          name: GitHubble-FullBackup-Debug-${{ github.sha }}
+          path: dist-full-backup/*
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
