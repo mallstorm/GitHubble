@@ -44,6 +44,7 @@ Percentages are completed workflow stages, not an estimate of bytes or elapsed t
 
 - Backup/restore cannot claim inclusion of GitHub repository secrets, Actions history, team permissions or faithful PR reviews (GitHub APIs do not make those exportable/restorable).
 - ZIP is not encrypted. Sensitive projects require protected storage.
+- Git submodules are recorded as Gitlink pointers and `.gitmodules` references. External submodule repository objects are NOT embedded in this ZIP. Preserve the corresponding source repositories separately for a completely offline restore.
 - Export can exceed the 1.95 GB restore limit; download and external Git tooling remain possible, but native restore cannot accept files above the limit. Large repositories require a separately designed multi-part transport.
 - GitHub permissions must allow Actions, Issues, Releases and Contents. Workflow-file updates need appropriate workflow permissions.
 - Do not merge until Android unit tests, debug/release, R8 and a real two-repository create→download→restore test pass. The source and destination must be disposable test repositories for the end-to-end test.
