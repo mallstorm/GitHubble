@@ -247,7 +247,7 @@ jobs:
                   for chunk in iter(lambda:f.read(1024*1024),b''):
                       length+=len(chunk);h.update(chunk)
               files[rel]={'sha256':h.hexdigest(),'bytes':length}
-          if 'repository.bundle' not in files or 'metadata.json' not in files or 'git-refs.txt' not in files:
+          if sum(f['bytes'] for f in files.values())>1_900_000_000:\n              raise RuntimeError('Full archive exceeds 1.9 GB native restore limit')\n          if 'repository.bundle' not in files or 'metadata.json' not in files or 'git-refs.txt' not in files:
               raise RuntimeError('Incomplete full-backup payload')
           manifest={'format':'githubble-full-repository-v1','source':os.environ['GITHUB_REPOSITORY'],
                     'default_branch':os.environ['SOURCE_BRANCH'],
