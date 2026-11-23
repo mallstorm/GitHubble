@@ -139,7 +139,7 @@ public final class PortableRepositoryArchive {
                     ||!digests.get(path).equals(expected.optString("sha256","")))
                 throw new SecurityException("Повреждён или подменён файл архива: "+path);
         }
-        if(progress!=null)progress.step(100,"Архив применён к проверке и валидирован · готов к восстановлению");
+        if(progress!=null)progress.step(100,"ZIP проверен · контрольные суммы совпадают");
         return new Inspection(manifest,count,refs,total);
     }
 }
