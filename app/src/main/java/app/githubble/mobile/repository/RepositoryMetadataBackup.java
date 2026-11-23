@@ -83,7 +83,7 @@ public final class RepositoryMetadataBackup {
         return result;
     }
 
-    private static JSONArray cleanIssues(JSONArray issues) {
+    static JSONArray cleanIssues(JSONArray issues) {
         JSONArray cleaned=new JSONArray();
         for(int i=0;i<issues.length();i++) {
             JSONObject issue=issues.optJSONObject(i);
@@ -144,7 +144,7 @@ public final class RepositoryMetadataBackup {
         public int labels,milestones,issues,comments,closed;
     }
 
-    private static Set<String> names(JSONArray data,String key) {
+    static Set<String> names(JSONArray data,String key) {
         Set<String> result=new HashSet<>();
         for(int i=0;i<data.length();i++) {
             JSONObject item=data.optJSONObject(i);
@@ -156,7 +156,7 @@ public final class RepositoryMetadataBackup {
         return result;
     }
 
-    private static int countNew(JSONArray imported,Set<String> existing,String key) throws Exception {
+    static int countNew(JSONArray imported,Set<String> existing,String key) throws Exception {
         int count=0;
         for(int i=0;i<imported.length();i++) {
             String v=imported.getJSONObject(i).optString(key,"");
@@ -198,7 +198,8 @@ public final class RepositoryMetadataBackup {
         return new Plan(target,accountId,sha,newLabels,oldLabels.length()-newLabels,
                 newMilestones,oldMilestones.length()-newMilestones,
                 issueCount,commentCount,totalIssues,
-                totalIssues==0&&issueCount<=MAX_RESTORE_ISSUES);
+                totalIssues==0&&issueCount<=MAX_RESTORE_ISSUES
+                        &&repo.optBoolean("has_issues",true));
     }
 
     /**
