@@ -114,6 +114,8 @@ import app.githubble.mobile.search.SearchMode;
 import app.githubble.mobile.search.SearchFilters;
 import app.githubble.mobile.search.AdvancedSearchPlanner;
 import app.githubble.mobile.repository.RepositoryStore;
+import app.githubble.mobile.repository.RepositorySelectiveTransfer;
+import app.githubble.mobile.repository.RepositoryFileRestore;
 import app.githubble.mobile.activity.RepositoryActivityFeed;
 
 public class MainActivity extends Activity {
@@ -8118,6 +8120,91 @@ public class MainActivity extends Activity {
      * GitHub commit details, changed files and per-file unified diffs remain in
      * native GitHubble UI. The official web link is an optional fallback only.
      */
+    /** Restore a single historical file via a new branch + draft PR, not a direct HEAD edit. */
+    private void showHistoricalFileRestore(String full,String revision,String path) {
+        if(!CommitDetailController.validRepository(full)
+                ||!CommitDetailController.validSha(revision)
+                ||!app.githubble.mobile.repository.RepositoryFileComparison.safePath(path)){
+            errorDialog("Восстановление файла","Некорректное имя файла или Git-коммит");
+            return;
+        }
+        String owner=full.substring(0,full.indexOf('/'));
+        GitHubAccountStore.Account repositoryAccount=null;
+        for(GitHubAccountStore.Account a:accountStore.listAccounts())
+            if(a.login.equalsIgnoreCase(owner)){repositoryAccount=a;break;}
+        if(repositoryAccount==null){
+            errorDialog("Восстановление файла","Подключите аккаунт владельца репозитория");
+            return;
+        }
+        final String accountId=repositoryAccount.id;
+        final String active=currentAccountId();
+        final long generation=screenGeneration.get();
+        final LinearLayout host=content;
+        RepositoryFileRestore restore=new RepositoryFileRestore(
+                new RepositorySelectiveTransfer(accountStore));
+        ProgressDialog progress=ProgressDialog.show(this,"Проверка версии файла",
+                "Чтение исторического Git-объекта и состояния основной ветки…",true,false);
+        io.execute(()->{
+            try{
+                RepositoryFileRestore.Snapshot snapshot=restore.preview(
+                        accountId,full,revision,path);
+                runOnUiThread(()->{
+                    progress.dismiss();
+                    if(!screenRequestCurrent(generation,active,host))return;
+                    String change=snapshot.currentlyExists
+                            ?"Заменить текущую версию файла"
+                            :"Вернуть удалённый файл";
+                    String message="Репозиторий: "+full
+                            +"\nФайл: "+path
+                            +"\nИз коммита: "+shortSha(revision)
+                            +"\nВетка назначения: "+snapshot.branch
+                            +"\nРазмер: "+snapshot.bytes+" Б"
+                            +"\n\n"+change+" через отдельную ветку и Draft PR."
+                            +"\nОсновная ветка не изменяется автоматически.";
+                    new AlertDialog.Builder(this)
+                        .setTitle("Восстановить версию файла?")
+                        .setMessage(message)
+                        .setNegativeButton("Отмена",null)
+                        .setPositiveButton("Создать Draft PR",(dialog,which)->{
+                            ProgressDialog working=ProgressDialog.show(this,
+                                    "Восстановление файла","Проверка SHA и создание Pull Request…",
+                                    true,false);
+                            io.execute(()->{
+                                try{
+                                    RepositoryFileRestore.Prepared pr=restore.prepareDraftPr(snapshot);
+                                    runOnUiThread(()->{
+                                        working.dismiss();
+                                        if(!screenRequestCurrent(generation,active,host))return;
+                                        new AlertDialog.Builder(this)
+                                            .setTitle("Черновик PR создан")
+                                            .setMessage("Версия файла подготовлена к восстановлению."
+                                                +"\nВетка: "+pr.branch
+                                                +"\nИзменения попадут в main только после merge.")
+                                            .setPositiveButton("Открыть Pull Request",
+                                                    (d,w)->openWeb(pr.url))
+                                            .setNegativeButton("Закрыть",null).show();
+                                    });
+                                }catch(Exception error){
+                                    runOnUiThread(()->{
+                                        working.dismiss();
+                                        if(screenRequestCurrent(generation,active,host))
+                                            errorDialog("Не удалось создать Pull Request",
+                                                    error.getMessage());
+                                    });
+                                }
+                            });
+                        }).show();
+                });
+            }catch(Exception error){
+                runOnUiThread(()->{
+                    progress.dismiss();
+                    if(screenRequestCurrent(generation,active,host))
+                        errorDialog("Восстановление файла",error.getMessage());
+                });
+            }
+        });
+    }
+
     private void showCommitDetail(String full,String sha){
         if(!CommitDetailController.validRepository(full)
                 ||!CommitDetailController.validSha(sha)){
@@ -8157,6 +8244,17 @@ public class MainActivity extends Activity {
                                     String name=file.optString("filename","Файл");
                                     navigate(()->showRemotePreview(name,url,
                                             file.optString("blob_url","")));
+                                }
+                                @Override public boolean canRestoreHistoricalFile(){
+                                    if(!isSignedIn())return false;
+                                    String owner=full.substring(0,full.indexOf('/'));
+                                    for(GitHubAccountStore.Account a:accountStore.listAccounts())
+                                        if(a.login.equalsIgnoreCase(owner))return true;
+                                    return false;
+                                }
+                                @Override public void restoreHistoricalFile(
+                                        String repository,String revision,String path){
+                                    showHistoricalFileRestore(repository,revision,path);
                                 }
                             },CARD,TEXT,MUTED,GREEN,BORDER);
                     screen.render(full,sha,detail);
