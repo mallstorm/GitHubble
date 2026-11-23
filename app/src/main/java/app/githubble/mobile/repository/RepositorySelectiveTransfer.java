@@ -64,7 +64,8 @@ public final class RepositorySelectiveTransfer {
         throw new IllegalStateException("GitHub-аккаунт не подключён");
     }
 
-    private GitHubApiClient client(String accountId) throws Exception {
+    // Shared account-pinned GitHub session for the historical-file recovery flow.
+    GitHubApiClient client(String accountId) throws Exception {
         GitHubAccountStore.Account item = account(accountId);
         String token = accounts.tokenForAccount(item.id);
         if (token == null || token.isEmpty())
@@ -85,7 +86,7 @@ public final class RepositorySelectiveTransfer {
         return java.net.URLEncoder.encode(value, "UTF-8").replace("+", "%20");
     }
 
-    private static String branch(JSONObject repository) {
+    static String branch(JSONObject repository) {
         String name = repository.optString("default_branch", "");
         if (name.isEmpty() || name.length() > 250 || name.contains("..")
                 || name.startsWith("/") || name.endsWith("/") || name.contains("\\"))
@@ -93,7 +94,7 @@ public final class RepositorySelectiveTransfer {
         return name;
     }
 
-    private static String head(GitHubApiClient api, String repo, String branch) throws Exception {
+    static String head(GitHubApiClient api, String repo, String branch) throws Exception {
         JSONObject ref = api.getJsonFresh(API + repo + "/git/ref/heads/" + enc(branch));
         JSONObject object = ref.optJSONObject("object");
         String sha = object == null ? "" : object.optString("sha", "");
@@ -102,7 +103,7 @@ public final class RepositorySelectiveTransfer {
         return sha;
     }
 
-    private static String treeSha(GitHubApiClient api, String repo, String commitSha)
+    static String treeSha(GitHubApiClient api, String repo, String commitSha)
             throws Exception {
         JSONObject commit = api.getJsonFresh(API + repo + "/git/commits/" + commitSha);
         JSONObject tree = commit.optJSONObject("tree");
@@ -157,7 +158,7 @@ public final class RepositorySelectiveTransfer {
             throw new IllegalStateException("Ветка назначения изменилась: выполните сравнение заново");
     }
 
-    private static String sha1GitBlob(byte[] data) throws Exception {
+    static String sha1GitBlob(byte[] data) throws Exception {
         MessageDigest sha1 = MessageDigest.getInstance("SHA-1");
         sha1.update(("blob " + data.length + "\0").getBytes(StandardCharsets.UTF_8));
         sha1.update(data);
