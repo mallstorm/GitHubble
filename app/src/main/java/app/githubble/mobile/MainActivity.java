@@ -5536,6 +5536,8 @@ public class MainActivity extends Activity {
 
     private void showRepositoryMetadataRestorePreview(RepositoryMetadataBackup manager,
                     RepositoryBackupArchive.Archive archive,RepositoryMetadataBackup.Plan plan) {
+        final boolean originalRepository=RepositoryMetadataBackup.isOriginalRepository(
+                archive.manifest.optString("repository",""),plan.target);
         LinearLayout frame=new LinearLayout(this);
         frame.setOrientation(LinearLayout.VERTICAL);
         frame.setPadding(dp(20),dp(10),dp(20),dp(8));
@@ -5548,7 +5550,9 @@ public class MainActivity extends Activity {
                 +"\nКомментариев: "+plan.comments
                 +"\nЗадач в назначении: "+plan.existingTargetIssues
                 +"\n\nИстория Git и LFS здесь не восстанавливаются. "
-                +"Это отдельная операция Mirror Manager.",13,false);
+                +"Это отдельная операция Mirror Manager."
+                +(originalRepository?"\n\nВосстановление в исходный репозиторий: "
+                +"сохранённые метки, этапы и задачи не перезаписываются.":"") ,13,false);
         frame.addView(summary);
         CheckBox issues=new CheckBox(this);
         issues.setText("Дополнительно создать Issues и комментарии");
@@ -5556,9 +5560,17 @@ public class MainActivity extends Activity {
         issues.setChecked(false);
         issues.setEnabled(plan.issueRestoreAllowed);
         frame.addView(issues);
-        if(!plan.issueRestoreAllowed)
-            frame.addView(text("Перенос задач доступен лишь в пустой по Issues репозиторий "
-                            +"и при объёме не более 200 задач.",11,false));
+        if(!plan.issueRestoreAllowed) {
+            String reason=plan.issues==0
+                    ?"В ZIP нет задач для восстановления."
+                    :plan.existingTargetIssues>0
+                    ?"В назначении уже есть Issues: повторное создание запрещено для защиты от дубликатов."
+                    :"Для восстановления Issues требуется включённый раздел Issues, пустой по задачам "
+                            +"репозиторий и не более 200 записей.";
+            TextView issueNotice=text(reason,11,false);
+            issueNotice.setTextColor(MUTED);
+            frame.addView(issueNotice);
+        }
         TextView warning=text("Изменения выполняются через GitHub API. В случае сетевой ошибки "
                 +"часть записей может быть создана; автоматического повтора нет.",12,false);
         warning.setTextColor(MUTED);frame.addView(warning);
@@ -5566,6 +5578,13 @@ public class MainActivity extends Activity {
                 .setView(frame).setNegativeButton("Отмена",null)
                 .setPositiveButton("Восстановить",(dialog,which)->{
                     boolean withIssues=issues.isChecked();
+                    if(plan.newLabels==0&&plan.newMilestones==0&&!withIssues){
+                        new AlertDialog.Builder(this).setTitle("Данные уже на месте")
+                                .setMessage("Новых меток и этапов нет. Существующие данные "
+                                        +"не изменены; повторное создание Issues не запрашивалось.")
+                                .setPositiveButton("Готово",null).show();
+                        return;
+                    }
                     ProgressDialog working=ProgressDialog.show(this,"Восстановление",
                             "Создаются только отсутствующие метки и этапы…",true,false);
                     io.execute(()->{
