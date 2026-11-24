@@ -80,6 +80,7 @@ public final class AgentChatScreen {
     private EditText inputField;
     private final java.util.Map<String,View> retryIcons=new java.util.HashMap<>();
     private String building="";
+    private String lastAgentKeyNow="";
     private ScrollView transcriptScroll;
     private LinearLayout transcript,streamed;
     private TextView newActions;
@@ -312,8 +313,8 @@ public final class AgentChatScreen {
             TextView tag=label(system?"Система":"Hubble Agent"+(model.isEmpty()?"":" · "+model),11,true,system?muted:accent);
             bubble.addView(tag);
         }
-        if(user){TextView content=label(body,14,false,text);content.setTextIsSelectable(true);bubble.addView(content);}
-        else new AgentMarkdownView(activity,text,muted,accent,subtle,border).render(bubble,body);
+        if(user){TextView content=label(body,14,false,text);content.setTextIsSelectable(false);bubble.addView(content);}
+        else new AgentMarkdownView(activity,text,muted,accent,subtle,border).selectable(false).render(bubble,body);
         // Only host-authored structured events can display completed file operations.
         if(system){
             JSONArray operations=entry.optJSONArray("operations");
@@ -344,35 +345,9 @@ public final class AgentChatScreen {
         }
         if(!system){
             final String key=building;
-            LinearLayout bar=horizontal();bar.setGravity(Gravity.CENTER_VERTICAL);bar.setPadding(0,0,0,0);
-            final int w=dp(28),h=dp(26);
-            bar.addView(mini(R.drawable.ic_msg_copy,"Копировать",v->{
-                ClipboardManager cb=(ClipboardManager)activity.getSystemService(Context.CLIPBOARD_SERVICE);
-                if(cb!=null)cb.setPrimaryClip(ClipData.newPlainText("Hubble Agent",body));
-                android.widget.Toast.makeText(activity,"Скопировано",android.widget.Toast.LENGTH_SHORT).show();
-            }),new LinearLayout.LayoutParams(w,h));
-            if(user){
-                bar.addView(mini(R.drawable.ic_msg_edit,"Изменить и отправить заново",v->{if(inputField!=null){inputField.setText(body);inputField.setSelection(body.length());inputField.requestFocus();}}),new LinearLayout.LayoutParams(w,h));
-            }else{
-                bar.addView(mini(R.drawable.ic_msg_share,"Поделиться",v->{
-                    android.content.Intent send=new android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain").putExtra(android.content.Intent.EXTRA_TEXT,body);
-                    activity.startActivity(android.content.Intent.createChooser(send,"Поделиться ответом"));
-                }),new LinearLayout.LayoutParams(w,h));
-                final ImageView play=mini(R.drawable.ic_msg_play,"Озвучить",null);
-                final AgentSpeaker speaker=AgentSpeaker.of(activity);
-                Runnable sync=()->{if(!play.isAttachedToWindow()&&play.getParent()!=null)return;boolean on=speaker.speaking(key);
-                    play.setImageResource(on?R.drawable.ic_msg_stop:R.drawable.ic_msg_play);play.setContentDescription(on?"Остановить озвучивание":"Озвучить");
-                    play.setColorFilter(on?accent:muted);};
-                speaker.watch(key,sync);sync.run();
-                play.setOnClickListener(v->speaker.toggle(key,body));
-                bar.addView(play,new LinearLayout.LayoutParams(w,h));
-                ImageView retry=mini(R.drawable.ic_msg_retry,"Повторить запрос",v->actions.retryLast());
-                retry.setVisibility(View.GONE);retryIcons.put(key,retry);
-                bar.addView(retry,new LinearLayout.LayoutParams(w,h));
-                if(body.length()>800||body.contains("```")||body.contains("\n## "))
-                    bar.addView(mini(R.drawable.ic_msg_doc,"Открыть документ · .md",v->AgentDocumentSheet.document(activity,body,text,muted,accent,subtle,border,surface,()->actions.exportMarkdown(body))),new LinearLayout.LayoutParams(w,h));
-            }
-            bubble.addView(bar);
+            final long at=entry.optLong("at");
+            final float[] touch={0,0};
+            bindLongPress(bubble,touch,()->showMessageMenu(bubble,touch[0],touch[1],key,body,user,at));
             if(!user)sourcesChip(bubble,body);
         }
         wrapper.addView(bubble,new LinearLayout.LayoutParams(user?-2:-1,-2));
@@ -457,13 +432,108 @@ public final class AgentChatScreen {
         java.util.Iterator<java.util.Map.Entry<String,View>> iterator=rendered.entrySet().iterator();while(iterator.hasNext()){
             java.util.Map.Entry<String,View> entry=iterator.next();if(!keep.contains(entry.getKey())){transcript.removeView(entry.getValue());retryIcons.remove(entry.getKey());iterator.remove();}
         }
-        for(java.util.Map.Entry<String,View> retry:retryIcons.entrySet())retry.getValue().setVisibility(!busy&&retry.getKey().equals(lastAgentKey)?View.VISIBLE:View.GONE);
+        lastAgentKeyNow=lastAgentKey;
         String preview=busy&&running!=null?running.optString("preview"):"";
         if(!preview.isEmpty()){
             if(streamed==null){streamed=new LinearLayout(activity);streamed.setOrientation(LinearLayout.VERTICAL);streamed.setPadding(dp(5),dp(12),dp(5),dp(8));transcript.addView(streamed);}
-            if(!preview.equals(lastPreview)){streamed.removeAllViews();new AgentMarkdownView(activity,text,muted,accent,subtle,border).render(streamed,preview);lastPreview=preview;}
+            if(!preview.equals(lastPreview)){streamed.removeAllViews();new AgentMarkdownView(activity,text,muted,accent,subtle,border).selectable(false).render(streamed,preview);lastPreview=preview;}
         }else if(streamed!=null){transcript.removeView(streamed);streamed=null;lastPreview="";}
         transcriptScroll.post(()->{if(bottom){transcriptScroll.fullScroll(View.FOCUS_DOWN);newActions.setVisibility(View.GONE);}else{transcriptScroll.scrollTo(0,oldY);newActions.setVisibility(View.VISIBLE);}});
+    }
+
+    /** Long press anywhere inside the message opens the context menu, wherever the finger is. */
+    private void bindLongPress(View view,float[] touch,Runnable show){
+        view.setOnTouchListener((v,e)->{
+            if(e.getActionMasked()==android.view.MotionEvent.ACTION_DOWN){touch[0]=e.getRawX();touch[1]=e.getRawY();}
+            return false;
+        });
+        view.setOnLongClickListener(v->{v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);show.run();return true;});
+        if(view instanceof android.view.ViewGroup){
+            android.view.ViewGroup group=(android.view.ViewGroup)view;
+            for(int i=0;i<group.getChildCount();i++)bindLongPress(group.getChildAt(i),touch,show);
+        }
+    }
+
+    private String menuTime(long at){
+        if(at<=0)return "";
+        java.util.Calendar now=java.util.Calendar.getInstance(),then=java.util.Calendar.getInstance();then.setTimeInMillis(at);
+        String clock=new java.text.SimpleDateFormat("HH:mm",java.util.Locale.getDefault()).format(new java.util.Date(at));
+        if(now.get(java.util.Calendar.YEAR)==then.get(java.util.Calendar.YEAR)){
+            int diff=now.get(java.util.Calendar.DAY_OF_YEAR)-then.get(java.util.Calendar.DAY_OF_YEAR);
+            if(diff==0)return clock;
+            if(diff==1)return "Вчера, "+clock;
+        }
+        return new java.text.SimpleDateFormat("d MMM, HH:mm",java.util.Locale.getDefault()).format(new java.util.Date(at));
+    }
+
+    private void showMessageMenu(View anchor,float x,float y,String key,String body,boolean user,long at){
+        final android.widget.PopupWindow[] popup={null};
+        LinearLayout card=new LinearLayout(activity);card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(6),dp(4),dp(6),dp(6));
+        card.setBackground(shape(dark?0xFF2B3238:0xFFFFFFFF,20,border,1));
+        String time=menuTime(at);
+        if(!time.isEmpty()){
+            TextView stamp=label(time,12,false,muted);stamp.setPadding(dp(12),dp(8),dp(12),dp(6));card.addView(stamp);
+            View line=separator();line.setAlpha(.5f);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,dp(1));lp.setMargins(dp(8),0,dp(8),dp(2));card.addView(line,lp);
+        }
+        java.util.List<Object[]> items=new java.util.ArrayList<>();
+        items.add(new Object[]{R.drawable.ic_msg_copy,"Копировать сообщение",(Runnable)()->{
+            ClipboardManager cb=(ClipboardManager)activity.getSystemService(Context.CLIPBOARD_SERVICE);
+            if(cb!=null)cb.setPrimaryClip(ClipData.newPlainText("Hubble Agent",body));
+            android.widget.Toast.makeText(activity,"Скопировано",android.widget.Toast.LENGTH_SHORT).show();}});
+        items.add(new Object[]{R.drawable.ic_agent_scan,"Выделить текст",(Runnable)()->selectText(body)});
+        if(user){
+            items.add(new Object[]{R.drawable.ic_msg_edit,"Изменить и отправить заново",(Runnable)()->{
+                if(inputField!=null){inputField.setText(body);inputField.setSelection(body.length());inputField.requestFocus();}}});
+        }else{
+            final AgentSpeaker speaker=AgentSpeaker.of(activity);
+            boolean speaking=speaker.speaking(key);
+            items.add(new Object[]{speaking?R.drawable.ic_msg_stop:R.drawable.ic_msg_play,speaking?"Остановить озвучивание":"Озвучить",(Runnable)()->speaker.toggle(key,body)});
+            items.add(new Object[]{R.drawable.ic_msg_share,"Поделиться",(Runnable)()->{
+                android.content.Intent send=new android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain").putExtra(android.content.Intent.EXTRA_TEXT,body);
+                activity.startActivity(android.content.Intent.createChooser(send,"Поделиться ответом"));}});
+            if(body.length()>800||body.contains("```")||body.contains("\n## "))
+                items.add(new Object[]{R.drawable.ic_msg_doc,"Открыть документ · .md",(Runnable)()->AgentDocumentSheet.document(activity,body,text,muted,accent,subtle,border,surface,()->actions.exportMarkdown(body))});
+            if(key.equals(lastAgentKeyNow)&&!requestBusy)
+                items.add(new Object[]{R.drawable.ic_msg_retry,"Повторить ответ",(Runnable)()->actions.retryLast()});
+        }
+        for(Object[] item:items){
+            LinearLayout row=horizontal();row.setGravity(Gravity.CENTER_VERTICAL);row.setPadding(dp(12),0,dp(14),0);
+            ImageView icon=new ImageView(activity);icon.setImageResource((Integer)item[0]);icon.setColorFilter(text);
+            icon.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+            row.addView(icon,new LinearLayout.LayoutParams(dp(22),dp(22)));
+            TextView title=label((String)item[1],15,false,text);title.setPadding(dp(16),0,0,0);title.setSingleLine();
+            row.addView(title,new LinearLayout.LayoutParams(0,-2,1));
+            final Runnable run=(Runnable)item[2];
+            ripple(row);
+            row.setOnClickListener(v->{if(popup[0]!=null)popup[0].dismiss();run.run();});
+            card.addView(row,new LinearLayout.LayoutParams(-1,dp(48)));
+        }
+        android.util.DisplayMetrics screen=activity.getResources().getDisplayMetrics();
+        int width=Math.min(dp(300),screen.widthPixels-dp(24));
+        card.measure(View.MeasureSpec.makeMeasureSpec(width,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(0,View.MeasureSpec.UNSPECIFIED));
+        int height=card.getMeasuredHeight();
+        android.widget.PopupWindow window=new android.widget.PopupWindow(card,width,height,true);
+        popup[0]=window;
+        window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
+        window.setOutsideTouchable(true);
+        int left=Math.max(dp(12),Math.min(screen.widthPixels-width-dp(12),(int)x-width/2));
+        int top=(int)y+dp(12);
+        if(top+height>screen.heightPixels-dp(24))top=Math.max(dp(40),(int)y-height-dp(12));
+        window.showAtLocation(anchor,Gravity.TOP|Gravity.START,left,top);
+    }
+
+    /** Full text in a selectable view, for partial copying. */
+    private void selectText(String body){
+        TextView view=new TextView(activity);view.setText(body);view.setTextSize(16);view.setTextIsSelectable(true);
+        view.setLineSpacing(dp(2),1.05f);view.setPadding(dp(20),dp(12),dp(20),dp(8));
+        ScrollView scroll=new ScrollView(activity);scroll.addView(view);
+        new android.app.AlertDialog.Builder(activity).setTitle("Выделить текст").setView(scroll)
+            .setPositiveButton("Закрыть",null)
+            .setNeutralButton("Копировать всё",(d,w)->{
+                ClipboardManager cb=(ClipboardManager)activity.getSystemService(Context.CLIPBOARD_SERVICE);
+                if(cb!=null)cb.setPrimaryClip(ClipData.newPlainText("Hubble Agent",body));
+                android.widget.Toast.makeText(activity,"Скопировано",android.widget.Toast.LENGTH_SHORT).show();}).show();
     }
 
     private LinearLayout horizontal(){
