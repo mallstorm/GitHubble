@@ -2795,7 +2795,6 @@ public class MainActivity extends Activity {
         shell("Главная", true);
         boolean signedIn = isSignedIn();
         if(signedIn) refreshHomeDashboard();
-        refreshHomeRecommendations();
         HomeScreen.Palette palette = new HomeScreen.Palette(
                 BG, CARD, SUBTLE, TEXT, MUTED, GREEN, BORDER, tileColors, "dark".equals(activeTheme));
         HomeScreen.Actions actions = new HomeScreen.Actions() {
@@ -2811,6 +2810,27 @@ public class MainActivity extends Activity {
             @Override public void openTracking() { navigate(MainActivity.this::showTracking); }
             @Override public void openProfile() { navigate(MainActivity.this::showProfile); }
             @Override public void openSearch() { showQuickSearchDialog(); }
+            @Override public void openGlobalSearch() { navigate(MainActivity.this::showSearch); }
+            @Override public void openDirection(String query) { navigate(() -> searchRepos(query)); }
+            @Override public String favoriteLanguage() {
+                try {
+                    JSONArray repos = repositoryStore.read(currentAccountId()).repositories;
+                    if (repos == null) return "";
+                    Map<String, Integer> counts = new HashMap<>();
+                    String best = "";
+                    int bestCount = 0;
+                    for (int i = 0; i < repos.length(); i++) {
+                        JSONObject repo = repos.optJSONObject(i);
+                        if (repo == null || repo.optBoolean("fork", false)) continue;
+                        String language = repo.optString("language", "");
+                        if (language.isEmpty() || "null".equals(language)) continue;
+                        int n = counts.containsKey(language) ? counts.get(language) + 1 : 1;
+                        counts.put(language, n);
+                        if (n > bestCount) { best = language; bestCount = n; }
+                    }
+                    return best;
+                } catch (Exception none) { return ""; }
+            }
             @Override public boolean toggleRecommendedFavorite(String repo) {
                 Set<String> current = new LinkedHashSet<>(prefs.getStringSet("favorites", new LinkedHashSet<>()));
                 boolean saved;
@@ -2826,25 +2846,7 @@ public class MainActivity extends Activity {
             @Override public void openActivity() { navigate(MainActivity.this::showNotifications); }
             @Override public void openExplore() { navigate(MainActivity.this::showExplore); }
             @Override public void openAllSections() {
-                String[] labels = {"Репозитории", "Pull Requests", "Релизы", "Проекты",
-                        "Issues", "Обсуждения", "Организации", "Избранное", "История", "Наблюдение"};
-                new AlertDialog.Builder(MainActivity.this)
-                    .setTitle("Все разделы GitHubble")
-                    .setItems(labels, (dialog, index) -> {
-                        switch (index) {
-                            case 0: openRepositories(); break;
-                            case 1: openPullRequests(); break;
-                            case 2: openReleases(); break;
-                            case 3: openProjects(); break;
-                            case 4: openIssues(); break;
-                            case 5: openDiscussions(); break;
-                            case 6: openOrganizations(); break;
-                            case 7: openFavorites(); break;
-                            case 8: openHistory(); break;
-                            case 9: openTracking(); break;
-                            default: break;
-                        }
-                    }).show();
+                HomeScreen.showAllSections(MainActivity.this, palette, this);
             }
             @Override public void openActivityItem(String repo, String kind, int number) {
                 if ("Issue".equals(kind) && number > 0 && repo.contains("/")) navigate(() -> showIssueDetail(repo, number));
@@ -2912,34 +2914,6 @@ public class MainActivity extends Activity {
                 trackingStats.optInt("developers",0), trackingStats.optInt("repositories",0),
                 trackingStats.optInt("unread",0), recent, activityPreview,
                 isSignedIn() ? getProfileLogin() : "", snapshot.lastSyncedAt, recommended);
-    }
-
-    private void refreshHomeRecommendations() {
-        long lastSuccess = prefs.getLong("home_recs_refresh_at", 0L);
-        if (System.currentTimeMillis() - lastSuccess < 6L * 60L * 60L * 1000L) return;
-        if (!homeRecommendationsRefreshInFlight.compareAndSet(false, true)) return;
-        io.execute(() -> {
-            boolean updated = false;
-            SharedPreferences.Editor editor = prefs.edit();
-            for (String repo : HOME_RECOMMENDED_REPOS) {
-                try {
-                    JSONObject data = getJson("https://api.github.com/repos/" + repo);
-                    if (!data.has("stargazers_count") || data.isNull("stargazers_count")) continue;
-                    long stars = data.optLong("stargazers_count", -1L);
-                    if (stars < 0L) continue;
-                    editor.putLong("home_rec_stars_" + repo.replace('/', '_'), stars);
-                    updated = true;
-                } catch (Exception ignored) {
-                    // The last verified star count remains visible when the API is offline.
-                }
-            }
-            editor.putLong("home_recs_refresh_at", System.currentTimeMillis()
-                    - (updated ? 0L : 5L * 60L * 60L * 1000L)).apply();
-            homeRecommendationsRefreshInFlight.set(false);
-            if (updated) runOnUiThread(() -> {
-                if ("Главная".equals(currentTitle)) showHome();
-            });
-        });
     }
 
     private void refreshHomeDashboard() {
@@ -3117,6 +3091,15 @@ public class MainActivity extends Activity {
         addDirectionRow(R.drawable.ic_kotlin,"Kotlin","Современные JVM- и Android-проекты",tileColors[2],()->searchRepos("language:kotlin stars:>5000"));
         addDirectionRow(R.drawable.ic_ai,"Искусственный интеллект","Модели, агенты и инструменты машинного обучения",tileColors[4],()->searchRepos("topic:artificial-intelligence"));
         addDirectionRow(R.drawable.ic_tools,"Инструменты разработчика","CLI, IDE, автоматизация и DevOps",tileColors[6],()->searchRepos("topic:developer-tools"));
+        addDirectionRow(R.drawable.ic_explore,"Новое за неделю","Свежие репозитории, быстро набирающие звёзды",tileColors[3],()->{
+            java.util.Calendar week=java.util.Calendar.getInstance();week.add(java.util.Calendar.DAY_OF_YEAR,-7);
+            searchRepos(String.format(java.util.Locale.ROOT,"created:>%04d-%02d-%02d stars:>100",week.get(java.util.Calendar.YEAR),week.get(java.util.Calendar.MONTH)+1,week.get(java.util.Calendar.DAY_OF_MONTH)));});
+        addDirectionRow(R.drawable.ic_issue,"Для новичков","Проекты с задачами good first issue",tileColors[5],()->searchRepos("good-first-issues:>5 stars:>500"));
+        addDirectionRow(R.drawable.ic_lock,"Безопасность","Сканеры уязвимостей, криптография, защита данных",tileColors[0],()->searchRepos("topic:security stars:>2000"));
+        addDirectionRow(R.drawable.ic_globe,"Веб-разработка","Фреймворки, UI-библиотеки и сайты",tileColors[1],()->searchRepos("topic:web stars:>10000"));
+        addDirectionRow(R.drawable.ic_projects,"Данные и аналитика","Базы данных, визуализация, data science",tileColors[2],()->searchRepos("topic:data-science stars:>3000"));
+        addDirectionRow(R.drawable.ic_discussion,"Обучение","Курсы, справочники и подборки awesome-списков",tileColors[4],()->searchRepos("topic:awesome stars:>5000"));
+        addDirectionRow(R.drawable.ic_github_mark,"Open Source","Шаблоны, лицензии и образцовые проекты",tileColors[6],()->searchRepos("topic:open-source stars:>10000"));
     }
     private void showNotifications(){
         setCurrentScreen(this::showNotifications);

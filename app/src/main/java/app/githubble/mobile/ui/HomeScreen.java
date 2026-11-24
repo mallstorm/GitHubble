@@ -2,6 +2,7 @@ package app.githubble.mobile.ui;
 
 import android.app.Activity;
 import android.graphics.Color;
+import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.text.TextUtils;
 import android.os.Handler;
@@ -34,6 +35,12 @@ public final class HomeScreen {
         void openTracking();
         void openProfile();
         void openSearch();
+        /** The same unified search as the top bar of the repositories screen. */
+        void openGlobalSearch();
+        /** Repository search for a "direction" card, e.g. language:kotlin stars:>5000. */
+        void openDirection(String query);
+        /** Most frequent language among the user's own repositories, or empty. */
+        String favoriteLanguage();
         void openNotifications();
         ImageView profileAvatar();
         void openAccountCenter();
@@ -190,6 +197,9 @@ public final class HomeScreen {
         landscape.setImageResource(R.drawable.home_geo_emerald);
         landscape.setScaleType(ImageView.ScaleType.CENTER_CROP);
         hero.addView(landscape, new FrameLayout.LayoutParams(-1, -1));
+        AnimatedHeroView animated = new AnimatedHeroView(activity);
+        animated.setVisibility(View.GONE);
+        hero.addView(animated, new FrameLayout.LayoutParams(-1, -1));
 
         View scrim = new View(activity);
         scrim.setBackground(new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
@@ -221,6 +231,15 @@ public final class HomeScreen {
         brandText.addView(logo);
         brandText.addView(tagline);
         header.addView(brandText, new LinearLayout.LayoutParams(0, -2, 1));
+
+        ImageView search = imageIcon(R.drawable.ic_search, Color.WHITE);
+        search.setContentDescription("Поиск по своим репозиториям и всему GitHub");
+        search.setPadding(dp(8), dp(8), dp(8), dp(8));
+        search.setBackground(round(0x33FFFFFF, 20, 0x55FFFFFF, 1));
+        search.setOnClickListener(v -> actions.openGlobalSearch());
+        LinearLayout.LayoutParams searchLp = new LinearLayout.LayoutParams(dp(38), dp(38));
+        searchLp.setMargins(0, 0, dp(6), 0);
+        header.addView(search, searchLp);
 
         ImageView account = actions.profileAvatar();
         account.setContentDescription("Профиль GitHub");
@@ -256,7 +275,7 @@ public final class HomeScreen {
         quoteLp.setMargins(0, 0, dp(8), dp(13));
         hero.addView(quote, quoteLp);
 
-        installHeroCarousel(hero, landscape);
+        installHeroCarousel(hero, landscape, animated);
         LinearLayout.LayoutParams heroLp = new LinearLayout.LayoutParams(-1, dp(145));
         heroLp.setMargins(0, 0, 0, dp(7));
         content.addView(hero, heroLp);
@@ -279,17 +298,20 @@ public final class HomeScreen {
             R.drawable.home_geo_copper, R.drawable.home_geo_aurora
     };
 
-    private void installHeroCarousel(FrameLayout hero, ImageView landscape) {
+    /** Static images first, then the two animated backgrounds (neural network, DNA helix). */
+    private static final int PAGE_COUNT = HERO_IMAGES.length + 2;
+
+    private void installHeroCarousel(FrameLayout hero, ImageView landscape, AnimatedHeroView animated) {
         LinearLayout dots = new LinearLayout(activity);
         dots.setGravity(Gravity.CENTER);
         FrameLayout.LayoutParams dotParams = new FrameLayout.LayoutParams(-2, dp(7),
                 Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
         dotParams.setMargins(0, 0, 0, dp(3));
         hero.addView(dots, dotParams);
-        final int[] selected = {retainedBannerIndex % HERO_IMAGES.length};
+        final int[] selected = {retainedBannerIndex % PAGE_COUNT};
         final Runnable updateDots = () -> {
             dots.removeAllViews();
-            for (int i = 0; i < HERO_IMAGES.length; i++) {
+            for (int i = 0; i < PAGE_COUNT; i++) {
                 View dot = new View(activity);
                 dot.setBackground(round(i == selected[0] ? 0xFF53D96B : 0x99FFFFFF, 6, 0, 0));
                 LinearLayout.LayoutParams dotP = new LinearLayout.LayoutParams(
@@ -298,7 +320,14 @@ public final class HomeScreen {
                 dots.addView(dot, dotP);
             }
         };
-        landscape.setImageResource(HERO_IMAGES[selected[0]]);
+        final Runnable showPage = () -> {
+            boolean live = selected[0] >= HERO_IMAGES.length;
+            animated.setVisibility(live ? View.VISIBLE : View.GONE);
+            landscape.setVisibility(live ? View.GONE : View.VISIBLE);
+            if (live) animated.setStyle(selected[0] - HERO_IMAGES.length);
+            else landscape.setImageResource(HERO_IMAGES[selected[0]]);
+        };
+        showPage.run();
         updateDots.run();
         final Runnable[] change = new Runnable[1];
         final Handler handler = new Handler(Looper.getMainLooper());
@@ -306,15 +335,17 @@ public final class HomeScreen {
         change[0] = () -> {
             retainedBannerIndex = selected[0];
             landscape.animate().cancel();
-            landscape.setAlpha(0.55f);
-            landscape.setImageResource(HERO_IMAGES[selected[0]]);
-            landscape.animate().alpha(1f).setDuration(330).start();
+            animated.animate().cancel();
+            showPage.run();
+            View shown = selected[0] >= HERO_IMAGES.length ? animated : landscape;
+            shown.setAlpha(0.55f);
+            shown.animate().alpha(1f).setDuration(330).start();
             updateDots.run();
         };
         tick[0] = () -> {
             if (!hero.isAttachedToWindow() || hero.getWindowVisibility() != View.VISIBLE) return;
             if (activity.hasWindowFocus()) {
-                selected[0] = (selected[0] + 1) % HERO_IMAGES.length;
+                selected[0] = (selected[0] + 1) % PAGE_COUNT;
                 change[0].run();
             }
             handler.postDelayed(tick[0], 8000L);
@@ -327,6 +358,7 @@ public final class HomeScreen {
             @Override public void onViewDetachedFromWindow(View v) {
                 handler.removeCallbacks(tick[0]);
                 landscape.animate().cancel();
+                animated.animate().cancel();
             }
         });
         final float[] x = {0}, y = {0};
@@ -339,8 +371,8 @@ public final class HomeScreen {
                 float dx = event.getX() - x[0];
                 float dy = event.getY() - y[0];
                 if (Math.abs(dx) > dp(35) && Math.abs(dx) > Math.abs(dy)) {
-                    selected[0] = (selected[0] + (dx < 0 ? 1 : HERO_IMAGES.length - 1))
-                            % HERO_IMAGES.length;
+                    selected[0] = (selected[0] + (dx < 0 ? 1 : PAGE_COUNT - 1))
+                            % PAGE_COUNT;
                     change[0].run();
                     handler.removeCallbacks(tick[0]);
                     handler.postDelayed(tick[0], 8000L);
@@ -468,8 +500,8 @@ public final class HomeScreen {
     private void renderTile(GridLayout grid, Tile item) {
         LinearLayout box = new LinearLayout(activity);
         box.setOrientation(LinearLayout.VERTICAL);
-        box.setGravity(Gravity.TOP);
-        box.setPadding(dp(8),dp(9),dp(5),dp(4));
+        box.setGravity(Gravity.CENTER);
+        box.setPadding(dp(4),dp(6),dp(4),dp(5));
         box.setBackground(round(palette.card,10,palette.border,1));
         // Always draw a visible icon: vector tinted white on its own branded color badge.
         ImageView icon = imageIcon(item.icon, Color.WHITE);
@@ -477,22 +509,22 @@ public final class HomeScreen {
         icon.setPadding(dp(6), dp(6), dp(6), dp(6));
         icon.setContentDescription(item.title);
         LinearLayout.LayoutParams iconLp = new LinearLayout.LayoutParams(dp(34), dp(34));
-        iconLp.setMargins(dp(5), 0, 0, 0);
+        iconLp.gravity = Gravity.CENTER_HORIZONTAL;
         box.addView(icon, iconLp);
         TextView title = text(item.title,10,true);
-        title.setPadding(0,dp(2),0,0);
+        title.setGravity(Gravity.CENTER);
+        title.setPadding(0,dp(3),0,0);
         title.setSingleLine();
         title.setEllipsize(TextUtils.TruncateAt.END);
         LinearLayout.LayoutParams titleLp = new LinearLayout.LayoutParams(-1, -2);
-        titleLp.setMargins(dp(2), 0, 0, 0);
         box.addView(title, titleLp);
         TextView subtitle = text(item.subtitle,8,false);
         subtitle.setTextColor(palette.muted);
+        subtitle.setGravity(Gravity.CENTER);
         subtitle.setPadding(0,0,0,0);
         subtitle.setSingleLine();
         subtitle.setEllipsize(TextUtils.TruncateAt.END);
         LinearLayout.LayoutParams subtitleLp = new LinearLayout.LayoutParams(-1, -2);
-        subtitleLp.setMargins(dp(2), 0, 0, 0);
         box.addView(subtitle, subtitleLp);
         box.setOnClickListener(v -> item.action.run());
         GridLayout.LayoutParams p = new GridLayout.LayoutParams();
@@ -564,92 +596,206 @@ public final class HomeScreen {
         list.addView(row,new LinearLayout.LayoutParams(-1,dp(49)));
     }
 
-    private void renderRecommendations() {
-        LinearLayout row = new LinearLayout(activity);
-        recommendation(row, "Android", "Android-проекты", R.drawable.ic_android, palette.green,
-                "android/architecture-samples", true);
-        recommendation(row, "Kotlin", "Язык Kotlin", R.drawable.ic_kotlin_brand, violet,
-                "JetBrains/kotlin", false);
-        recommendation(row, "GitHub", "Open Source", R.drawable.ic_github_mark, slate,
-                "github/gitignore", false);
-        content.addView(row, new LinearLayout.LayoutParams(-1, dp(spaciousCards ? 108 : 88)));
-    }
-
-    private String formatStars(long value) {
-        if (value < 0) return "—";
-        if (value < 1000) return Long.toString(value);
-        double amount = value >= 1000000 ? value / 1000000d : value / 1000d;
-        String unit = value >= 1000000 ? " млн" : " тыс.";
-        if (amount >= 100 || amount == Math.floor(amount)) {
-            return String.format(java.util.Locale.forLanguageTag("ru"), "%.0f%s", amount, unit);
+    private static final class Direction {
+        final String title, subtitle, query;
+        final int icon, accent;
+        Direction(String title, String subtitle, String query, int icon, int accent) {
+            this.title = title; this.subtitle = subtitle; this.query = query;
+            this.icon = icon; this.accent = accent;
         }
-        return String.format(java.util.Locale.forLanguageTag("ru"), "%.1f%s", amount, unit);
     }
 
-    private void recommendation(LinearLayout row, String name, String subtitle, int icon,
-                                int accent, String repo, boolean first) {
-        RecommendationPreview info = data.recommendation(repo);
-        LinearLayout card = new LinearLayout(activity);
-        card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(dp(6), dp(6), dp(6), dp(5));
-        card.setBackground(round(palette.card, 12, palette.border, 1));
-        card.setOnClickListener(v -> actions.openRepository(repo));
+    /** Directions are search shortcuts; the first ones follow the user's own stack and the week. */
+    private java.util.List<Direction> directions() {
+        java.util.List<Direction> list = new java.util.ArrayList<>();
+        String language = actions.favoriteLanguage();
+        if (language != null && !language.trim().isEmpty()) {
+            String quoted = language.indexOf(' ') >= 0 ? "\"" + language + "\"" : language;
+            list.add(new Direction("Ваш стек: " + language, "Лучшие проекты на вашем основном языке",
+                    "language:" + quoted + " stars:>3000", R.drawable.ic_repository, palette.green));
+        }
+        Calendar week = Calendar.getInstance();
+        week.add(Calendar.DAY_OF_YEAR, -7);
+        String since = String.format(java.util.Locale.ROOT, "%04d-%02d-%02d", week.get(Calendar.YEAR),
+                week.get(Calendar.MONTH) + 1, week.get(Calendar.DAY_OF_MONTH));
+        list.add(new Direction("Новое за неделю", "Свежие репозитории, которые уже набирают звёзды",
+                "created:>" + since + " stars:>100", R.drawable.ic_explore, orange));
+        list.add(new Direction("Android", "Приложения, библиотеки и инструменты",
+                "android stars:>10000", R.drawable.ic_android, palette.green));
+        list.add(new Direction("Kotlin", "Современные JVM- и Android-проекты",
+                "language:kotlin stars:>5000", R.drawable.ic_kotlin, violet));
+        list.add(new Direction("ИИ и агенты", "Модели, агенты, машинное обучение",
+                "topic:artificial-intelligence stars:>2000", R.drawable.ic_ai, blue));
+        list.add(new Direction("Для новичков", "Репозитории с задачами good first issue",
+                "good-first-issues:>5 stars:>500", R.drawable.ic_issue, teal));
+        list.add(new Direction("Инструменты", "CLI, автоматизация и DevOps",
+                "topic:developer-tools stars:>2000", R.drawable.ic_tools, slate));
+        list.add(new Direction("Безопасность", "Сканеры, криптография, защита",
+                "topic:security stars:>2000", R.drawable.ic_lock, red));
+        return list;
+    }
 
-        LinearLayout top = new LinearLayout(activity);
-        top.setGravity(Gravity.CENTER_VERTICAL);
-        ImageView art = imageIcon(icon, Color.WHITE);
-        if ("Kotlin".equals(name)) art.clearColorFilter();
-        art.setPadding(dp(5), dp(5), dp(5), dp(5));
-        art.setBackground(round("Kotlin".equals(name) ? 0xFF17243C : accent, 9, 0, 0));
-        art.setContentDescription("Логотип " + name);
-        top.addView(art, new LinearLayout.LayoutParams(dp(36), dp(36)));
-        LinearLayout names = new LinearLayout(activity);
-        names.setOrientation(LinearLayout.VERTICAL);
-        names.setPadding(dp(4), 0, 0, 0);
-        TextView title = text(name, 10, true);
-        title.setSingleLine(); title.setEllipsize(TextUtils.TruncateAt.END);
-        TextView description = text(subtitle, 8, false);
-        description.setTextColor(palette.muted);
-        description.setSingleLine(); description.setEllipsize(TextUtils.TruncateAt.END);
-        names.addView(title);
-        names.addView(description);
-        top.addView(names, new LinearLayout.LayoutParams(0, -2, 1));
-        card.addView(top);
+    private void renderRecommendations() {
+        android.widget.HorizontalScrollView scroller = new android.widget.HorizontalScrollView(activity);
+        scroller.setHorizontalScrollBarEnabled(false);
+        scroller.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        LinearLayout row = new LinearLayout(activity);
+        for (Direction item : directions()) {
+            LinearLayout card = new LinearLayout(activity);
+            card.setOrientation(LinearLayout.VERTICAL);
+            card.setPadding(dp(10), dp(10), dp(10), dp(9));
+            card.setBackground(round(blend(palette.card, item.accent, palette.dark ? 0.14f : 0.06f),
+                    14, blend(palette.border, item.accent, 0.2f), 1));
+            card.setOnClickListener(v -> actions.openDirection(item.query));
+            card.setContentDescription(item.title + ". " + item.subtitle);
+            ImageView art = imageIcon(item.icon, Color.WHITE);
+            art.setPadding(dp(7), dp(7), dp(7), dp(7));
+            art.setBackground(round(item.accent, 11, 0, 0));
+            card.addView(art, new LinearLayout.LayoutParams(dp(36), dp(36)));
+            TextView title = text(item.title, 12, true);
+            title.setSingleLine();
+            title.setEllipsize(TextUtils.TruncateAt.END);
+            title.setPadding(0, dp(7), 0, 0);
+            card.addView(title);
+            TextView subtitle = text(item.subtitle, 9, false);
+            subtitle.setTextColor(palette.muted);
+            subtitle.setMaxLines(2);
+            subtitle.setEllipsize(TextUtils.TruncateAt.END);
+            subtitle.setPadding(0, dp(2), 0, 0);
+            card.addView(subtitle);
+            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(dp(150), dp(spaciousCards ? 126 : 112));
+            p.setMargins(0, 0, dp(8), 0);
+            row.addView(card, p);
+        }
+        scroller.addView(row);
+        content.addView(scroller, new LinearLayout.LayoutParams(-1, -2));
+    }
 
-        LinearLayout spacer = new LinearLayout(activity);
-        card.addView(spacer, new LinearLayout.LayoutParams(-1, 0, 1));
-        LinearLayout bottom = new LinearLayout(activity);
-        bottom.setGravity(Gravity.CENTER_VERTICAL);
-        ImageView star = imageIcon(R.drawable.ic_star, amber);
-        bottom.addView(star, new LinearLayout.LayoutParams(dp(14), dp(14)));
-        TextView count = text(formatStars(info.stars), 9, true);
-        count.setTextColor(palette.text);
-        count.setSingleLine();
-        count.setEllipsize(TextUtils.TruncateAt.END);
-        count.setPadding(dp(2), 0, 0, 0);
-        bottom.addView(count, new LinearLayout.LayoutParams(0, -2, 1));
+    /** All sections as a styled sheet instead of a plain text list. */
+    public static void showAllSections(Activity activity, Palette palette, Actions actions) {
+        final float d = activity.getResources().getDisplayMetrics().density;
+        final android.app.Dialog dialog = new android.app.Dialog(activity);
+        dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
+        LinearLayout root = new LinearLayout(activity);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding((int) (16 * d), (int) (14 * d), (int) (16 * d), (int) (12 * d));
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(palette.background);
+        bg.setCornerRadius(22 * d);
+        root.setBackground(bg);
 
-        TextView favorite = text(info.favorite ? "✓" : "+", 18, true);
-        favorite.setGravity(Gravity.CENTER);
-        favorite.setTextColor(palette.green);
-        favorite.setContentDescription(info.favorite ? "Удалить из избранного: " + repo
-                : "Добавить в избранное: " + repo);
-        favorite.setBackground(round(info.favorite
-                ? blend(palette.card, palette.green, 0.16f) : palette.card,
-                18, palette.green, 1));
-        favorite.setOnClickListener(v -> {
-            boolean saved = actions.toggleRecommendedFavorite(repo);
-            favorite.setText(saved ? "✓" : "+");
-            favorite.setContentDescription(saved ? "Удалить из избранного: " + repo
-                    : "Добавить в избранное: " + repo);
-            favorite.setBackground(round(saved ? blend(palette.card, palette.green, 0.16f)
-                    : palette.card, 18, palette.green, 1));
-        });
-        bottom.addView(favorite, new LinearLayout.LayoutParams(dp(30), dp(30)));
-        card.addView(bottom);
-        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, -1, 1);
-        p.setMargins(first ? 0 : dp(3), 0, dp(3), 0);
-        row.addView(card, p);
+        TextView title = new TextView(activity);
+        title.setText("Все разделы");
+        title.setTextSize(19);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setTextColor(palette.text);
+        root.addView(title);
+        TextView hint = new TextView(activity);
+        hint.setText("Всё, что есть в GitHubble, в одном месте");
+        hint.setTextSize(12);
+        hint.setTextColor(palette.muted);
+        hint.setPadding(0, (int) (2 * d), 0, (int) (8 * d));
+        root.addView(hint);
+
+        LinearLayout body = new LinearLayout(activity);
+        body.setOrientation(LinearLayout.VERTICAL);
+        int blue = Color.rgb(44, 125, 225), red = Color.rgb(219, 65, 88), violet = Color.rgb(129, 72, 203),
+                teal = Color.rgb(33, 149, 157), amber = Color.rgb(221, 159, 22),
+                orange = Color.rgb(235, 127, 27), slate = Color.rgb(88, 106, 112);
+        Object[][] groups = {
+            {"Разработка и код", palette.green,
+                new Object[][]{{"Репозитории", R.drawable.ic_repository, palette.green, 0},
+                    {"Pull Requests", R.drawable.ic_pull_request, blue, 1},
+                    {"Релизы", R.drawable.ic_release, orange, 2},
+                    {"Проекты", R.drawable.ic_projects, violet, 3}}},
+            {"Сообщество и управление", blue,
+                new Object[][]{{"Issues", R.drawable.ic_issue, red, 4},
+                    {"Обсуждения", R.drawable.ic_discussion, violet, 5},
+                    {"Организации", R.drawable.ic_organization, teal, 6},
+                    {"Избранное", R.drawable.ic_star, amber, 7}}},
+            {"Обзор и контроль", teal,
+                new Object[][]{{"История", R.drawable.ic_history, slate, 8},
+                    {"Наблюдение", R.drawable.ic_bell, orange, 9},
+                    {"Поиск", R.drawable.ic_search, blue, 10},
+                    {"Направления", R.drawable.ic_explore, palette.green, 11}}}
+        };
+        for (Object[] group : groups) {
+            TextView heading = new TextView(activity);
+            heading.setText((String) group[0]);
+            heading.setTextSize(12);
+            heading.setTypeface(Typeface.DEFAULT_BOLD);
+            heading.setTextColor(palette.muted);
+            heading.setPadding((int) (2 * d), (int) (8 * d), 0, (int) (5 * d));
+            body.addView(heading);
+            GridLayout grid = new GridLayout(activity);
+            grid.setColumnCount(2);
+            for (Object[] item : (Object[][]) group[2]) {
+                final int id = (Integer) item[3];
+                int accent = (Integer) item[2];
+                LinearLayout cell = new LinearLayout(activity);
+                cell.setGravity(Gravity.CENTER_VERTICAL);
+                cell.setPadding((int) (9 * d), (int) (8 * d), (int) (8 * d), (int) (8 * d));
+                GradientDrawable cb = new GradientDrawable();
+                cb.setColor(palette.card);
+                cb.setCornerRadius(14 * d);
+                cb.setStroke((int) d, palette.border);
+                cell.setBackground(cb);
+                ImageView icon = new ImageView(activity);
+                icon.setImageResource((Integer) item[1]);
+                icon.setColorFilter(Color.WHITE);
+                int pad = (int) (7 * d);
+                icon.setPadding(pad, pad, pad, pad);
+                GradientDrawable ib = new GradientDrawable();
+                ib.setColor(accent);
+                ib.setCornerRadius(11 * d);
+                icon.setBackground(ib);
+                cell.addView(icon, new LinearLayout.LayoutParams((int) (36 * d), (int) (36 * d)));
+                TextView label = new TextView(activity);
+                label.setText((String) item[0]);
+                label.setTextSize(13);
+                label.setTypeface(Typeface.DEFAULT_BOLD);
+                label.setTextColor(palette.text);
+                label.setSingleLine();
+                label.setEllipsize(TextUtils.TruncateAt.END);
+                label.setPadding((int) (9 * d), 0, 0, 0);
+                cell.addView(label, new LinearLayout.LayoutParams(0, -2, 1));
+                cell.setOnClickListener(v -> {
+                    dialog.dismiss();
+                    switch (id) {
+                        case 0: actions.openRepositories(); break;
+                        case 1: actions.openPullRequests(); break;
+                        case 2: actions.openReleases(); break;
+                        case 3: actions.openProjects(); break;
+                        case 4: actions.openIssues(); break;
+                        case 5: actions.openDiscussions(); break;
+                        case 6: actions.openOrganizations(); break;
+                        case 7: actions.openFavorites(); break;
+                        case 8: actions.openHistory(); break;
+                        case 9: actions.openTracking(); break;
+                        case 10: actions.openGlobalSearch(); break;
+                        default: actions.openExplore(); break;
+                    }
+                });
+                GridLayout.LayoutParams lp = new GridLayout.LayoutParams();
+                lp.width = 0;
+                lp.height = (int) (54 * d);
+                lp.columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f);
+                lp.setMargins((int) (3 * d), (int) (3 * d), (int) (3 * d), (int) (3 * d));
+                grid.addView(cell, lp);
+            }
+            body.addView(grid);
+        }
+        android.widget.ScrollView scroll = new android.widget.ScrollView(activity);
+        scroll.addView(body);
+        root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
+        dialog.setContentView(root);
+        android.view.Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
+            android.util.DisplayMetrics m = activity.getResources().getDisplayMetrics();
+            window.setLayout((int) (m.widthPixels * 0.93f), (int) (m.heightPixels * 0.78f));
+        }
+        dialog.show();
     }
 
     private void section(String title,String action,Runnable open) {
