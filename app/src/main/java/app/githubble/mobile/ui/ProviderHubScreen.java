@@ -36,6 +36,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 /**
@@ -49,8 +50,10 @@ public final class ProviderHubScreen {
     public interface Host {
         boolean isCurrent(String owner);
         void openProvider(String provider);
-        void openAddService();
-        void openSubscriptions();
+        /** tab: 0 subscriptions, 1 API keys, 2 own endpoint. */
+        void openAddService(int tab);
+        /** One tap on a sign-in connection: connect, or manage when already connected. */
+        void openAccount(String provider);
         void openNetwork();
         void openModelPicker();
         void openUsage();
@@ -103,62 +106,61 @@ public final class ProviderHubScreen {
     public void renderHub() {
         rerender = this::renderHub;
         List<String> services = connectedServices();
-
-        // ---- shared totals over all switched-on keys
-        long calls = 0, in = 0, out = 0;
-        int keys = 0, active = 0;
-        for (String provider : services) {
-            PoolPolicy.Summary s = pool().summary(owner, provider);
-            calls += s.calls; in += s.inTokens; out += s.outTokens; keys += s.total; active += s.enabled;
+        List<String> apis = new ArrayList<>(), own = new ArrayList<>();
+        for (String id : services) {
+            if (OmniChatConnectionStore.isCustom(id) || app.githubble.mobile.agent.ConnectionCatalog.isAccount(id)) own.add(id);
+            else apis.add(id);
         }
-        LinearLayout summary = card(palette.dark ? 0.12f : 0.06f);
-        summary.addView(label("Общая сводка", 12, palette.muted, true));
-        summary.addView(label(services.size() + " " + plural(services.size(), "сервис", "сервиса", "сервисов")
-                + " · ключей включено " + active + " из " + keys, 17, palette.text, true), params(-1, -2, 0, 4, 0, 0));
-        summary.addView(label("Запросов: " + calls + " · токены: " + PoolPolicy.compact(in) + " вход / "
-                + PoolPolicy.compact(out) + " выход. Считаются только включённые ключи.", 12, palette.muted, false),
-                params(-1, -2, 0, 4, 0, 0));
-        content.addView(summary, params(-1, -2, 0, 4, 0, 10));
-
-        LinearLayout actions = new LinearLayout(activity);
-        actions.addView(button("＋  Сервис", true, v -> host.openAddService()), params(0, 48, 1, 0, 0, 0, 0));
-        actions.addView(button("Свой endpoint", false, v -> customServiceSheet()), params(0, 48, 1, 8, 0, 0, 0));
-        content.addView(actions, params(-1, -2, 0, 0, 0, 12));
-
-        // ---- API services
-        content.addView(heading("API-сервисы и ключи"));
-        if (services.isEmpty()) {
-            LinearLayout empty = card(0.03f);
-            empty.addView(label("Подключений пока нет", 15, palette.text, true));
-            empty.addView(label("Добавьте сервис из каталога или свой endpoint, например Keydealer.ru или Claudy.shop. "
-                    + "К одному сервису можно подключить сколько угодно ключей.", 13, palette.muted, false), params(-1, -2, 0, 4, 0, 0));
-            content.addView(empty, params(-1, -2, 0, 0, 0, 10));
-        }
-        for (String provider : services) content.addView(serviceCard(provider), params(-1, -2, 0, 0, 0, 10));
-
-        // ---- Accounts & subscriptions (OAuth / device flow): one catalog, one-tap connect
-        content.addView(heading("Аккаунты и подписки"));
-        LinearLayout subs = card(0.03f);
+        List<app.githubble.mobile.agent.ConnectionCatalog.Account> subs = new ArrayList<>();
         for (app.githubble.mobile.agent.ConnectionCatalog.Account account : app.githubble.mobile.agent.ConnectionCatalog.accounts()) {
-            String provider = account.id;
-            if (!OmniChatConnectionStore.supported().containsKey(provider)) continue;
-            boolean connected = store.hasKey(owner, provider);
-            LinearLayout row = new LinearLayout(activity);
-            row.setGravity(Gravity.CENTER_VERTICAL);
-            row.setPadding(0, dp(6), 0, dp(6));
-            LinearLayout words = column();
-            words.addView(label(store.displayName(provider), 14, palette.text, true));
-            words.addView(label(connected
-                    ? store.models(owner, provider).size() + " моделей" + (store.isConfigured(owner, provider) ? "" : " · загрузите каталог")
-                    : (account.freeModels ? "Есть бесплатные модели · " : "") + account.subtitle, 12, palette.muted, false));
-            row.addView(words, params(0, -2, 1, 0, 0, 0, 0));
-            row.addView(connected ? pill("Подключено", palette.green) : pill("Подключить", palette.muted), params(-2, -2, 0, 8, 0, 0, 0));
-            row.setOnClickListener(v -> host.openSubscriptions());
-            ripple(row);
-            subs.addView(row);
+            if (app.githubble.mobile.agent.ConnectionCatalog.ENDPOINT.equals(account.method)) continue;
+            if (!OmniChatConnectionStore.supported().containsKey(account.id) || !store.hasKey(owner, account.id)) continue;
+            subs.add(account);
         }
-        subs.addView(button("Открыть аккаунты и подписки", false, v -> host.openSubscriptions()), params(-1, 44, 0, 10, 0, 0, 0));
-        content.addView(subs, params(-1, -2, 0, 0, 0, 10));
+
+        // ---- what the chat uses right now
+        String selected = store.selectedProvider(owner);
+        boolean usable = !selected.isEmpty() && store.isConfigured(owner, selected);
+        LinearLayout active = card(palette.dark ? 0.16f : 0.08f);
+        active.setOnClickListener(v -> host.openModelPicker());
+        ripple(active);
+        active.addView(label("СЕЙЧАС В ЧАТЕ", 11, palette.muted, true));
+        active.addView(label(usable ? store.model(owner, selected) : "Модель не выбрана", 19, palette.text, true), params(-1, -2, 0, 4, 0, 0));
+        active.addView(label(usable ? store.displayName(selected) + " · нажмите, чтобы выбрать другую"
+                : "Подключите подписку или API-ключ ниже, затем выберите модель", 12, palette.muted, false), params(-1, -2, 0, 2, 0, 0));
+        content.addView(active, params(-1, -2, 0, 4, 0, 10));
+
+        content.addView(button("＋  Добавить подключение", true, v -> host.openAddService(0)), params(-1, 52, 0, 0, 0, 8));
+
+        long calls = 0, in = 0, out = 0;
+        int keys = 0, enabled = 0;
+        for (String provider : services) {
+            PoolPolicy.Summary sum = pool().summary(owner, provider);
+            calls += sum.calls; in += sum.inTokens; out += sum.outTokens; keys += sum.total; enabled += sum.enabled;
+        }
+        content.addView(label("Подписок: " + subs.size() + " · сервисов: " + services.size() + " · ключей включено " + enabled + " из " + keys
+                + " · запросов " + calls + " · токены " + PoolPolicy.compact(in) + "↑ " + PoolPolicy.compact(out) + "↓", 12, palette.muted, false),
+                params(-1, -2, 6, 0, 6, 6));
+
+        // ---- 1. subscriptions (sign in with an account)
+        content.addView(sectionHeader("Подписки", "Войти в аккаунт", 0));
+        if (subs.isEmpty()) content.addView(hint("Вход в ChatGPT, Claude, Copilot, Kilo, Grok и другие аккаунты — без API-ключа. Один тап, модели подгрузятся сами."),
+                params(-1, -2, 0, 0, 0, 10));
+        for (app.githubble.mobile.agent.ConnectionCatalog.Account account : subs)
+            content.addView(accountRow(account, true), params(-1, -2, 0, 0, 0, 8));
+
+        // ---- 2. API services
+        content.addView(sectionHeader("API-ключи", "Добавить сервис", 1));
+        if (apis.isEmpty()) content.addView(hint("Каталог из " + OmniChatConnectionStore.apiSupported().size()
+                + " сервисов: OpenAI, Anthropic, Gemini, DeepSeek, OpenRouter, Groq и другие. К одному сервису можно подключить сколько угодно ключей."),
+                params(-1, -2, 0, 0, 0, 10));
+        for (String provider : apis) content.addView(serviceCard(provider), params(-1, -2, 0, 0, 0, 10));
+
+        // ---- 3. own endpoints (custom services and own subscription proxy)
+        content.addView(sectionHeader("Свои endpoint", "Создать свой", 2));
+        if (own.isEmpty()) content.addView(hint("Перепродавец ключей, свой прокси подписок, локальный сервер: любой адрес с протоколом OpenAI, Anthropic, Gemini или Ollama."),
+                params(-1, -2, 0, 0, 0, 10));
+        for (String provider : own) content.addView(serviceCard(provider), params(-1, -2, 0, 0, 0, 10));
 
         // ---- tools
         content.addView(heading("Инструменты"));
@@ -167,7 +169,51 @@ public final class ProviderHubScreen {
         tools.addView(button("Использование", false, v -> host.openUsage()), params(0, 46, 1, 8, 0, 0, 0));
         tools.addView(button("Сеть / DNS", false, v -> host.openNetwork()), params(0, 46, 1, 8, 0, 0, 0));
         content.addView(tools, params(-1, -2, 0, 0, 0, 12));
+    }
 
+    /** Section title with a one-tap action that opens the matching tab of the add screen. */
+    private View sectionHeader(String title, String action, int tab) {
+        LinearLayout row = new LinearLayout(activity);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        TextView name = heading(title);
+        row.addView(name, params(0, -2, 1, 0, 0, 0, 0));
+        row.addView(textButton(action, v -> host.openAddService(tab)), params(-2, 40, 0, 0, 0, 0, 0));
+        return row;
+    }
+
+    private View hint(String text) {
+        LinearLayout box = card(0.02f);
+        box.addView(label(text, 13, palette.muted, false));
+        return box;
+    }
+
+    /** One sign-in connection: name, state, plan and a tap target. */
+    private View accountRow(app.githubble.mobile.agent.ConnectionCatalog.Account account, boolean connectedOnly) {
+        String provider = account.id;
+        boolean connected = store.hasKey(owner, provider);
+        LinearLayout row = card(0.02f);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.addView(initialTile(store.displayName(provider), palette.green), params(40, 40, 0, 0, 0, 12, 0));
+        LinearLayout words = column();
+        words.addView(label(store.displayName(provider), 15, palette.text, true));
+        String detail = (account.freeModels ? "Есть бесплатные модели · " : "") + account.subtitle;
+        if (connected) {
+            detail = store.models(owner, provider).size() + " моделей";
+            try {
+                JSONObject info = new JSONObject(store.credential(owner, provider));
+                String identity = info.optString("identity"), plan = info.optString("plan");
+                if (!identity.isEmpty()) detail += " · " + identity;
+                if (!plan.isEmpty()) detail += " · " + plan;
+            } catch (Exception ignored) { }
+            if (!store.isConfigured(owner, provider)) detail = "Сессия сохранена · нажмите, чтобы загрузить модели";
+        }
+        words.addView(label(detail, 12, connected ? palette.green : palette.muted, false));
+        row.addView(words, params(0, -2, 1, 0, 0, 0, 0));
+        row.addView(connected ? pill("Подключено", palette.green) : pill("Войти", palette.muted), params(-2, -2, 0, 8, 0, 0, 0));
+        row.setOnClickListener(v -> host.openAccount(provider));
+        ripple(row);
+        return row;
     }
 
     private LinearLayout serviceCard(String provider) {
@@ -368,40 +414,86 @@ public final class ProviderHubScreen {
 
     // ================================================================== add service
 
-    public void renderAddService() {
-        rerender = this::renderAddService;
-        LinearLayout custom = card(palette.dark ? 0.14f : 0.07f);
-        custom.addView(label("Свой сервис", 16, palette.text, true));
-        custom.addView(label("Любой endpoint: перепродавец ключей, свой прокси, локальный сервер. Укажите адрес, протокол и ключи.", 12, palette.muted, false), params(-1, -2, 0, 4, 0, 0));
-        custom.addView(button("＋  Создать со своим endpoint", true, v -> customServiceSheet()), params(-1, 48, 0, 10, 0, 0));
-        content.addView(custom, params(-1, -2, 0, 4, 0, 10));
+    private int addTab;
 
+    public void renderAddService() { renderAddService(addTab); }
+
+    /** One place to add anything: sign in with a subscription, take an API service from the catalog, or define an own endpoint. */
+    public void renderAddService(int tab) {
+        addTab = tab;
+        rerender = () -> renderAddService(addTab);
+        content.addView(chips(new String[]{"Подписки", "API-ключи", "Свой endpoint"}, tab, i -> { addTab = i; reload(); }), params(-1, -2, 0, 2, 0, 10));
+        if (tab == 0) addAccountsTab();
+        else if (tab == 1) addApiTab();
+        else addCustomTab();
+    }
+
+    private void addAccountsTab() {
+        content.addView(hint("Войдите в аккаунт с подпиской — API-ключ не нужен. Вход один раз: в браузере или по короткому коду, модели загрузятся сами."),
+                params(-1, -2, 0, 0, 0, 8));
+        boolean freeHeading = false, paidHeading = false;
+        for (app.githubble.mobile.agent.ConnectionCatalog.Account account : app.githubble.mobile.agent.ConnectionCatalog.accounts()) {
+            if (app.githubble.mobile.agent.ConnectionCatalog.ENDPOINT.equals(account.method)) continue;
+            if (!OmniChatConnectionStore.supported().containsKey(account.id)) continue;
+            if (account.freeModels && !freeHeading) { content.addView(heading("С бесплатными моделями")); freeHeading = true; }
+            if (!account.freeModels && !paidHeading) { content.addView(heading("По платной подписке")); paidHeading = true; }
+            content.addView(accountRow(account, false), params(-1, -2, 0, 0, 0, 8));
+        }
+    }
+
+    private static String categoryTitle(String category) {
+        if ("Direct".equals(category)) return "Прямые API разработчиков";
+        if ("Gateway".equals(category)) return "Шлюзы и агрегаторы";
+        if ("Inference".equals(category)) return "Платформы инференса";
+        if ("Cloud".equals(category)) return "Облачные платформы";
+        if ("Local".equals(category)) return "Локальные серверы";
+        return "Другие сервисы";
+    }
+
+    private void addApiTab() {
+        final Map<String, String> categories = new java.util.HashMap<>();
+        JSONArray catalog = app.githubble.mobile.agent.OmniChatProviderCatalog.load(activity);
+        for (int i = 0; i < catalog.length(); i++) {
+            JSONObject entry = catalog.optJSONObject(i);
+            if (entry != null) categories.put(entry.optString("id"), entry.optString("category"));
+        }
+        final Map<String, String> all = OmniChatConnectionStore.apiSupported();
+        content.addView(hint("Сервис из каталога (" + all.size() + "): укажите ключ — адрес и протокол уже известны. Ключей можно добавить сколько угодно."),
+                params(-1, -2, 0, 0, 0, 8));
         EditText search = field("Найти сервис", "", false, false);
         LinearLayout list = column();
         content.addView(search, params(-1, 48, 0, 0, 0, 8));
         content.addView(list, params(-1, -2, 0, 0, 0, 0));
+        final String[] order = {"Direct", "Gateway", "Inference", "Cloud", "Local", ""};
         Runnable fill = () -> {
             list.removeAllViews();
             String query = search.getText().toString().trim().toLowerCase(Locale.ROOT);
-            Map<String, String> all = OmniChatConnectionStore.apiSupported();
-            List<String> ordered = new ArrayList<>();
-            for (String id : POPULAR) if (all.containsKey(id)) ordered.add(id);
-            List<String> rest = new ArrayList<>();
-            for (String id : all.keySet()) if (!ordered.contains(id)) rest.add(id);
-            java.util.Collections.sort(rest, (a, b) -> all.get(a).compareToIgnoreCase(all.get(b)));
-            ordered.addAll(rest);
             int shown = 0;
-            boolean popularHeading = false, restHeading = false;
-            for (String id : ordered) {
-                String name = all.get(id);
-                if (!query.isEmpty() && !(name + " " + id).toLowerCase(Locale.ROOT).contains(query)) continue;
-                boolean popular = Arrays.asList(POPULAR).contains(id);
-                if (query.isEmpty() && popular && !popularHeading) { list.addView(heading("Популярные")); popularHeading = true; }
-                if (query.isEmpty() && !popular && !restHeading) { list.addView(heading("Все сервисы")); restHeading = true; }
-                list.addView(serviceRow(id, name), params(-1, -2, 0, 0, 0, 8));
-                shown++;
+            if (query.isEmpty()) {
+                list.addView(heading("Популярные"));
+                for (String id : POPULAR) {
+                    if (!all.containsKey(id)) continue;
+                    list.addView(serviceRow(id, all.get(id)), params(-1, -2, 0, 0, 0, 8));
+                    shown++;
+                }
             }
-            if (shown == 0) list.addView(label("Ничего не найдено. Можно создать свой сервис выше.", 13, palette.muted, false), params(-1, -2, 0, 12, 0, 0));
+            for (String group : order) {
+                List<String> ids = new ArrayList<>();
+                for (String id : all.keySet()) {
+                    String category = categories.containsKey(id) ? categories.get(id) : "";
+                    boolean known = "Direct".equals(category) || "Gateway".equals(category) || "Inference".equals(category)
+                            || "Cloud".equals(category) || "Local".equals(category);
+                    if (!(group.isEmpty() ? !known : group.equals(category))) continue;
+                    if (query.isEmpty() && Arrays.asList(POPULAR).contains(id)) continue;
+                    if (!query.isEmpty() && !(all.get(id) + " " + id).toLowerCase(Locale.ROOT).contains(query)) continue;
+                    ids.add(id);
+                }
+                if (ids.isEmpty()) continue;
+                java.util.Collections.sort(ids, (x, y) -> all.get(x).compareToIgnoreCase(all.get(y)));
+                list.addView(heading(categoryTitle(group) + " · " + ids.size()));
+                for (String id : ids) { list.addView(serviceRow(id, all.get(id)), params(-1, -2, 0, 0, 0, 8)); shown++; }
+            }
+            if (shown == 0) list.addView(label("Ничего не найдено. Откройте вкладку «Свой endpoint», чтобы добавить любой адрес.", 13, palette.muted, false), params(-1, -2, 0, 12, 0, 0));
         };
         search.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) { }
@@ -409,6 +501,26 @@ public final class ProviderHubScreen {
             @Override public void afterTextChanged(Editable s) { fill.run(); }
         });
         fill.run();
+    }
+
+    private void addCustomTab() {
+        LinearLayout custom = card(palette.dark ? 0.14f : 0.07f);
+        custom.addView(label("Свой сервис с API-ключом", 16, palette.text, true));
+        custom.addView(label("Перепродавец ключей (Keydealer, Claudy), свой шлюз, локальный сервер. Укажите домен и ключ — endpoint и протокол найдутся сами.", 12,
+                palette.muted, false), params(-1, -2, 0, 4, 0, 0));
+        custom.addView(button("＋  Создать сервис", true, v -> customServiceSheet()), params(-1, 48, 0, 10, 0, 0));
+        content.addView(custom, params(-1, -2, 0, 0, 0, 10));
+
+        app.githubble.mobile.agent.ConnectionCatalog.Account proxy = app.githubble.mobile.agent.ConnectionCatalog.account("proxy-external");
+        if (proxy != null && OmniChatConnectionStore.supported().containsKey(proxy.id)) {
+            content.addView(heading("Свой прокси подписок"));
+            content.addView(accountRow(proxy, false), params(-1, -2, 0, 0, 0, 8));
+        }
+        List<String> mine = store.customProviders();
+        if (!mine.isEmpty()) {
+            content.addView(heading("Ваши сервисы · " + mine.size()));
+            for (String id : mine) content.addView(serviceRow(id, store.displayName(id)), params(-1, -2, 0, 0, 0, 8));
+        }
     }
 
     private View serviceRow(String id, String name) {

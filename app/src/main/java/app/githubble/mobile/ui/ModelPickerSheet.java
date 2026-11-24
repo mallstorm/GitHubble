@@ -42,6 +42,8 @@ public final class ModelPickerSheet {
         /** The user chose a model; the host stores the selection and refreshes the chat. */
         void picked(String provider, String model);
         void openConnections();
+        /** Straight to the add screen (sign in, API catalog, own endpoint). */
+        void openAddConnection();
         void openProvider(String provider);
         void refreshCatalog();
     }
@@ -135,9 +137,13 @@ public final class ModelPickerSheet {
 
         // ---- footer
         LinearLayout footer = new LinearLayout(activity);
+        footer.setOrientation(LinearLayout.VERTICAL);
         footer.setPadding(dp(18), dp(10), dp(18), dp(16));
-        footer.addView(button("Управление подключениями", true, v -> { dialog.dismiss(); host.openConnections(); }), lp(0, 48, 1, 0, 0, 0, 0));
-        footer.addView(button("Обновить каталог", false, v -> { dialog.dismiss(); host.refreshCatalog(); }), lp(0, 48, 1, 8, 0, 0, 0));
+        footer.addView(button("＋  Добавить подключение", true, v -> { dialog.dismiss(); host.openAddConnection(); }), lp(-1, 48, 0, 0, 0, 0, 0));
+        LinearLayout second = new LinearLayout(activity);
+        second.addView(button("Мои подключения", false, v -> { dialog.dismiss(); host.openConnections(); }), lp(0, 44, 1, 0, 0, 0, 0));
+        second.addView(button("Обновить модели", false, v -> { dialog.dismiss(); host.refreshCatalog(); }), lp(0, 44, 1, 8, 0, 0, 0));
+        footer.addView(second, lp(-1, -2, 0, 8, 0, 0, 0));
         root.addView(footer, new LinearLayout.LayoutParams(-1, -2));
 
         dialog = new Dialog(activity);
@@ -211,7 +217,7 @@ public final class ModelPickerSheet {
         if (providers.isEmpty()) {
             list.addView(text("Подключений пока нет", 16, palette.text, true), lp(-1, -2, 0, 16, 0, 4));
             list.addView(text("Добавьте API-ключи любого сервиса, свой endpoint или войдите через подписку — модели появятся здесь.", 13, palette.muted, false), lp(-1, -2, 0, 0, 0, 16));
-            list.addView(button("Подключить сервис", true, v -> { dialog.dismiss(); host.openConnections(); }), lp(-1, 48, 0, 0, 0, 0));
+            list.addView(button("Подключить сервис", true, v -> { dialog.dismiss(); host.openAddConnection(); }), lp(-1, 48, 0, 0, 0, 0));
             return;
         }
 

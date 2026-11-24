@@ -61,9 +61,9 @@ public final class AgentMarkdownView {
   private boolean selectable = true;
   private boolean wideTables;
 
-  /** Tables break out of the bubble padding and span (almost) the whole screen. */
+  /** Kept for callers; tables now always stay inside the message column (no breaking out to the screen edges). */
   public AgentMarkdownView wideTables(boolean value) {
-    wideTables = value;
+    wideTables = false;
     return this;
   }
 
@@ -303,6 +303,12 @@ public final class AgentMarkdownView {
       meta.add(info);
     }
     if (cols == 0) return;
+    // Phone-friendly rendering: wide tables become compact cards (no sideways scrolling, plain TextViews, fast),
+    // and a table that has only a header (unfinished answer) never becomes a giant empty block.
+    if (cols >= 3 || cells.size() < 2) {
+      tableCards(parent, cells, meta, cols);
+      return;
+    }
     final float charPx = 7.4f * activity.getResources().getDisplayMetrics().density;
     final int padding = dp(12), pad2 = padding * 2;
     final int[] want = new int[cols], least = new int[cols];
@@ -433,6 +439,89 @@ public final class AgentMarkdownView {
     framePlace.topMargin = dp(6);
     framePlace.bottomMargin = dp(6);
     parent.addView(frame, framePlace);
+    parent.addView(expand);
+  }
+
+  private void tableCards(
+      LinearLayout parent,
+      final List<List<SpannableStringBuilder>> cells,
+      final List<List<TableCell>> meta,
+      int columns) {
+    final boolean night = Color.luminance(text) > .5;
+    final int paper = night ? 0xFF3A3328 : 0xFFF6EFDF;
+    final int line = night ? 0xFF5E5240 : 0xFFD3C29C;
+    final int ink = night ? 0xFFF1E8D4 : 0xFF3A3123;
+    final int headInk = night ? 0xFFFFE6B0 : 0xFF2A200F;
+    final int labelInk = night ? 0xFFC9B88F : 0xFF7A6A48;
+    final int linkInk = night ? 0xFFF0C070 : 0xFF8A5A00;
+    final boolean header = !meta.isEmpty() && !meta.get(0).isEmpty() && meta.get(0).get(0).isHeader();
+    final int first = header ? 1 : 0;
+    final List<SpannableStringBuilder> names = header ? cells.get(0) : new ArrayList<SpannableStringBuilder>();
+    if (cells.size() <= first) {
+      // Only a header: show it as one quiet line instead of an empty table.
+      StringBuilder sb = new StringBuilder();
+      for (SpannableStringBuilder name : names) sb.append(sb.length() == 0 ? "" : " · ").append(name);
+      if (sb.length() > 0) {
+        TextView only = label(sb.toString(), 13, labelInk);
+        only.setPadding(dp(2), dp(4), dp(2), dp(4));
+        parent.addView(only);
+      }
+      return;
+    }
+    final LinearLayout box = new LinearLayout(activity);
+    box.setOrientation(LinearLayout.VERTICAL);
+    final int[] next = {first};
+    final TextView expand = label("Показать ещё", 13, accent);
+    expand.setTextIsSelectable(false);
+    expand.setGravity(Gravity.CENTER);
+    expand.setMinHeight(dp(48));
+    final Runnable[] more = {null};
+    more[0] =
+        () -> {
+          int end = Math.min(cells.size(), next[0] + 40);
+          for (; next[0] < end; next[0]++) {
+            List<SpannableStringBuilder> row = cells.get(next[0]);
+            LinearLayout card = new LinearLayout(activity);
+            card.setOrientation(LinearLayout.VERTICAL);
+            card.setPadding(dp(12), dp(10), dp(12), dp(10));
+            GradientDrawable shape = new GradientDrawable();
+            shape.setColor(paper);
+            shape.setCornerRadius(dp(12));
+            shape.setStroke(dp(1), line);
+            card.setBackground(shape);
+            if (!row.isEmpty()) {
+              TextView title = label(row.get(0), 15, headInk);
+              title.setTypeface(null, Typeface.BOLD);
+              title.setLinkTextColor(linkInk);
+              card.addView(title);
+            }
+            for (int c = 1; c < columns && c < row.size(); c++) {
+              SpannableStringBuilder value = row.get(c);
+              String plain = value.toString().trim();
+              if (plain.isEmpty() || "—".equals(plain) || "-".equals(plain)) continue;
+              SpannableStringBuilder line1 = new SpannableStringBuilder();
+              if (c < names.size() && names.get(c).length() > 0) {
+                int start = line1.length();
+                line1.append(names.get(c)).append(": ");
+                line1.setSpan(new StyleSpan(Typeface.BOLD), start, line1.length(), 0);
+                line1.setSpan(new ForegroundColorSpan(labelInk), start, line1.length(), 0);
+              }
+              line1.append(value);
+              TextView entry = label(line1, 13, ink);
+              entry.setLinkTextColor(linkInk);
+              LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+              lp.topMargin = dp(3);
+              card.addView(entry, lp);
+            }
+            LinearLayout.LayoutParams place = new LinearLayout.LayoutParams(-1, -2);
+            place.topMargin = dp(6);
+            box.addView(card, place);
+          }
+          expand.setVisibility(next[0] < cells.size() ? View.VISIBLE : View.GONE);
+        };
+    more[0].run();
+    expand.setOnClickListener(v -> more[0].run());
+    parent.addView(box, new LinearLayout.LayoutParams(-1, -2));
     parent.addView(expand);
   }
 

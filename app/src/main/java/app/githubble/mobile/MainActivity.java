@@ -809,7 +809,7 @@ public class MainActivity extends Activity {
                 AgentProjectStore.Project p = agentProjects.project(owner);
                 if (!p.repository.isEmpty()) navigate(() -> showRepository(p.repository));
             }
-            @Override public void showProviderCatalog() { agentShowProviderCatalog(); }
+            @Override public void showProviderCatalog() { if (owner.equals(accountStore.activeCacheKey())) navigate(() -> agentShowAddService(owner, 1)); }
             @Override public void configureProvider() { agentConfigureAiProvider(owner); }
             @Override public void selectProvider() { agentChooseComposerModel(owner); }
             @Override public void disconnectProvider() { agentDisconnectAiProvider(owner); }
@@ -1297,6 +1297,19 @@ public class MainActivity extends Activity {
     }
 
     /** API connections: all services with their key pools on one screen. */
+    private String connectionsSummary(String owner){
+        int subs=0,api=0;
+        try{
+            for(String id:OmniChatConnectionStore.supported().keySet()){
+                boolean account=app.githubble.mobile.agent.ConnectionCatalog.isAccount(id)&&!app.githubble.mobile.agent.ConnectionCatalog.ENDPOINT.equals(app.githubble.mobile.agent.ConnectionCatalog.account(id).method);
+                if(OmniChatConnectionStore.poolable(id)&&!account){if(!aiConnections.pool().slots(owner,id).isEmpty())api++;}
+                else if(aiConnections.hasKey(owner,id))subs++;
+            }
+        }catch(RuntimeException ignored){}
+        if(subs+api==0)return "Пока пусто · подписки, API-ключи и свои endpoint в одном месте";
+        return "Подписок: "+subs+" · API-сервисов: "+api+" · подписки, ключи, свои endpoint";
+    }
+
     private void agentConfigureAiProvider(String expected) {
         if (!expected.equals(accountStore.activeCacheKey())) return;
         navigate(() -> agentShowConnections(expected));
@@ -1318,8 +1331,8 @@ public class MainActivity extends Activity {
                 return o.equals(accountStore.activeCacheKey()) && content == destination && destination.isAttachedToWindow();
             }
             @Override public void openProvider(String provider) { navigate(() -> agentShowProvider(owner, provider)); }
-            @Override public void openAddService() { navigate(() -> agentShowAddService(owner)); }
-            @Override public void openSubscriptions() { agentShowSubscriptions(owner); }
+            @Override public void openAddService(int tab) { navigate(() -> agentShowAddService(owner, tab)); }
+            @Override public void openAccount(String provider) { agentAccountAction(owner, provider); }
             @Override public void openNetwork() { agentFeatures(owner).network(); }
             @Override public void openModelPicker() { agentChooseComposerModel(owner); }
             @Override public void openUsage() { navigate(() -> agentShowUsage(owner)); }
@@ -1343,11 +1356,11 @@ public class MainActivity extends Activity {
         hubScreen(owner).renderProvider(provider);
     }
 
-    private void agentShowAddService(String owner) {
+    private void agentShowAddService(String owner, int tab) {
         if (!owner.equals(accountStore.activeCacheKey())) return;
-        setCurrentScreen(() -> agentShowAddService(owner));
-        shell("Новый сервис", false);
-        hubScreen(owner).renderAddService();
+        setCurrentScreen(() -> agentShowAddService(owner, tab));
+        shell("Новое подключение", false);
+        hubScreen(owner).renderAddService(tab);
     }
 
     private void agentSelectAiProvider(String expected) {
@@ -1684,48 +1697,29 @@ public class MainActivity extends Activity {
         new AlertDialog.Builder(this).setTitle(title).setMessage(reason).setPositiveButton("Понятно",null).show();
     }
 
-    private void agentShowSubscriptions(String owner){
+    /** One tap on a sign-in connection: connect when new, otherwise a small menu (refresh models, sign in again, disconnect). */
+    private void agentAccountAction(String owner,String provider){
         if(!owner.equals(accountStore.activeCacheKey()))return;
-        GitAgentUi ui=new GitAgentUi(this,BG,CARD,TEXT,MUTED,GREEN,BORDER);LinearLayout body=ui.body("Аккаунты и подписки",true);
-        ui.note(body,"Нажмите сервис → подтвердите вход в браузере или по коду → модели загрузятся сами. "+
-            "Сессии шифруются на устройстве. Ключи API и свои endpoint — в разделе «Подключения API».");
-        final Dialog[] sheet={null};
-        for(app.githubble.mobile.agent.ConnectionCatalog.Account account:app.githubble.mobile.agent.ConnectionCatalog.accounts()){
-            final String provider=account.id;
-            if(!OmniChatConnectionStore.supported().containsKey(provider))continue;
-            boolean saved=aiConnections.hasKey(owner,provider);
-            String detail=(account.freeModels?"Есть бесплатные модели · ":"")+account.subtitle;
-            if(saved){
-                detail="Подключено · "+aiConnections.models(owner,provider).size()+" моделей";
-                try{JSONObject info=new JSONObject(aiConnections.credential(owner,provider));
-                    String identity=info.optString("identity"),plan=info.optString("plan");
-                    if(!identity.isEmpty())detail+=" · "+identity;if(!plan.isEmpty())detail+=" · "+plan;
-                }catch(Exception ignored){}
-                if(!aiConnections.isConfigured(owner,provider))detail="Сессия сохранена · требуется загрузить модели";
-            }
-            final boolean connected=saved,endpoint=app.githubble.mobile.agent.ConnectionCatalog.ENDPOINT.equals(account.method);
-            ui.action(body,aiConnections.displayName(provider),detail,0xFF276D8A,()->{
-                sheet[0].dismiss();if(!owner.equals(accountStore.activeCacheKey()))return;
-                if(endpoint){agentEditAiProvider(owner,provider);return;}
-                if(!connected){agentBeginSubscription(owner,provider);return;}
-                new AlertDialog.Builder(this).setTitle(aiConnections.displayName(provider))
-                    .setItems(new String[]{"Обновить модели","Войти заново","Отключить"},(d,which)->{
+        if(!OmniChatConnectionStore.supported().containsKey(provider))return;
+        app.githubble.mobile.agent.ConnectionCatalog.Account account=app.githubble.mobile.agent.ConnectionCatalog.account(provider);
+        if(account!=null&&app.githubble.mobile.agent.ConnectionCatalog.ENDPOINT.equals(account.method)){agentEditAiProvider(owner,provider);return;}
+        if(!aiConnections.hasKey(owner,provider)){agentBeginSubscription(owner,provider);return;}
+        String name=aiConnections.displayName(provider);
+        app.githubble.mobile.ui.ListSheet.of(this,settingsPalette()).title(name,"Подписка подключена")
+            .row("","Обновить модели","Запросить свежий список моделей","",()->{
+                if(!owner.equals(accountStore.activeCacheKey()))return;
+                aiConnections.selectAuthenticated(owner,provider);agentDiscoverAiModels(owner);})
+            .row("","Войти заново","Если сессия устарела или нужен другой аккаунт","",()->agentBeginSubscription(owner,provider))
+            .row("","Отключить","Сессия на устройстве будет удалена, переписка сохранится","",()->
+                app.githubble.mobile.ui.ConfirmSheet.create(this,new app.githubble.mobile.ui.ConfirmSheet.Spec("Отключить подписку?","Да, отключить","Нет",true)
+                    .fact("Подписка",name).note("Локальная сессия будет удалена. Переписка сохранится, войти можно снова в любой момент."),
+                    ()->{
                         if(!owner.equals(accountStore.activeCacheKey()))return;
-                        if(which==0){aiConnections.selectAuthenticated(owner,provider);agentDiscoverAiModels(owner);}
-                        else if(which==1)agentBeginSubscription(owner,provider);
-                        else new AlertDialog.Builder(this).setTitle("Отключить подписку?")
-                            .setMessage("Локальная OAuth-сессия будет удалена. Переписка сохранится.")
-                            .setPositiveButton("Отключить",(x,y)->{
-                                if(!owner.equals(accountStore.activeCacheKey()))return;
-                                AtomicBoolean pending=subscriptionAttempts.remove(owner);if(pending!=null)pending.set(true);
-                                aiConnections.disconnect(owner,provider);agentRefreshIfCurrent(owner);
-                            }).setNegativeButton("Отмена",null).show();
-                    }).setNegativeButton("Закрыть",null).show();
-            });
-        }
-        ui.action(body,"Подключения API","Ключи, свои endpoint, любое число ключей на сервис",0xFF14846C,()->{sheet[0].dismiss();agentConfigureAiProvider(owner);});
-        ui.action(body,"Маршрутизация и DNS","Общий сетевой движок API и подписок · Xray",0xFF14846C,()->{sheet[0].dismiss();agentFeatures(owner).network();});
-        sheet[0]=ui.present(body,true);
+                        AtomicBoolean pending=subscriptionAttempts.remove(owner);if(pending!=null)pending.set(true);
+                        aiConnections.disconnect(owner,provider);agentRefreshIfCurrent(owner);
+                        if(currentScreen!=null)currentScreen.run();
+                    },null).show())
+            .action("Закрыть",false,()->{}).show();
     }
 
     private boolean subscriptionAttemptCurrent(String owner,AtomicBoolean cancelled){
@@ -1895,6 +1889,7 @@ public class MainActivity extends Activity {
                 agentRefreshIfCurrent(owner);
             }
             @Override public void openConnections() { agentConfigureAiProvider(owner); }
+            @Override public void openAddConnection() { if (owner.equals(accountStore.activeCacheKey())) navigate(() -> agentShowAddService(owner, 0)); }
             @Override public void openProvider(String provider) { agentEditAiProvider(owner, provider); }
             @Override public void refreshCatalog() { agentDiscoverAiModels(owner); }
         });
@@ -2321,25 +2316,6 @@ public class MainActivity extends Activity {
             // New thread has its own empty draft; existing drafts are preserved.
             agentRefreshIfCurrent(expected);
         } catch (Exception error) { toast(error.getMessage()); }
-    }
-
-    private void agentShowProviderCatalog() {
-        JSONArray entries = OmniChatProviderCatalog.load(this);
-        String[] labels = new String[entries.length()];
-        for (int i = 0; i < labels.length; i++) {
-            JSONObject entry = entries.optJSONObject(i);
-            labels[i] = entry == null ? "Unknown" : entry.optString("name", entry.optString("id", "Provider"));
-        }
-        new AlertDialog.Builder(this).setTitle("Каталог Hubble Agent · " + labels.length)
-                .setItems(labels, (d, i) -> {
-                    JSONObject item = entries.optJSONObject(i);
-                    if (item != null) new AlertDialog.Builder(this)
-                            .setTitle(app.githubble.mobile.ui.JsonText.of(item,"name","Hubble Agent"))
-                            .setMessage("Тип: " + item.optString("category", "—")
-                                    + "\nАвторизация: " + item.optString("auth_type", "—")
-                                    + "\nСетевой движок перенесём на следующем этапе. Это пока не активное подключение.")
-                            .setPositiveButton("ОК", null).show();
-                }).setNegativeButton("Закрыть", null).show();
     }
 
     private void agentSend(String expected, String rawMessage, boolean ignoredLegacyMode) {
@@ -9722,16 +9698,13 @@ public class MainActivity extends Activity {
         if(!accountReady)model.note("Локальный режим: модели, чат, подписки и Workspace работают без GitHub. Для репозиториев и Actions нужен вход.");
         sections.add(model);
 
-        SettingsScreen.Section connections=new SettingsScreen.Section("Подключения и подписки");
-        connections.add(SettingsScreen.Item.action(R.drawable.ic_agent_link,"Подключения API",
-                "Сервисы, любое число ключей, общая квота и свои endpoint","api ключ провайдер подключение квота endpoint",
+        SettingsScreen.Section connections=new SettingsScreen.Section("Подключения");
+        connections.add(SettingsScreen.Item.action(R.drawable.ic_agent_link,"Подключения",
+                connectionsSummary(owner),"подключения подписки аккаунты api ключ провайдер каталог сервис endpoint квота chatgpt claude copilot openrouter",
                 ()->agentConfigureAiProvider(owner)));
-        connections.add(SettingsScreen.Item.action(R.drawable.ic_profile,"Аккаунты и подписки",
-                "Вход в один тап: ChatGPT, Claude, Copilot, Kilo, OpenRouter, Cline, Grok, Kimi","подписки аккаунты oauth proxy",
-                ()->agentShowSubscriptions(owner)));
-        connections.add(SettingsScreen.Item.action(R.drawable.ic_agent_question_answer,"Каталог провайдеров",
-                "Поддерживаемые и планируемые сервисы","каталог провайдеры сервисы",
-                this::agentShowProviderCatalog));
+        connections.add(SettingsScreen.Item.action(R.drawable.ic_agent_question_answer,"Добавить подключение",
+                "Войти в подписку, взять сервис из каталога или указать свой endpoint","добавить подключить новый сервис каталог провайдеры",
+                ()->navigate(()->agentShowAddService(owner,0))));
         sections.add(connections);
 
         SettingsScreen.Section workspace=new SettingsScreen.Section("Проекты и память");
