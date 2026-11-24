@@ -24,7 +24,7 @@ public final class WelcomeBrainView extends View {
     private float dp(float v) { return v * getResources().getDisplayMetrics().density; }
     @Override protected void onDraw(Canvas c) {
         super.onDraw(c);
-        float w = getWidth() * (mini ? 1.5f : .82f), h = w / .78f;
+        float w = mini ? getWidth() * 1.5f : Math.min(getWidth() * .98f, getHeight() * .78f * .98f), h = w / .78f;
         c.save(); c.translate((getWidth()-w)/2, (getHeight()-h)/2 + (mini ? h*.09f : 0));
         float cx=w/2, cy=h*.43f, bw=w*.46f, bh=h*.40f;
         p.setStyle(Paint.Style.STROKE); p.setStrokeCap(Paint.Cap.ROUND);

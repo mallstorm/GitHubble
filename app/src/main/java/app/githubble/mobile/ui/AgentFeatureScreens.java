@@ -196,7 +196,7 @@ public final class AgentFeatureScreens {
         ui.action(body,"Обычный чат — без проекта","Открыть новый диалог без Workspace и репозитория",0xFF435B69,()->run(()->{projects.newConversation(owner);d[0].dismiss();refresh.run();}));
         ui.action(body,"Управление Workspace","Отвязать · Удалить локально · Удалить полностью",0xFF713CB3,()->{d[0].dismiss();manageWorkspace();});
         JSONArray list=workspaces.list(owner);for(int i=0;i<list.length();i++){JSONObject j=list.getJSONObject(i);String id=j.getString("id");
-            ui.action(body,(id.equals(selected.workspaceId)?"✓ ":"")+j.getString("name"),j.optString("state"),0xFF435B69,()->run(()->{projects.save(new AgentProjectStore.Project(owner,j.getString("name"),"","main",id));d[0].dismiss();refresh.run();files();}));}
+            ui.action(body,(id.equals(selected.workspaceId)?"✓ ":"")+j.getString("name"),"Локальная папка проекта",0xFF435B69,()->run(()->{projects.save(new AgentProjectStore.Project(owner,j.getString("name"),"","main",id));d[0].dismiss();refresh.run();files();}));}
         if(!selected.workspaceId.isEmpty())ui.action(body,"Файлы и настройки текущего проекта",selected.name,0xFF2863B8,()->{d[0].dismiss();files();});
         if(!selected.repository.isEmpty())ui.action(body,"Открепить репозиторий",selected.repository,0xFF713CB3,()->run(()->{projects.save(new AgentProjectStore.Project(owner,selected.name,"",selected.branch,selected.workspaceId));d[0].dismiss();refresh.run();workspace();}));
         d[0]=ui.present(body,true);
@@ -262,7 +262,7 @@ public final class AgentFeatureScreens {
         }).setNegativeButton("Отмена",null).show();
     });}
     public void files(){run(()->{
-        String id=wid();if(id.isEmpty()){workspace();return;}JSONObject meta=workspaces.info(owner,id);LinearLayout body=ui.body(meta.optString("name"),true);final Dialog[] d={null};
+        String id=wid();if(id.isEmpty()){Toast.makeText(a,"У этого диалога нет проекта. Создайте или выберите проект в «Проектах».",Toast.LENGTH_LONG).show();return;}JSONObject meta=workspaces.info(owner,id);LinearLayout body=ui.body(meta.optString("name"),true);final Dialog[] d={null};
         ui.action(body,"Контекст и архитектура",meta.optString("state"),0xFF435B69,()->form("Проект",new String[]{"Название","CREATED / PLANNING / ARCHITECTURE_SELECTED / DEVELOPMENT / READY","Инструкции проекта"},new String[]{meta.optString("name"),meta.optString("state"),meta.optString("instructions")},v->{workspaces.configure(owner,id,v[0],v[1],v[2]);AgentProjectStore.Project p=projects.project(owner);projects.save(new AgentProjectStore.Project(owner,v[0],p.repository,p.branch,id));d[0].dismiss();refresh.run();files();}));
         ui.action(body,"Поиск по проекту","Текст во всех файлах Workspace",0xFF435B69,()->form("Поиск",new String[]{"Текст"},new String[]{""},v->async("Поиск",()->{String result=WorkspaceEngine.search(a,workspaces.root(owner,id),id,v[0]);a.runOnUiThread(()->{if(current())new AlertDialog.Builder(a).setTitle("Результаты").setMessage(result).setPositiveButton("ОК",null).show();});},()->{})));
         ui.action(body,"Карта и индекс символов","Структура проекта, функции и определения",0xFF435B69,()->form("Символы проекта",new String[]{"Имя / часть имени"},new String[]{""},v->async("Индекс",()->{String result=WorkspaceEngine.index(a,workspaces.root(owner,id),id,v[0]);a.runOnUiThread(()->{if(current())new AlertDialog.Builder(a).setTitle("Индекс проекта").setMessage(result).setPositiveButton("ОК",null).show();});},()->{})));
