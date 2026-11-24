@@ -263,6 +263,11 @@ public final class AgentRun {
     return null;
   }
 
+  /** Cheap step counter for UI badges: no JSON copy. */
+  public synchronized int operationCount() {
+    return operations.length();
+  }
+
   public synchronized JSONObject snapshot() {
     try {
       JSONObject out = new JSONObject();

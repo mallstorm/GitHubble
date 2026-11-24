@@ -828,8 +828,7 @@ public class MainActivity extends Activity {
             @Override public int codeActivity(){
                 app.githubble.mobile.agent.AgentRun run=app.githubble.mobile.agent.AgentRunRegistry.get(owner,renderedThread);
                 if(run==null||!run.active())return -1;
-                org.json.JSONArray ops=run.snapshot().optJSONArray("operations");
-                return ops==null?0:ops.length();
+                return run.operationCount();
             }
             @Override public void resumeTask(String runId){agentResumeTask(owner,renderedThread,runId);}
             @Override public JSONObject activeRun(){app.githubble.mobile.agent.AgentRun run=app.githubble.mobile.agent.AgentRunRegistry.get(owner,renderedThread);return run==null?null:run.snapshot();}
