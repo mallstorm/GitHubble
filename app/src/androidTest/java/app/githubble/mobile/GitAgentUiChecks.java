@@ -279,8 +279,8 @@ final class GitAgentUiChecks {
                     java.lang.reflect.Method open=MainActivity.class.getDeclaredMethod("showSettingsGitAgentWorkspace");
                     open.setAccessible(true);open.invoke(activity);
                     root=activity.getWindow().getDecorView();
-                    for(String label:new String[]{"Режим и исполнитель","Подключения API",
-                            "Аккаунты и подписки","Проекты и задачи","Память Hubble Agent",
+                    for(String label:new String[]{"Режим и исполнитель","Подключения",
+                            "Добавить подключение","Проекты и задачи","Память Hubble Agent",
                             "DNS и Smart Routing","Xray / VLESS","Диктовка"}){
                         if(find(root,label)==null)throw new AssertionError("Missing AI settings row: "+label);
                     }
