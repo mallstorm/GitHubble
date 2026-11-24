@@ -21,6 +21,7 @@ import android.widget.Toast;
 import app.githubble.mobile.auth.GitHubAccountStore;
 import app.githubble.mobile.mirror.MirrorPolicy;
 import app.githubble.mobile.repository.RepositoryFileComparison;
+import app.githubble.mobile.repository.RepositoryTreeLoader;
 import app.githubble.mobile.repository.RepositorySelectiveTransfer;
 
 import java.util.ArrayList;
@@ -128,6 +129,12 @@ public final class RepositoryComparisonScreen {
         name.setSelectAllOnFocus(true);
         settings.addView(name);
 
+        settings.addView(text(activity, "Папка (необязательно)", 12, muted, true));
+        EditText folder = new EditText(activity);
+        folder.setSingleLine(true);
+        folder.setHint("Например app/src — сравнить только её; нужна для очень больших репозиториев");
+        folder.setTextSize(13);
+        settings.addView(folder);
         Button compare = new Button(activity);
         compare.setAllCaps(false);
         compare.setText("Сравнить содержимое");
@@ -150,6 +157,9 @@ public final class RepositoryComparisonScreen {
             catch (Exception invalid) { name.setError(invalid.getMessage()); return; }
             String srcAccountId = connected.get(si).id;
             String dstAccountId = connected.get(di).id;
+            String scope;
+            try { scope = RepositoryTreeLoader.normalizeScope(folder.getText().toString()); }
+            catch (Exception invalid) { folder.setError(invalid.getMessage()); return; }
 
             compare.setEnabled(false);
             results.removeAllViews();
@@ -158,7 +168,7 @@ public final class RepositoryComparisonScreen {
             background.execute(() -> {
                 try {
                     RepositorySelectiveTransfer.Comparison found = manager.compare(
-                            source, srcAccountId, destination, dstAccountId);
+                            source, srcAccountId, destination, dstAccountId, scope);
                     activity.runOnUiThread(() -> {
                         spinner.dismiss(); compare.setEnabled(true);
                         if (host.getParent() != null && !activity.isFinishing())
@@ -185,7 +195,8 @@ public final class RepositoryComparisonScreen {
         summary.setOrientation(LinearLayout.VERTICAL);
         summary.addView(text(activity, "Различия основных веток", 17, colorText, true));
         summary.addView(text(activity, comparison.source + " (" + comparison.sourceBranch + ")"
-                + "\n→ " + comparison.destination + " (" + comparison.destinationBranch + ")",
+                + "\n→ " + comparison.destination + " (" + comparison.destinationBranch + ")"
+                + (comparison.scope.isEmpty() ? "" : "\nПапка: " + comparison.scope),
                 13, muted, false));
         int add = 0, modifiedCount = 0, onlyDest = 0, available = 0;
         for (RepositoryFileComparison.Delta item : comparison.changes) {
@@ -223,8 +234,10 @@ public final class RepositoryComparisonScreen {
         LinearLayout visible = new LinearLayout(activity);
         visible.setOrientation(LinearLayout.VERTICAL);
         list.addView(visible);
-        final int pageLimit = 160;
+        final int pageSize = 160;
+        final int[] pageLimit = {pageSize};
 
+        final Runnable[] refreshRef = new Runnable[1];
         Runnable refresh = () -> {
             visible.removeAllViews();
             String needle = filter.getText().toString().trim().toLowerCase(java.util.Locale.ROOT);
@@ -233,7 +246,7 @@ public final class RepositoryComparisonScreen {
                 if (!needle.isEmpty() && !change.path.toLowerCase(java.util.Locale.ROOT)
                         .contains(needle)) continue;
                 matched++;
-                if (shown >= pageLimit) continue;
+                if (shown >= pageLimit[0]) continue;
                 shown++;
                 String mode = RepositoryFileComparison.ADD.equals(change.status) ? "Добавить"
                         : RepositoryFileComparison.UPDATE.equals(change.status) ? "Обновить"
@@ -267,17 +280,24 @@ public final class RepositoryComparisonScreen {
                     visible.addView(item);
                 }
             }
-            if (matched > shown)
-                visible.addView(text(activity, "Показаны первые " + shown + " из " + matched
-                        + " совпадений. Уточните фильтр, чтобы выбрать другие файлы.",
-                        12, muted, false));
+            if (matched > shown) {
+                visible.addView(text(activity, "Показано " + shown + " из " + matched
+                        + " совпадений.", 12, muted, false));
+                Button more = new Button(activity);
+                more.setAllCaps(false);
+                more.setText("Показать ещё " + Math.min(pageSize, matched - shown));
+                visible.addView(more);
+                more.setOnClickListener(v -> { pageLimit[0] += pageSize; refreshRef[0].run(); });
+            }
             if (matched == 0)
                 visible.addView(text(activity, "По этому фильтру файлов нет",
                         12, muted, false));
         };
+        refreshRef[0] = refresh;
         filter.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
             @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
+                pageLimit[0] = pageSize;
                 refresh.run();
             }
             @Override public void afterTextChanged(Editable e) { }

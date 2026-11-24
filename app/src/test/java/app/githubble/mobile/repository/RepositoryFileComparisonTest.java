@@ -74,7 +74,7 @@ public final class RepositoryFileComparisonTest {
         List<RepositoryFileComparison.Delta> diff=RepositoryFileComparison.compare(src,tree());
         RepositorySelectiveTransfer.Comparison snapshot =
                 new RepositorySelectiveTransfer.Comparison("one/source","two/dest",
-                        "source-account","dest-account","main","main",A,B,false,false,diff);
+                        "source-account","dest-account","main","main",A,B,false,false,"",diff);
         assertEquals(2,RepositorySelectiveTransfer.requireSelection(
                 snapshot,Arrays.asList("one.java","two.java")).size());
         for(List<String> paths:Arrays.asList(Arrays.asList("one.java","one.java"),

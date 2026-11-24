@@ -34,18 +34,21 @@ public final class RepositorySelectiveTransfer {
         public final String source, destination, sourceAccountId, destinationAccountId;
         public final String sourceBranch, destinationBranch, sourceSha, destinationSha;
         public final boolean sourcePrivate, destinationPrivate;
+        /** Folder the comparison was limited to; empty for the whole repository. */
+        public final String scope;
         public final List<RepositoryFileComparison.Delta> changes;
 
         Comparison(String source, String destination, String sourceAccountId,
                    String destinationAccountId, String sourceBranch,
                    String destinationBranch, String sourceSha, String destinationSha,
-                   boolean sourcePrivate, boolean destinationPrivate,
+                   boolean sourcePrivate, boolean destinationPrivate, String scope,
                    List<RepositoryFileComparison.Delta> changes) {
             this.source = source; this.destination = destination;
             this.sourceAccountId = sourceAccountId; this.destinationAccountId = destinationAccountId;
             this.sourceBranch = sourceBranch; this.destinationBranch = destinationBranch;
             this.sourceSha = sourceSha; this.destinationSha = destinationSha;
             this.sourcePrivate = sourcePrivate; this.destinationPrivate = destinationPrivate;
+            this.scope = scope;
             this.changes = changes;
         }
     }
@@ -113,15 +116,32 @@ public final class RepositorySelectiveTransfer {
         return sha;
     }
 
-    private static JSONObject recursiveTree(GitHubApiClient api, String repo, String commitSha)
-            throws Exception {
-        return api.getJsonFresh(API + repo + "/git/trees/" + treeSha(api, repo, commitSha)
-                + "?recursive=1");
+    private static JSONObject scopedTree(GitHubApiClient api, String repo, String commitSha,
+                                         String scope) throws Exception {
+        return RepositoryTreeLoader.load((sha, recursive) -> api.getJsonFresh(
+                API + repo + "/git/trees/" + sha + (recursive ? "?recursive=1" : "")),
+                treeSha(api, repo, commitSha), scope);
+    }
+
+    private String token(String accountId) {
+        GitHubAccountStore.Account item = account(accountId);
+        String token = accounts.tokenForAccount(item.id);
+        if (token == null || token.isEmpty())
+            throw new IllegalStateException("Повторно авторизуйте @" + item.login);
+        return token;
     }
 
     /** Read-only: works for any pair of repos accessible to the selected accounts. */
     public Comparison compare(String source, String sourceAccountId,
                               String destination, String destinationAccountId) throws Exception {
+        return compare(source, sourceAccountId, destination, destinationAccountId, "");
+    }
+
+    /** @param folder optional folder; only that subtree is read, which also works for huge repos */
+    public Comparison compare(String source, String sourceAccountId,
+                              String destination, String destinationAccountId,
+                              String folder) throws Exception {
+        String scope = RepositoryTreeLoader.normalizeScope(folder);
         MirrorPolicy.requireDifferent(source, destination);
         GitHubAccountStore.Account destinationAccount = account(destinationAccountId);
         if (!destination.substring(0, destination.indexOf('/'))
@@ -141,11 +161,11 @@ public final class RepositorySelectiveTransfer {
         String srcBranch = branch(sourceInfo), dstBranch = branch(destinationInfo);
         String srcSha = head(src, source, srcBranch), dstSha = head(dst, destination, dstBranch);
         List<RepositoryFileComparison.Delta> deltas = RepositoryFileComparison.compare(
-                recursiveTree(src, source, srcSha), recursiveTree(dst, destination, dstSha));
+                scopedTree(src, source, srcSha, scope), scopedTree(dst, destination, dstSha, scope));
         return new Comparison(source, destination, sourceAccountId, destinationAccountId,
                 srcBranch, dstBranch, srcSha, dstSha,
                 sourceInfo.optBoolean("private", false),
-                destinationInfo.optBoolean("private", false), deltas);
+                destinationInfo.optBoolean("private", false), scope, deltas);
     }
 
     private static void verifyHeads(Comparison comparison,
@@ -217,6 +237,10 @@ public final class RepositorySelectiveTransfer {
         verifyHeads(comparison, source, destination);
 
         JSONArray treeEntries = new JSONArray();
+        GitLfsTransfer lfs = new GitLfsTransfer(GitLfsTransfer.http());
+        String sourceLogin = account(comparison.sourceAccountId).login;
+        String destinationLogin = account(comparison.destinationAccountId).login;
+        long lfsBytes = 0;
         for (RepositoryFileComparison.Delta item : selection) {
             JSONObject blob = source.getJsonFresh(API + comparison.source
                     + "/git/blobs/" + item.source.sha);
@@ -233,10 +257,21 @@ public final class RepositorySelectiveTransfer {
                     || decoded.length > RepositoryFileComparison.MAX_FILE_BYTES
                     || !sha1GitBlob(decoded).equalsIgnoreCase(item.source.sha))
                 throw new SecurityException("Не совпал Git SHA содержимого: " + item.path);
-            String asText = new String(decoded, StandardCharsets.UTF_8);
-            if (asText.startsWith("version https://git-lfs.github.com/spec/v1"))
-                throw new IllegalStateException("Файл хранится в Git LFS; выборочный перенос LFS "
-                        + "пока не поддерживается: " + item.path);
+            if (GitLfsTransfer.looksLikePointer(decoded)) {
+                GitLfsTransfer.Pointer pointer = GitLfsTransfer.parsePointer(decoded);
+                if (pointer == null)
+                    throw new IllegalStateException("Нераспознанный указатель Git LFS: " + item.path);
+                lfsBytes += pointer.size;
+                if (lfsBytes > GitLfsTransfer.MAX_TOTAL_BYTES)
+                    throw new IllegalArgumentException("Суммарный размер LFS-объектов больше "
+                            + (GitLfsTransfer.MAX_TOTAL_BYTES >> 20) + " МиБ");
+                // The object is verified against the pointer's SHA-256 before upload, and the
+                // pointer blob itself is then created byte-identically below.
+                byte[] object = lfs.download(comparison.source, sourceLogin,
+                        token(comparison.sourceAccountId), pointer);
+                lfs.upload(comparison.destination, destinationLogin,
+                        token(comparison.destinationAccountId), pointer, object);
+            }
             JSONObject created = destination.postJson(API + comparison.destination + "/git/blobs",
                     new JSONObject().put("content", Base64.getEncoder().encodeToString(decoded))
                             .put("encoding", "base64"), true);
@@ -276,6 +311,8 @@ public final class RepositorySelectiveTransfer {
                 .append(comparison.sourceSha).append("\n");
         body.append("Назначение: ").append(comparison.destination).append(" @ ")
                 .append(comparison.destinationSha).append("\n\n");
+        if (!comparison.scope.isEmpty())
+            body.append("Папка сравнения: ").append(comparison.scope.replace("\r", "").replace("\n", "")).append("\n");
         body.append("Выбрано файлов: ").append(selection.size()).append("\n");
         for (RepositoryFileComparison.Delta item : selection)
             body.append("- ").append(item.status).append(": ")
