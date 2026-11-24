@@ -62,7 +62,7 @@ public final class AgentController {
                 if (args.has("repository") && !host.currentRepository().equalsIgnoreCase(args.optString("repository"))
                         && !ProjectRuntime.allowed(name,true,false) && !name.equals("focus_repository")
                         && !name.equals("attach_repository") && !name.equals("import_repository")
-                        && !name.equals("delete_repository") && !name.equals("actions_cleanup"))
+                        && !name.equals("delete_repository") && !name.equals("actions_cleanup") && !name.equals("setup_release_signing"))
                     throw new ToolDenied("Инструмент ограничен репозиторием в фокусе ("+host.currentRepository()+"). Сначала вызовите focus_repository для "+args.optString("repository")+".");
                 return host.executeFromBroker(name,args);
             },new ToolBroker.Journal() {

@@ -358,6 +358,8 @@ public final class AgentRun {
         return "Создание репозитория";
       case "delete_repository":
         return "Удаление репозитория";
+      case "setup_release_signing":
+        return "Ключ подписи релиза";
       case "create_issue":
         return "Создание задачи";
       case "update_issue":

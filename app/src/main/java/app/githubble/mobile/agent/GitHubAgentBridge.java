@@ -120,6 +120,31 @@ public final class GitHubAgentBridge {
         return client;
     }
 
+    /** Normalised login of another connected account, or "" when the call targets the active account. */
+    public String foreignLogin(String raw) {
+        String other = raw == null ? "" : raw.trim();
+        if (other.startsWith("@")) other = other.substring(1);
+        if (other.isEmpty() || isActiveLogin(other)) return "";
+        if (!other.matches("[A-Za-z0-9-]{1,39}")) throw new IllegalArgumentException("Некорректный логин аккаунта");
+        GitHubAccountStore.Account a = accountByLogin(other);
+        if (a == null) throw new IllegalArgumentException("Аккаунт @" + other + " не подключён к GitHubble");
+        return a.login;
+    }
+
+    /** Label shown on approval cards: the account the write really goes to. */
+    public String writeLabel(String foreign) {
+        if (foreign != null && !foreign.isEmpty()) return "@" + foreign;
+        GitHubAccountStore.Account active = accounts.activeAccount();
+        return active == null ? "" : "@" + active.login;
+    }
+
+    /** Runs an already-approved write as another connected account (never switches the foreground account). */
+    public <T> T asLogin(String foreign, java.util.concurrent.Callable<T> task) throws Exception {
+        if (foreign == null || foreign.isEmpty()) return task.call();
+        viewAs.set(foreign);
+        try { return task.call(); } finally { viewAs.remove(); }
+    }
+
     /** All connected accounts: logins and names only, never tokens. */
     public JSONObject connectedAccounts(String expected) throws Exception {
         requireAccount(expected);
@@ -127,13 +152,14 @@ public final class GitHubAgentBridge {
         String active = "";
         for (GitHubAccountStore.Account a : accounts.listAccounts()) {
             list.put(new JSONObject().put("login", a.login).put("name", a.name).put("active", a.active)
-                    .put("status", a.active ? "active (writes, builds, publishing)" : "connected (read-only for the agent)"));
+                    .put("status", a.active ? "active (builds, publishing, default for writes)" : "connected (reads; repository deletes, github_request and release signing accept {account} after the user approves)"));
             if (a.active) active = a.login;
         }
         return new JSONObject().put("count", list.length()).put("max", GitHubAccountStore.MAX_ACCOUNTS)
                 .put("active_login", active).put("accounts", list)
                 .put("note", "To read another connected account pass {\"account\":\"<login>\"} to a read-only tool; "
-                        + "list_repositories also accepts \"all\". Writes, builds and publishing always use the active account.");
+                        + "list_repositories also accepts \"all\". github_request, delete_repository, actions_cleanup and setup_release_signing accept the same {\"account\":\"<login>\"} "
+                        + "and always show the user a confirmation card with that account; builds and file publishing use the active account.");
     }
 
     /** Repositories of every connected account; a broken session of one account is reported, not fatal. */

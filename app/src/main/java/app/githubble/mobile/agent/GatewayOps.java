@@ -33,7 +33,7 @@ public final class GatewayOps {
         String[] segs = d.path.split("\\?")[0].substring(1).split("/");
         if ("DELETE".equals(d.method) && segs.length == 3 && "repos".equalsIgnoreCase(segs[0])) {
             BiConsumer<String, String> hook = onRepositoryDeleted;
-            if (hook != null) { try { hook.accept(account, segs[1] + "/" + segs[2]); } catch (RuntimeException ignored) { } }
+            if (hook != null && account != null && !account.isEmpty()) { try { hook.accept(account, segs[1] + "/" + segs[2]); } catch (RuntimeException ignored) { } }
         }
         return result;
     }
