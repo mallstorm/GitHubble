@@ -900,7 +900,14 @@ public class MainActivity extends Activity {
     private app.githubble.mobile.ui.ProjectHubScreen agentProjectHub(String owner) {
         return new app.githubble.mobile.ui.ProjectHubScreen(this,agentProjects,owner,
             ()->owner.equals(accountStore.activeCacheKey()),()->agentRefreshIfCurrent(owner),task->agentTaskChanges(owner,task,false))
-            .palette(BG,CARD,TEXT,MUTED,GREEN,BORDER);
+            .palette(BG,CARD,TEXT,MUTED,GREEN,BORDER)
+            .workspaces(agentWorkspaces,id->{
+                app.githubble.mobile.agent.AgentRun active=app.githubble.mobile.agent.AgentRunRegistry.current(owner);
+                if(active!=null&&active.active())throw new IllegalStateException("Дождитесь завершения работы агента");
+                agentProjects.detachWorkspaceEverywhere(owner,id);
+                agentWorkspaces.deleteLocal(owner,id);
+                try{agentMemory.clearWorkspace(owner,id);}catch(Exception ignored){}
+            });
     }
 
     private void agentNewProject(String expected) {
@@ -1576,11 +1583,11 @@ public class MainActivity extends Activity {
         AgentProjectStore.Project project = agentProjects.project(owner);
         LinearLayout tiles = new LinearLayout(this);
         tiles.setPadding(0, dp(8), 0, 0);
-        String[] tileNames = {"Проекты", "Workspace", "Настройки"};
+        String[] tileNames = {"Проекты", "Файлы", "Настройки"};
         int[] tileIcons = {R.drawable.ic_projects, R.drawable.ic_repository, R.drawable.ic_settings};
         Runnable[] tileActions = {
                 () -> agentProjectHub(owner).show(),
-                () -> agentFeatures(owner).workspace(),
+                () -> agentFeatures(owner).files(),
                 () -> navigate(this::showSettingsGitAgentWorkspace)};
         for (int i = 0; i < 3; i++) {
             final Runnable go = tileActions[i];

@@ -154,11 +154,7 @@ public final class AgentChatScreen {
         };
         code.setContentDescription("Код, файлы, терминал");ripple(code);
         code.setOnClickListener(v->actions.openCode());
-        top.addView(code,new LinearLayout.LayoutParams(dp(44),dp(44)));
-        TextView newChat=glyph("+","Новый диалог",actions::clearConversation,26);
-        ripple(newChat);
-        newChat.setOnLongClickListener(v->{actions.openTools();return true;});
-        top.addView(newChat,new LinearLayout.LayoutParams(dp(44),dp(44)));
+        top.addView(code,new LinearLayout.LayoutParams(dp(52),dp(48)));
         root.addView(top,new LinearLayout.LayoutParams(-1,dp(56)));
         View divider=separator();divider.setAlpha(.30f);
         root.addView(divider,new LinearLayout.LayoutParams(-1,dp(1)));
@@ -272,27 +268,18 @@ public final class AgentChatScreen {
         panel.addView(art,new LinearLayout.LayoutParams(-1,0,1));
         LinearLayout caption=new LinearLayout(activity);
         caption.setOrientation(LinearLayout.VERTICAL);caption.setGravity(Gravity.CENTER_HORIZONTAL);
-        caption.setPadding(dp(16),0,dp(16),dp(10));
+        caption.setPadding(dp(16),dp(6),dp(16),dp(34));
         TextView title=label("Hubble Agent",28,true,text);title.setGravity(Gravity.CENTER);
         caption.addView(title);
         TextView subtitle=label("Единое пространство для ваших моделей и GitHub-проектов",14,false,muted);
-        subtitle.setGravity(Gravity.CENTER);subtitle.setPadding(0,dp(2),0,dp(12));
+        subtitle.setGravity(Gravity.CENTER);subtitle.setPadding(0,dp(4),0,0);
         caption.addView(subtitle);
-        String[] prompts={"Проанализируй репозиторий и расскажи об архитектуре","Найди баги и потенциальные проблемы в коде",
-                "Напиши тесты для основных модулей","Предложи улучшения и сделай рефакторинг"};
-        for(String prompt:prompts){
-            TextView card=label(prompt,14,false,text);
-            card.setPadding(dp(16),dp(12),dp(16),dp(12));card.setBackground(shape(surface,14,border,1));
-            card.setOnClickListener(v->{if(inputField!=null){inputField.setText(prompt);inputField.setSelection(prompt.length());inputField.requestFocus();}});
-            LinearLayout.LayoutParams cardLp=new LinearLayout.LayoutParams(-1,-2);cardLp.topMargin=dp(8);
-            caption.addView(card,cardLp);
-        }
         panel.addView(caption,new LinearLayout.LayoutParams(-1,-2));
         // With the IME open, keep the composer usable and avoid overlapping the illustration.
         panel.addOnLayoutChangeListener((v,l,t,r,b,ol,ot,or,ob)->{
             int height=b-t;
             art.setVisibility(height<dp(470)?View.GONE:View.VISIBLE);
-            caption.setVisibility(height<dp(240)?View.GONE:View.VISIBLE);
+            caption.setVisibility(height<dp(200)?View.GONE:View.VISIBLE);
         });
         transcript.addView(panel,new LinearLayout.LayoutParams(-1,-1));
     }

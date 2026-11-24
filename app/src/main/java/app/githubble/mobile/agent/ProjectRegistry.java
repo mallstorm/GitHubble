@@ -174,6 +174,16 @@ public final class ProjectRegistry {
             } catch (org.json.JSONException bad) { throw new IllegalStateException(bad); }
         }
     }
+    /** Every project owns exactly one local Workspace folder; it is created together with the project. */
+    public void attachWorkspace(String account, String id, String workspace) {
+        synchronized (UnifiedAgentStore.LOCK) {
+            JSONObject state = store.read(account), project = state.optJSONObject("projects").optJSONObject(id);
+            if (project == null) throw new IllegalArgumentException("Проект не найден");
+            try { project.put("workspaceId", workspace).put("memoryScope", workspace).put("updatedAt", System.currentTimeMillis()); }
+            catch (org.json.JSONException bad) { throw new IllegalStateException(bad); }
+            store.save(account, state);
+        }
+    }
     /** Removes the project and unbinds its tasks; chats themselves are untouched. */
     public void delete(String account, String id) {
         synchronized (UnifiedAgentStore.LOCK) {

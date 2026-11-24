@@ -27,6 +27,13 @@ public final class ProjectHubScreen {
     private void failure(Exception error) {
         if(current.getAsBoolean())new AlertDialog.Builder(activity).setMessage(error.getMessage()).setPositiveButton("ОК",null).show();
     }
+    public interface WorkspaceEraser { void erase(String workspaceId) throws Exception; }
+    private app.githubble.mobile.agent.WorkspaceHub hub;
+    private WorkspaceEraser eraser;
+    /** A project owns one Workspace folder: created with it, erased with it. */
+    public ProjectHubScreen workspaces(app.githubble.mobile.agent.WorkspaceHub hub,WorkspaceEraser eraser){
+        this.hub=hub;this.eraser=eraser;return this;
+    }
     private int bg=0xFFF4F7F9,card=0xFFFFFFFF,ink=0xFF1B2733,muted=0xFF6B7885,accent=0xFF2E9D68,line=0xFFD9E0E6;
     public ProjectHubScreen palette(int bg,int card,int ink,int muted,int accent,int line) {
         this.bg=bg;this.card=card;this.ink=ink;this.muted=muted;this.accent=accent;this.line=line;return this;
@@ -70,7 +77,8 @@ public final class ProjectHubScreen {
             title.setText("Проекты · "+projects.length());
             if(projects.length()==0){
                 TextView empty=text("Проектов нет. Нажмите «+ Новый», чтобы создать проект для агента.",14,false,muted);
-                empty.setPadding(dp(8),dp(24),dp(8),0);list.addView(empty);return;
+                empty.setPadding(dp(8),dp(24),dp(8),dp(12));list.addView(empty);
+                orphans(list,projects,render[0],page);return;
             }
             for(int i=0;i<projects.length();i++){
                 JSONObject p=projects.optJSONObject(i);if(p==null)continue;
@@ -83,17 +91,22 @@ public final class ProjectHubScreen {
                 String repo=p.optString("repository");
                 TextView where=text(repo.isEmpty()?"Локальный проект":repo+" · "+p.optString("baseBranch","main"),12,false,muted);
                 where.setSingleLine();where.setEllipsize(android.text.TextUtils.TruncateAt.END);where.setPadding(0,dp(2),0,0);labels.addView(where);
-                TextView meta=text("задач: "+count+" · доступ AI: "+(p.optBoolean("modelAccess")?"включён":"выключен"),12,false,muted);
+                TextView meta=text("задач: "+count+" · папка: "+(p.optString("workspaceId").isEmpty()?"нет":"есть")+" · доступ AI: "+(p.optBoolean("modelAccess")?"вкл":"выкл"),12,false,muted);
                 meta.setPadding(0,dp(2),0,0);labels.addView(meta);
                 row.addView(labels,new LinearLayout.LayoutParams(0,-2,1));
                 TextView cross=text("✕",18,true,0xFFC75B66);cross.setGravity(Gravity.CENTER);
                 cross.setContentDescription("Удалить проект "+name);
                 cross.setOnClickListener(v->confirmDelete(id,name,count,render[0]));
                 row.addView(cross,new LinearLayout.LayoutParams(dp(52),dp(52)));
-                row.setOnClickListener(v->{page.dismiss();if(current.getAsBoolean())tasks(id);});
+                row.setOnClickListener(v->{page.dismiss();if(!current.getAsBoolean())return;
+                    if(hub!=null&&p.optString("workspaceId").isEmpty())try{ // Older projects get their folder on first open.
+                        store.registry.attachWorkspace(account,id,hub.create(account,name).getString("id"));
+                    }catch(Exception ignored){}
+                    tasks(id);});
                 LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.bottomMargin=dp(10);
                 list.addView(row,lp);
             }
+            orphans(list,projects,render[0],page);
         };
         render[0].run();
         page.setContentView(root);
@@ -105,6 +118,37 @@ public final class ProjectHubScreen {
         }
         page.show();
     }
+    /** Folders left behind by earlier versions: adopt as a project or erase. */
+    private void orphans(LinearLayout list,JSONArray projects,Runnable done,android.app.Dialog page){
+        if(hub==null)return;
+        try{
+            java.util.Set<String> used=new java.util.HashSet<>();
+            for(int i=0;i<projects.length();i++)used.add(projects.getJSONObject(i).optString("workspaceId"));
+            JSONArray folders=hub.list(account);boolean header=false;
+            for(int i=0;i<folders.length();i++){
+                JSONObject f=folders.getJSONObject(i);final String id=f.optString("id"),name=f.optString("name","Папка");
+                if(used.contains(id))continue;
+                if(!header){header=true;TextView h=text("Папки без проекта",14,true,muted);h.setPadding(dp(4),dp(10),0,dp(4));list.addView(h);
+                    TextView note=text("Остались от прежних версий. Нажмите на папку, чтобы сделать её проектом, или ✕, чтобы стереть.",12,false,muted);
+                    note.setPadding(dp(4),0,dp(4),dp(8));list.addView(note);}
+                LinearLayout row=new LinearLayout(activity);row.setGravity(Gravity.CENTER_VERTICAL);
+                row.setPadding(dp(14),dp(8),dp(4),dp(8));row.setBackground(shape(card,16,line));
+                TextView n=text("📁  "+name,15,true,ink);n.setSingleLine();n.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                row.addView(n,new LinearLayout.LayoutParams(0,-2,1));
+                TextView cross=text("✕",18,true,0xFFC75B66);cross.setGravity(Gravity.CENTER);cross.setContentDescription("Стереть папку "+name);
+                cross.setOnClickListener(v->new AlertDialog.Builder(activity).setTitle("Стереть папку «"+name+"»?")
+                    .setMessage("Файлы папки и её память будут удалены без возможности восстановления.")
+                    .setPositiveButton("Стереть",(d,w)->{try{if(eraser!=null)eraser.erase(id);done.run();refresh.run();}catch(Exception error){failure(error);}})
+                    .setNegativeButton("Отмена",null).show());
+                row.addView(cross,new LinearLayout.LayoutParams(dp(52),dp(48)));
+                row.setOnClickListener(v->{try{
+                    JSONObject project=store.registry.create(account,name,"","main");
+                    store.registry.attachWorkspace(account,project.getString("projectId"),id);done.run();
+                }catch(Exception error){failure(error);}});
+                LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.bottomMargin=dp(8);list.addView(row,lp);
+            }
+        }catch(Exception ignored){}
+    }
     private void confirmDelete(String projectId,String name,int tasks,Runnable done) {
         new AlertDialog.Builder(activity).setTitle("Удалить проект «"+name+"»?")
             .setMessage("Проект будет полностью стёрт и снят с работы агента: доступ модели отозван, привязка репозитория удалена. "
@@ -115,7 +159,13 @@ public final class ProjectHubScreen {
     }
     private void remove(String projectId,boolean withChats,Runnable done) {
         if(!current.getAsBoolean())return;
-        try{store.deleteProject(account,projectId,withChats);done.run();refresh.run();}catch(Exception error){failure(error);}
+        try{
+            String folder="";
+            try{folder=store.registry.get(account,projectId).optString("workspaceId");}catch(Exception ignored){}
+            store.deleteProject(account,projectId,withChats);
+            if(!folder.isEmpty()&&eraser!=null)try{eraser.erase(folder);}catch(Exception ignored){}
+            done.run();refresh.run();
+        }catch(Exception error){failure(error);}
     }
     public void createProject() {
         if(!current.getAsBoolean())return;
@@ -127,7 +177,12 @@ public final class ProjectHubScreen {
                 if(!current.getAsBoolean())return;
                 try{
                     if(name.getText().toString().trim().isEmpty())throw new IllegalArgumentException("Введите название проекта");
-                    JSONObject project=store.registry.create(account,name.getText().toString().trim(),repo.getText().toString().trim(),"main");
+                    String title=name.getText().toString().trim();
+                    JSONObject project=store.registry.create(account,title,repo.getText().toString().trim(),"main");
+                    if(hub!=null){ // The Workspace folder is created automatically, together with the project.
+                        JSONObject folder=hub.create(account,title);
+                        store.registry.attachWorkspace(account,project.getString("projectId"),folder.getString("id"));
+                    }
                     tasks(project.getString("projectId"));
                 }catch(Exception error){failure(error);}
             }).setNegativeButton("Отмена",null).show();
