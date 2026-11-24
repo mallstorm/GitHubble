@@ -4711,6 +4711,7 @@ public class MainActivity extends Activity {
     }
 
     private void searchAdvanced(String q, boolean smart, SearchMode mode, SearchFilters filters){
+        resetFeedRefine();
         String value=q==null?"":q.trim();
         if(value.isEmpty()){toast("Введите запрос");return;}
         SearchMode selected=mode==null?SearchMode.REPOSITORIES:mode;
@@ -4795,7 +4796,7 @@ public class MainActivity extends Activity {
             long finalReported=reported;int finalFailed=failed;boolean finalMayHaveMore=mayHaveMore;
             runOnUiThread(()->{
                 content.removeView(pb);
-                if(first)renderAdvancedSearchExplanation(plan,results.size(),finalReported,finalFailed);
+                if(first)renderAdvancedSearchExplanation(plan,results.size(),finalReported,finalFailed);if(first&&plan.mode==SearchMode.REPOSITORIES)renderFeedRefineBar(()->searchAdvancedPage(plan,1,true));
                 int added=0;
                 if(plan.mode==SearchMode.REPOSITORIES)startRepoFeed();
                 for(JSONObject item:results){
@@ -4820,7 +4821,7 @@ public class MainActivity extends Activity {
             case CODE:return "https://api.github.com/search/code?q="+encoded+"&per_page=20&page="+page;
             case PEOPLE:return "https://api.github.com/search/users?q="+encoded+"&per_page=20&page="+page;
             case REPOSITORIES:
-            default:return "https://api.github.com/search/repositories?q="+encoded+"&sort=stars&order=desc&per_page=20&page="+page;
+            default:return "https://api.github.com/search/repositories?q="+URLEncoder.encode(feedQuery(query),"UTF-8")+feedSortParam("stars")+"&per_page=20&page="+page;
         }
     }
 
@@ -4946,12 +4947,14 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void searchRepos(String q){searchReposPage(q,1,true);}
+    private void resetFeedRefine(){feedSort="";feedNoForks=false;feedFresh=false;feedNeedDescription=false;feedMinStars=0;}
+    private void searchRepos(String q){resetFeedRefine();searchReposPage(q,1,true);}
 
     private void searchRepos(String q, boolean smart){
         String value=q==null?"":q.trim();
         if(value.isEmpty()){toast("Введите запрос");return;}
         new SmartSearchHistory(prefs).remember(value,smart);
+        resetFeedRefine();
         if(!smart){searchRepos(value);return;}
         SmartSearchPlanner.Plan plan=SmartSearchPlanner.plan(value,true);
         searchSmartReposPage(plan,1,true);
@@ -4959,7 +4962,7 @@ public class MainActivity extends Activity {
 
     private void searchReposPage(String q,int page,boolean first){
         if(q.isEmpty()){toast("Введите запрос");return;}if(first){setCurrentScreen(()->searchRepos(q));shell("Результаты",true);}ProgressBar pb=new ProgressBar(this);content.addView(pb);
-        io.execute(()->{try{JSONObject root=getJson("https://api.github.com/search/repositories?q="+URLEncoder.encode(q,"UTF-8")+"&per_page=30&page="+page);JSONArray items=root.optJSONArray("items");if(items==null)items=new JSONArray();int total=root.optInt("total_count",items.length());JSONArray finalItems=items;runOnUiThread(()->{content.removeView(pb);if(first)sectionTitle("Найдено: "+total,null);startRepoFeed();for(int i=0;i<finalItems.length();i++){try{addRepoCard(finalItems.getJSONObject(i));}catch(Exception ignored){}}endRepoFeed();if(finalItems.length()==30&&page*30<Math.min(total,1000))addLoadMoreButton("Показать ещё результаты",()->searchReposPage(q,page+1,false));});}catch(Exception e){runOnUiThread(()->{content.removeView(pb);errorCard("Ошибка сети",e.getMessage());});}});
+        io.execute(()->{try{JSONObject root=getJson("https://api.github.com/search/repositories?q="+URLEncoder.encode(feedQuery(q),"UTF-8")+feedSortParam("")+"&per_page=30&page="+page);JSONArray items=root.optJSONArray("items");if(items==null)items=new JSONArray();int total=root.optInt("total_count",items.length());JSONArray finalItems=items;runOnUiThread(()->{content.removeView(pb);if(first){sectionTitle("Найдено: "+total,null);renderFeedRefineBar(()->searchReposPage(q,1,true));}startRepoFeed();for(int i=0;i<finalItems.length();i++){try{addRepoCard(finalItems.getJSONObject(i));}catch(Exception ignored){}}endRepoFeed();if(finalItems.length()==30&&page*30<Math.min(total,1000))addLoadMoreButton("Показать ещё результаты",()->searchReposPage(q,page+1,false));});}catch(Exception e){runOnUiThread(()->{content.removeView(pb);errorCard("Ошибка сети",e.getMessage());});}});
     }
 
     private void searchSmartReposPage(SmartSearchPlanner.Plan plan,int page,boolean first){
@@ -4978,7 +4981,7 @@ public class MainActivity extends Activity {
             Exception lastError=null;
             for(String variant:plan.variants){
                 try{
-                    String url="https://api.github.com/search/repositories?q="+URLEncoder.encode(variant,"UTF-8")+"&per_page=20&page="+page;
+                    String url="https://api.github.com/search/repositories?q="+URLEncoder.encode(feedQuery(variant),"UTF-8")+feedSortParam("")+"&per_page=20&page="+page;
                     JSONObject root=getJson(url);
                     JSONArray items=root.optJSONArray("items");if(items==null)items=new JSONArray();
                     batches.add(items);
@@ -4995,7 +4998,7 @@ public class MainActivity extends Activity {
             long finalReported=reported;int finalFailed=failed;boolean finalMayHaveMore=mayHaveMore;
             runOnUiThread(()->{
                 content.removeView(pb);
-                if(first)renderSmartSearchExplanation(plan,hits.size(),finalReported,finalFailed);
+                if(first)renderSmartSearchExplanation(plan,hits.size(),finalReported,finalFailed);if(first)renderFeedRefineBar(()->searchSmartReposPage(plan,1,true));
                 int added=0;
                 startRepoFeed();
                 for(RepositorySearchRanker.Hit hit:hits){
@@ -5028,11 +5031,60 @@ public class MainActivity extends Activity {
     private void addRepoCard(JSONObject r)throws Exception {addRepoCard(r,0);}
     private void addRepoCard(JSONObject r,int smartMatches)throws Exception {
         String full=r.getString("full_name");
+        if(feedTranslation!=null&&feedNeedDescription&&app.githubble.mobile.ui.JsonText.of(r,"description","").trim().isEmpty())return;
         rememberRepoPrivacy(full,r.optBoolean("private",false));
         LinearLayout box=app.githubble.mobile.ui.RepositoryFeedCard.build(this,r,smartMatches,
                 new app.githubble.mobile.ui.RepositoryFeedCard.Palette(CARD,BORDER,TEXT,MUTED,BLUE,GREEN),feedTranslation);
         box.setOnClickListener(v->navigate(() -> showRepository(full)));
         LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.setMargins(0,0,0,dp(12));content.addView(box,p);
+    }
+
+    // Quick refinement of repository search results: sorting and filters applied through GitHub qualifiers.
+    private String feedSort="";            // "" = best match / default of the mode, else stars, forks, updated
+    private boolean feedNoForks,feedFresh,feedNeedDescription;
+    private int feedMinStars;
+    private String feedQuery(String q){
+        StringBuilder b=new StringBuilder(q==null?"":q.trim());
+        String low=b.toString().toLowerCase(Locale.ROOT);
+        if(feedNoForks&&!low.contains("fork:"))b.append(" fork:false");
+        if(feedFresh&&!low.contains("pushed:"))b.append(" pushed:>=").append(java.time.LocalDate.now().minusYears(1));
+        if(feedMinStars>0&&!low.contains("stars:"))b.append(" stars:>=").append(feedMinStars);
+        return b.toString();
+    }
+    private String feedSortParam(String fallback){
+        String s=feedSort.isEmpty()?fallback:feedSort;
+        return s.isEmpty()?"":"&sort="+s+"&order=desc";
+    }
+    private String feedSortLabel(){
+        switch(feedSort){case "stars":return "★ Звёзды";case "forks":return "⑂ Форки";case "updated":return "Обновлённые";default:return "Лучшие совпадения";}
+    }
+    private void renderFeedRefineBar(Runnable rerun){
+        HorizontalScrollView scroll=new HorizontalScrollView(this);scroll.setHorizontalScrollBarEnabled(false);
+        LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);
+        row.addView(refineChip("⇅ "+feedSortLabel(),!feedSort.isEmpty(),()->{
+            String[] ids={"","stars","forks","updated"};String[] names={"Лучшие совпадения","Звёзды","Форки","Недавно обновлённые"};
+            int cur=0;for(int i=0;i<ids.length;i++)if(ids[i].equals(feedSort))cur=i;
+            new AlertDialog.Builder(this).setTitle("Сортировка").setSingleChoiceItems(names,cur,(d,w)->{feedSort=ids[w];d.dismiss();rerun.run();}).setNegativeButton("Закрыть",null).show();
+        }));
+        row.addView(refineChip("Без форков",feedNoForks,()->{feedNoForks=!feedNoForks;rerun.run();}));
+        row.addView(refineChip("Живые · за год",feedFresh,()->{feedFresh=!feedFresh;rerun.run();}));
+        row.addView(refineChip("★ 10+",feedMinStars==10,()->{feedMinStars=feedMinStars==10?0:10;rerun.run();}));
+        row.addView(refineChip("★ 100+",feedMinStars==100,()->{feedMinStars=feedMinStars==100?0:100;rerun.run();}));
+        row.addView(refineChip("С описанием",feedNeedDescription,()->{feedNeedDescription=!feedNeedDescription;rerun.run();}));
+        scroll.addView(row);
+        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,dp(40));p.setMargins(0,0,0,dp(10));
+        content.addView(scroll,p);
+    }
+    private TextView refineChip(String label,boolean active,Runnable click){
+        TextView c=text(label,12,true);c.setGravity(Gravity.CENTER);c.setSingleLine(true);
+        c.setTextColor(active?Color.WHITE:TEXT);c.setPadding(dp(13),0,dp(13),0);
+        GradientDrawable g=new GradientDrawable(GradientDrawable.Orientation.TL_BR,active
+                ?new int[]{GREEN,Color.rgb((int)(Color.red(GREEN)*.78f),(int)(Color.green(GREEN)*.78f),(int)(Color.blue(GREEN)*.78f))}
+                :new int[]{SUBTLE,CARD});
+        g.setCornerRadius(dp(16));g.setStroke(dp(1),active?GREEN:BORDER);c.setBackground(g);
+        c.setOnClickListener(v->click.run());
+        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-2,dp(36));p.setMargins(0,0,dp(7),0);c.setLayoutParams(p);
+        return c;
     }
 
     /** One translation group for a whole page of search results: a single chip, one batched request. */
