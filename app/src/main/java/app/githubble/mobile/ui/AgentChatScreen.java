@@ -314,7 +314,7 @@ public final class AgentChatScreen {
             bubble.addView(tag);
         }
         if(user){TextView content=label(body,14,false,text);content.setTextIsSelectable(false);bubble.addView(content);}
-        else new AgentMarkdownView(activity,text,muted,accent,subtle,border).selectable(false).render(bubble,body);
+        else new AgentMarkdownView(activity,text,muted,accent,subtle,border).selectable(false).wideTables(true).render(bubble,body);
         // Only host-authored structured events can display completed file operations.
         if(system){
             JSONArray operations=entry.optJSONArray("operations");
@@ -436,7 +436,7 @@ public final class AgentChatScreen {
         String preview=busy&&running!=null?running.optString("preview"):"";
         if(!preview.isEmpty()){
             if(streamed==null){streamed=new LinearLayout(activity);streamed.setOrientation(LinearLayout.VERTICAL);streamed.setPadding(dp(5),dp(12),dp(5),dp(8));transcript.addView(streamed);}
-            if(!preview.equals(lastPreview)){streamed.removeAllViews();new AgentMarkdownView(activity,text,muted,accent,subtle,border).selectable(false).render(streamed,preview);lastPreview=preview;}
+            if(!preview.equals(lastPreview)){streamed.removeAllViews();new AgentMarkdownView(activity,text,muted,accent,subtle,border).selectable(false).wideTables(true).render(streamed,preview);lastPreview=preview;}
         }else if(streamed!=null){transcript.removeView(streamed);streamed=null;lastPreview="";}
         transcriptScroll.post(()->{if(bottom){transcriptScroll.fullScroll(View.FOCUS_DOWN);newActions.setVisibility(View.GONE);}else{transcriptScroll.scrollTo(0,oldY);newActions.setVisibility(View.VISIBLE);}});
     }

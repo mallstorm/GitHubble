@@ -174,6 +174,21 @@ public final class ProjectRegistry {
             } catch (org.json.JSONException bad) { throw new IllegalStateException(bad); }
         }
     }
+    /** Removes the project and unbinds its tasks; chats themselves are untouched. */
+    public void delete(String account, String id) {
+        synchronized (UnifiedAgentStore.LOCK) {
+            JSONObject state = store.read(account);
+            try {
+                state.getJSONObject("projects").remove(id);
+                JSONObject tasks = state.optJSONObject("tasks");
+                for (String key : UnifiedAgentStore.keys(tasks)) {
+                    JSONObject task = tasks.getJSONObject(key);
+                    if (id.equals(task.optString("projectId"))) { task.put("projectId", ""); task.put("workingBranch", ""); }
+                }
+                store.save(account, state);
+            } catch (org.json.JSONException bad) { throw new IllegalStateException(bad); }
+        }
+    }
     /** Detach metadata only; a project and its history survive deletion of local phone files. */
     public void detachWorkspace(String account, String workspace) {
         synchronized (UnifiedAgentStore.LOCK) {

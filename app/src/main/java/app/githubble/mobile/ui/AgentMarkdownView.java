@@ -59,6 +59,13 @@ public final class AgentMarkdownView {
   private final Activity activity;
   private final int text, muted, accent, soft, border;
   private boolean selectable = true;
+  private boolean wideTables;
+
+  /** Tables break out of the bubble padding and span (almost) the whole screen. */
+  public AgentMarkdownView wideTables(boolean value) {
+    wideTables = value;
+    return this;
+  }
 
   /** Chat bubbles use a long-press menu instead of in-place selection. */
   public AgentMarkdownView selectable(boolean value) {
@@ -312,7 +319,8 @@ public final class AgentMarkdownView {
       least[c] = Math.max(least[c], dp(64));
       want[c] = Math.max(want[c], least[c]);
     }
-    final int available = activity.getResources().getDisplayMetrics().widthPixels - dp(34);
+    final int screenWidth = activity.getResources().getDisplayMetrics().widthPixels;
+    final int available = wideTables ? screenWidth - dp(16) : screenWidth - dp(34);
     int total = 0;
     for (int w : want) total += w;
     final int[] width = want.clone();
@@ -331,23 +339,44 @@ public final class AgentMarkdownView {
     int gridWidth = 0;
     for (int w : width) gridWidth += w + 1;
 
-    final int headerBg = mix(soft, accent, .16f), zebra = mix(soft, text, .035f);
-    final int line = mix(border, accent, .18f);
+    // Beige "paper" palette, with its own text colors so contrast does not depend on the chat theme.
+    final boolean night = Color.luminance(text) > .5;
+    final int paper = night ? 0xFF3A3328 : 0xFFF6EFDF;
+    final int headerBg = night ? 0xFF4C4232 : 0xFFE8DABB;
+    final int zebra = night ? 0xFF433A2D : 0xFFEFE4CD;
+    final int line = night ? 0xFF5E5240 : 0xFFD3C29C;
+    final int ink = night ? 0xFFF1E8D4 : 0xFF3A3123;
+    final int headInk = night ? 0xFFFFE6B0 : 0xFF2A200F;
+    final int linkInk = night ? 0xFFF0C070 : 0xFF8A5A00;
     final LinearLayout frame = new LinearLayout(activity);
     GradientDrawable frameShape = new GradientDrawable();
-    frameShape.setColor(Color.TRANSPARENT);
-    frameShape.setCornerRadius(dp(12));
-    frameShape.setStroke(dp(1), mix(border, accent, .30f));
+    frameShape.setColor(paper);
+    frameShape.setStroke(dp(1), line);
     frame.setBackground(frameShape);
-    frame.setClipToOutline(true);
-    frame.setOutlineProvider(
-        new android.view.ViewOutlineProvider() {
-          @Override
-          public void getOutline(View v, android.graphics.Outline o) {
-            o.setRoundRect(0, 0, v.getWidth(), v.getHeight(), dp(12));
-          }
-        });
     frame.setOrientation(LinearLayout.VERTICAL);
+    if (wideTables) {
+      frame.addOnAttachStateChangeListener(
+          new View.OnAttachStateChangeListener() {
+            @Override
+            public void onViewAttachedToWindow(View v) {
+              for (android.view.ViewParent p = v.getParent(); p instanceof android.view.ViewGroup; p = p.getParent()) {
+                ((android.view.ViewGroup) p).setClipChildren(false);
+                ((android.view.ViewGroup) p).setClipToPadding(false);
+                if (p instanceof ScrollView) break;
+              }
+            }
+
+            @Override
+            public void onViewDetachedFromWindow(View v) {}
+          });
+      frame.addOnLayoutChangeListener(
+          (v, l, t, r, b, ol, ot, or, ob) -> {
+            int[] where = new int[2];
+            v.getLocationInWindow(where);
+            float shift = dp(8) - where[0];
+            if (Math.abs(shift) > 1) v.setTranslationX(v.getTranslationX() + shift);
+          });
+    }
     HorizontalScrollView scroll = new HorizontalScrollView(activity);
     scroll.setHorizontalScrollBarEnabled(false);
     scroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
@@ -378,7 +407,8 @@ public final class AgentMarkdownView {
                 row.addView(vertical, new LinearLayout.LayoutParams(1, -1));
               }
               CharSequence content = c < cells.get(index).size() ? cells.get(index).get(c) : "";
-              TextView value = label(content, header ? 12 : 13, header ? mix(text, accent, .30f) : text);
+              TextView value = label(content, header ? 12 : 13, header ? headInk : ink);
+              value.setLinkTextColor(linkInk);
               value.setPadding(padding, dp(9), padding, dp(9));
               value.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
               if (header) value.setTypeface(null, Typeface.BOLD);
@@ -391,14 +421,18 @@ public final class AgentMarkdownView {
             }
             grid.addView(row, new LinearLayout.LayoutParams(-1, -2));
             View separator = new View(activity);
-            separator.setBackgroundColor(header ? mix(line, accent, .35f) : line);
+            separator.setBackgroundColor(header ? (night ? 0xFF8C7A55 : 0xFFB59F6E) : line);
             grid.addView(separator, new LinearLayout.LayoutParams(-1, header ? dp(2) : 1));
           }
           expand.setVisibility(next[0] < rows.size() ? View.VISIBLE : View.GONE);
         };
     more[0].run();
     expand.setOnClickListener(v -> more[0].run());
-    add(parent, frame);
+    LinearLayout.LayoutParams framePlace =
+        new LinearLayout.LayoutParams(wideTables ? screenWidth - dp(16) : -1, -2);
+    framePlace.topMargin = dp(6);
+    framePlace.bottomMargin = dp(6);
+    parent.addView(frame, framePlace);
     parent.addView(expand);
   }
 

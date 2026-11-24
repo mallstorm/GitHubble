@@ -304,6 +304,22 @@ public final class AgentProjectStore {
     prefs.edit().remove(key(accountId, "project_" + id)).commit();
   }
 
+  /** Erases a project and takes it off the agent; optionally deletes its chats as well. */
+  public synchronized void deleteProject(String accountId, String projectId, boolean withChats) {
+    ensureUnified(accountId);
+    JSONArray bound = tasks.list(accountId, projectId);
+    java.util.List<String> ids = new java.util.ArrayList<>();
+    for (int i = 0; i < bound.length(); i++) {
+      JSONObject task = bound.optJSONObject(i);
+      if (task != null) ids.add(task.optString("taskId"));
+    }
+    if (withChats) for (String id : ids) if (!id.isEmpty()) deleteConversation(accountId, id);
+    registry.delete(accountId, projectId);
+    SharedPreferences.Editor editor = prefs.edit();
+    for (String id : ids) editor.remove(key(accountId, "project_" + id));
+    editor.commit();
+  }
+
   public synchronized void clearConversation(String accountId) {
     newConversation(accountId);
   }
