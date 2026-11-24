@@ -4797,6 +4797,7 @@ public class MainActivity extends Activity {
                 content.removeView(pb);
                 if(first)renderAdvancedSearchExplanation(plan,results.size(),finalReported,finalFailed);
                 int added=0;
+                if(plan.mode==SearchMode.REPOSITORIES)startRepoFeed();
                 for(JSONObject item:results){
                     if(item==null)continue;
                     String key=advancedSearchKey(plan.mode,item);
@@ -4805,6 +4806,7 @@ public class MainActivity extends Activity {
                     try{renderAdvancedSearchItem(plan.mode,item,matches);}catch(Exception ignored){}
                     added++;
                 }
+                endRepoFeed();
                 if(first&&added==0){TextView empty=text("Совпадений не найдено. Измените формулировку, фильтры или отключите RU ✦ для точного запроса.",13,false);empty.setTextColor(MUTED);card(empty);}
                 if(finalMayHaveMore&&page<5)addLoadMoreButton("Показать ещё результаты",()->searchAdvancedPage(plan,page+1,false));
             });
@@ -4957,7 +4959,7 @@ public class MainActivity extends Activity {
 
     private void searchReposPage(String q,int page,boolean first){
         if(q.isEmpty()){toast("Введите запрос");return;}if(first){setCurrentScreen(()->searchRepos(q));shell("Результаты",true);}ProgressBar pb=new ProgressBar(this);content.addView(pb);
-        io.execute(()->{try{JSONObject root=getJson("https://api.github.com/search/repositories?q="+URLEncoder.encode(q,"UTF-8")+"&per_page=30&page="+page);JSONArray items=root.optJSONArray("items");if(items==null)items=new JSONArray();int total=root.optInt("total_count",items.length());JSONArray finalItems=items;runOnUiThread(()->{content.removeView(pb);if(first)sectionTitle("Найдено: "+total,null);for(int i=0;i<finalItems.length();i++){try{addRepoCard(finalItems.getJSONObject(i));}catch(Exception ignored){}}if(finalItems.length()==30&&page*30<Math.min(total,1000))addLoadMoreButton("Показать ещё результаты",()->searchReposPage(q,page+1,false));});}catch(Exception e){runOnUiThread(()->{content.removeView(pb);errorCard("Ошибка сети",e.getMessage());});}});
+        io.execute(()->{try{JSONObject root=getJson("https://api.github.com/search/repositories?q="+URLEncoder.encode(q,"UTF-8")+"&per_page=30&page="+page);JSONArray items=root.optJSONArray("items");if(items==null)items=new JSONArray();int total=root.optInt("total_count",items.length());JSONArray finalItems=items;runOnUiThread(()->{content.removeView(pb);if(first)sectionTitle("Найдено: "+total,null);startRepoFeed();for(int i=0;i<finalItems.length();i++){try{addRepoCard(finalItems.getJSONObject(i));}catch(Exception ignored){}}endRepoFeed();if(finalItems.length()==30&&page*30<Math.min(total,1000))addLoadMoreButton("Показать ещё результаты",()->searchReposPage(q,page+1,false));});}catch(Exception e){runOnUiThread(()->{content.removeView(pb);errorCard("Ошибка сети",e.getMessage());});}});
     }
 
     private void searchSmartReposPage(SmartSearchPlanner.Plan plan,int page,boolean first){
@@ -4995,12 +4997,14 @@ public class MainActivity extends Activity {
                 content.removeView(pb);
                 if(first)renderSmartSearchExplanation(plan,hits.size(),finalReported,finalFailed);
                 int added=0;
+                startRepoFeed();
                 for(RepositorySearchRanker.Hit hit:hits){
                     String key=hit.repository.optString("full_name","").toLowerCase(Locale.ROOT);
                     if(key.isEmpty()||!smartSearchRendered.add(key))continue;
                     try{addRepoCard(hit.repository,hit.matchedVariants);}catch(Exception ignored){}
                     added++;
                 }
+                endRepoFeed();
                 if(first&&added==0){TextView empty=text("Совпадений не найдено. Попробуйте убрать часть слов или отключить RU ✦ для точного запроса.",13,false);empty.setTextColor(MUTED);card(empty);}
                 if(finalMayHaveMore&&page<5)addLoadMoreButton("Показать ещё интеллектуальные результаты",()->searchSmartReposPage(plan,page+1,false));
             });
@@ -5023,14 +5027,29 @@ public class MainActivity extends Activity {
 
     private void addRepoCard(JSONObject r)throws Exception {addRepoCard(r,0);}
     private void addRepoCard(JSONObject r,int smartMatches)throws Exception {
-        String full=r.getString("full_name"), desc=app.githubble.mobile.ui.JsonText.of(r,"description","Без описания"), lang=app.githubble.mobile.ui.JsonText.of(r,"language","—"); int stars=r.optInt("stargazers_count");
-        LinearLayout box=new LinearLayout(this); box.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout head=new LinearLayout(this);head.setGravity(Gravity.CENTER_VERTICAL);
-        TextView mark=text("◆",20,true);mark.setTextColor(BLUE);head.addView(mark,new LinearLayout.LayoutParams(dp(38),dp(38)));
-        TextView title=text(full,17,true);title.setTextColor(BLUE);head.addView(title,new LinearLayout.LayoutParams(0,-2,1));box.addView(head);
-        TextView body=text(desc,14,false);body.setTextColor(MUTED);box.addView(body);
-        LinearLayout meta=new LinearLayout(this);meta.setPadding(0,dp(10),0,0);meta.addView(pill("★ "+stars));meta.addView(pill(lang));if(smartMatches>1)meta.addView(pill("RU ✦ ×"+smartMatches));box.addView(meta);
-        box.setOnClickListener(v->navigate(() -> showRepository(full))); card(box);
+        String full=r.getString("full_name");
+        rememberRepoPrivacy(full,r.optBoolean("private",false));
+        LinearLayout box=app.githubble.mobile.ui.RepositoryFeedCard.build(this,r,smartMatches,
+                new app.githubble.mobile.ui.RepositoryFeedCard.Palette(CARD,BORDER,TEXT,MUTED,BLUE,GREEN),feedTranslation);
+        box.setOnClickListener(v->navigate(() -> showRepository(full)));
+        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.setMargins(0,0,0,dp(12));content.addView(box,p);
+    }
+
+    /** One translation group for a whole page of search results: a single chip, one batched request. */
+    private app.githubble.mobile.ui.InlineTranslation feedTranslation;
+    private LinearLayout feedTranslationSlot;
+    private void startRepoFeed(){
+        feedTranslationSlot=new LinearLayout(this);feedTranslationSlot.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.setMargins(0,0,0,dp(6));content.addView(feedTranslationSlot,p);
+        feedTranslation=new app.githubble.mobile.ui.InlineTranslation(this,io,translationController,new app.githubble.mobile.ui.InlineTranslation.Host(){
+            @Override public boolean auto(){return translationController.available()&&translationController.autoEnabled()&&translationController.scopeEnabled("description");}
+            @Override public void allowSend(Runnable proceed){proceed.run();}
+            @Override public void toast(String message){MainActivity.this.toast(message);}
+        },MUTED,SUBTLE);
+    }
+    private void endRepoFeed(){
+        app.githubble.mobile.ui.InlineTranslation t=feedTranslation;LinearLayout slot=feedTranslationSlot;feedTranslation=null;feedTranslationSlot=null;
+        if(t!=null&&slot!=null)t.bind(slot);
     }
 
     private void addRepoTile(GridLayout grid,JSONObject repository)throws Exception{

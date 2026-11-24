@@ -444,15 +444,7 @@ public final class RepositoriesScreen {
         }catch(Exception ignored){return "Дата неизвестна";}
     }
 
-    private int languageColor(String lang){
-        String[][] colors={{"Kotlin","7755CC"},{"Java","C27A38"},{"Go","159E97"},{"C++","4C7BBB"},
-                {"Python","4E9B70"},{"JavaScript","D4B21E"},{"TypeScript","3178C6"},{"Swift","E8683F"},
-                {"Rust","B5654A"},{"C#","6A4FB0"},{"C","5B6B7A"},{"HTML","E0572F"},{"CSS","3D6FD1"},
-                {"Shell","4DA64D"},{"Dart","1FA5C9"},{"PHP","7A7FB8"},{"Ruby","C13B3B"},{"Lua","2F3F94"},
-                {"MQL5","B8892B"},{"MQL4","B8892B"},{"Kotlin Script","7755CC"}};
-        for(String[] item:colors)if(item[0].equalsIgnoreCase(lang))return 0xFF000000|Integer.parseInt(item[1],16);
-        return green;
-    }
+    private int languageColor(String lang){return LanguageColors.of(lang,green);}
 
     private void hideKeyboard() {
         try{
