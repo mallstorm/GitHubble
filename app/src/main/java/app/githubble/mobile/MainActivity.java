@@ -7915,23 +7915,7 @@ public class MainActivity extends Activity {
         pin.setTextColor(GREEN);
         pin.setContentDescription("Закреплённый репозиторий");
         pin.setGravity(Gravity.CENTER);
-        first.addView(pin,new LinearLayout.LayoutParams(dp(20),dp(35)));
-        TextView menu=text("⋮",21,true);
-        menu.setTextColor(MUTED);
-        menu.setGravity(Gravity.CENTER);
-        menu.setContentDescription("Действия с репозиторием "+full);
-        menu.setOnClickListener(v->new AlertDialog.Builder(this).setTitle(full)
-                .setItems(new String[]{"Открыть","Открепить"},(dialog,index)->{
-                    if(index==0)navigate(()->showRepository(full));
-                    else{
-                        Set<String> pins=new LinkedHashSet<>(prefs.getStringSet(
-                                profilePinsKey(),new LinkedHashSet<>()));
-                        pins.remove(full);
-                        prefs.edit().putStringSet(profilePinsKey(),pins).apply();
-                        renderProfilePage(false);
-                    }
-                }).show());
-        first.addView(menu,new LinearLayout.LayoutParams(dp(25),dp(40)));
+        first.addView(pin,new LinearLayout.LayoutParams(dp(24),dp(35)));
         box.addView(first);
         TextView meta=text(cleanNullable(app.githubble.mobile.ui.JsonText.of(repo,"language","—"))+
                 "    ★ "+repo.optInt("stargazers_count",0)+
