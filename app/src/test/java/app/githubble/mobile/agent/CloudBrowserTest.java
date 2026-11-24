@@ -50,7 +50,7 @@ public class CloudBrowserTest {
 
     @Test public void driverBlocksPrivateHostsAndCapsRuntime() {
         String js = CloudBrowser.SCRIPT_JS;
-        assertTrue(js.contains("169.254."));
+        assertTrue(js.contains("169\\.254"));
         assertTrue(js.contains("metadata.google.internal"));
         assertTrue(js.contains("150000"));
         assertTrue(js.contains("HUBBLE_RESULT:"));
