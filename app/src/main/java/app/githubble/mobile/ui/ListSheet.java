@@ -28,7 +28,7 @@ public final class ListSheet {
     public interface Toggle { void changed(boolean on); }
 
     private static final class Row {
-        String group = "", title, subtitle = "", badge = "";
+        String group = "", title, subtitle = "", badge = "", provider = "";
         boolean toggle, checked, danger;
         Toggle onToggle;
         Runnable click;
@@ -59,6 +59,12 @@ public final class ListSheet {
     public ListSheet row(String group, String title, String subtitle, String badge, Runnable click) {
         Row r = new Row(); r.group = group == null ? "" : group; r.title = title; r.subtitle = subtitle == null ? "" : subtitle;
         r.badge = badge == null ? "" : badge; r.click = click; rows.add(r); return this;
+    }
+    /** A tappable row with the service icon on the left. */
+    public ListSheet row(String group, String title, String subtitle, String badge, String provider, Runnable click) {
+        row(group, title, subtitle, badge, click);
+        rows.get(rows.size() - 1).provider = provider == null ? "" : provider;
+        return this;
     }
     /** A row with an on/off switch; the sheet stays open. */
     public ListSheet toggle(String group, String title, String subtitle, String badge, boolean checked, Toggle onToggle) {
@@ -156,6 +162,7 @@ public final class ListSheet {
         card.setGravity(Gravity.CENTER_VERTICAL);
         card.setPadding(dp(14), dp(11), dp(12), dp(11));
         card.setBackground(round(palette.card, 16, palette.border, 1));
+        if (!r.provider.isEmpty()) card.addView(ServiceIcon.view(activity, r.provider, r.title, 38), lp(38, 38, 0, 0, 12, 0));
         LinearLayout body = new LinearLayout(activity);
         body.setOrientation(LinearLayout.VERTICAL);
         TextView name = text(r.title, 15, palette.text, true);

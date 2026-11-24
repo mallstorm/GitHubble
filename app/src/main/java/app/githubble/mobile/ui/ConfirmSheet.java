@@ -40,6 +40,11 @@ public final class ConfirmSheet {
         bg = background; text = textColor; muted = mutedColor; subtle = subtleColor; border = borderColor; accent = accentColor;
     }
 
+    /** A message with one "OK" button, in place of the system alert dialog. */
+    public static void info(Activity activity, String title, String message) {
+        create(activity, new Spec(title, "Понятно", "", false).note(message), null, null).show();
+    }
+
     public static Dialog create(Activity activity, Spec spec, Runnable yes, Runnable no) {
         final int danger = 0xFFD32F2F;
         final int tone = spec.danger ? danger : accent;
@@ -103,7 +108,8 @@ public final class ConfirmSheet {
         LinearLayout.LayoutParams noLp = new LinearLayout.LayoutParams(0, dp(activity, 50), 1f);
         LinearLayout.LayoutParams yesLp = new LinearLayout.LayoutParams(0, dp(activity, 50), 1.4f);
         yesLp.leftMargin = dp(activity, 10);
-        buttons.addView(noButton, noLp);
+        if (spec.no == null || spec.no.isEmpty()) yesLp = new LinearLayout.LayoutParams(0, dp(activity, 50), 1f);
+        else buttons.addView(noButton, noLp);
         buttons.addView(yesButton, yesLp);
         LinearLayout.LayoutParams buttonsLp = new LinearLayout.LayoutParams(-1, -2);
         buttonsLp.topMargin = dp(activity, 20);

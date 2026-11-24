@@ -1374,14 +1374,16 @@ public class MainActivity extends Activity {
             }
         }
         if (ids.isEmpty()) { agentConfigureAiProvider(expected); return; }
-        new AlertDialog.Builder(this).setTitle("Выбрать AI-модель")
-                .setItems(names.toArray(new String[0]), (d, which) -> {
-                    if (!expected.equals(accountStore.activeCacheKey())) {
-                        toast("GitHub-аккаунт изменился"); return;
-                    }
-                    aiConnections.select(expected, ids.get(which));
-                    agentRefreshIfCurrent(expected);
-                }).setNegativeButton("Отмена", null).show();
+        app.githubble.mobile.ui.ListSheet pick = app.githubble.mobile.ui.ListSheet.of(this, settingsPalette()).title("Выбрать модель", "Подключённые сервисы");
+        for (int i = 0; i < ids.size(); i++) {
+            final String id = ids.get(i);
+            pick.row("", aiConnections.displayName(id), aiConnections.model(expected, id), "", id, () -> {
+                if (!expected.equals(accountStore.activeCacheKey())) { toast("GitHub-аккаунт изменился"); return; }
+                aiConnections.select(expected, id);
+                agentRefreshIfCurrent(expected);
+            });
+        }
+        pick.show();
     }
 
     private void agentDisconnectAiProvider(String expected) {
@@ -1419,32 +1421,36 @@ public class MainActivity extends Activity {
                         aiConnections.save(expected,provider,models.get(0),"");agentRefreshIfCurrent(expected);
                     }
                     if (models.isEmpty()) {
-                        new AlertDialog.Builder(this).setTitle("Модели не найдены")
-                                .setMessage("Провайдер не вернул каталог. ID модели можно указать вручную.")
-                                .setPositiveButton("ОК", null).show();
+                        app.githubble.mobile.ui.ConfirmSheet.info(this,"Модели не найдены","Сервис не вернул каталог. ID модели можно указать вручную в окне выбора модели.");
                         return;
                     }
-                    new AlertDialog.Builder(this).setTitle("Модели " + aiConnections.displayName(provider)
-                                    + " · " + models.size())
-                            .setItems(models.toArray(new String[0]), (d, which) -> {
-                                if (!expected.equals(accountStore.activeCacheKey())) {
-                                    toast("Аккаунт изменился"); return;
-                                }
-                                try {
-                                    aiConnections.save(expected, provider, models.get(which), "");
-                                    toast("Выбрана модель " + models.get(which));
-                                    agentRefreshIfCurrent(expected);
-                                } catch (Exception error) {
-                                    toast("Не удалось выбрать модель: " + error.getMessage());
-                                }
-                            }).setNegativeButton("Отмена", null).show();
+                    String current = aiConnections.model(expected, provider);
+                    app.githubble.mobile.ui.ListSheet sheet = app.githubble.mobile.ui.ListSheet.of(this, settingsPalette())
+                            .title(aiConnections.displayName(provider), "Моделей: " + models.size() + " · выберите для чата")
+                            .searchable("Поиск модели");
+                    for (String wanted : new String[]{"Free", "Pass", "Billing", ""}) for (String model : models) {
+                        String group = aiConnections.modelGroup(expected, provider, model);
+                        if (!("Free".equals(wanted) || "Pass".equals(wanted) || "Billing".equals(wanted) ? wanted.equals(group)
+                                : !("Free".equals(group) || "Pass".equals(group) || "Billing".equals(group)))) continue;
+                        final String picked = model;
+                        sheet.row("Free".equals(group) ? "Бесплатные" : "Pass".equals(group) ? "По подписке Pass" : "Billing".equals(group) ? "Платные" : "", model,
+                                "", model.equals(current) ? "выбрана" : "", provider, () -> {
+                                    if (!expected.equals(accountStore.activeCacheKey())) { toast("Аккаунт изменился"); return; }
+                                    try {
+                                        aiConnections.save(expected, provider, picked, "");
+                                        toast("Выбрана модель " + picked);
+                                        agentRefreshIfCurrent(expected);
+                                    } catch (Exception error) {
+                                        toast("Не удалось выбрать модель: " + error.getMessage());
+                                    }
+                                });
+                    }
+                    sheet.show();
                 });
             } catch (Exception error) {
                 runOnUiThread(() -> {
                     loading.dismiss();
-                    new AlertDialog.Builder(this).setTitle("Ошибка каталога моделей")
-                            .setMessage(error.getMessage())
-                            .setPositiveButton("ОК", null).show();
+                    app.githubble.mobile.ui.ConfirmSheet.info(this,"Ошибка каталога моделей",error.getMessage()==null?"Не удалось загрузить модели":error.getMessage());
                 });
             }
         });
