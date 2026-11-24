@@ -1426,6 +1426,12 @@ public class MainActivity extends Activity {
 
 
     /** OmniChat-style left navigation drawer: independent conversations per GitHub account. */
+    private int mixColors(int a, int b, float w) {
+        return Color.rgb((int) (Color.red(a) * (1 - w) + Color.red(b) * w),
+                (int) (Color.green(a) * (1 - w) + Color.green(b) * w),
+                (int) (Color.blue(a) * (1 - w) + Color.blue(b) * w));
+    }
+
     private void agentShowConversations(String owner) {
         if (!owner.equals(accountStore.activeCacheKey())) return;
         GitAgentUi ui=new GitAgentUi(this,BG,CARD,TEXT,MUTED,GREEN,BORDER);
@@ -1437,16 +1443,35 @@ public class MainActivity extends Activity {
 
         LinearLayout heading = new LinearLayout(this);
         heading.setGravity(Gravity.CENTER_VERTICAL);
-        heading.addView(new View(this), new LinearLayout.LayoutParams(0, dp(40), 1));
-        TextView newChat = text("+", 29, false);
+        heading.addView(new app.githubble.mobile.ui.WelcomeBrainView(this).mini(), new LinearLayout.LayoutParams(dp(34), dp(34)));
+        LinearLayout titles = new LinearLayout(this);
+        titles.setOrientation(LinearLayout.VERTICAL);
+        titles.setPadding(dp(10), 0, 0, 0);
+        TextView drawerTitle = ui.label("Hubble Agent", 17, true);
+        drawerTitle.setPadding(0, 0, 0, 0);
+        titles.addView(drawerTitle);
+        TextView drawerSub = ui.label(agentProjects.listConversations(owner).length() + " диалогов", 11, false);
+        drawerSub.setTextColor(ui.muted);
+        drawerSub.setPadding(0, 0, 0, 0);
+        titles.addView(drawerSub);
+        heading.addView(titles, new LinearLayout.LayoutParams(0, -2, 1));
+        TextView newChat = text("+  Новый", 13, true);
+        newChat.setTextColor(Color.WHITE);
         newChat.setGravity(Gravity.CENTER);
         newChat.setContentDescription("Новая беседа");
+        android.graphics.drawable.GradientDrawable newBg = new android.graphics.drawable.GradientDrawable(
+                android.graphics.drawable.GradientDrawable.Orientation.TL_BR,
+                new int[]{GREEN, mixColors(GREEN, Color.BLACK, .28f)});
+        newBg.setCornerRadius(dp(18));
+        newChat.setBackground(newBg);
         newChat.setOnClickListener(v -> {
             drawer.dismiss();
             agentClearConversation(owner);
         });
-        heading.addView(newChat, new LinearLayout.LayoutParams(dp(48), dp(40)));
-        panel.addView(heading);
+        heading.addView(newChat, new LinearLayout.LayoutParams(dp(98), dp(38)));
+        LinearLayout.LayoutParams headingLp = new LinearLayout.LayoutParams(-1, dp(52));
+        headingLp.bottomMargin = dp(8);
+        panel.addView(heading, headingLp);
 
         EditText search = new EditText(this);
         search.setSingleLine(true);
@@ -1482,13 +1507,20 @@ public class MainActivity extends Activity {
                 String id = chat.optString("id");
                 String name = chat.optString("title", "Диалог");
                 if (!filter.isEmpty() && !name.toLowerCase(Locale.ROOT).contains(filter)) continue;
-                TextView item = ui.label((id.equals(active) ? "●  " : "     ") + name, 14, id.equals(active));
+                TextView item = ui.label((id.equals(active) ? "💬  " : "      ") + name, 14, id.equals(active));
                 item.setSingleLine();
                 item.setEllipsize(TextUtils.TruncateAt.END);
                 item.setGravity(Gravity.CENTER_VERTICAL);
                 item.setPadding(dp(9), dp(9), dp(9), dp(9));
-                item.setBackground(ui.shape(id.equals(active)?(ui.dark?0xFF515963:0xFFE9EFF3):Color.TRANSPARENT,16,0));
-                LinearLayout.LayoutParams row = new LinearLayout.LayoutParams(-1, dp(52));
+                if (id.equals(active)) {
+                    android.graphics.drawable.GradientDrawable activeBg = new android.graphics.drawable.GradientDrawable(
+                            android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT,
+                            new int[]{mixColors(ui.dark ? 0xFF515963 : 0xFFE9EFF3, GREEN, .28f), ui.dark ? 0xFF434A53 : 0xFFF3F6F8});
+                    activeBg.setCornerRadius(dp(14));
+                    activeBg.setStroke(dp(1), mixColors(ui.line, GREEN, .5f));
+                    item.setBackground(activeBg);
+                } else item.setBackground(ui.shape(Color.TRANSPARENT,14,0));
+                LinearLayout.LayoutParams row = new LinearLayout.LayoutParams(-1, dp(46));
                 row.bottomMargin = dp(4);
                 list.addView(item, row);
                 item.setOnClickListener(v -> {
@@ -1541,24 +1573,47 @@ public class MainActivity extends Activity {
         });
 
         AgentProjectStore.Project project = agentProjects.project(owner);
-        TextView projectLink = ui.label("Проекты", 15, true);
-        projectLink.setPadding(dp(10), dp(13), dp(10), dp(13));
-        projectLink.setOnClickListener(v -> {
-            drawer.dismiss();
-            agentProjectHub(owner).show();
-        });
-        panel.addView(projectLink);
-        TextView workspace=ui.label("Workspace · проекты и файлы",14,true);
-        workspace.setPadding(dp(10),dp(10),dp(10),dp(10));
-        workspace.setOnClickListener(v->{drawer.dismiss();agentFeatures(owner).workspace();});
-        panel.addView(workspace);
-        TextView settings = text("⚙  Hubble Agent и Workspace · настройки", 14, false);
-        settings.setPadding(dp(10), dp(14), dp(10), dp(14));
-        settings.setOnClickListener(v -> {
-            drawer.dismiss();
-            navigate(this::showSettingsGitAgentWorkspace);
-        });
-        panel.addView(settings);
+        LinearLayout tiles = new LinearLayout(this);
+        tiles.setPadding(0, dp(8), 0, 0);
+        String[] tileNames = {"Проекты", "Workspace", "Настройки"};
+        int[] tileIcons = {R.drawable.ic_projects, R.drawable.ic_repository, R.drawable.ic_settings};
+        Runnable[] tileActions = {
+                () -> agentProjectHub(owner).show(),
+                () -> agentFeatures(owner).workspace(),
+                () -> navigate(this::showSettingsGitAgentWorkspace)};
+        for (int i = 0; i < 3; i++) {
+            final Runnable go = tileActions[i];
+            LinearLayout tile = new LinearLayout(this);
+            tile.setOrientation(LinearLayout.VERTICAL);
+            tile.setGravity(Gravity.CENTER);
+            android.graphics.drawable.GradientDrawable tileBg = new android.graphics.drawable.GradientDrawable(
+                    android.graphics.drawable.GradientDrawable.Orientation.TL_BR,
+                    new int[]{mixColors(ui.dark ? 0xFF434A53 : Color.WHITE, GREEN, .18f), ui.dark ? 0xFF3A4048 : Color.WHITE});
+            tileBg.setCornerRadius(dp(14));
+            tileBg.setStroke(dp(1), mixColors(ui.line, GREEN, .35f));
+            tile.setBackground(tileBg);
+            ImageView tileIcon = new ImageView(this);
+            tileIcon.setImageResource(tileIcons[i]);
+            tileIcon.setColorFilter(GREEN);
+            tile.addView(tileIcon, new LinearLayout.LayoutParams(dp(22), dp(22)));
+            TextView tileLabel = ui.label(tileNames[i], 11, true);
+            tileLabel.setGravity(Gravity.CENTER);
+            tileLabel.setSingleLine();
+            tileLabel.setPadding(0, dp(3), 0, 0);
+            tile.addView(tileLabel);
+            tile.setOnClickListener(v -> { drawer.dismiss(); go.run(); });
+            LinearLayout.LayoutParams tileLp = new LinearLayout.LayoutParams(0, dp(62), 1);
+            tileLp.setMargins(i == 0 ? 0 : dp(3), 0, i == 2 ? 0 : dp(3), 0);
+            tiles.addView(tile, tileLp);
+        }
+        panel.addView(tiles);
+        String limits = agentHeaderNote(owner);
+        if (!limits.isEmpty()) {
+            TextView limitsView = ui.label("Режим и лимиты диалога: " + limits.replace(" ток.", " токенов"), 11, false);
+            limitsView.setTextColor(ui.muted);
+            limitsView.setPadding(dp(4), dp(9), dp(4), 0);
+            panel.addView(limitsView);
+        }
         drawer.setContentView(panel);
         android.view.Window window = drawer.getWindow();
         if (window != null) {

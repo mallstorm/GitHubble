@@ -131,14 +131,26 @@ public final class AgentChatScreen {
         titleBox.addView(brand);
         String scope=project.repository.isEmpty()?(project.name.isEmpty()?"Репозиторий не выбран":project.name)
                 :project.repository+" · "+project.branch;
-        try{java.util.function.Supplier<String> hn=headerNote;String note=hn==null?"":hn.get();if(note!=null&&!note.isEmpty())scope+=" · "+note;}catch(RuntimeException ignored){}
         if(project.workspaceId!=null&&!project.workspaceId.isEmpty())scope+=" · Workspace";
         TextView sub=label(scope,12,false,muted);sub.setSingleLine();sub.setEllipsize(TextUtils.TruncateAt.END);
         titleBox.addView(sub);
         titleBox.setOnClickListener(v->actions.newProject());
         LinearLayout.LayoutParams titleLp=new LinearLayout.LayoutParams(0,-2,1);titleLp.leftMargin=dp(10);
         top.addView(titleBox,titleLp);
-        TextView code=label("</>",15,true,this.text);code.setGravity(Gravity.CENTER);
+        final int codeColor=this.text;
+        View code=new View(activity){
+            final android.graphics.Paint paint=new android.graphics.Paint(3);
+            @Override protected void onDraw(android.graphics.Canvas c){
+                paint.setColor(codeColor);paint.setStrokeWidth(dp(2));paint.setStyle(android.graphics.Paint.Style.STROKE);
+                paint.setStrokeCap(android.graphics.Paint.Cap.SQUARE);paint.setStrokeJoin(android.graphics.Paint.Join.MITER);
+                float x=getWidth()/2f,y=getHeight()/2f;
+                android.graphics.Path left=new android.graphics.Path();
+                left.moveTo(x-dp(5),y-dp(7));left.lineTo(x-dp(12),y);left.lineTo(x-dp(5),y+dp(7));c.drawPath(left,paint);
+                android.graphics.Path right=new android.graphics.Path();
+                right.moveTo(x+dp(5),y-dp(7));right.lineTo(x+dp(12),y);right.lineTo(x+dp(5),y+dp(7));c.drawPath(right,paint);
+                c.drawLine(x+dp(2),y-dp(8),x-dp(2),y+dp(8),paint);
+            }
+        };
         code.setContentDescription("Код, файлы, терминал");ripple(code);
         code.setOnClickListener(v->actions.openCode());
         top.addView(code,new LinearLayout.LayoutParams(dp(44),dp(44)));
@@ -160,11 +172,11 @@ public final class AgentChatScreen {
 
         LinearLayout dock=new LinearLayout(activity);
         dock.setOrientation(LinearLayout.VERTICAL);
-        dock.setPadding(dp(12),dp(6),dp(12),dp(8));
+        dock.setPadding(dp(10),dp(4),dp(10),dp(6));
         LinearLayout composer=new LinearLayout(activity);
         composer.setOrientation(LinearLayout.VERTICAL);
-        composer.setPadding(dp(8),dp(6),dp(8),dp(6));
-        composer.setBackground(shape(dark?0xFF253238:Color.blue(this.subtle)>Color.red(this.subtle)+12?this.subtle:0xFFF2F4F3,28,this.border,1));
+        composer.setPadding(dp(6),dp(2),dp(6),dp(2));
+        composer.setBackground(shape(dark?0xFF253238:Color.blue(this.subtle)>Color.red(this.subtle)+12?this.subtle:0xFFF2F4F3,20,this.border,1));
         LinearLayout.LayoutParams panelParams=new LinearLayout.LayoutParams(-1,-2);
         panelParams.topMargin=dp(2);
         dock.addView(composer,panelParams);
@@ -172,13 +184,13 @@ public final class AgentChatScreen {
         EditText input=new EditText(activity);inputField=input;
         input.setTextColor(this.text);
         input.setHintTextColor(this.muted);
-        input.setTextSize(15);
+        input.setTextSize(14);
         input.setGravity(Gravity.TOP|Gravity.START);
         input.setSingleLine(false);
         input.setMinLines(1);
         input.setMaxLines(6);
         input.setBackgroundColor(Color.TRANSPARENT);
-        input.setPadding(dp(12),dp(9),dp(10),dp(5));
+        input.setPadding(dp(10),dp(8),dp(8),dp(2));
         input.setHint("Спросить Hubble Agent");
         input.setOnClickListener(v->input.post(()->{
             android.view.inputmethod.InputMethodManager keyboard=(android.view.inputmethod.InputMethodManager)
@@ -195,39 +207,33 @@ public final class AgentChatScreen {
             }
             @Override public void afterTextChanged(Editable e){}
         });
-        input.setMinimumHeight(dp(42));
+        input.setMinimumHeight(dp(34));
         composer.addView(input,new LinearLayout.LayoutParams(-1,-2));
 
         LinearLayout tools=horizontal();
         tools.setGravity(Gravity.CENTER_VERTICAL);
         tools.addView(glyph("+","Вложения и инструменты",actions::openAttachments,28),
-                new LinearLayout.LayoutParams(dp(42),dp(44)));
+                new LinearLayout.LayoutParams(dp(36),dp(36)));
 
         ImageView robot=icon(R.drawable.ic_omni_robot,"Агент · разрешения",0xFF2E9D68);
         robot.setOnClickListener(v->actions.openAgentSettings());
-        tools.addView(robot,new LinearLayout.LayoutParams(dp(43),dp(43)));
-        LinearLayout model=new LinearLayout(activity);
-        model.setOrientation(LinearLayout.VERTICAL);
-        model.setGravity(Gravity.CENTER);
-        String modelTitle=connected?modelLabel:"Добавить подключение ▾";
-        TextView modelName=label(modelTitle,12,true,connected?accent:text);
-        modelName.setSingleLine();
-        modelName.setEllipsize(TextUtils.TruncateAt.MIDDLE);
-        modelName.setGravity(Gravity.CENTER);
-        model.addView(modelName,new LinearLayout.LayoutParams(-1,-2));
-        TextView modelSub=label(connected?providerLabel+" ▾":"Подключить модель",10,false,muted);
-        modelSub.setGravity(Gravity.CENTER);
-        modelSub.setSingleLine();
-        modelSub.setEllipsize(TextUtils.TruncateAt.END);
-        model.addView(modelSub,new LinearLayout.LayoutParams(-1,-2));
+        robot.setPadding(dp(7),dp(7),dp(7),dp(7));
+        tools.addView(robot,new LinearLayout.LayoutParams(dp(34),dp(34)));
+        String modelTitle=connected?modelLabel+" · "+providerLabel+" ▾":"Добавить подключение ▾";
+        TextView model=label(modelTitle,12,true,connected?accent:text);
+        model.setSingleLine();
+        model.setEllipsize(TextUtils.TruncateAt.MIDDLE);
+        model.setGravity(Gravity.CENTER_VERTICAL);
+        model.setPadding(dp(8),0,dp(6),0);
         model.setOnClickListener(v->actions.selectProvider());
         model.setContentDescription("Выбрать AI: "+modelTitle);
-        tools.addView(model,new LinearLayout.LayoutParams(0,dp(44),1));
+        tools.addView(model,new LinearLayout.LayoutParams(0,dp(36),1));
 
         ImageView mic=icon(R.drawable.ic_mic,"Диктовка",muted);
         mic.setOnClickListener(v->actions.voiceInput(input,mic));
         mic.setOnLongClickListener(v->{actions.voiceSettings();return true;});
-        tools.addView(mic,new LinearLayout.LayoutParams(dp(43),dp(43)));
+        mic.setPadding(dp(7),dp(7),dp(7),dp(7));
+        tools.addView(mic,new LinearLayout.LayoutParams(dp(34),dp(34)));
 
         TextView send=glyph(busy?"■":"↑",busy?"Остановить запрос":"Отправить",null,busy?19:27);
         sendControl=send;
@@ -250,10 +256,10 @@ public final class AgentChatScreen {
             actions.draftChanged("");input.setText("");
             actions.send(value,true);
         });
-        LinearLayout.LayoutParams sendParams=new LinearLayout.LayoutParams(dp(42),dp(42));
-        sendParams.leftMargin=dp(3);
+        LinearLayout.LayoutParams sendParams=new LinearLayout.LayoutParams(dp(34),dp(34));
+        sendParams.leftMargin=dp(4);
         tools.addView(send,sendParams);
-        composer.addView(tools,new LinearLayout.LayoutParams(-1,dp(47)));
+        composer.addView(tools,new LinearLayout.LayoutParams(-1,dp(38)));
         root.addView(dock,new LinearLayout.LayoutParams(-1,-2));
         if(messages!=null&&messages.length()>0)refresh(messages,busy);
     }
@@ -338,8 +344,8 @@ public final class AgentChatScreen {
         }
         if(!system){
             final String key=building;
-            LinearLayout bar=horizontal();bar.setGravity(Gravity.CENTER_VERTICAL);bar.setPadding(0,dp(2),0,0);
-            final int w=dp(36),h=dp(34);
+            LinearLayout bar=horizontal();bar.setGravity(Gravity.CENTER_VERTICAL);bar.setPadding(0,0,0,0);
+            final int w=dp(28),h=dp(26);
             bar.addView(mini(R.drawable.ic_msg_copy,"Копировать",v->{
                 ClipboardManager cb=(ClipboardManager)activity.getSystemService(Context.CLIPBOARD_SERVICE);
                 if(cb!=null)cb.setPrimaryClip(ClipData.newPlainText("Hubble Agent",body));
@@ -530,9 +536,9 @@ public final class AgentChatScreen {
     /** Small unobtrusive icon for the row under a message. */
     private ImageView mini(int resource,String description,View.OnClickListener click){
         ImageView icon=new ImageView(activity);
-        icon.setImageResource(resource);icon.setColorFilter(muted);
+        icon.setImageResource(resource);icon.setColorFilter(muted);icon.setAlpha(.75f);
         icon.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
-        icon.setPadding(dp(9),dp(8),dp(9),dp(8));
+        icon.setPadding(dp(6),dp(5),dp(6),dp(5));
         icon.setContentDescription(description);
         if(click!=null)icon.setOnClickListener(click);
         return icon;
