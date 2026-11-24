@@ -389,6 +389,21 @@ public final class AgentRun {
         return "Чтение страницы";
       case "web_research":
         return "Исследование в интернете";
+      case "cloud_browser":
+      case "cloud_browser_result":
+        return "Облачный браузер";
+      case "cloud_sources":
+        return "Облачные хранилища";
+      case "cloud_list":
+        return "Папка в облаке";
+      case "cloud_read":
+        return "Чтение файла из облака";
+      case "cloud_search":
+        return "Поиск в облаке";
+      case "cloud_download":
+        return "Скачивание из облака";
+      case "cloud_upload":
+        return "Загрузка в облако";
       case "write_files":
         return "Изменения файлов";
       case "import_repository":

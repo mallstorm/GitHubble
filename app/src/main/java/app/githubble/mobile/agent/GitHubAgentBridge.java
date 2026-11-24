@@ -131,6 +131,18 @@ public final class GitHubAgentBridge {
         return a.login;
     }
 
+    public String activeLogin() {
+        GitHubAccountStore.Account active = accounts.activeAccount();
+        if (active == null) throw new IllegalStateException("Нет активного аккаунта GitHub");
+        return active.login;
+    }
+
+    /** Raw job log of a run in the active account's repository. */
+    public String jobLog(String expected, String repository, long jobId) throws Exception {
+        requireAccount(expected);
+        return new AgentBuildDiagnostics(accounts, secrets).jobLog(expected, repository, jobId);
+    }
+
     /** Label shown on approval cards: the account the write really goes to. */
     public String writeLabel(String foreign) {
         if (foreign != null && !foreign.isEmpty()) return "@" + foreign;
