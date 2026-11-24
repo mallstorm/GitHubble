@@ -20,7 +20,7 @@ def call(path, data=None):
     with urllib.request.urlopen(request,timeout=60) as response:return json.load(response)
 
 files=sorted(Path(kind+'-screenshots').glob('*.png'))
-expected=58 if kind=='agent-ui' else 24
+expected=62 if kind=='agent-ui' else 24
 if len(files)!=expected:raise SystemExit('Unexpected synthetic screenshot count: '+str(len(files)))
 tree=[]
 for path in files:
