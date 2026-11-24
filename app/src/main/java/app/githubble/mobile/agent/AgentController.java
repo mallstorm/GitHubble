@@ -85,6 +85,9 @@ public final class AgentController {
             if(kind==IntentRouter.Kind.TASK&&!outcome.budgetExhausted&&toolsUsed(account,thread)==toolsBefore&&promisesWithoutAction(outcome.answer))
                 outcome=executeLoop(session,message,context+"\nHOST: your previous reply promised work but called no tool: \""+outcome.answer.substring(0,Math.min(300,outcome.answer.length()))
                     +"\". Do the work now with tools, or say exactly what blocks you and ask one question.",transport,broker,run::round);
+            if(!outcome.budgetExhausted&&unfinishedAnswer(outcome.answer))
+                outcome=executeLoop(session,message,context+"\nHOST: your previous reply was cut off (it ends with an unfinished table or a colon): \""
+                    +tail(outcome.answer,200)+"\". Give the COMPLETE answer now. Do not use a table wider than 3 columns: use short bullet lines (**name** — facts). Call tools again only if you really need more data.",transport,broker,run::round);
             JSONObject evidence=outcome.budgetExhausted?null:host.completionStatus();
             if(evidence!=null){
                 boolean accepted=evidence.optBoolean("accepted");
@@ -101,6 +104,25 @@ public final class AgentController {
     }
     private int toolsUsed(String account,String thread){
         try{return tasks.get(account,thread).getJSONObject("budget").optInt("tools");}catch(Exception unknown){return -1;}
+    }
+    private static String tail(String text,int n){return text.length()<=n?text:text.substring(text.length()-n);}
+    /** The model stopped in the middle: a table with a header but no rows, a broken row, or a closing colon. */
+    static boolean unfinishedAnswer(String answer){
+        if(answer==null)return false;
+        String text=answer.stripTrailing();
+        if(text.isEmpty())return false;
+        String[] lines=text.split("\n");
+        String last=lines[lines.length-1].trim();
+        if(last.endsWith(":")&&!last.startsWith("```")&&text.length()<600)return true;
+        if(last.startsWith("|")){
+            if(!last.endsWith("|"))return true;
+            int rows=0;boolean separator=false;
+            for(int i=lines.length-1;i>=0&&lines[i].trim().startsWith("|");i--){
+                if(lines[i].trim().matches("\\|[\\s:|-]+\\|?")&&lines[i].contains("-"))separator=true;else rows++;
+            }
+            return separator&&rows<=1;
+        }
+        return false;
     }
     /** A reply that announces work ("сейчас сделаю…") without a question, a result or a single tool call. */
     static boolean promisesWithoutAction(String answer){
