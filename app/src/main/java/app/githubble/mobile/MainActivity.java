@@ -3078,6 +3078,7 @@ public class MainActivity extends Activity {
             @Override public void searchAdvanced(String query, boolean smart, SearchMode mode, SearchFilters filters) {
                 navigate(() -> MainActivity.this.searchAdvanced(query, smart, mode, filters));
             }
+            @Override public void aiSearch(String query, SearchMode mode, SearchFilters filters) { aiSearchQuery(query, mode, filters); }
         }).render();
 
     }
@@ -4708,6 +4709,40 @@ public class MainActivity extends Activity {
         LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);
         TextView i=text("↓",20,true);i.setTextColor(Color.WHITE);i.setGravity(Gravity.CENTER);i.setBackground(round(color,14,color,0));row.addView(i,new LinearLayout.LayoutParams(dp(46),dp(46)));
         LinearLayout info=new LinearLayout(this);info.setOrientation(LinearLayout.VERTICAL);info.setPadding(dp(12),0,0,0);TextView t=text(title,15,true);t.setPadding(0,0,0,0);info.addView(t);TextView s=text(subtitle,11,false);s.setTextColor(MUTED);s.setPadding(0,dp(2),0,0);info.addView(s);row.addView(info,new LinearLayout.LayoutParams(0,-2,1));TextView tm=text(time,10,false);tm.setTextColor(MUTED);row.addView(tm);card(row);
+    }
+
+    /** Asks the connected model to turn a free-form request into a GitHub query, then runs the search. */
+    private void aiSearchQuery(String request,SearchMode mode,SearchFilters filters){
+        String value=request==null?"":request.trim();
+        if(value.isEmpty()){toast("Введите запрос");return;}
+        if(!translationController.available()){
+            toast("Подключите ChatGPT или другую модель в «Подключениях» — ищу обычным способом");
+            navigate(()->searchAdvanced(value,true,mode,filters));return;
+        }
+        toast("✦ ИИ составляет запрос…");
+        final SearchMode selected=mode==null?SearchMode.REPOSITORIES:mode;
+        io.execute(()->{
+            String query=null;
+            try{
+                String prompt="Преобразуй описание в одну строку поискового запроса GitHub Search ("+advancedSearchTitle(selected)+"). "
+                    +"Ключевые слова — на английском, используй квалификаторы (language:, topic:, stars:>N, pushed:>=YYYY-MM-DD, created:>=YYYY-MM-DD, fork:false, in:name,description,readme) только если они следуют из описания. "
+                    +"Сегодня "+java.time.LocalDate.now()+". Ответь ТОЛЬКО строкой запроса, без пояснений и кавычек.\nОписание: "+value;
+                String raw=translationController.completer().complete(prompt);
+                if(raw!=null){
+                    raw=raw.trim().replace("`","");
+                    int nl=raw.indexOf('\n');if(nl>0)raw=raw.substring(0,nl);
+                    raw=raw.trim();
+                    if(raw.length()>=2&&raw.length()<=200)query=raw;
+                }
+            }catch(Exception ignored){}
+            final String planned=query;
+            runOnUiThread(()->{
+                if(planned==null){toast("ИИ не ответил — ищу обычным способом");navigate(()->searchAdvanced(value,true,selected,filters));return;}
+                toast("✦ Запрос: "+planned);
+                prefs.edit().putString("search_draft_query",value).apply();
+                navigate(()->searchAdvanced(planned,false,selected,filters));
+            });
+        });
     }
 
     private void searchAdvanced(String q, boolean smart, SearchMode mode, SearchFilters filters){
