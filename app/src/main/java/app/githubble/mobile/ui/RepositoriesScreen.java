@@ -336,7 +336,6 @@ public final class RepositoriesScreen {
         box.addView(meta);
         box.setContentDescription(full+(privateRepo?", приватный репозиторий":", публичный репозиторий"));
         box.setOnClickListener(v->actions.open(full));
-        box.setOnLongClickListener(v->{actions.menu(repo);return true;});
         if(target instanceof GridLayout){
             GridLayout.LayoutParams p=new GridLayout.LayoutParams();
             p.width=0;
@@ -424,7 +423,6 @@ public final class RepositoriesScreen {
 
         box.setContentDescription(full+(privateRepo?", приватный репозиторий":", публичный репозиторий"));
         box.setOnClickListener(v->actions.open(full));
-        box.setOnLongClickListener(v->{actions.menu(repo);return true;});
         GridLayout.LayoutParams p=new GridLayout.LayoutParams();
         p.width=0;p.height=-2;
         p.columnSpec=GridLayout.spec(GridLayout.UNDEFINED,GridLayout.FILL,1f);

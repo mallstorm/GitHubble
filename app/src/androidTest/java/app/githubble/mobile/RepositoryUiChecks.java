@@ -46,7 +46,7 @@ final class RepositoryUiChecks {
                 check(text(root[0],"Найдено: 1")!=null,"Data refresh reset privacy filter");
                 GridLayout g=grid(root[0]);check(g.getChildCount()==2,"Single tile did not preserve a half-width column");
                 g.getChildAt(0).performClick();check("demo/Beta".equals(opened[0]),"Tile opens wrong repository");
-                check(g.getChildAt(0).performLongClick(),"Tile long press not handled");check("demo/Beta".equals(menu[0]),"Tile menu opens wrong repository");check(described(root[0],"Действия с репозиторием Beta")==null,"Tile still has a three-dot button");
+                check(!g.getChildAt(0).performLongClick()&&menu[0].isEmpty(),"Tile long press still opens a menu");check(described(root[0],"Действия с репозиторием Beta")==null,"Tile still has a three-dot button");
                 find(root[0],EditText.class).setText("");described(root[0],"Фильтр по языку").performClick();
             });
             ChangeReviewUiChecks.click(host,"Rust");host.waitForIdleSync();
