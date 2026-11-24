@@ -21,7 +21,7 @@ import java.util.Locale;
  * dedicated glyph get a monogram on a colour derived from their id.
  */
 public final class ServiceIcon extends Drawable {
-    private enum Glyph { BUBBLE, BURST, SPARK, ROUTE, WAVE, BOLT, CROSS, BARS, CODE, MOON, CHIP, CLOUD, SLIDERS, KEY, MONOGRAM }
+    private enum Glyph { BUBBLE, MIC, BURST, SPARK, ROUTE, WAVE, BOLT, CROSS, BARS, CODE, MOON, CHIP, CLOUD, SLIDERS, KEY, MONOGRAM }
 
     private final Glyph glyph;
     private final int top, bottom;
@@ -41,6 +41,8 @@ public final class ServiceIcon extends Drawable {
         String name = displayName == null ? "" : displayName;
         String letter = name.isEmpty() ? (id.isEmpty() ? "?" : id.substring(0, 1)) : name.substring(0, 1);
         letter = letter.toUpperCase(Locale.ROOT);
+        if (has(id, "system-mic")) return new ServiceIcon(Glyph.MIC, 0xFF3DB5C9, 0xFF1D6F96, letter);
+        if (has(id, "custom-whisper")) return new ServiceIcon(Glyph.SLIDERS, 0xFF5E7388, 0xFF2F4052, letter);
         if (has(id, "chatgpt", "openai", "codex")) return new ServiceIcon(Glyph.BUBBLE, 0xFF1FB58F, 0xFF0B6E58, letter);
         if (has(id, "anthropic", "claude")) return new ServiceIcon(Glyph.BURST, 0xFFE58A63, 0xFFB5522F, letter);
         if (has(id, "gemini", "google", "vertex")) return new ServiceIcon(Glyph.SPARK, 0xFF4F8DF7, 0xFF8E5BD9, letter);
@@ -122,6 +124,15 @@ public final class ServiceIcon extends Drawable {
                 Paint hole = new Paint(Paint.ANTI_ALIAS_FLAG);
                 hole.setColor(bottom);
                 for (int i = 0; i < 3; i++) c.drawCircle(.38f + i * .12f, .44f, .035f, hole);
+                break;
+            }
+            case MIC: {
+                RectF capsule = new RectF(.41f, .20f, .59f, .56f);
+                c.drawRoundRect(capsule, .09f, .09f, solid);
+                ink.setStyle(Paint.Style.STROKE);
+                c.drawArc(new RectF(.30f, .34f, .70f, .70f), 20, 140, false, ink);
+                line(c, s, .5f, .70f, .5f, .80f, w);
+                line(c, s, .40f, .80f, .60f, .80f, w);
                 break;
             }
             case BURST: {
