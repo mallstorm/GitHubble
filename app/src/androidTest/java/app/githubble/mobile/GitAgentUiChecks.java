@@ -260,7 +260,7 @@ final class GitAgentUiChecks {
                     settings.setAccessible(true);settings.invoke(activity);
                     View root=activity.getWindow().getDecorView();
                     View data=find(root,"Данные и безопасность");
-                    View agent=find(root,"Hubble Agent и Workspace");
+                    View agent=find(root,"Hubble Agent");
                     View security=find(root,"О приложении");
                     if(data==null||agent==null||security==null)
                         throw new AssertionError("Central AI settings category missing");
@@ -280,7 +280,7 @@ final class GitAgentUiChecks {
                     open.setAccessible(true);open.invoke(activity);
                     root=activity.getWindow().getDecorView();
                     for(String label:new String[]{"Режим и исполнитель","Подключения API",
-                            "Аккаунты и подписки","Рабочие пространства","Память Hubble Agent",
+                            "Аккаунты и подписки","Проекты и задачи","Память Hubble Agent",
                             "DNS и Smart Routing","Xray / VLESS","Диктовка"}){
                         if(find(root,label)==null)throw new AssertionError("Missing AI settings row: "+label);
                     }

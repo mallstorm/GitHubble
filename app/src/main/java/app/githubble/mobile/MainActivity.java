@@ -1830,8 +1830,8 @@ public class MainActivity extends Activity {
     /** Generate reviewed local changes: native Workspace first, GitHub only after publication. */
     private void agentGenerateLocalCode(String owner,AgentProjectStore.Project project,String initial){
         if(project.workspaceId.isEmpty()){
-            agentFeatures(owner).workspace();
-            toast("Создайте или выберите Workspace, затем повторите задачу");return;
+            agentProjectHub(owner).show();
+            toast("Создайте или выберите проект, затем повторите задачу");return;
         }
         if(initial!=null&&!initial.trim().isEmpty()){
             agentProposeWorkspaceChange(owner,project,initial.trim());
@@ -2133,7 +2133,7 @@ public class MainActivity extends Activity {
                         "🖼  Фото и мультимедиа",
                         "◈  Создать или изменить код",
                         "▣  Проекты и репозитории",
-                        "⚙  Hubble Agent и Workspace · настройки",
+                        "⚙  Hubble Agent · настройки",
                         "☷  Выбрать модель",
                         "▶  GitHub Actions",
                         "↓  APK / артефакты",
@@ -9068,9 +9068,9 @@ public class MainActivity extends Activity {
                 "Кэш "+cacheSizeText()+" · офлайн-очередь, копия, мои данные",
                 accent[6],()->navigate(this::showSettingsData),settingsDataSections()));
         String provider=aiConnections.selectedProvider(owner);
-        categories.add(new SettingsScreen.Category(R.drawable.ic_agent_link,"Hubble Agent и Workspace",
+        categories.add(new SettingsScreen.Category(R.drawable.ic_agent_link,"Hubble Agent",
                 (provider.isEmpty()?"Модель не выбрана":"Модель: "+aiConnections.displayName(provider))
-                        +" · подписки, Workspace, сеть",
+                        +" · подписки, проекты, сеть",
                 accent[1],()->navigate(this::showSettingsGitAgentWorkspace),settingsAgentSections(owner)));
         categories.add(new SettingsScreen.Category(R.drawable.ic_history,"Облако и синхронизация",
                 settingsCloudSubtitle(),accent[5],()->navigate(this::showSettingsCloud),settingsCloudSections()));
@@ -9695,16 +9695,13 @@ public class MainActivity extends Activity {
                 this::agentShowProviderCatalog));
         sections.add(connections);
 
-        SettingsScreen.Section workspace=new SettingsScreen.Section("Workspace и память");
-        workspace.add(SettingsScreen.Item.action(R.drawable.ic_projects,"Рабочие пространства",
-                project.workspaceId.isEmpty()?"Локальные проекты и привязка к чатам":"Активен: "+project.name,
-                "workspace проект рабочее пространство",()->agentFeatures(owner).workspace()));
+        SettingsScreen.Section workspace=new SettingsScreen.Section("Проекты и память");
         workspace.add(SettingsScreen.Item.action(R.drawable.ic_projects,"Изменения текущей задачи",
                 "Diff, принятие по файлам и блокам, откат и публикация дельты","изменения diff задача откат",()->agentTaskChanges(owner,agentProjects.activeConversation(owner),false)));
         workspace.add(SettingsScreen.Item.action(R.drawable.ic_repository,"Проекты и задачи",
                 "Постоянные проекты, независимые задачи и доступ AI",
                 "проект задачи доступ модель",()->agentProjectHub(owner).show()));
-        workspace.add(SettingsScreen.Item.action(R.drawable.ic_repository,"Файлы и инструменты Workspace",
+        workspace.add(SettingsScreen.Item.action(R.drawable.ic_repository,"Файлы проекта",
                 "Редактор, индекс, поиск, snapshots, ZIP и папки","файлы редактор индекс zip snapshot",
                 ()->agentFeatures(owner).files()));
         workspace.add(SettingsScreen.Item.action(R.drawable.ic_ai,"Память Hubble Agent",
@@ -9735,7 +9732,7 @@ public class MainActivity extends Activity {
         github.add(SettingsScreen.Item.action(R.drawable.ic_repository,"Создать репозиторий",
                 "Запросит подтверждение имени и приватности","создать репозиторий новый",
                 ()->agentCreateRepository(owner,"",true)));
-        github.add(SettingsScreen.Item.action(R.drawable.ic_release,"Опубликовать Workspace в GitHub",
+        github.add(SettingsScreen.Item.action(R.drawable.ic_release,"Опубликовать проект в GitHub",
                 "Проверить файлы, выбрать ветку, создать коммит","опубликовать коммит push",
                 ()->agentPublishWorkspace(owner)));
         github.add(SettingsScreen.Item.action(R.drawable.ic_agent_auto_awesome,"Автоматическая разработка",
@@ -9764,7 +9761,7 @@ public class MainActivity extends Activity {
 
     private void showSettingsGitAgentWorkspace(){
         setCurrentScreen(this::showSettingsGitAgentWorkspace);
-        shell("Hubble Agent и Workspace",false);
+        shell("Hubble Agent",false);
         new SettingsScreen(this,content,settingsPalette())
                 .renderPage(null,tileColors[1],settingsAgentSections(accountStore.activeCacheKey()));
     }
@@ -10149,7 +10146,7 @@ public class MainActivity extends Activity {
                 " · вход: "+usage.optLong("input_tokens",0)+
                 " · выход: "+usage.optLong("output_tokens",0));
         }
-        if(!found)settingsRow("Нет подключений","Подключите модель в Hubble Agent и Workspace");
+        if(!found)settingsRow("Нет подключений","Подключите модель в Hubble Agent");
         TextView note=text("Это локальная статистика, а не остаток баланса, лимит подписки или сумма к оплате. "+
             "Токены отображаются лишь тогда, когда провайдер вернул usage. "+
             "Остатки тарифных квот будут добавляться только через подтверждённые официальные методы провайдеров.",12,false);
