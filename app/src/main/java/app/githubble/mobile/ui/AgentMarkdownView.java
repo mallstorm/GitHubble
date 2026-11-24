@@ -61,9 +61,9 @@ public final class AgentMarkdownView {
   private boolean selectable = true;
   private boolean wideTables;
 
-  /** Tables break out of the bubble padding and span (almost) the whole screen. */
+  /** Kept for callers; tables now always stay inside the message column (no breaking out to the screen edges). */
   public AgentMarkdownView wideTables(boolean value) {
-    wideTables = value;
+    wideTables = false;
     return this;
   }
 
