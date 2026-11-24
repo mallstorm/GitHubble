@@ -13,7 +13,6 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.EditText;
 import android.widget.GridLayout;
-import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -124,12 +123,9 @@ public final class RepositoriesScreen {
             @Override public void afterTextChanged(Editable e) {}
         });
         add(search,dp(49),8);
-        HorizontalScrollView filterScroll = new HorizontalScrollView(activity);
-        filterScroll.setHorizontalScrollBarEnabled(false);
         filtersHost=horizontal(Gravity.CENTER_VERTICAL);
         filtersHost.setPadding(0,0,0,0);
-        filterScroll.addView(filtersHost);
-        add(filterScroll,dp(38),5);
+        add(filtersHost,dp(38),5);
         makeFilters();
         resultCount=label("",11,false,muted);
         resultCount.setGravity(Gravity.END|Gravity.CENTER_VERTICAL);
@@ -183,11 +179,11 @@ public final class RepositoriesScreen {
 
     private void makeFilters(){
         filtersHost.removeAllViews();
-        control("Все",options.visibility.equals("all")&&!options.favoritesOnly&&options.language.isEmpty(),"Все репозитории",()->{options.clearFilters();changedFilters();});
-        control("Приватные",options.visibility.equals("private"),"Фильтр: приватные",()->{options.visibility=options.visibility.equals("private")?"all":"private";changedFilters();});
-        control("Публичные",options.visibility.equals("public"),"Фильтр: публичные",()->{options.visibility=options.visibility.equals("public")?"all":"public";changedFilters();});
-        control("Избранные",options.favoritesOnly,"Фильтр: избранные",()->{options.favoritesOnly=!options.favoritesOnly;changedFilters();});
-        control((options.language.isEmpty()?"Язык":options.language)+" ▾",!options.language.isEmpty(),"Фильтр по языку",()->{
+        control("Все",0xFF3FB950,options.visibility.equals("all")&&!options.favoritesOnly&&options.language.isEmpty(),"Все репозитории",()->{options.clearFilters();changedFilters();});
+        control("Приватные",0xFFD29922,options.visibility.equals("private"),"Фильтр: приватные",()->{options.visibility=options.visibility.equals("private")?"all":"private";changedFilters();});
+        control("Публичные",0xFF58A6FF,options.visibility.equals("public"),"Фильтр: публичные",()->{options.visibility=options.visibility.equals("public")?"all":"public";changedFilters();});
+        control("Избранные",0xFFF2CC60,options.favoritesOnly,"Фильтр: избранные",()->{options.favoritesOnly=!options.favoritesOnly;changedFilters();});
+        control((options.language.isEmpty()?"Язык":options.language)+" ▾",0xFFBC8CFF,!options.language.isEmpty(),"Фильтр по языку",()->{
             List<String> languages=RepositoryListOptions.languages(repositories);
             languages.add(0,"Все языки");
             RepositoryLanguageSheet.show(activity,languages,options.language,
@@ -198,14 +194,23 @@ public final class RepositoriesScreen {
         });
     }
     private void changedFilters(){makeFilters();updateRows();}
-    private void control(String title,boolean active,String description,Runnable click){
-        TextView chip=label(title,12,active,active?Color.WHITE:textColor);
+    private void control(String title,int accent,boolean active,String description,Runnable click){
+        TextView chip=label(title,11,true,active?Color.WHITE:textColor);
         chip.setGravity(Gravity.CENTER);chip.setSingleLine(true);chip.setContentDescription(description);
-        chip.setPadding(dp(12),0,dp(12),0);
-        chip.setBackground(shape(active?green:card,17,active?green:border,active?0:1));
+        chip.setPadding(dp(3),0,dp(3),0);
+        chip.setAutoSizeTextTypeUniformWithConfiguration(8,12,1,android.util.TypedValue.COMPLEX_UNIT_SP);
+        GradientDrawable bg=new GradientDrawable(GradientDrawable.Orientation.TL_BR,active
+                ?new int[]{mix(accent,Color.WHITE,.14f),accent,mix(accent,Color.BLACK,.22f)}
+                :new int[]{mix(card,accent,.20f),mix(card,accent,.06f),card});
+        bg.setCornerRadius(dp(DesignSystem.radius(14)));
+        bg.setStroke(dp(1),active?mix(accent,Color.WHITE,.25f):mix(border,accent,.35f));
+        chip.setBackground(bg);
         chip.setSelected(active);
         chip.setOnClickListener(v->click.run());
-        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-2,dp(36));p.setMargins(0,0,dp(6),0);filtersHost.addView(chip,p);
+        // Equal weights: the five filters always span the whole screen width.
+        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(36),1f);
+        p.setMargins(filtersHost.getChildCount()==0?0:dp(5),0,0,0);
+        filtersHost.addView(chip,p);
     }
 
     /**
@@ -305,15 +310,9 @@ public final class RepositoriesScreen {
         privacy.setPadding(dp(5),dp(4),dp(5),dp(4));
         privacy.setBackground(shape(mix(card,privateRepo?muted:green,.10f),15,0,0));
         LinearLayout.LayoutParams privacyLp=new LinearLayout.LayoutParams(-2,-2);
-        privacyLp.setMargins(dp(3),0,0,0);
+        privacyLp.setMargins(dp(3),0,dp(2),0);
         titleLine.addView(privacy,privacyLp);
 
-        TextView more=label("⋮",23,true,muted);
-        more.setGravity(Gravity.CENTER);
-        more.setContentDescription("Действия с репозиторием "+name);
-        more.setOnClickListener(v->actions.menu(repo));
-        LinearLayout.LayoutParams moreLp=new LinearLayout.LayoutParams(dp(44),dp(44));
-        titleLine.addView(more,moreLp);
         box.addView(titleLine);
         LinearLayout meta=horizontal(Gravity.CENTER_VERTICAL);
         meta.setPadding(0,dp(8),0,0);
@@ -386,12 +385,7 @@ public final class RepositoriesScreen {
         lock.setImageResource(privateRepo?R.drawable.ic_lock:R.drawable.ic_globe);
         lock.setColorFilter(privateRepo?muted:green);
         lock.setContentDescription(privateRepo?"Приватный репозиторий":"Публичный репозиторий");
-        top.addView(lock,new LinearLayout.LayoutParams(dp(dense?13:15),dp(dense?13:15)));
-        TextView more=label("⋮",dense?18:21,true,muted);
-        more.setGravity(Gravity.CENTER);
-        more.setContentDescription("Действия с репозиторием "+name);
-        more.setOnClickListener(v->actions.menu(repo));
-        top.addView(more,new LinearLayout.LayoutParams(dp(dense?22:28),dp(dense?30:38)));
+        top.addView(lock,new LinearLayout.LayoutParams(dp(dense?15:17),dp(dense?15:17)));
         box.addView(top);
 
         TextView title=label(name,dense?12:14,true,textColor);
@@ -429,7 +423,6 @@ public final class RepositoriesScreen {
 
         box.setContentDescription(full+(privateRepo?", приватный репозиторий":", публичный репозиторий"));
         box.setOnClickListener(v->actions.open(full));
-        box.setOnLongClickListener(v->{actions.menu(repo);return true;});
         GridLayout.LayoutParams p=new GridLayout.LayoutParams();
         p.width=0;p.height=-2;
         p.columnSpec=GridLayout.spec(GridLayout.UNDEFINED,GridLayout.FILL,1f);
