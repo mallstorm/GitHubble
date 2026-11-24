@@ -516,7 +516,7 @@ public final class AgentChatScreen {
         android.widget.PopupWindow window=new android.widget.PopupWindow(card,width,height,true);
         popup[0]=window;
         window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
-        window.setOutsideTouchable(true);window.setElevation(dp(18));
+        window.setOutsideTouchable(true);
         int left=Math.max(dp(12),Math.min(screen.widthPixels-width-dp(12),(int)x-width/2));
         int top=(int)y+dp(12);
         if(top+height>screen.heightPixels-dp(24))top=Math.max(dp(40),(int)y-height-dp(12));
