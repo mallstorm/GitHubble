@@ -30,10 +30,26 @@ public final class FullRepositoryWorkflowShellTest {
         Result(int code, String output) { this.code = code; this.output = output; }
     }
 
+
+    private static byte[] drain(java.io.InputStream in) throws java.io.IOException {
+        java.io.ByteArrayOutputStream buffer = new java.io.ByteArrayOutputStream();
+        byte[] chunk = new byte[8192];
+        for (int n; (n = in.read(chunk)) >= 0; ) buffer.write(chunk, 0, n);
+        return buffer.toByteArray();
+    }
+
+    private static void write(Path path, String text) throws java.io.IOException {
+        Files.write(path, text.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static String read(Path path) throws java.io.IOException {
+        return new String(Files.readAllBytes(path), StandardCharsets.UTF_8);
+    }
+
     private static boolean has(String tool, String versionArg) {
         try {
             Process p = new ProcessBuilder(tool, versionArg).redirectErrorStream(true).start();
-            p.getInputStream().readAllBytes();
+            drain(p.getInputStream());
             return p.waitFor(20, TimeUnit.SECONDS) && p.exitValue() == 0;
         } catch (Exception missing) {
             return false;
@@ -44,7 +60,7 @@ public final class FullRepositoryWorkflowShellTest {
         ProcessBuilder builder = new ProcessBuilder(command).directory(dir).redirectErrorStream(true);
         if (env != null) builder.environment().putAll(env);
         Process process = builder.start();
-        byte[] out = process.getInputStream().readAllBytes();
+        byte[] out = drain(process.getInputStream());
         if (!process.waitFor(120, TimeUnit.SECONDS)) {
             process.destroyForcibly();
             fail("Command timed out: " + String.join(" ", command));
@@ -92,13 +108,13 @@ public final class FullRepositoryWorkflowShellTest {
                 FullRepositoryBackupWorkflow.yaml(), FullRepositoryRestoreWorkflow.yaml()}) {
             for (Map.Entry<String, String> step : runSteps(yaml).entrySet()) {
                 Path file = tmp.resolve("step" + (steps++) + ".sh");
-                Files.writeString(file, step.getValue());
+                write(file, step.getValue());
                 Result syntax = run(tmp.toFile(), null, "bash", "-n", file.toString());
                 assertEquals(step.getKey() + ": " + syntax.output, 0, syntax.code);
                 if (!python) continue;
                 for (String block : pythonBlocks(step.getValue())) {
                     Path py = tmp.resolve("block" + (blocks++) + ".py");
-                    Files.writeString(py, block);
+                    write(py, block);
                     Result compiled = run(tmp.toFile(), null, "python3", "-I", "-m", "py_compile", py.toString());
                     assertEquals(step.getKey() + ": " + compiled.output, 0, compiled.code);
                 }
@@ -126,14 +142,14 @@ public final class FullRepositoryWorkflowShellTest {
         File work = tmp.resolve("work").toFile();
         assertTrue(work.mkdirs());
         git(work, "init", "-q");
-        Files.writeString(work.toPath().resolve("a.txt"), "one\n");
+        write(work.toPath().resolve("a.txt"), "one\n");
         git(work, "add", "."); git(work, "commit", "-q", "-m", "c1");
         Result head = run(work, null, "git", "rev-parse", "HEAD");
         String sourceSha = head.output.trim();
         Path flow = work.toPath().resolve(".github/workflows");
         Files.createDirectories(flow);
-        Files.writeString(flow.resolve("githubble-full-backup.yml"), "name: x\n");
-        if (extraSourceChange) Files.writeString(work.toPath().resolve("a.txt"), "two\n");
+        write(flow.resolve("githubble-full-backup.yml"), "name: x\n");
+        if (extraSourceChange) write(work.toPath().resolve("a.txt"), "two\n");
         git(work, "add", "."); git(work, "commit", "-q", "-m", "bootstrap");
         git(work, "branch", "-M", "main");
 
@@ -145,13 +161,13 @@ public final class FullRepositoryWorkflowShellTest {
         File runnerTemp = tmp.resolve("runner").toFile();
         assertTrue(runnerTemp.mkdirs());
         File askpass = new File(runnerTemp, "ask.sh");
-        Files.writeString(askpass.toPath(), "#!/bin/sh\nexit 1\n");
+        write(askpass.toPath(), "#!/bin/sh\nexit 1\n");
         assertTrue(askpass.setExecutable(true));
 
         String script = runSteps(FullRepositoryBackupWorkflow.yaml()).get(STEP_FETCH);
         assertNotNull("Step not found: " + STEP_FETCH, script);
         Path scriptFile = tmp.resolve("fetch.sh");
-        Files.writeString(scriptFile, script);
+        write(scriptFile, script);
 
         Map<String, String> env = new LinkedHashMap<>();
         env.put("GITHUB_REPOSITORY", "owner/repo");
@@ -165,7 +181,7 @@ public final class FullRepositoryWorkflowShellTest {
         env.put("GIT_CONFIG_VALUE_0", "https://github.com/");
         Result result = run(tmp.toFile(), env, "bash", scriptFile.toString());
         if (result.code == 0) {
-            String refs = Files.readString(runnerTemp.toPath().resolve("git-refs.txt"));
+            String refs = read(runnerTemp.toPath().resolve("git-refs.txt"));
             assertTrue(refs, refs.contains("refs/heads/main " + sourceSha));
         }
         return result;
