@@ -70,14 +70,21 @@ final class RepositoryUiChecks {
                 check(grid(root[0]).getChildCount()==24,"First page does not contain 24 cards");
                 described(root[0],"Загрузить следующие репозитории").performClick();
                 check(grid(root[0]).getChildCount()==26,"Last odd card/pagination lost the grid placeholder");
+                root[0].removeAllViews();screen[0]=screen(activity,root[0],3,opened,menu);screen[0].render(many,"name","Тест 3 колонок");
+                check(grid(root[0]).getColumnCount()==3,"Three-column mode did not use three columns");
+                described(root[0],"Загрузить следующие репозитории").performClick();
+                check(grid(root[0]).getChildCount()==27,"Three-column grid lost its placeholders");
+                root[0].removeAllViews();screen[0]=screen(activity,root[0],3,opened,menu);screen[0].render(data,"name","Синхронизация: тестовые данные");
             });
+            host.waitForIdleSync();saveScreenshot(host,activity,"grid3");
         }finally{host.runOnMainSync(()->{if(dialog[0]!=null)dialog[0].dismiss();});}
     }
-    private static RepositoriesScreen screen(Activity activity,LinearLayout root,boolean grid,String[] opened,String[] menu){
+    private static RepositoriesScreen screen(Activity activity,LinearLayout root,boolean grid,String[] opened,String[] menu){return screen(activity,root,grid?2:1,opened,menu);}
+    private static RepositoriesScreen screen(Activity activity,LinearLayout root,int columns,String[] opened,String[] menu){
         app.githubble.mobile.ui.HomeScreen.Palette p=ThemeUiChecks.palette(activity);
         return new RepositoriesScreen(activity,root,new RepositoriesScreen.Actions(){public void create(){}public void refresh(){}
             public void open(String full){opened[0]=full;}public void menu(JSONObject repo){menu[0]=repo.optString("full_name");}},
-            p.card,p.text,p.muted,p.green,p.border,p.subtle,Collections.singleton("demo/Beta"),grid);
+            p.card,p.text,p.muted,p.green,p.border,p.subtle,Collections.singleton("demo/Beta"),columns);
     }
     private static JSONObject repo(String name,boolean priv,String language,int stars,String date)throws Exception{return new JSONObject().put("name",name).put("full_name","demo/"+name).put("description","Описание проекта "+name).put("private",priv).put("language",language).put("stargazers_count",stars).put("updated_at",date);}
     private static View sort(View root){if(root.getContentDescription()!=null&&root.getContentDescription().toString().startsWith("Сортировка:"))return root;
