@@ -111,5 +111,13 @@ public final class ToolCatalog {
         add(b,"web_search","query","query",ToolBroker.Permission.PUBLIC_WEB,false,false,false);
         add(b,"web_fetch","url","url",ToolBroker.Permission.PUBLIC_WEB,false,false,false);
         add(b,"web_research","query","query",ToolBroker.Permission.PUBLIC_WEB,false,false,false);
+        add(b,"cloud_browser","url query mode steps max_chars:integer read_top:integer","",open,false,false,false);
+        add(b,"cloud_browser_result","run_id:integer request_id wait_s:integer","run_id request_id",open,false,false,false);
+        add(b,"cloud_sources","","",open,false,false,false);
+        add(b,"cloud_list","source path","",open,false,false,false);
+        add(b,"cloud_read","source path max_chars:integer","path",open,false,false,false);
+        add(b,"cloud_search","source query","query",open,false,false,false);
+        add(b,"cloud_download","source path to","path",local,true,false,false);
+        add(b,"cloud_upload","source path from content","",local,true,true,false);
     }
 }

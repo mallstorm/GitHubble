@@ -287,6 +287,7 @@ public class MainActivity extends Activity {
     private static final String PREF_AUTH_JUST_COMPLETED = "github_auth_just_completed";
     private static final String EXTRA_OPEN_PROFILE_AFTER_AUTH = "open_profile_after_github_auth";
     private static final int REQUEST_EXPORT_PORTABLE = 2701;
+    private static final int REQUEST_CLOUD_SOURCE = 2750;
     private static final int REQUEST_MIRROR_CLOUD_CREATE = 2740;
     private static final int REQUEST_MIRROR_CLOUD_OPEN = 2741;
     private static final int REQUEST_MIRROR_GOOGLE_AUTH = 2742;
@@ -1171,10 +1172,11 @@ public class MainActivity extends Activity {
                 if(!full.matches("[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}")){
                     toast("Введите OWNER/REPO");return;
                 }
-                AlertDialog confirm=new AlertDialog.Builder(this).setTitle("Удаление репозитория")
-                    .setMessage("Удалить репозиторий\n"+full+"\nАккаунт: @"+(accountStore.activeAccount()==null?"":accountStore.activeAccount().login)
-                        +"\n\nДействие необратимо: код, история коммитов, issues и настройки будут удалены.")
-                    .setPositiveButton("Да, удалить",(yes,which)->{
+                app.githubble.mobile.ui.ConfirmSheet.create(this,new app.githubble.mobile.ui.ConfirmSheet.Spec("Удалить репозиторий?","Да, удалить","Нет",true)
+                    .fact("Репозиторий",full)
+                    .fact("Аккаунт","@"+(accountStore.activeAccount()==null?"":accountStore.activeAccount().login))
+                    .note("Действие необратимо: код, история коммитов, issues и настройки будут удалены."),
+                    ()->{
                         io.execute(()->{
                             try{
                                 aiGithub.deleteOwnRepository(expected,full);
@@ -1191,10 +1193,7 @@ public class MainActivity extends Activity {
                             }
                             runOnUiThread(()->agentRefreshIfCurrent(expected));
                         });
-                    }).setNegativeButton("Нет",null).create();
-                confirm.show();
-                confirm.getButton(AlertDialog.BUTTON_POSITIVE).setTextColor(0xFFD32F2F);
-                confirm.getButton(AlertDialog.BUTTON_NEGATIVE).setTextColor(0xFF1565C0);
+                    },null).show();
             }).setNegativeButton("Отмена",null).show();
     }
 
@@ -9172,6 +9171,27 @@ public class MainActivity extends Activity {
         stored.note("API-ключи, токены GitHub, пароли и содержимое репозиториев в облако не попадают. "
                 +"На новом устройстве после входа вернутся все настройки, а ключи придётся ввести заново.");
         sections.add(stored);
+        SettingsScreen.Section drives=new SettingsScreen.Section("Облачные хранилища для агента");
+        String driveWords="облако google drive onedrive яндекс диск dropbox nextcloud агент файлы папка скачать загрузить";
+        app.githubble.mobile.agent.CloudSources cloudSources=new app.githubble.mobile.agent.CloudSources(this);
+        org.json.JSONArray driveRows=cloudSources.list();
+        for(int i=0;i<driveRows.length();i++){
+            org.json.JSONObject row=driveRows.optJSONObject(i);if(row==null)continue;
+            final String driveId=row.optString("id"),driveName=row.optString("name");
+            drives.add(SettingsScreen.Item.action(R.drawable.ic_repository,driveName,
+                    row.optString("provider")+" · нажмите, чтобы отключить",driveWords,()->
+                    app.githubble.mobile.ui.ConfirmSheet.create(this,new app.githubble.mobile.ui.ConfirmSheet.Spec("Отключить облако?","Да, отключить","Нет",false)
+                            .fact("Облако",driveName).note("Файлы в облаке не удаляются. Агент просто потеряет к нему доступ."),
+                            ()->{try{new app.githubble.mobile.agent.CloudSources(this).remove(driveId);}catch(Exception ignored){}showSettingsCloud();},null).show()));
+        }
+        drives.add(SettingsScreen.Item.action(R.drawable.ic_repository,"Добавить папку облака",
+                "Google Drive, OneDrive, Яндекс Диск, Dropbox — любое приложение с хранилищем",driveWords+" добавить подключить",()->{
+                    Intent pick=new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+                    pick.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION|Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
+                    try{startActivityForResult(pick,REQUEST_CLOUD_SOURCE);}catch(RuntimeException e){toast("Нет приложения для выбора папки");}
+                }));
+        drives.note("Агент видит только выбранную папку: читает файлы, ищет, скачивает в проект и загружает обратно. Нужно, чтобы приложение облака было установлено и вы в нём вошли.");
+        sections.add(drives);
         SettingsScreen.Section other=new SettingsScreen.Section("Другое хранилище");
         other.add(SettingsScreen.Item.action(R.drawable.ic_lock,"Облачный JSON-файл",
                 "OneDrive и другие провайдеры через выбор файла (только реестр зеркал)",keywords+" onedrive saf",
@@ -10262,6 +10282,22 @@ public class MainActivity extends Activity {
             else finishAffinity();
             return;
         }
+        if(requestCode==REQUEST_CLOUD_SOURCE){
+            if(resultCode==RESULT_OK&&data!=null&&data.getData()!=null){
+                android.net.Uri tree=data.getData();
+                try{
+                    getContentResolver().takePersistableUriPermission(tree,Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+                }catch(RuntimeException readOnly){
+                    try{getContentResolver().takePersistableUriPermission(tree,Intent.FLAG_GRANT_READ_URI_PERMISSION);}catch(RuntimeException ignored){}
+                }
+                try{
+                    org.json.JSONObject added=new app.githubble.mobile.agent.CloudSources(this).add(tree,null);
+                    toast("Облако подключено: "+added.optString("name"));
+                }catch(Exception e){errorDialog("Облачное хранилище",e.getMessage()==null?"Не удалось подключить папку":e.getMessage());}
+                showSettingsCloud();
+            }
+            return;
+        }
         if(requestCode==REQUEST_MIRROR_GOOGLE_AUTH){
             if(resultCode==RESULT_OK&&data!=null){
                 try{
@@ -10553,6 +10589,7 @@ public class MainActivity extends Activity {
             TEXT=Color.rgb(28,34,31); MUTED=Color.rgb(98,111,103); GREEN=Color.rgb(78,168,57); BLUE=Color.rgb(65,145,52); BORDER=Color.rgb(224,231,222);
             tileColors=new int[]{Color.rgb(76,170,83),Color.rgb(49,132,220),Color.rgb(126,76,196),Color.rgb(242,139,45),Color.rgb(226,83,94),Color.rgb(232,183,29),Color.rgb(46,158,164),Color.rgb(94,108,104)};
         }
+        app.githubble.mobile.ui.ConfirmSheet.theme(CARD,TEXT,MUTED,SUBTLE,BORDER,BLUE);
         getWindow().setStatusBarColor(SURFACE); getWindow().setNavigationBarColor(SURFACE);
         applySystemBarAppearance();
     }

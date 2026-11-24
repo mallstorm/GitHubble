@@ -182,6 +182,11 @@ public final class AgentBuildDiagnostics {
         }
     }
 
+    /** Raw log of one job (for the cloud browser, whose result is printed there). */
+    public String jobLog(String account, String repository, long jobId) throws Exception {
+        return readJobLog(null, tokenFor(account), repository, jobId);
+    }
+
     private static String readLimit(InputStream input) throws Exception {
         try (InputStream in = input; ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             byte[] chunk = new byte[8192];
