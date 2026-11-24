@@ -142,8 +142,8 @@ public final class ModelPickerSheet {
         footer.addView(button("＋  Добавить подключение", true, v -> { dialog.dismiss(); host.openAddConnection(); }), lp(-1, 48, 0, 0, 0, 0, 0));
         LinearLayout second = new LinearLayout(activity);
         second.addView(button("Мои подключения", false, v -> { dialog.dismiss(); host.openConnections(); }), lp(0, 44, 1, 0, 0, 0, 0));
-        second.addView(button("Обновить модели", false, v -> { dialog.dismiss(); host.refreshCatalog(); }), lp(0, 44, 1, 8, 0, 0, 0));
-        footer.addView(second, lp(-1, -2, 0, 8, 0, 0, 0));
+        second.addView(button("Обновить модели", false, v -> { dialog.dismiss(); host.refreshCatalog(); }), lp(0, 44, 1, 10, 0, 0, 0));
+        footer.addView(second, lp(-1, -2, 0, 0, 10, 0, 0));
         root.addView(footer, new LinearLayout.LayoutParams(-1, -2));
 
         dialog = new Dialog(activity);
@@ -282,8 +282,15 @@ public final class ModelPickerSheet {
     private View providerHeader(String provider, int count, boolean open) {
         LinearLayout row = new LinearLayout(activity);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setMinimumHeight(dp(52));
-        row.setPadding(dp(4), dp(6), dp(4), dp(6));
+        row.setMinimumHeight(dp(60));
+        row.setPadding(dp(12), dp(8), dp(10), dp(8));
+        int tint = ServiceIcon.accentOf(provider);
+        GradientDrawable wash = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
+                new int[]{blend(palette.card, tint, palette.dark ? 0.30f : 0.16f), blend(palette.card, tint, palette.dark ? 0.08f : 0.03f)});
+        wash.setCornerRadius(dp(DesignSystem.radius(16)));
+        wash.setStroke(dp(1), blend(palette.border, tint, 0.25f));
+        row.setBackground(wash);
+        row.addView(ServiceIcon.view(activity, provider, store.displayName(provider), 38), lp(38, 38, 0, 0, 12, 0));
         LinearLayout words = new LinearLayout(activity);
         words.setOrientation(LinearLayout.VERTICAL);
         TextView name = text(store.displayName(provider), 15, palette.text, true);
@@ -354,6 +361,7 @@ public final class ModelPickerSheet {
         int accent = selected ? palette.green : palette.border;
         row.setBackground(round(selected ? blend(palette.card, palette.green, palette.dark ? 0.2f : 0.1f) : palette.card, 14, accent, selected ? 2 : 1));
 
+        if (withProvider) row.addView(ServiceIcon.view(activity, provider, store.displayName(provider), 32), lp(32, 32, 0, 0, 10, 0));
         LinearLayout words = new LinearLayout(activity);
         words.setOrientation(LinearLayout.VERTICAL);
         TextView name = text((selected ? "✓  " : "") + model, 14, usable ? palette.text : palette.muted, true);
@@ -366,7 +374,6 @@ public final class ModelPickerSheet {
         if (withProvider) tags.addView(text(store.displayName(provider), 11, palette.muted, false), lp(-2, -2, 0, 0, 8, 0));
         String group = store.modelGroup(owner, provider, model);
         if (!group.isEmpty()) tags.addView(pill(group, group.equals("Free") ? palette.green : group.equals("Pass") ? Color.rgb(113, 60, 179) : warn), lp(-2, -2, 0, 0, 6, 0));
-        if (OmniChatChatClient.supportsVision(provider)) tags.addView(pill("Фото", Color.rgb(40, 99, 184)), lp(-2, -2, 0, 0, 6, 0));
         if (!usable) tags.addView(pill("ключи выключены", danger), lp(-2, -2, 0, 0, 6, 0));
         if (tags.getChildCount() > 0) words.addView(tags, lp(-1, -2, 0, 4, 0, 0));
         row.addView(words, new LinearLayout.LayoutParams(0, -2, 1f));

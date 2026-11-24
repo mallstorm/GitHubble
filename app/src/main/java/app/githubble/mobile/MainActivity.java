@@ -306,6 +306,9 @@ public class MainActivity extends Activity {
     private static final int REQUEST_LOCAL_AVATAR = 2721;
     private static final int REQUEST_SETTINGS_NOTIFICATIONS = 2722;
     private SpeechRecognizer voiceRecognizer;
+    private app.githubble.mobile.dictation.WavRecorder voiceRecorder;
+    private app.githubble.mobile.dictation.DictationSettings dictation;
+    private int voiceToken;
     private EditText voiceTarget;
     private ImageView voiceButton;
     private boolean voiceRecording;
@@ -373,6 +376,12 @@ public class MainActivity extends Activity {
         aiGithub = new GitHubAgentBridge(accountStore, secureStore, api);
         aiConnections = new OmniChatConnectionStore(this, secureStore);
         oauthSubscriptions=new OAuthSubscriptions(this,aiConnections);
+        dictation=new app.githubble.mobile.dictation.DictationSettings(prefs,secureStore,dictationId->{
+            String linked="groq".equals(dictationId)?"groq":"openai".equals(dictationId)?"openai":"";
+            if(linked.isEmpty()||accountStore==null)return "";
+            String linkedOwner=accountStore.activeCacheKey();
+            return aiConnections.hasKey(linkedOwner,linked)?aiConnections.credential(linkedOwner,linked):"";
+        });
         aiChatClient = new OmniChatChatClient(this,oauthSubscriptions,aiConnections);
         aiUsage = new app.githubble.mobile.agent.AiUsageLedger(this);
         oauth = new OAuthManager(this, secureStore);
@@ -546,7 +555,7 @@ public class MainActivity extends Activity {
     }
 
     void shell(String title, boolean showSearchAction) {
-        if(voiceRecognizer!=null)cancelVoiceInput();
+        if(voiceRecognizer!=null||voiceRecorder!=null)cancelVoiceInput();
         // Discard old account-inventory callbacks on ANY screen transition.
         accountInventoryCancelled.set(true);
         if(accountInventoryFuture!=null&&!accountInventoryFuture.isDone())
@@ -1374,14 +1383,16 @@ public class MainActivity extends Activity {
             }
         }
         if (ids.isEmpty()) { agentConfigureAiProvider(expected); return; }
-        new AlertDialog.Builder(this).setTitle("Выбрать AI-модель")
-                .setItems(names.toArray(new String[0]), (d, which) -> {
-                    if (!expected.equals(accountStore.activeCacheKey())) {
-                        toast("GitHub-аккаунт изменился"); return;
-                    }
-                    aiConnections.select(expected, ids.get(which));
-                    agentRefreshIfCurrent(expected);
-                }).setNegativeButton("Отмена", null).show();
+        app.githubble.mobile.ui.ListSheet pick = app.githubble.mobile.ui.ListSheet.of(this, settingsPalette()).title("Выбрать модель", "Подключённые сервисы");
+        for (int i = 0; i < ids.size(); i++) {
+            final String id = ids.get(i);
+            pick.row("", aiConnections.displayName(id), aiConnections.model(expected, id), "", id, () -> {
+                if (!expected.equals(accountStore.activeCacheKey())) { toast("GitHub-аккаунт изменился"); return; }
+                aiConnections.select(expected, id);
+                agentRefreshIfCurrent(expected);
+            });
+        }
+        pick.show();
     }
 
     private void agentDisconnectAiProvider(String expected) {
@@ -1419,32 +1430,36 @@ public class MainActivity extends Activity {
                         aiConnections.save(expected,provider,models.get(0),"");agentRefreshIfCurrent(expected);
                     }
                     if (models.isEmpty()) {
-                        new AlertDialog.Builder(this).setTitle("Модели не найдены")
-                                .setMessage("Провайдер не вернул каталог. ID модели можно указать вручную.")
-                                .setPositiveButton("ОК", null).show();
+                        app.githubble.mobile.ui.ConfirmSheet.info(this,"Модели не найдены","Сервис не вернул каталог. ID модели можно указать вручную в окне выбора модели.");
                         return;
                     }
-                    new AlertDialog.Builder(this).setTitle("Модели " + aiConnections.displayName(provider)
-                                    + " · " + models.size())
-                            .setItems(models.toArray(new String[0]), (d, which) -> {
-                                if (!expected.equals(accountStore.activeCacheKey())) {
-                                    toast("Аккаунт изменился"); return;
-                                }
-                                try {
-                                    aiConnections.save(expected, provider, models.get(which), "");
-                                    toast("Выбрана модель " + models.get(which));
-                                    agentRefreshIfCurrent(expected);
-                                } catch (Exception error) {
-                                    toast("Не удалось выбрать модель: " + error.getMessage());
-                                }
-                            }).setNegativeButton("Отмена", null).show();
+                    String current = aiConnections.model(expected, provider);
+                    app.githubble.mobile.ui.ListSheet sheet = app.githubble.mobile.ui.ListSheet.of(this, settingsPalette())
+                            .title(aiConnections.displayName(provider), "Моделей: " + models.size() + " · выберите для чата")
+                            .searchable("Поиск модели");
+                    for (String wanted : new String[]{"Free", "Pass", "Billing", ""}) for (String model : models) {
+                        String group = aiConnections.modelGroup(expected, provider, model);
+                        if (!("Free".equals(wanted) || "Pass".equals(wanted) || "Billing".equals(wanted) ? wanted.equals(group)
+                                : !("Free".equals(group) || "Pass".equals(group) || "Billing".equals(group)))) continue;
+                        final String picked = model;
+                        sheet.row("Free".equals(group) ? "Бесплатные" : "Pass".equals(group) ? "По подписке Pass" : "Billing".equals(group) ? "Платные" : "", model,
+                                "", model.equals(current) ? "выбрана" : "", provider, () -> {
+                                    if (!expected.equals(accountStore.activeCacheKey())) { toast("Аккаунт изменился"); return; }
+                                    try {
+                                        aiConnections.save(expected, provider, picked, "");
+                                        toast("Выбрана модель " + picked);
+                                        agentRefreshIfCurrent(expected);
+                                    } catch (Exception error) {
+                                        toast("Не удалось выбрать модель: " + error.getMessage());
+                                    }
+                                });
+                    }
+                    sheet.show();
                 });
             } catch (Exception error) {
                 runOnUiThread(() -> {
                     loading.dismiss();
-                    new AlertDialog.Builder(this).setTitle("Ошибка каталога моделей")
-                            .setMessage(error.getMessage())
-                            .setPositiveButton("ОК", null).show();
+                    app.githubble.mobile.ui.ConfirmSheet.info(this,"Ошибка каталога моделей",error.getMessage()==null?"Не удалось загрузить модели":error.getMessage());
                 });
             }
         });
@@ -3520,20 +3535,16 @@ public class MainActivity extends Activity {
     private void showVoiceLanguageChooser(){showVoiceLanguageChooser(null);}
 
     private void showVoiceLanguageChooser(Runnable afterChange){
-        final String[] labels={"Русский (ru-RU)","English (en-US)"};
-        String lang=prefs.getString("voice_search_language",
-                "ru".equalsIgnoreCase(Locale.getDefault().getLanguage())?"ru-RU":"en-US");
-        new AlertDialog.Builder(this).setTitle("Язык голосового ввода")
-                .setSingleChoiceItems(labels,"en-US".equals(lang)?1:0,(dialog,index)->{
-                    prefs.edit().putString("voice_search_language",index==0?"ru-RU":"en-US").apply();
-                    dialog.dismiss();
-                    toast(index==0?"Голосовой ввод: русский":"Voice input: English");
-                    if(afterChange!=null)afterChange.run();
-                })
-                .setNegativeButton("Отмена",null).show();
+        app.githubble.mobile.ui.DictationSheet.show(this,settingsPalette(),dictation,afterChange);
     }
 
     private void toggleVoiceInput(EditText target,ImageView microphone){
+        if(voiceRecorder!=null){
+            if(voiceTarget==target&&voiceRecording)stopCloudVoice();
+            else if(voiceWaiting)toast("Распознаём запись, подождите…");
+            else cancelVoiceInput();
+            return;
+        }
         if(voiceRecognizer!=null){
             if(voiceTarget==target&&voiceRecording){
                 voiceRecording=false;voiceWaiting=true;
@@ -3557,6 +3568,13 @@ public class MainActivity extends Activity {
         final EditText target=voiceTarget;
         final ImageView button=voiceButton;
         if(target==null||button==null||!target.isAttachedToWindow())return;
+        if(!app.githubble.mobile.dictation.DictationProviders.SYSTEM.equals(dictation.provider())){
+            if(dictation.configured(dictation.provider())){beginCloudVoice();return;}
+            toast("Для выбранного сервиса диктовки нужен ключ");
+            finishVoiceInput(null);
+            showVoiceLanguageChooser();
+            return;
+        }
         if(!SpeechRecognizer.isRecognitionAvailable(this)){
             toast("На устройстве нет службы распознавания речи. Установите или включите системный голосовой ввод.");
             finishVoiceInput(null);return;
@@ -3604,8 +3622,8 @@ public class MainActivity extends Activity {
             });
             Intent intent=new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
             intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
-            String language=prefs.getString("voice_search_language",
-                    "ru".equalsIgnoreCase(Locale.getDefault().getLanguage())?"ru-RU":"en-US");
+            String language=dictation.language();
+            if("auto".equals(language))language="ru".equalsIgnoreCase(Locale.getDefault().getLanguage())?"ru-RU":"en-US";
             intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE,language);
             intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE,language);
             intent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS,3);
@@ -3624,8 +3642,57 @@ public class MainActivity extends Activity {
         }catch(Exception e){finishVoiceInput("Не удалось запустить голосовой ввод: "+e.getMessage());}
     }
 
+    private void beginCloudVoice(){
+        final EditText target=voiceTarget;
+        final ImageView button=voiceButton;
+        try{
+            voiceRecorder=new app.githubble.mobile.dictation.WavRecorder(this,300,()->{if(voiceRecorder!=null&&voiceRecording)stopCloudVoice();});
+        }catch(Exception e){voiceRecorder=null;finishVoiceInput("Не удалось открыть микрофон: "+e.getMessage());return;}
+        voiceToken++;
+        voiceRecording=true;voiceWaiting=false;
+        button.setImageResource(R.drawable.ic_mic_stop);
+        button.setContentDescription("Остановить запись речи");
+        toast(app.githubble.mobile.dictation.DictationProviders.get(dictation.provider()).title+": говорите, затем нажмите красную кнопку");
+    }
+
+    private void stopCloudVoice(){
+        final app.githubble.mobile.dictation.WavRecorder recorder=voiceRecorder;
+        final EditText target=voiceTarget;
+        final ImageView button=voiceButton;
+        if(recorder==null||target==null)return;
+        voiceRecording=false;voiceWaiting=true;
+        if(button!=null){button.setImageResource(R.drawable.ic_mic);button.setContentDescription("Распознаём речь…");}
+        final byte[] pcm=recorder.stop();
+        final int token=voiceToken;
+        final String language=dictation.language();
+        final java.util.List<String> order=dictation.order();
+        toast("Распознаём речь…");
+        io.execute(()->{
+            String text=null,error=null,provider="";
+            try{
+                app.githubble.mobile.dictation.DictationClient.Outcome outcome=
+                        app.githubble.mobile.dictation.DictationClient.transcribe(dictation,order,pcm,language);
+                text=outcome.text;provider=outcome.provider;
+                if(!outcome.skipped.isEmpty())error="Запасной сервис: "+app.githubble.mobile.dictation.DictationProviders.get(provider).title;
+            }catch(Exception e){error=e.getMessage()==null?"Не удалось распознать речь":e.getMessage();}
+            final String result=text,problem=error;
+            runOnUiThread(()->{
+                if(token!=voiceToken||voiceTarget!=target)return;
+                if(result!=null&&!result.isEmpty()&&target.isAttachedToWindow()){
+                    boolean multi=(target.getInputType()&android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE)!=0;
+                    String old=target.getText().toString();
+                    String merged=multi&&!old.trim().isEmpty()?old.trim()+" "+result:result;
+                    target.setText(merged);target.setSelection(merged.length());
+                    finishVoiceInput(problem);
+                }else finishVoiceInput(problem==null?"Ничего не распознано":problem);
+            });
+        });
+    }
+
     private void finishVoiceInput(String message){
         if(voiceRecognizer!=null){try{voiceRecognizer.destroy();}catch(Exception ignored){}}
+        if(voiceRecorder!=null){try{voiceRecorder.cancel();}catch(Exception ignored){}}
+        voiceRecorder=null;voiceToken++;
         voiceRecognizer=null;voiceRecording=false;voiceWaiting=false;
         if(voiceButton!=null){
             voiceButton.setImageResource(R.drawable.ic_mic);
@@ -9764,8 +9831,9 @@ public class MainActivity extends Activity {
                 "Зашифрованные профили, подключение и переключение","xray vless vpn прокси",
                 ()->agentFeatures(owner).xray()));
         network.add(SettingsScreen.Item.action(R.drawable.ic_mic,"Диктовка",
-                "en-US".equals(voiceLanguage())?"English (en-US)":"Русский (ru-RU)",
-                "голос микрофон диктовка речь язык",()->showVoiceLanguageChooser(this::rerenderSettings)));
+                app.githubble.mobile.dictation.DictationProviders.get(dictation.provider()).title+" · "
+                        +app.githubble.mobile.dictation.DictationProviders.languageTitle(voiceLanguage()),
+                "голос микрофон диктовка речь язык whisper groq yandex speechkit google",()->showVoiceLanguageChooser(this::rerenderSettings)));
         network.note("Live, мультимедиа, OCR, MCP и панель реальных квот появятся здесь после реализации.");
         sections.add(network);
         return sections;

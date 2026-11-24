@@ -191,10 +191,10 @@ public final class ProviderHubScreen {
     private View accountRow(app.githubble.mobile.agent.ConnectionCatalog.Account account, boolean connectedOnly) {
         String provider = account.id;
         boolean connected = store.hasKey(owner, provider);
-        LinearLayout row = card(0.02f);
+        LinearLayout row = serviceCardShell(provider);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.addView(initialTile(store.displayName(provider), palette.green), params(40, 40, 0, 0, 0, 12, 0));
+        row.addView(serviceTile(provider, store.displayName(provider)), params(40, 40, 0, 0, 0, 12, 0));
         LinearLayout words = column();
         words.addView(label(store.displayName(provider), 15, palette.text, true));
         String detail = (account.freeModels ? "Есть бесплатные модели · " : "") + account.subtitle;
@@ -220,11 +220,11 @@ public final class ProviderHubScreen {
         PoolPolicy.Summary sum = pool().summary(owner, provider);
         List<PoolPolicy.Slot> slots = pool().slots(owner, provider);
         long now = System.currentTimeMillis();
-        LinearLayout card = card(0.03f);
+        LinearLayout card = serviceCardShell(provider);
 
         LinearLayout head = new LinearLayout(activity);
         head.setGravity(Gravity.CENTER_VERTICAL);
-        head.addView(initialTile(store.displayName(provider), palette.green), params(40, 40, 0, 0, 0, 12, 0));
+        head.addView(serviceTile(provider, store.displayName(provider)), params(40, 40, 0, 0, 0, 12, 0));
         LinearLayout words = column();
         TextView title = label(store.displayName(provider), 16, palette.text, true);
         title.setSingleLine(true);
@@ -294,7 +294,7 @@ public final class ProviderHubScreen {
         LinearLayout endpoint = card(palette.dark ? 0.12f : 0.06f);
         LinearLayout head = new LinearLayout(activity);
         head.setGravity(Gravity.CENTER_VERTICAL);
-        head.addView(initialTile(store.displayName(provider), palette.green), params(44, 44, 0, 0, 0, 12, 0));
+        head.addView(serviceTile(provider, store.displayName(provider)), params(44, 44, 0, 0, 0, 12, 0));
         LinearLayout words = column();
         words.addView(label(store.displayName(provider), 18, palette.text, true));
         words.addView(label(custom ? "Свой сервис" : "Сервис из каталога", 12, palette.muted, false));
@@ -524,10 +524,10 @@ public final class ProviderHubScreen {
     }
 
     private View serviceRow(String id, String name) {
-        LinearLayout row = card(0.02f);
+        LinearLayout row = serviceCardShell(id);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.addView(initialTile(name, palette.green), params(40, 40, 0, 0, 0, 12, 0));
+        row.addView(serviceTile(id, name), params(40, 40, 0, 0, 0, 12, 0));
         LinearLayout words = column();
         words.addView(label(name, 15, palette.text, true));
         int keys = pool().slots(owner, id).size();
@@ -1066,7 +1066,11 @@ public final class ProviderHubScreen {
     private LinearLayout card(float tint) {
         LinearLayout card = column();
         card.setPadding(dp(14), dp(12), dp(14), dp(12));
-        card.setBackground(round(blend(palette.card, palette.green, tint), 16, palette.border, 1));
+        GradientDrawable wash = new GradientDrawable(GradientDrawable.Orientation.TL_BR,
+                new int[]{blend(palette.card, palette.green, Math.min(0.4f, tint * 2.2f)), blend(palette.card, palette.green, tint * 0.4f)});
+        wash.setCornerRadius(dp(18));
+        wash.setStroke(dp(1), palette.border);
+        card.setBackground(wash);
         return card;
     }
 
@@ -1143,6 +1147,25 @@ public final class ProviderHubScreen {
         pill.setPadding(dp(9), dp(3), dp(9), dp(3));
         pill.setBackground(round(blend(palette.card, color, palette.dark ? 0.26f : 0.14f), 12, 0, 0));
         return pill;
+    }
+
+    private View serviceTile(String provider, String name) {
+        android.widget.ImageView icon = new android.widget.ImageView(activity);
+        icon.setImageDrawable(ServiceIcon.of(provider, name));
+        return icon;
+    }
+
+    /** Card with a soft gradient wash in the colour of the service. */
+    private LinearLayout serviceCardShell(String provider) {
+        LinearLayout card = column();
+        card.setPadding(dp(14), dp(12), dp(14), dp(12));
+        int tint = ServiceIcon.accentOf(provider);
+        GradientDrawable wash = new GradientDrawable(GradientDrawable.Orientation.TL_BR,
+                new int[]{blend(palette.card, tint, palette.dark ? 0.26f : 0.13f), blend(palette.card, tint, palette.dark ? 0.06f : 0.02f)});
+        wash.setCornerRadius(dp(18));
+        wash.setStroke(dp(1), blend(palette.border, tint, 0.25f));
+        card.setBackground(wash);
+        return card;
     }
 
     private View initialTile(String name, int color) {
