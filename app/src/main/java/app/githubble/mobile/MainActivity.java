@@ -399,7 +399,7 @@ public class MainActivity extends Activity {
         BuildMonitor.createChannel(this);
         BuildMonitorJobService.reschedule(this);
         if (!trackingDb.getDevelopers(true).isEmpty()) TrackingJobService.schedule(this, prefs.getInt("tracking_interval_hours", 6));
-        io.execute(() -> { try { features.offlineQueue.processReady(api); } catch (Exception ignored) {} });
+        io.execute(() -> { try { features.offlineQueue.processReady(api); } catch (Exception failure) { android.util.Log.w("GitHubble", "Offline queue run failed", failure); } });
         if (!oauth.hasUsableToken() && oauth.canRefresh()) io.execute(() -> { try { if(oauth.refreshIfNeeded(BuildConfig.GITHUB_CLIENT_ID)) runOnUiThread(this::showHome); } catch(Exception ignored) { } });
         migrateSecureSettings();
         applyTheme();
@@ -489,7 +489,7 @@ public class MainActivity extends Activity {
         checkAppLock();
         getWindow().getDecorView().post(this::applySystemBarAppearance);
         BuildMonitorJobService.checkSoon(this);
-        if (features != null && features.offlineDispatcher.isOnline()) io.execute(() -> { try { OfflineActionQueue.ProcessResult r=features.offlineQueue.processReady(api); if(r.completed>0||r.conflicts>0) runOnUiThread(() -> toast("Офлайн-очередь: отправлено "+r.completed+", конфликтов "+r.conflicts)); } catch (Exception ignored) {} });
+        if (features != null && features.offlineDispatcher.isOnline()) io.execute(() -> { try { OfflineActionQueue.ProcessResult r=features.offlineQueue.processReady(api); if(r.completed>0||r.conflicts>0) runOnUiThread(() -> toast("Офлайн-очередь: отправлено "+r.completed+", конфликтов "+r.conflicts)); } catch (Exception failure) { android.util.Log.w("GitHubble", "Offline queue run failed", failure); } });
         if (prefs.getBoolean(PREF_AUTH_JUST_COMPLETED, false)) {
             prefs.edit().putBoolean(PREF_AUTH_JUST_COMPLETED, false).apply();
             openRoot(this::showProfile);
