@@ -32,9 +32,14 @@ public final class SearchScreen {
         default void searchAdvanced(String query, boolean intelligentRussian, SearchMode mode, SearchFilters filters) {
             search(query, intelligentRussian);
         }
+        /** The connected model turns a free-form request into a GitHub query. */
+        default void aiSearch(String query, SearchMode mode, SearchFilters filters) {
+            searchAdvanced(query, true, mode, filters);
+        }
     }
 
     public static final String PREF_SMART_RU = "smart_search_ru_enabled";
+    public static final String PREF_AI = "search_ai_enabled";
     private static final String PREF_MODE = "smart_search_mode";
     private static final String PREF_FILTER_PREFIX = "smart_filter_";
 
@@ -46,7 +51,8 @@ public final class SearchScreen {
     private final SmartSearchHistory history;
     private final Map<SearchMode, TextView> modeViews = new EnumMap<>(SearchMode.class);
     private EditText query;
-    private TextView smartToggle;
+    private TextView smartToggle, aiToggle, goButton;
+    private boolean aiEnabled;
     private TextView subtitle;
     private LinearLayout savedBlock;
     private static final String SAVED_KEY="saved_searches_v1";
@@ -66,23 +72,30 @@ public final class SearchScreen {
         this.smartEnabled = prefs.getBoolean(PREF_SMART_RU, russianLocale);
         try { this.mode = SearchMode.valueOf(prefs.getString(PREF_MODE, SearchMode.REPOSITORIES.name())); }
         catch (Exception ignored) { this.mode = SearchMode.REPOSITORIES; }
+        this.aiEnabled = prefs.getBoolean(PREF_AI, false);
         this.filters = loadFilters();
     }
 
     public void render() {
+        // Search card: gradient field with lens, clear and microphone.
         FrameLayout searchBox=new FrameLayout(activity);
-        searchBox.setBackground(round(palette.card,15,palette.border,1));
+        searchBox.setBackground(gradient(palette.green,false,20));
         ImageView lens=new ImageView(activity);lens.setImageResource(R.drawable.ic_search);
-        lens.setColorFilter(palette.muted);
-        FrameLayout.LayoutParams lensP=new FrameLayout.LayoutParams(dp(21),dp(21),Gravity.START|Gravity.CENTER_VERTICAL);
-        lensP.setMargins(dp(11),0,0,0);searchBox.addView(lens,lensP);
+        lens.setColorFilter(palette.green);
+        FrameLayout.LayoutParams lensP=new FrameLayout.LayoutParams(dp(22),dp(22),Gravity.START|Gravity.CENTER_VERTICAL);
+        lensP.setMargins(dp(14),0,0,0);searchBox.addView(lens,lensP);
         query=new EditText(activity);query.setHintTextColor(palette.muted);
         query.setText(prefs.getString("search_draft_query",""));
-        query.setTextColor(palette.text);query.setSingleLine(true);query.setTextSize(14);
-        query.setPadding(dp(39),0,dp(56),0);query.setBackgroundColor(Color.TRANSPARENT);
+        query.setTextColor(palette.text);query.setSingleLine(true);query.setTextSize(15);
+        query.setPadding(dp(46),0,dp(96),0);query.setBackgroundColor(Color.TRANSPARENT);
         query.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
         query.setContentDescription("Поиск GitHub");
         searchBox.addView(query,new FrameLayout.LayoutParams(-1,-1));
+        TextView clear=text("×",22,true);clear.setTextColor(palette.muted);clear.setGravity(Gravity.CENTER);
+        clear.setContentDescription("Очистить запрос");
+        clear.setOnClickListener(v->{query.setText("");query.requestFocus();});
+        searchBox.addView(clear,new FrameLayout.LayoutParams(dp(40),dp(54),Gravity.END|Gravity.CENTER_VERTICAL));
+        ((FrameLayout.LayoutParams)clear.getLayoutParams()).setMargins(0,0,dp(46),0);
         ImageView mic=new ImageView(activity);
         mic.setImageResource(R.drawable.ic_mic);
         mic.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
@@ -90,15 +103,16 @@ public final class SearchScreen {
         mic.setPadding(dp(11),dp(11),dp(11),dp(11));
         mic.setOnClickListener(v->actions.dictate(query,mic));
         mic.setOnLongClickListener(v->{actions.chooseDictationLanguage();return true;});
-        FrameLayout.LayoutParams micP=new FrameLayout.LayoutParams(dp(52),dp(52),Gravity.END|Gravity.CENTER_VERTICAL);
-        searchBox.addView(mic,micP);
-        LinearLayout.LayoutParams qP=new LinearLayout.LayoutParams(-1,dp(52));
-        qP.setMargins(0,dp(5),0,dp(8));content.addView(searchBox,qP);
+        searchBox.addView(mic,new FrameLayout.LayoutParams(dp(52),dp(54),Gravity.END|Gravity.CENTER_VERTICAL));
+        LinearLayout.LayoutParams qP=new LinearLayout.LayoutParams(-1,dp(56));
+        qP.setMargins(0,dp(4),0,dp(10));content.addView(searchBox,qP);
+
         renderModeSelector();renderFilterRow();
-        Button go=new Button(activity);go.setText("⌕  Найти на GitHub");
-        go.setAllCaps(false);go.setTextSize(14);go.setTextColor(Color.WHITE);
-        go.setBackground(round(palette.green,13,0,0));go.setOnClickListener(v->submit());
-        content.addView(go,new LinearLayout.LayoutParams(-1,dp(48)));
+
+        goButton=text("",15,true);goButton.setGravity(Gravity.CENTER);goButton.setTextColor(Color.WHITE);
+        goButton.setBackground(gradient(palette.green,true,16));goButton.setOnClickListener(v->submit());
+        LinearLayout.LayoutParams goP=new LinearLayout.LayoutParams(-1,dp(52));goP.setMargins(0,dp(2),0,dp(2));
+        content.addView(goButton,goP);
         TextView fileNameSearch=text("⌕  Найти файл по имени в выбранном репозитории  ›",12,true);
         fileNameSearch.setTextColor(palette.green);
         fileNameSearch.setGravity(Gravity.CENTER_VERTICAL|Gravity.CENTER_HORIZONTAL);
@@ -113,26 +127,27 @@ public final class SearchScreen {
         query.setOnEditorActionListener((v,id,event)->{
             if(id==EditorInfo.IME_ACTION_SEARCH){submit();return true;}return false;
         });
-        applyModeVisuals();applySmartVisuals();
+        applyModeVisuals();applySmartVisuals();applyAiVisuals();
+
         renderRecentSearches();
         section("Быстрые фильтры","Все фильтры",this::showFilterDialog);
-        quickFilters();
+        quickChips();
         section("Популярные направления","Все",()->
             actions.searchAdvanced("stars:>1000",false,SearchMode.REPOSITORIES,new SearchFilters()));
-        LinearLayout popular=new LinearLayout(activity);popular.setOrientation(LinearLayout.VERTICAL);
-        popular.setBackground(round(palette.card,14,palette.border,1));
-        direction(popular,"Android","Мобильные приложения и библиотеки",
-                R.drawable.ic_android,"topic:android",false);
-        direction(popular,"Kotlin","JVM- и Android-проекты",
-                R.drawable.ic_kotlin_brand,"language:kotlin",true);
-        direction(popular,"Open Source","Популярные открытые проекты",
-                R.drawable.ic_star,"stars:>10000",true);
-        direction(popular,"Новые проекты","Созданы за последние 30 дней",
-                R.drawable.ic_history,"created:>="+LocalDate.now().minusDays(30),true);
-        content.addView(popular,new LinearLayout.LayoutParams(-1,-2));
+        directionGrid();
         section("Сохранённые поиски","Сохранить текущий",this::saveQuery);
         savedBlock=new LinearLayout(activity);savedBlock.setOrientation(LinearLayout.VERTICAL);
         content.addView(savedBlock);drawSaved();
+    }
+
+    /** Gradient surface tinted with {@code accent}; filled when active. */
+    private GradientDrawable gradient(int accent,boolean active,int radius){
+        GradientDrawable g=new GradientDrawable(GradientDrawable.Orientation.TL_BR,active
+                ?new int[]{LanguageColors.mix(accent,Color.WHITE,.12f),LanguageColors.mix(accent,Color.BLACK,.26f)}
+                :new int[]{LanguageColors.mix(palette.card,accent,.16f),LanguageColors.mix(palette.card,accent,.04f),palette.card});
+        g.setCornerRadius(dp(DesignSystem.radius(radius)));
+        g.setStroke(dp(1),active?LanguageColors.mix(accent,Color.WHITE,.2f):LanguageColors.mix(palette.border,accent,.30f));
+        return g;
     }
 
     private void section(String title,String link,Runnable action){
@@ -144,62 +159,75 @@ public final class SearchScreen {
         right.setGravity(Gravity.CENTER_VERTICAL|Gravity.END);
         right.setOnClickListener(v->action.run());line.addView(right);
         LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,dp(41));
-        p.setMargins(0,dp(9),0,dp(3));content.addView(line,p);
+        p.setMargins(0,dp(14),0,dp(4));content.addView(line,p);
     }
 
-    private void quickFilters(){
-        LinearLayout line=new LinearLayout(activity);
-        String[] names={"Android","Kotlin","Приватные","За 30 дней"};
-        String[] details={"Мобильные","JVM","С доступом","Обновлены"};
-        String[] terms={"topic:android","language:kotlin","is:private",
-                "pushed:>="+LocalDate.now().minusDays(30)};
-        int[] icons={R.drawable.ic_android,R.drawable.ic_kotlin_brand,R.drawable.ic_lock,R.drawable.ic_history};
-        for(int i=0;i<4;i++){
-            final String term=terms[i];
-            LinearLayout tile=new LinearLayout(activity);tile.setOrientation(LinearLayout.VERTICAL);
-            tile.setPadding(dp(6),dp(6),dp(3),dp(4));
-            tile.setBackground(round(palette.card,11,palette.border,1));
-            ImageView art=new ImageView(activity);art.setImageResource(icons[i]);
-            if(i!=1)art.setColorFilter(palette.green);
-            LinearLayout.LayoutParams artP=new LinearLayout.LayoutParams(dp(23),dp(23));
-            artP.setMargins(dp(3),0,0,dp(4));tile.addView(art,artP);
-            TextView name=text(names[i],10,true);name.setPadding(0,0,0,0);
-            name.setSingleLine(true);name.setEllipsize(TextUtils.TruncateAt.END);tile.addView(name);
-            TextView desc=text(details[i],9,false);desc.setPadding(0,0,0,0);
-            desc.setTextColor(palette.muted);desc.setSingleLine(true);
-            desc.setEllipsize(TextUtils.TruncateAt.END);tile.addView(desc);
-            tile.setOnClickListener(v->actions.searchAdvanced(term,false,
-                    SearchMode.REPOSITORIES,new SearchFilters()));
-            LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(78),1);
-            p.setMargins(i==0?0:dp(2),0,i==3?0:dp(2),0);line.addView(tile,p);
-        }
-        content.addView(line);
-    }
-
-    private void direction(LinearLayout container,String title,String sub,int image,String term,boolean divider){
-        if(divider){View v=new View(activity);v.setBackgroundColor(palette.border);
-            LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,dp(1));
-            lp.setMargins(dp(10),0,dp(10),0);container.addView(v,lp);}
+    /** One horizontally scrolling row of tinted chips. */
+    private void chipRow(List<View> chips){
+        HorizontalScrollView scroll=new HorizontalScrollView(activity);scroll.setHorizontalScrollBarEnabled(false);
         LinearLayout row=new LinearLayout(activity);row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(8),dp(6),dp(7),dp(6));
-        ImageView art=new ImageView(activity);art.setImageResource(image);
-        if(image!=R.drawable.ic_kotlin_brand)art.setColorFilter(palette.green);
-        art.setPadding(dp(10),dp(10),dp(10),dp(10));
-        art.setBackground(round(palette.subtle,10,0,0));
-        row.addView(art,new LinearLayout.LayoutParams(dp(42),dp(42)));
-        LinearLayout labels=new LinearLayout(activity);labels.setOrientation(LinearLayout.VERTICAL);
-        labels.setPadding(dp(9),0,0,0);
-        TextView name=text(title,13,true);name.setPadding(0,0,0,0);
-        TextView detail=text(sub,11,false);detail.setPadding(0,0,0,0);
-        detail.setTextColor(palette.muted);detail.setSingleLine(true);
-        detail.setEllipsize(TextUtils.TruncateAt.END);
-        labels.addView(name);labels.addView(detail);
-        row.addView(labels,new LinearLayout.LayoutParams(0,-2,1));
-        TextView arrow=text("›",22,false);arrow.setTextColor(palette.muted);
-        arrow.setGravity(Gravity.CENTER);row.addView(arrow,new LinearLayout.LayoutParams(dp(20),dp(38)));
-        row.setOnClickListener(v->actions.searchAdvanced(term,false,
-                SearchMode.REPOSITORIES,new SearchFilters()));
-        container.addView(row,new LinearLayout.LayoutParams(-1,dp(58)));
+        for(View chip:chips){
+            LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-2,dp(40));p.setMargins(0,0,dp(8),0);row.addView(chip,p);
+        }
+        scroll.addView(row);
+        content.addView(scroll,new LinearLayout.LayoutParams(-1,dp(44)));
+    }
+
+    private TextView tintChip(String label,int accent,Runnable action){
+        TextView chip=text(label,12,true);chip.setGravity(Gravity.CENTER);chip.setSingleLine(true);
+        chip.setPadding(dp(14),0,dp(14),0);chip.setBackground(gradient(accent,false,16));
+        chip.setOnClickListener(v->action.run());return chip;
+    }
+
+    private void quickChips(){
+        String[][] items={{"Android","topic:android","3DDC84"},{"Kotlin","language:kotlin","7755CC"},
+                {"Python","language:python stars:>500","4E9B70"},{"Rust","language:rust stars:>500","B5654A"},
+                {"Go","language:go stars:>500","159E97"},{"TypeScript","language:typescript stars:>500","3178C6"},
+                {"Приватные","is:private",null},{"За 30 дней","pushed:>="+LocalDate.now().minusDays(30),null},
+                {"★ 1000+","stars:>1000",null},{"Без форков","fork:false stars:>100",null}};
+        List<View> chips=new ArrayList<>();
+        for(String[] item:items){
+            final String term=item[1];
+            int accent=item[2]==null?palette.green:0xFF000000|Integer.parseInt(item[2],16);
+            chips.add(tintChip(item[0],accent,()->actions.searchAdvanced(term,false,SearchMode.REPOSITORIES,new SearchFilters())));
+        }
+        chipRow(chips);
+    }
+
+    private void directionGrid(){
+        Object[][] items={
+                {"Android","Приложения и библиотеки",R.drawable.ic_android,"topic:android stars:>200",0x3DDC84},
+                {"Kotlin","JVM и Android",R.drawable.ic_kotlin_brand,"language:kotlin stars:>200",0x7755CC},
+                {"ИИ и LLM","Модели, агенты, RAG",R.drawable.ic_ai,"topic:llm stars:>300",0x9B5DE5},
+                {"Open Source","Популярные проекты",R.drawable.ic_star,"stars:>10000",0xF2B705},
+                {"Безопасность","Аудит и инструменты",R.drawable.ic_lock,"topic:security stars:>500",0xE5484D},
+                {"Telegram-боты","Клиенты и боты",R.drawable.ic_discussion,"topic:telegram-bot stars:>100",0x2AABEE},
+                {"Игры","Движки и open-source игры",R.drawable.ic_explore,"topic:game stars:>500",0xE8683F},
+                {"Новые проекты","За последние 30 дней",R.drawable.ic_history,"created:>="+LocalDate.now().minusDays(30)+" stars:>20",0x4C7BBB}};
+        for(int i=0;i<items.length;i+=2){
+            LinearLayout row=new LinearLayout(activity);
+            for(int k=0;k<2;k++){
+                Object[] it=items[i+k];
+                int accent=0xFF000000|(Integer)it[4];
+                LinearLayout card=new LinearLayout(activity);card.setOrientation(LinearLayout.VERTICAL);
+                card.setPadding(dp(12),dp(11),dp(10),dp(10));card.setBackground(gradient(accent,false,18));
+                ImageView badge=new ImageView(activity);badge.setImageResource((Integer)it[2]);
+                if((Integer)it[2]!=R.drawable.ic_kotlin_brand)badge.setColorFilter(Color.WHITE);
+                int pad=dp(7);badge.setPadding(pad,pad,pad,pad);
+                GradientDrawable badgeBg=new GradientDrawable(GradientDrawable.Orientation.TL_BR,
+                        new int[]{LanguageColors.mix(accent,Color.WHITE,.12f),LanguageColors.mix(accent,Color.BLACK,.28f)});
+                badgeBg.setCornerRadius(dp(11));badge.setBackground(badgeBg);
+                card.addView(badge,new LinearLayout.LayoutParams(dp(34),dp(34)));
+                TextView name=text((String)it[0],14,true);name.setPadding(0,dp(8),0,0);name.setSingleLine(true);card.addView(name);
+                TextView sub=text((String)it[1],11,false);sub.setTextColor(palette.muted);sub.setPadding(0,0,0,0);
+                sub.setSingleLine(true);sub.setEllipsize(TextUtils.TruncateAt.END);card.addView(sub);
+                final String term=(String)it[3];
+                card.setOnClickListener(v->actions.searchAdvanced(term,false,SearchMode.REPOSITORIES,new SearchFilters()));
+                LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(96),1);
+                p.setMargins(k==0?0:dp(5),0,k==0?dp(5):0,dp(10));row.addView(card,p);
+            }
+            content.addView(row,new LinearLayout.LayoutParams(-1,-2));
+        }
     }
 
     private JSONArray saved(){
@@ -268,16 +296,16 @@ public final class SearchScreen {
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setContentDescription("Тип поиска");
         for (SearchMode item : SearchMode.values()) {
-            TextView chip = text(shortTitle(item), 11, true);
+            TextView chip = text(shortTitle(item), 12, true);
             chip.setGravity(Gravity.CENTER);
-            chip.setMinHeight(dp(44));
+            chip.setSingleLine(true);
             chip.setOnClickListener(v -> setMode(item));
             modeViews.put(item, chip);
-            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, dp(44), 1f);
+            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, dp(42), 1f);
             p.setMargins(item == SearchMode.REPOSITORIES ? 0 : dp(3), 0, item == SearchMode.PEOPLE ? 0 : dp(3), 0);
             row.addView(chip, p);
         }
-        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, dp(44));
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, dp(42));
         p.setMargins(0, 0, 0, dp(8));
         content.addView(row, p);
     }
@@ -285,24 +313,32 @@ public final class SearchScreen {
     private void renderFilterRow() {
         LinearLayout row=new LinearLayout(activity);row.setGravity(Gravity.CENTER_VERTICAL);
         TextView button=text("⚙ Фильтры",12,true);
-        button.setGravity(Gravity.CENTER);button.setBackground(round(palette.card,12,palette.border,1));
+        button.setGravity(Gravity.CENTER);button.setSingleLine(true);
+        button.setBackground(gradient(palette.green,false,14));
         button.setOnClickListener(v->showFilterDialog());
-        row.addView(button,new LinearLayout.LayoutParams(dp(102),dp(40)));
-        filterSummary=text("",10,false);filterSummary.setTextColor(palette.muted);
-        filterSummary.setSingleLine(true);filterSummary.setEllipsize(TextUtils.TruncateAt.END);
-        row.addView(filterSummary,new LinearLayout.LayoutParams(0,-2,1));
-        smartToggle=text("",11,true);smartToggle.setGravity(Gravity.CENTER);
+        row.addView(button,new LinearLayout.LayoutParams(0,dp(42),1f));
+        smartToggle=text("",12,true);smartToggle.setGravity(Gravity.CENTER);smartToggle.setSingleLine(true);
         smartToggle.setOnClickListener(v->setSmartEnabled(!smartEnabled));
-        row.addView(smartToggle,new LinearLayout.LayoutParams(dp(101),dp(40)));
+        LinearLayout.LayoutParams sp=new LinearLayout.LayoutParams(0,dp(42),1f);sp.setMargins(dp(6),0,0,0);
+        row.addView(smartToggle,sp);
+        aiToggle=text("",12,true);aiToggle.setGravity(Gravity.CENTER);aiToggle.setSingleLine(true);
+        aiToggle.setOnClickListener(v->setAiEnabled(!aiEnabled));
+        LinearLayout.LayoutParams ap=new LinearLayout.LayoutParams(0,dp(42),1f);ap.setMargins(dp(6),0,0,0);
+        row.addView(aiToggle,ap);
         LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,dp(42));
-        p.setMargins(0,0,0,dp(8));content.addView(row,p);
+        p.setMargins(0,0,0,dp(4));content.addView(row,p);
+        filterSummary=text("",11,false);filterSummary.setTextColor(palette.muted);
+        filterSummary.setSingleLine(true);filterSummary.setEllipsize(TextUtils.TruncateAt.END);
+        filterSummary.setPadding(dp(4),0,dp(4),0);
+        content.addView(filterSummary,new LinearLayout.LayoutParams(-1,-2));
     }
 
     private void submit() {
         String value = query.getText().toString().trim();
         if (!value.isEmpty()) {
             prefs.edit().putString("search_draft_query",value).apply();
-            actions.searchAdvanced(value,smartEnabled,mode,filters.copy());
+            if(aiEnabled)actions.aiSearch(value,mode,filters.copy());
+            else actions.searchAdvanced(value,smartEnabled,mode,filters.copy());
         }
     }
 
@@ -310,6 +346,25 @@ public final class SearchScreen {
         smartEnabled = enabled;
         prefs.edit().putBoolean(PREF_SMART_RU, enabled).apply();
         applySmartVisuals();
+    }
+
+    private void setAiEnabled(boolean enabled) {
+        aiEnabled = enabled;
+        prefs.edit().putBoolean(PREF_AI, enabled).apply();
+        applyAiVisuals();
+    }
+
+    private void applyAiVisuals() {
+        if (aiToggle == null) return;
+        aiToggle.setText(aiEnabled ? "✦ ИИ · Вкл" : "✦ ИИ");
+        int accent = 0xFF9B5DE5;
+        aiToggle.setTextColor(aiEnabled ? Color.WHITE : palette.text);
+        aiToggle.setBackground(gradient(accent, aiEnabled, 14));
+        aiToggle.setContentDescription(aiEnabled
+                ? "ИИ-поиск включён: подключённая нейросеть сама составит запрос GitHub. Нажмите, чтобы выключить."
+                : "ИИ-поиск выключен. Нажмите, чтобы нейросеть составляла запрос GitHub по описанию.");
+        if (goButton != null) goButton.setText(aiEnabled ? "✦  Найти с ИИ" : "⌕  Найти на GitHub");
+        if (query != null) query.setHint(hintFor(mode, smartEnabled || aiEnabled));
     }
 
     private void setMode(SearchMode next) {
@@ -324,11 +379,15 @@ public final class SearchScreen {
             boolean active = e.getKey() == mode;
             TextView v=e.getValue();
             v.setTextColor(active ? Color.WHITE : palette.muted);
-            v.setBackground(round(active ? palette.green : palette.card, 11, active ? palette.green : palette.border, 1));
+            v.setBackground(gradient(palette.green, active, 14));
             v.setContentDescription(e.getKey().title + (active ? ", выбран" : ""));
         }
         if (subtitle != null) subtitle.setText(subtitleFor(mode));
-        if (filterSummary != null) filterSummary.setText("Фильтры: " + filters.summary(mode));
+        if (filterSummary != null) {
+            boolean any = !filters.isEmpty(mode);
+            filterSummary.setVisibility(any ? View.VISIBLE : View.GONE);
+            filterSummary.setText("Фильтры: " + filters.summary(mode));
+        }
     }
 
     private void applySmartVisuals() {
@@ -336,14 +395,14 @@ public final class SearchScreen {
         smartToggle.setText(smartEnabled ? "RU · Вкл ✓" : "RU · Выкл");
         if (smartEnabled) {
             smartToggle.setTextColor(Color.WHITE);
-            smartToggle.setBackground(round(palette.green, 12, palette.green, 0));
+            smartToggle.setBackground(gradient(palette.green, true, 14));
             smartToggle.setContentDescription("Интеллектуальный русский поиск включён. Нажмите, чтобы выключить.");
         } else {
             smartToggle.setTextColor(palette.muted);
-            smartToggle.setBackground(round(palette.card, 12, palette.border, 1));
+            smartToggle.setBackground(gradient(palette.green, false, 14));
             smartToggle.setContentDescription("Интеллектуальный русский поиск выключен. Нажмите, чтобы включить.");
         }
-        query.setHint(hintFor(mode, smartEnabled));
+        query.setHint(hintFor(mode, smartEnabled || aiEnabled));
     }
 
     private void showFilterDialog() {
@@ -416,19 +475,22 @@ public final class SearchScreen {
     private void renderRecentSearches() {
         List<SmartSearchHistory.Entry> recent = history.recent();
         if (recent.isEmpty()) return;
-        LinearLayout block = new LinearLayout(activity); block.setOrientation(LinearLayout.VERTICAL);
         LinearLayout head = new LinearLayout(activity); head.setGravity(Gravity.CENTER_VERTICAL);
-        head.addView(text("Недавние запросы", 17, true), new LinearLayout.LayoutParams(0, dp(44), 1));
-        TextView clear = text("Очистить", 12, true); clear.setTextColor(palette.green); clear.setGravity(Gravity.CENTER_VERTICAL | Gravity.END);
-        clear.setOnClickListener(v -> { history.clear(); block.setVisibility(View.GONE); }); head.addView(clear, new LinearLayout.LayoutParams(dp(82), dp(44))); block.addView(head);
-        int count = Math.min(3, recent.size());
-        for (int i=0;i<count;i++) {
-            SmartSearchHistory.Entry entry=recent.get(i);LinearLayout row=new LinearLayout(activity);row.setGravity(Gravity.CENTER_VERTICAL);row.setPadding(dp(12),dp(6),dp(10),dp(6));row.setBackground(round(palette.card,14,palette.border,1));
-            TextView label=text(entry.query,13,false);label.setMaxLines(1);label.setEllipsize(android.text.TextUtils.TruncateAt.END);row.addView(label,new LinearLayout.LayoutParams(0,dp(40),1));
-            if(entry.smart){TextView badge=text("RU ✦",10,true);badge.setTextColor(palette.green);badge.setGravity(Gravity.CENTER);row.addView(badge,new LinearLayout.LayoutParams(dp(48),dp(40)));}
-            row.setOnClickListener(v->actions.search(entry.query,entry.smart));LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,dp(48));p.setMargins(0,0,0,dp(6));block.addView(row,p);
+        head.addView(text("Недавние запросы", 17, true), new LinearLayout.LayoutParams(0, dp(40), 1));
+        TextView clear = text("Очистить ›", 11, true); clear.setTextColor(palette.green); clear.setGravity(Gravity.CENTER_VERTICAL | Gravity.END);
+        head.addView(clear, new LinearLayout.LayoutParams(dp(90), dp(40)));
+        content.addView(head);
+        List<View> chips = new ArrayList<>();
+        for (int i = 0; i < Math.min(8, recent.size()); i++) {
+            SmartSearchHistory.Entry entry = recent.get(i);
+            String label = entry.query.length() > 26 ? entry.query.substring(0, 25) + "…" : entry.query;
+            chips.add(tintChip((entry.smart ? "RU ✦ " : "⏱ ") + label, palette.green, () -> actions.search(entry.query, entry.smart)));
         }
-        content.addView(block);
+        LinearLayout holder = new LinearLayout(activity); holder.setOrientation(LinearLayout.VERTICAL);
+        int before = content.getChildCount();
+        chipRow(chips);
+        View row = content.getChildAt(content.getChildCount() - 1);
+        clear.setOnClickListener(v -> { history.clear(); row.setVisibility(View.GONE); head.setVisibility(View.GONE); });
     }
 
     private void addDirection(String title,String subtitle,String q,boolean smart){
