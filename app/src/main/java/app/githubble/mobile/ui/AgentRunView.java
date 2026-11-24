@@ -51,16 +51,16 @@ public final class AgentRunView extends LinearLayout {
     this.border = border;
     this.openDiff = openDiff;
     setOrientation(VERTICAL);
-    setPadding(dp(11), dp(0), dp(11), dp(4));
+    setPadding(dp(10), dp(0), dp(10), dp(2));
     GradientDrawable background = new GradientDrawable();
     background.setColor(soft);
-    background.setCornerRadius(dp(14));
+    background.setCornerRadius(dp(12));
     background.setStroke(dp(1), border);
     setBackground(background);
     LinearLayout header = new LinearLayout(activity);
     header.setGravity(Gravity.CENTER_VERTICAL);
-    header.setMinimumHeight(dp(26));
-    heading = label("", 11, text);
+    header.setMinimumHeight(dp(32));
+    heading = label("", 12, text);
     heading.setTypeface(null, Typeface.BOLD);
     heading.setMaxLines(2);
     header.addView(heading, new LinearLayout.LayoutParams(0, -2, 1));
@@ -167,9 +167,9 @@ public final class AgentRunView extends LinearLayout {
     if (!active(value) && attention(value)) expanded = true;
     boolean isLive = live(value);
     String state = value.optString("state");
-    stage.setText((active(value) && !isLive ? "Прервана · " : "") + value.optString("stage"));
-    if ("approval".equals(state))
-      stage.setText("Ожидает подтверждения · время ожидания входит в задачу");
+    stage.setText("");
+    if ("approval".equals(state)) stage.setText("Ожидает подтверждения · время ожидания входит в задачу");
+    else if (active(value) && !isLive) stage.setText("Прервана");
     String content =
         value.optJSONArray("operations") == null
             ? "[]"
@@ -186,13 +186,8 @@ public final class AgentRunView extends LinearLayout {
       new AgentMarkdownView(activity, text, muted, accent, 0, border)
           .render(partial, value.optString("preview"));
     }
-    String line =
-        app.githubble.mobile.agent.AgentTaskLabels.line(
-            value.optString("task_state"), value.optString("mode"));
-    boolean quiet = "succeeded".equals(state) && !attention(value);
-    taskLine.setText(line);
-    taskLine.setVisibility(line.isEmpty() || quiet ? GONE : VISIBLE);
-    stage.setVisibility(quiet || stage.getText().length() == 0 ? GONE : VISIBLE);
+    taskLine.setVisibility(GONE);
+    stage.setVisibility(stage.getText().length() == 0 ? GONE : VISIBLE);
     updateResume();
     updateHeading();
     tick();
@@ -216,7 +211,7 @@ public final class AgentRunView extends LinearLayout {
         live(value)
             ? ("approval".equals(state)
                 ? "Ожидает подтверждения"
-                : "Работаю")
+                : app.githubble.mobile.agent.AgentTaskLabels.activity(value.optString("task_state")) + "…")
             : "succeeded".equals(state)
                 ? (attention(value) ? "Завершено · есть ошибки" : "Готово")
                 : "cancelled".equals(state)
@@ -226,7 +221,9 @@ public final class AgentRunView extends LinearLayout {
     heading.setText(
         (expanded ? "▾ " : "▸ ")
             + title
-            + (!live(value) && ops != null && ops.length() > 0 ? " · действий: " + ops.length() : ""));
+            + (!live(value) && ops != null && ops.length() > 0
+                ? " · " + app.githubble.mobile.agent.AgentTaskLabels.actions(ops.length())
+                : ""));
     body.setVisibility(expanded ? VISIBLE : GONE);
     setContentDescription(title + ". Время " + AgentRun.time(baseElapsed));
   }

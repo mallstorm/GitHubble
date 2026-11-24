@@ -58,6 +58,13 @@ public final class AgentMarkdownView {
 
   private final Activity activity;
   private final int text, muted, accent, soft, border;
+  private boolean selectable = true;
+
+  /** Chat bubbles use a long-press menu instead of in-place selection. */
+  public AgentMarkdownView selectable(boolean value) {
+    selectable = value;
+    return this;
+  }
 
   public AgentMarkdownView(
       Activity activity, int text, int muted, int accent, int soft, int border) {
@@ -83,7 +90,7 @@ public final class AgentMarkdownView {
     v.setTextColor(color);
     v.setLinkTextColor(accent);
     v.setTextSize(size);
-    v.setTextIsSelectable(true);
+    v.setTextIsSelectable(selectable);
     v.setLineSpacing(dp(2), 1.05f);
     v.setMovementMethod(LinkMovementMethod.getInstance());
     return v;
@@ -272,24 +279,65 @@ public final class AgentMarkdownView {
   private void table(LinearLayout parent, Node table) {
     final List<TableRow> rows = new ArrayList<>();
     collect(table, rows);
-    // Column widths follow the longest cell, so short columns stay narrow and long text wraps.
-    final List<Integer> columns = new ArrayList<>();
+    // Pre-render every cell once: column widths are derived from the real content.
+    final List<List<SpannableStringBuilder>> cells = new ArrayList<>();
+    final List<List<TableCell>> meta = new ArrayList<>();
+    int cols = 0;
     for (TableRow tr : rows) {
-      int col = 0;
+      List<SpannableStringBuilder> line = new ArrayList<>();
+      List<TableCell> info = new ArrayList<>();
       for (Node c = tr.getFirstChild(); c != null; c = c.getNext()) {
         if (!(c instanceof TableCell)) continue;
-        int len = inline((TableCell) c).length();
-        if (col >= columns.size()) columns.add(len);
-        else if (len > columns.get(col)) columns.set(col, len);
-        col++;
+        line.add(inline(c));
+        info.add((TableCell) c);
+      }
+      cols = Math.max(cols, line.size());
+      cells.add(line);
+      meta.add(info);
+    }
+    if (cols == 0) return;
+    final float charPx = 7.4f * activity.getResources().getDisplayMetrics().density;
+    final int padding = dp(12), pad2 = padding * 2;
+    final int[] want = new int[cols], least = new int[cols];
+    for (int r = 0; r < cells.size(); r++) {
+      for (int c = 0; c < cells.get(r).size(); c++) {
+        String plain = cells.get(r).get(c).toString();
+        int longest = 0;
+        for (String word : plain.split("\\s+")) longest = Math.max(longest, word.length());
+        want[c] = Math.max(want[c], Math.min(dp(240), (int) (plain.length() * charPx) + pad2));
+        least[c] = Math.max(least[c], Math.min(dp(130), (int) (longest * charPx) + pad2));
       }
     }
-    final int headerBg = mix(soft, accent, .16f), zebra = mix(soft, text, .04f);
+    for (int c = 0; c < cols; c++) {
+      least[c] = Math.max(least[c], dp(64));
+      want[c] = Math.max(want[c], least[c]);
+    }
+    final int available = activity.getResources().getDisplayMetrics().widthPixels - dp(34);
+    int total = 0;
+    for (int w : want) total += w;
+    final int[] width = want.clone();
+    if (total < available) {
+      int used = 0;
+      for (int c = 0; c < cols; c++) {
+        width[c] = c == cols - 1 ? available - used : (int) ((long) want[c] * available / total);
+        used += width[c];
+      }
+    } else if (total > available) {
+      int excess = total - available, room = 0;
+      for (int c = 0; c < cols; c++) room += want[c] - least[c];
+      for (int c = 0; c < cols; c++)
+        width[c] = room <= 0 ? least[c] : want[c] - (int) ((long) Math.min(excess, room) * (want[c] - least[c]) / room);
+    }
+    int gridWidth = 0;
+    for (int w : width) gridWidth += w + 1;
+
+    final int headerBg = mix(soft, accent, .16f), zebra = mix(soft, text, .035f);
+    final int line = mix(border, accent, .18f);
     final LinearLayout frame = new LinearLayout(activity);
     GradientDrawable frameShape = new GradientDrawable();
     frameShape.setColor(Color.TRANSPARENT);
     frameShape.setCornerRadius(dp(12));
-    frameShape.setStroke(dp(1), mix(border, accent, .25f));
+    frameShape.setStroke(dp(1), mix(border, accent, .30f));
     frame.setBackground(frameShape);
     frame.setClipToOutline(true);
     frame.setOutlineProvider(
@@ -301,12 +349,13 @@ public final class AgentMarkdownView {
         });
     frame.setOrientation(LinearLayout.VERTICAL);
     HorizontalScrollView scroll = new HorizontalScrollView(activity);
-    scroll.setFillViewport(true);
     scroll.setHorizontalScrollBarEnabled(false);
-    TableLayout layout = new TableLayout(activity);
-    layout.setStretchAllColumns(true);
-    scroll.addView(layout);
+    scroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
+    final LinearLayout grid = new LinearLayout(activity);
+    grid.setOrientation(LinearLayout.VERTICAL);
+    scroll.addView(grid, new FrameLayout.LayoutParams(gridWidth, -2));
     frame.addView(scroll, new LinearLayout.LayoutParams(-1, -2));
+    final int columns = cols;
     int[] next = {0};
     Runnable[] more = {null};
     TextView expand = label("Показать следующие строки", 12, accent);
@@ -315,32 +364,35 @@ public final class AgentMarkdownView {
     expand.setMinHeight(dp(48));
     more[0] =
         () -> {
-          int end = Math.min(rows.size(), next[0] + 100);
+          int end = Math.min(rows.size(), next[0] + 150);
           for (; next[0] < end; next[0]++) {
             final int index = next[0];
-            android.widget.TableRow row = new android.widget.TableRow(activity);
-            int col = 0;
-            for (Node c = rows.get(index).getFirstChild(); c != null; c = c.getNext()) {
-              if (!(c instanceof TableCell)) continue;
-              TableCell cell = (TableCell) c;
-              TextView value = label(inline(cell), cell.isHeader() ? 12 : 13, cell.isHeader() ? mix(text, accent, .35f) : text);
-              value.setPadding(dp(11), dp(9), dp(11), dp(9));
-              value.setBackgroundColor(
-                  cell.isHeader() ? headerBg : index % 2 == 0 ? zebra : Color.TRANSPARENT);
-              if (cell.isHeader()) value.setTypeface(null, Typeface.BOLD);
-              if (cell.getAlignment() == TableCell.Alignment.RIGHT) value.setGravity(Gravity.END);
-              else if (cell.getAlignment() == TableCell.Alignment.CENTER)
-                value.setGravity(Gravity.CENTER_HORIZONTAL);
-              int chars = col < columns.size() ? columns.get(col) : 12;
-              int width = Math.max(78, Math.min(230, chars * 7 + 26));
-              value.setMinWidth(dp(width > 120 ? 120 : width));
-              row.addView(value, new android.widget.TableRow.LayoutParams(dp(width), -2));
-              col++;
+            boolean header = index == 0 && !meta.get(0).isEmpty() && meta.get(0).get(0).isHeader();
+            LinearLayout row = new LinearLayout(activity);
+            row.setBaselineAligned(false);
+            row.setBackgroundColor(header ? headerBg : index % 2 == 0 ? Color.TRANSPARENT : zebra);
+            for (int c = 0; c < columns; c++) {
+              if (c > 0) {
+                View vertical = new View(activity);
+                vertical.setBackgroundColor(line);
+                row.addView(vertical, new LinearLayout.LayoutParams(1, -1));
+              }
+              CharSequence content = c < cells.get(index).size() ? cells.get(index).get(c) : "";
+              TextView value = label(content, header ? 12 : 13, header ? mix(text, accent, .30f) : text);
+              value.setPadding(padding, dp(9), padding, dp(9));
+              value.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
+              if (header) value.setTypeface(null, Typeface.BOLD);
+              TableCell cell = c < meta.get(index).size() ? meta.get(index).get(c) : null;
+              if (cell != null && cell.getAlignment() == TableCell.Alignment.RIGHT)
+                value.setGravity(Gravity.CENTER_VERTICAL | Gravity.END);
+              else if (cell != null && cell.getAlignment() == TableCell.Alignment.CENTER)
+                value.setGravity(Gravity.CENTER);
+              row.addView(value, new LinearLayout.LayoutParams(width[c], -1));
             }
-            layout.addView(row);
+            grid.addView(row, new LinearLayout.LayoutParams(-1, -2));
             View separator = new View(activity);
-            separator.setBackgroundColor(mix(border, accent, .12f));
-            layout.addView(separator, new TableLayout.LayoutParams(-1, dp(1)));
+            separator.setBackgroundColor(header ? mix(line, accent, .35f) : line);
+            grid.addView(separator, new LinearLayout.LayoutParams(-1, header ? dp(2) : 1));
           }
           expand.setVisibility(next[0] < rows.size() ? View.VISIBLE : View.GONE);
         };

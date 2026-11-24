@@ -30,6 +30,29 @@ public final class AgentTaskLabels {
     }
   }
 
+  /** First-person present tense for a live run, e.g. "Анализирую". */
+  public static String activity(String name) {
+    switch (name == null ? "" : name) {
+      case "ANALYZING": return "Анализирую";
+      case "PLANNING": return "Планирую";
+      case "EXECUTING": return "Выполняю";
+      case "TESTING": return "Проверяю";
+      case "BUILDING": return "Собираю";
+      case "VERIFYING": return "Проверяю результат";
+      case "DELIVERING": return "Доставляю";
+      case "RECOVERING": return "Восстанавливаю";
+      case "WAITING_PERMISSION": return "Жду подтверждения";
+      default: return "Отвечаю";
+    }
+  }
+
+  /** "1 действие", "3 действия", "5 действий". */
+  public static String actions(int n) {
+    int tail = n % 100, last = n % 10;
+    String word = tail >= 11 && tail <= 14 ? "действий" : last == 1 ? "действие" : last >= 2 && last <= 4 ? "действия" : "действий";
+    return n + " " + word;
+  }
+
   public static String mode(String name) {
     switch (name == null ? "" : name) {
       case "AUTO": return "авто";
