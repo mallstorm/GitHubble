@@ -203,12 +203,6 @@ public final class MirrorManager {
         return status;
     }
 
-    /** Removed: users no longer create shared controller repositories. */
-    public String setupController(){
-        throw new UnsupportedOperationException(
-                "Mirror Controller удалён. Используйте Mirror Manager внутри репозитория.");
-    }
-
     public Job start(String sourceFull,String sourceAccountId,String targetAccountId,
                      String targetName,boolean unusedManaged)throws Exception{
         MirrorPolicy.requireRepository(sourceFull);MirrorPolicy.requireName(targetName);
@@ -834,9 +828,6 @@ public final class MirrorManager {
     /** Public compatibility entrypoint: safely update an existing linked mirror. */
     public Job sync(String copyId)throws Exception{
         return updateMirror(copyId);
-    }
-    public Job retry(String ignored)throws Exception{
-        throw new UnsupportedOperationException("Создайте новый план с другим именем назначения.");
     }
 
     private static Map<String,String> refs(GitHubApiClient api,String repo)throws Exception{

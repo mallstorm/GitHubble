@@ -10,7 +10,7 @@ From repository → Архив репозитория → **Создать по�
 3. GitHubble installs a dedicated workflow file on the source default branch if not already present. This introduces a service commit. This initial change is not part of the captured default branch snapshot.
 4. Runner checks original default SHA and refs, clones complete Git history, fetches LFS, builds `repository.bundle`, gathers GitHub metadata (labels, milestones, Issues/comments, PR data, Releases), optionally downloads release binaries, calculates SHA-256 digests, and publishes an Actions artifact ZIP.
 5. Native progress follows actual Actions job step status (not an invented byte-level ETA).
-6. User downloads ZIP to Android Downloads/GitHubble and **must preserve it off GitHub**. Actions artifacts are temporary. The backup workflow does not restore the original HEAD after staging, and may remain in the source repository.
+6. User downloads ZIP to Android Downloads/GitHubble and **must preserve it off GitHub**. Actions artifacts are kept for 7 days. After a successful run GitHubble removes its temporary workflow from the source default branch when that branch still sits on the installer commit; otherwise it tells you to check the repository.
 
 Contents:
 - `repository.bundle` — complete retained Git history and all heads/tags.
@@ -28,7 +28,7 @@ From **Восстановить полную копию из ZIP**:
 3. The archive is staged in that new private repository as a temporary draft-release asset. Maximum upload is **1.95 GB**.
 4. A one-time encrypted Actions secret enables safe import of Git refs containing workflow files.
 5. GitHub Actions downloads the exact staged ZIP, verifies all entries again, validates bootstrap destination SHA and the Git ref inventory, transfers LFS, removes the temporary secret, then atomically restores branches and tags with a force-with-lease restricted to the known bootstrap branch.
-6. Metadata (labels, milestones, Issues/comments and Releases; optional binary assets) is replayed under the destination's GitHub identity. Original timestamps/author identities, PR reviews and PR discussions cannot be faithfully recreated by GitHub's API; reference records stay in the archive.
+6. Metadata (labels, milestones, Issues/comments and Releases; optional binary assets) is replayed under the destination's GitHub identity. Writes are paced (one per ~1 s) and retried when GitHub answers with a rate limit. If a run breaks half-way, run Restore again into the SAME destination: Issues are recognised by their `Restored from …/issues/N` header and comments by a hidden `githubble-comment` marker, so nothing is duplicated; a destination holding unrelated Issues is still refused. Releases are recreated oldest first. Original timestamps/author identities, PR reviews and PR discussions cannot be faithfully recreated by GitHub's API; reference records stay in the archive.
 7. Client checks the restored main Git SHA and sets the original default branch, then reports **Архив применён и валидирован**.
 
 ## Progress labels

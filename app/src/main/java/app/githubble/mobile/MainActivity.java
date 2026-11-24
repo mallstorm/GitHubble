@@ -9518,7 +9518,6 @@ public class MainActivity extends Activity {
                 ()->navigate(this::showPrivacyAndData)));
         privacy.add(SettingsScreen.Item.info(R.drawable.ic_lock,"Защита токена",
                 isSignedIn()?"Зашифрован Android Keystore":"Нет активного сеанса","токен безопасность keystore шифрование"));
-        privacy.note("PIN-код и биометрическая блокировка приложения пока не реализованы.");
         sections.add(privacy);
         return sections;
     }

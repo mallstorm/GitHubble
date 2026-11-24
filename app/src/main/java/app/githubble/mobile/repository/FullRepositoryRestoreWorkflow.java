@@ -246,7 +246,7 @@ jobs:
           set -euo pipefail
           test -n "$RESTORE_TOKEN"
           python3 - <<'PY'
-          import os,json,urllib.request,urllib.parse,pathlib,re
+          import os,json,urllib.request,urllib.error,urllib.parse,pathlib,re,time
           root=pathlib.Path(os.environ['RUNNER_TEMP'])/'unpacked'
           data=json.loads((root/'metadata.json').read_text(encoding='utf-8'))
           sections=data.get('sections',{})
@@ -257,18 +257,39 @@ jobs:
                    'User-Agent':'GitHubble-full-restore','X-GitHub-Api-Version':'2022-11-28'}
           def call(method,path,payload=None):
               body=None if payload is None else json.dumps(payload).encode()
-              request=urllib.request.Request(base+path,body,headers={**headers,'Content-Type':'application/json'},method=method)
-              with urllib.request.urlopen(request,timeout=60) as response:
-                  raw=response.read(4*1024*1024)
-                  return json.loads(raw) if raw else {}
-          old_labels={v['name'].casefold() for v in call('GET','/labels?per_page=100')}
+              for attempt in range(7):
+                  request=urllib.request.Request(base+path,body,headers={**headers,'Content-Type':'application/json'},method=method)
+                  try:
+                      with urllib.request.urlopen(request,timeout=60) as response:
+                          raw=response.read(4*1024*1024)
+                          if method!='GET':time.sleep(1.1)
+                          return json.loads(raw) if raw else {}
+                  except urllib.error.HTTPError as error:
+                      text=error.read(4096).decode('utf-8','replace').lower()
+                      wait=error.headers.get('Retry-After')
+                      limited=error.code==429 or (error.code==403 and (wait is not None or 'rate limit' in text or error.headers.get('X-RateLimit-Remaining')=='0'))
+                      transient=error.code in (502,503,504) and method=='GET'
+                      if not (limited or transient) or attempt==6:raise
+                      delay=int(wait) if wait and wait.isdigit() else min(90,5*2**attempt)
+                      print('GitHub asked to slow down (HTTP '+str(error.code)+'); waiting '+str(delay)+' s',flush=True)
+                      time.sleep(min(delay,300))
+          def pages(path):
+              values=[]
+              for page in range(1,41):
+                  sep='&' if '?' in path else '?'
+                  result=call('GET',path+sep+'per_page=100&page='+str(page))
+                  if not isinstance(result,list):raise RuntimeError('Invalid page '+path)
+                  values+=result
+                  if len(result)<100:break
+              return values
+          old_labels={v['name'].casefold() for v in pages('/labels')}
           for label in sections.get('labels',[]):
               name=label.get('name','')
               if name and name.casefold() not in old_labels:
                   call('POST','/labels',{'name':name,'color':label.get('color','ededed'),'description':label.get('description','')})
                   old_labels.add(name.casefold())
           milestones={}
-          for item in call('GET','/milestones?state=all&per_page=100'):
+          for item in pages('/milestones?state=all'):
               milestones[item['title'].casefold()]=item['number']
           number_map={}
           for item in sections.get('milestones',[]):
@@ -278,43 +299,65 @@ jobs:
                   if item.get('due_on'):payload['due_on']=item['due_on']
                   milestones[key]=call('POST','/milestones',payload)['number']
               number_map[item['number']]=milestones[key]
-          if call('GET','/issues?state=all&per_page=1'):
-              raise RuntimeError('Destination already has Issues: duplicate-safe restore aborted')
+          # Resume support: Issues created by an interrupted run carry a provenance header.
+          header=re.compile('^Restored from '+re.escape(data['repository'])+'/issues/([0-9]+)\\\\n')
+          issues={};state={}
+          for existing in pages('/issues?state=all'):
+              match=header.match(existing.get('body') or '')
+              if 'pull_request' in existing or not match:
+                  raise RuntimeError('Destination already has unrelated Issues: restore aborted')
+              issues[int(match.group(1))]=existing['number'];state[existing['number']]=existing.get('state','open')
+          if issues:print('Resuming: found',len(issues),'Issues restored by an earlier run',flush=True)
           originals=sections.get('issues',[])
-          issues={}
           for item in originals:
               number=item['number']
+              if number in issues:continue
               provenance='Restored from '+data['repository']+'/issues/'+str(number)+'\\nOriginal author: '+(item.get('user') or {}).get('login','unknown')+'\\nOriginal date: '+item.get('created_at','')+'\\n\\n'
               payload={'title':item.get('title') or 'Restored Issue','body':provenance+(item.get('body') or ''),
                        'labels':[x.get('name','') for x in item.get('labels',[]) if x.get('name')]}
               if item.get('milestone') and item['milestone']['number'] in number_map:
                   payload['milestone']=number_map[item['milestone']['number']]
-              issues[number]=call('POST','/issues',payload)['number']
+              created=call('POST','/issues',payload)
+              issues[number]=created['number'];state[created['number']]='open'
+          done_comments=set()
+          if issues:
+              for existing in pages('/issues/comments'):
+                  marker=re.search('<!-- githubble-comment:([0-9]+) -->',existing.get('body') or '')
+                  if marker:done_comments.add(int(marker.group(1)))
           for item in sections.get('issue_comments',[]):
-              m=re.search(r'/issues/([0-9]+)$',item.get('issue_url',''))
-              if not m or int(m.group(1)) not in issues:continue
+              m=re.search('/issues/([0-9]+)$',item.get('issue_url',''))
+              cid=item.get('id')
+              if not m or int(m.group(1)) not in issues or not isinstance(cid,int) or cid in done_comments:continue
               new=issues[int(m.group(1))]
-              body='Original comment by '+(item.get('user') or {}).get('login','unknown')+' ('+item.get('created_at','')+'):\\n\\n'+(item.get('body') or '')
+              body='Original comment by '+(item.get('user') or {}).get('login','unknown')+' ('+item.get('created_at','')+'):\\n\\n'+(item.get('body') or '')+'\\n\\n<!-- githubble-comment:'+str(cid)+' -->'
               call('POST','/issues/'+str(new)+'/comments',{'body':body})
           for item in originals:
-              if item.get('state')=='closed':
-                  call('PATCH','/issues/'+str(issues[item['number']]),{'state':'closed'})
+              new=issues.get(item['number'])
+              if item.get('state')=='closed' and new and state.get(new)!='closed':
+                  call('PATCH','/issues/'+str(new),{'state':'closed'})
+                  state[new]='closed'
           # Original PR reviews and timestamps cannot be forged through GitHub API.
           # Preserve their complete reference data in metadata.json inside the ZIP.
           manifest=json.loads((root/'manifest.json').read_text(encoding='utf-8'))
           import http.client
           from urllib.parse import quote
-          for item in sections.get('releases',[]):
+          existing_releases={r.get('tag_name'):r for r in pages('/releases') if r.get('tag_name')}
+          # The API lists newest first; recreate oldest first to keep the original order.
+          for item in reversed(sections.get('releases',[])):
               if not item.get('tag_name'):continue
-              release=call('POST','/releases',{'tag_name':item['tag_name'],'name':item.get('name') or '',
-                      'body':item.get('body') or '', 'draft':item.get('draft',False),
-                      'prerelease':item.get('prerelease',False)})
+              release=existing_releases.get(item['tag_name'])
+              if release is None:
+                  release=call('POST','/releases',{'tag_name':item['tag_name'],'name':item.get('name') or '',
+                          'body':item.get('body') or '', 'draft':item.get('draft',False),
+                          'prerelease':item.get('prerelease',False)})
               if manifest.get('release_binaries'):
+                  have={a.get('name') for a in release.get('assets',[])}
                   for asset in item.get('assets',[]):
                       file=root/'release-assets'/(str(asset['id'])+'.bin')
                       if not file.is_file() or file.stat().st_size!=asset.get('size'):
                           raise RuntimeError('Release asset missing from full backup')
                       name=asset.get('name') or (str(asset['id'])+'.bin')
+                      if name in have:continue
                       path='/repos/'+repo+'/releases/'+str(release['id'])+'/assets?name='+quote(name,safe='')
                       connection=http.client.HTTPSConnection('uploads.github.com',timeout=120)
                       try:
@@ -331,7 +374,7 @@ jobs:
                                   if not chunk:break
                                   connection.send(chunk)
                           response=connection.getresponse()
-                          data=response.read(65536)
+                          response.read(65536)
                           if response.status!=201:raise RuntimeError('Release asset upload failed: '+str(response.status))
                       finally:connection.close()
           print('Restored metadata:',len(originals),'Issues and',len(sections.get('releases',[])),'Releases')

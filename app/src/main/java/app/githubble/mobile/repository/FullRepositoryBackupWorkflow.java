@@ -96,7 +96,7 @@ jobs:
           git merge-base --is-ancestor "$SOURCE_SHA" "refs/heads/$SOURCE_BRANCH"
           # Exclude only the temporary workflow bootstrap commit from the saved default ref.
           git diff --name-only "$SOURCE_SHA" "refs/heads/$SOURCE_BRANCH" |
-            grep -vFx '.github/workflows/githubble-full-backup.yml' > "$RUNNER_TEMP/unexpected-diff.txt"
+            { grep -vFx '.github/workflows/githubble-full-backup.yml' || true; } > "$RUNNER_TEMP/unexpected-diff.txt"
           test ! -s "$RUNNER_TEMP/unexpected-diff.txt" || {
             echo "::error::Repository changed while preparing backup"; exit 40;
           }
@@ -264,7 +264,7 @@ jobs:
           path: @GH@ runner.temp }}/portable/
           include-hidden-files: true
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 7
           compression-level: 0
       - name: Remove runner credentials
         if: always()
