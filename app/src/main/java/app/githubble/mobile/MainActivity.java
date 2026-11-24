@@ -3646,7 +3646,7 @@ public class MainActivity extends Activity {
         final EditText target=voiceTarget;
         final ImageView button=voiceButton;
         try{
-            voiceRecorder=new app.githubble.mobile.dictation.WavRecorder(300,()->{if(voiceRecorder!=null&&voiceRecording)stopCloudVoice();});
+            voiceRecorder=new app.githubble.mobile.dictation.WavRecorder(this,300,()->{if(voiceRecorder!=null&&voiceRecording)stopCloudVoice();});
         }catch(Exception e){voiceRecorder=null;finishVoiceInput("Не удалось открыть микрофон: "+e.getMessage());return;}
         voiceToken++;
         voiceRecording=true;voiceWaiting=false;

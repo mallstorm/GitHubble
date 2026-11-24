@@ -9,6 +9,7 @@ import java.io.ByteArrayOutputStream;
 
 /** Records 16 kHz mono PCM16 from the microphone until {@link #stop()}. */
 public final class WavRecorder {
+    private static final String MIC = android.Manifest.permission.RECORD_AUDIO;
     public interface Limit { void reached(); }
 
     private final AudioRecord record;
@@ -19,7 +20,10 @@ public final class WavRecorder {
     private boolean released;
     private volatile int level;
 
-    public WavRecorder(int maxSeconds, Limit onLimit) {
+    @android.annotation.SuppressLint("MissingPermission")
+    public WavRecorder(android.content.Context context, int maxSeconds, Limit onLimit) {
+        if (context.checkSelfPermission(MIC) != android.content.pm.PackageManager.PERMISSION_GRANTED)
+            throw new IllegalStateException("Нет разрешения на микрофон");
         int min = AudioRecord.getMinBufferSize(DictationClient.RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
         if (min <= 0) throw new IllegalStateException("Микрофон недоступен");
         int size = Math.max(min * 2, DictationClient.RATE / 2);
