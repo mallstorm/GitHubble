@@ -899,7 +899,8 @@ public class MainActivity extends Activity {
 
     private app.githubble.mobile.ui.ProjectHubScreen agentProjectHub(String owner) {
         return new app.githubble.mobile.ui.ProjectHubScreen(this,agentProjects,owner,
-            ()->owner.equals(accountStore.activeCacheKey()),()->agentRefreshIfCurrent(owner),task->agentTaskChanges(owner,task,false));
+            ()->owner.equals(accountStore.activeCacheKey()),()->agentRefreshIfCurrent(owner),task->agentTaskChanges(owner,task,false))
+            .palette(BG,CARD,TEXT,MUTED,GREEN,BORDER);
     }
 
     private void agentNewProject(String expected) {
