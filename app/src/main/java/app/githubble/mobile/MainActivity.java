@@ -246,6 +246,7 @@ public class MainActivity extends Activity {
     private boolean repositoriesPrivateOnly = false;
     private boolean repositoriesPublicOnly = false;
     private boolean repositoriesGrid = false;
+    private int repositoriesColumns = 1;
     private String buildRunFilter = BuildRunFilter.ALL;
     private int buildVisibleLimit = 12;
     private String repositoriesSort = "updated";
@@ -349,7 +350,8 @@ public class MainActivity extends Activity {
             pendingAgentImageOwner=b.getString("agent_pending_image_owner","");pendingAgentImageThread=b.getString("agent_pending_image_thread","");
             String image=b.getString("agent_pending_image_uri","");pendingAgentImageUri=image.isEmpty()?null:Uri.parse(image);
             agentMediaExportPath=b.getString("agent_export_path","");agentMediaExportOwner=b.getString("agent_export_owner","");agentMediaExportThread=b.getString("agent_export_thread","");}
-        repositoriesGrid = prefs.getBoolean("repositories_grid", false);
+        repositoriesColumns = loadRepositoryColumns();
+        repositoriesGrid = repositoriesColumns > 1;
         repositoriesSort = prefs.getString("repositories_sort", "updated");
         secureStore = new SecureStore(this);
         accountStore = new GitHubAccountStore(this, secureStore);
@@ -4476,7 +4478,7 @@ public class MainActivity extends Activity {
                             }
                         },CARD,TEXT,MUTED,GREEN,BORDER,SUBTLE,
                         new LinkedHashSet<>(prefs.getStringSet("favorites",new LinkedHashSet<>())),
-                        repositoriesGrid);
+                        repositoriesColumns);
         screen.render(cached.repositories,repositoriesSort,
                 cached.lastSyncedAt>0?"Синхронизация: "+formatEpoch(cached.lastSyncedAt)
                         :"Синхронизация ещё не выполнялась");
@@ -4588,7 +4590,7 @@ public class MainActivity extends Activity {
         }
         if(shownRepositories.isEmpty()){card(text(repositoriesPrivateOnly?"Приватные репозитории не найдены среди доступных проектов.":repositoriesPublicOnly?"Публичные репозитории не найдены среди доступных проектов.":"Репозитории не найдены.",14,false));return;}
         if(repositoriesGrid){
-            GridLayout grid=new GridLayout(this);grid.setColumnCount(adaptiveColumns(2));
+            GridLayout grid=new GridLayout(this);grid.setColumnCount(adaptiveColumns(repositoriesColumns));
             for(JSONObject repository:shownRepositories)try{addRepoTile(grid,repository);}catch(Exception error){/* Invalid items are reported by sync diagnostics. */}
             content.addView(grid,new LinearLayout.LayoutParams(-1,-2));
         }else for(JSONObject repository:shownRepositories){
@@ -9358,15 +9360,9 @@ public class MainActivity extends Activity {
         look.add(SettingsScreen.Item.action(R.drawable.ic_tools,"Тема оформления",
                 themeDisplayName()+" · меняет и иконку приложения",
                 "тема цвет тёмная темная светлая бежевая голубая синяя иконка dark blue",this::chooseThemeDialog));
-        look.add(SettingsScreen.Item.action(R.drawable.ic_home,"Карточки на главной",
-                "spacious".equals(prefs.getString("ui_card_density","compact"))?"Свободные":"Компактные",
-                "размер карточек плитки главная компактный свободный",this::chooseCardDensityDialog));
-        look.add(SettingsScreen.Item.toggle(R.drawable.ic_repository,"Репозитории плитками",
-                "Две карточки в строке; выключено — список","сетка список плитки вид",
-                new SettingsScreen.Toggle(){
-                    @Override public boolean get(){return repositoriesGrid;}
-                    @Override public void set(boolean on){repositoriesGrid=on;prefs.edit().putBoolean("repositories_grid",on).apply();}
-                }));
+        look.add(SettingsScreen.Item.action(R.drawable.ic_repository,"Вид репозиториев",
+                repositoryViewLabel(),"сетка список плитки вид колонки ряды две три 2 3",
+                this::chooseRepositoryViewDialog));
         look.add(SettingsScreen.Item.action(R.drawable.ic_repository,"Сортировка репозиториев",
                 "По умолчанию: "+repositorySortLabel(),"сортировка порядок звёзды название",
                 this::chooseRepositorySortDialog));
@@ -9647,7 +9643,8 @@ public class MainActivity extends Activity {
 
     /** Re-reads UI preferences that are cached in fields (after a backup import). */
     private void reloadUiPreferences(){
-        repositoriesGrid=prefs.getBoolean("repositories_grid",false);
+        repositoriesColumns=loadRepositoryColumns();
+        repositoriesGrid=repositoriesColumns>1;
         repositoriesSort=prefs.getString("repositories_sort","updated");
         featureState.diffMode=prefs.getString("diff_mode",featureState.diffMode);
         featureState.collapseDiffContext=prefs.getBoolean("diff_collapse_context",featureState.collapseDiffContext);
@@ -9668,16 +9665,29 @@ public class MainActivity extends Activity {
                 }).setNegativeButton("Отмена",null).show();
     }
 
-    private void chooseCardDensityDialog(){
-        final String[] ids={"compact","spacious"};
-        final String[] labels={"Компактные — больше информации на экране","Свободные — крупные плитки и рекомендации"};
-        int checked="spacious".equals(prefs.getString("ui_card_density","compact"))?1:0;
-        new AlertDialog.Builder(this).setTitle("Карточки на главной")
-                .setSingleChoiceItems(labels,checked,(dialog,which)->{
+    private String repositoryViewLabel(){
+        return repositoriesColumns<=1?"Список":"Плитки · "+repositoriesColumns+" в ряд";
+    }
+
+    private void chooseRepositoryViewDialog(){
+        final String[] labels={"Список","Плитки — 2 в ряд","Плитки — 3 в ряд"};
+        new AlertDialog.Builder(this).setTitle("Вид репозиториев")
+                .setSingleChoiceItems(labels,Math.max(1,Math.min(3,repositoriesColumns))-1,(dialog,which)->{
                     dialog.dismiss();
-                    prefs.edit().putString("ui_card_density",ids[which]).apply();
+                    setRepositoryColumns(which+1);
                     rerenderSettings();
                 }).setNegativeButton("Отмена",null).show();
+    }
+
+    private void setRepositoryColumns(int columns){
+        repositoriesColumns=Math.max(1,Math.min(3,columns));
+        repositoriesGrid=repositoriesColumns>1;
+        prefs.edit().putInt("repositories_columns",repositoriesColumns).putBoolean("repositories_grid",repositoriesGrid).apply();
+    }
+
+    private int loadRepositoryColumns(){
+        if(prefs.contains("repositories_columns"))return Math.max(1,Math.min(3,prefs.getInt("repositories_columns",1)));
+        return prefs.getBoolean("repositories_grid",false)?2:1;
     }
 
     private void chooseRepositorySortDialog(){

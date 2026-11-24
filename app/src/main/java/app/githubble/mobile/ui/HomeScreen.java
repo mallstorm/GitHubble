@@ -168,8 +168,7 @@ public final class HomeScreen {
         this.content = content;
         this.palette = palette;
         this.signedIn = signedIn;
-        this.spaciousCards = "spacious".equals(activity.getSharedPreferences("githubble",Activity.MODE_PRIVATE)
-                .getString("ui_card_density","compact"));
+        this.spaciousCards = false; // home cards are always compact
         this.actions = actions;
         this.data = data == null
                 ? new DashboardData(-1,-1,-1,-1,0,0,0,Collections.emptyList(),
@@ -611,26 +610,26 @@ public final class HomeScreen {
         String language = actions.favoriteLanguage();
         if (language != null && !language.trim().isEmpty()) {
             String quoted = language.indexOf(' ') >= 0 ? "\"" + language + "\"" : language;
-            list.add(new Direction("Ваш стек: " + language, "Лучшие проекты на вашем основном языке",
+            list.add(new Direction(language, "Ваш стек",
                     "language:" + quoted + " stars:>3000", R.drawable.ic_repository, palette.green));
         }
         Calendar week = Calendar.getInstance();
         week.add(Calendar.DAY_OF_YEAR, -7);
         String since = String.format(java.util.Locale.ROOT, "%04d-%02d-%02d", week.get(Calendar.YEAR),
                 week.get(Calendar.MONTH) + 1, week.get(Calendar.DAY_OF_MONTH));
-        list.add(new Direction("Новое за неделю", "Свежие репозитории, которые уже набирают звёзды",
+        list.add(new Direction("Новое", "За неделю",
                 "created:>" + since + " stars:>100", R.drawable.ic_explore, orange));
-        list.add(new Direction("Android", "Приложения, библиотеки и инструменты",
+        list.add(new Direction("Android", "Приложения",
                 "android stars:>10000", R.drawable.ic_android, palette.green));
-        list.add(new Direction("Kotlin", "Современные JVM- и Android-проекты",
+        list.add(new Direction("Kotlin", "JVM и Android",
                 "language:kotlin stars:>5000", R.drawable.ic_kotlin, violet));
-        list.add(new Direction("ИИ и агенты", "Модели, агенты, машинное обучение",
+        list.add(new Direction("ИИ", "Модели и агенты",
                 "topic:artificial-intelligence stars:>2000", R.drawable.ic_ai, blue));
-        list.add(new Direction("Для новичков", "Репозитории с задачами good first issue",
+        list.add(new Direction("Новичкам", "Первые задачи",
                 "good-first-issues:>5 stars:>500", R.drawable.ic_issue, teal));
-        list.add(new Direction("Инструменты", "CLI, автоматизация и DevOps",
+        list.add(new Direction("Инструменты", "CLI и DevOps",
                 "topic:developer-tools stars:>2000", R.drawable.ic_tools, slate));
-        list.add(new Direction("Безопасность", "Сканеры, криптография, защита",
+        list.add(new Direction("Безопасность", "Защита данных",
                 "topic:security stars:>2000", R.drawable.ic_lock, red));
         return list;
     }
@@ -643,28 +642,30 @@ public final class HomeScreen {
         for (Direction item : directions()) {
             LinearLayout card = new LinearLayout(activity);
             card.setOrientation(LinearLayout.VERTICAL);
-            card.setPadding(dp(10), dp(10), dp(10), dp(9));
+            card.setGravity(Gravity.CENTER);
+            card.setPadding(dp(4), dp(6), dp(4), dp(5));
             card.setBackground(round(blend(palette.card, item.accent, palette.dark ? 0.14f : 0.06f),
-                    14, blend(palette.border, item.accent, 0.2f), 1));
+                    10, blend(palette.border, item.accent, 0.2f), 1));
             card.setOnClickListener(v -> actions.openDirection(item.query));
             card.setContentDescription(item.title + ". " + item.subtitle);
             ImageView art = imageIcon(item.icon, Color.WHITE);
-            art.setPadding(dp(7), dp(7), dp(7), dp(7));
-            art.setBackground(round(item.accent, 11, 0, 0));
-            card.addView(art, new LinearLayout.LayoutParams(dp(36), dp(36)));
-            TextView title = text(item.title, 12, true);
+            art.setPadding(dp(6), dp(6), dp(6), dp(6));
+            art.setBackground(round(item.accent, 10, 0, 0));
+            card.addView(art, new LinearLayout.LayoutParams(dp(34), dp(34)));
+            TextView title = text(item.title, 10, true);
+            title.setGravity(Gravity.CENTER);
             title.setSingleLine();
             title.setEllipsize(TextUtils.TruncateAt.END);
-            title.setPadding(0, dp(7), 0, 0);
-            card.addView(title);
-            TextView subtitle = text(item.subtitle, 9, false);
+            title.setPadding(0, dp(3), 0, 0);
+            card.addView(title, new LinearLayout.LayoutParams(-1, -2));
+            TextView subtitle = text(item.subtitle, 8, false);
+            subtitle.setGravity(Gravity.CENTER);
             subtitle.setTextColor(palette.muted);
-            subtitle.setMaxLines(2);
+            subtitle.setSingleLine();
             subtitle.setEllipsize(TextUtils.TruncateAt.END);
-            subtitle.setPadding(0, dp(2), 0, 0);
-            card.addView(subtitle);
-            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(dp(150), dp(spaciousCards ? 126 : 112));
-            p.setMargins(0, 0, dp(8), 0);
+            card.addView(subtitle, new LinearLayout.LayoutParams(-1, -2));
+            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(dp(86), dp(77));
+            p.setMargins(0, 0, dp(6), 0);
             row.addView(card, p);
         }
         scroller.addView(row);
