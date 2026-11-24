@@ -85,17 +85,11 @@ public final class SearchScreen {
         FrameLayout.LayoutParams lensP=new FrameLayout.LayoutParams(dp(22),dp(22),Gravity.START|Gravity.CENTER_VERTICAL);
         lensP.setMargins(dp(14),0,0,0);searchBox.addView(lens,lensP);
         query=new EditText(activity);query.setHintTextColor(palette.muted);
-        query.setText(prefs.getString("search_draft_query",""));
-        query.setTextColor(palette.text);query.setSingleLine(true);query.setTextSize(15);
-        query.setPadding(dp(46),0,dp(96),0);query.setBackgroundColor(Color.TRANSPARENT);
+                query.setTextColor(palette.text);query.setSingleLine(true);query.setTextSize(15);
+        query.setPadding(dp(46),0,dp(56),0);query.setBackgroundColor(Color.TRANSPARENT);
         query.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
         query.setContentDescription("Поиск GitHub");
         searchBox.addView(query,new FrameLayout.LayoutParams(-1,-1));
-        TextView clear=text("×",22,true);clear.setTextColor(palette.muted);clear.setGravity(Gravity.CENTER);
-        clear.setContentDescription("Очистить запрос");
-        clear.setOnClickListener(v->{query.setText("");query.requestFocus();});
-        searchBox.addView(clear,new FrameLayout.LayoutParams(dp(40),dp(54),Gravity.END|Gravity.CENTER_VERTICAL));
-        ((FrameLayout.LayoutParams)clear.getLayoutParams()).setMargins(0,0,dp(46),0);
         ImageView mic=new ImageView(activity);
         mic.setImageResource(R.drawable.ic_mic);
         mic.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
@@ -200,9 +194,17 @@ public final class SearchScreen {
                 {"Kotlin","JVM и Android",R.drawable.ic_kotlin_brand,"language:kotlin stars:>200",0x7755CC},
                 {"ИИ и LLM","Модели, агенты, RAG",R.drawable.ic_ai,"topic:llm stars:>300",0x9B5DE5},
                 {"Open Source","Популярные проекты",R.drawable.ic_star,"stars:>10000",0xF2B705},
+                {"AI-агенты","Автономные ассистенты",R.drawable.ic_omni_robot,"topic:ai-agent stars:>200",0x14B8A6},
+                {"MCP","Серверы и клиенты",R.drawable.ic_tools,"topic:mcp stars:>100",0x6366F1},
                 {"Безопасность","Аудит и инструменты",R.drawable.ic_lock,"topic:security stars:>500",0xE5484D},
+                {"Автоматизация","CI/CD, боты, скрипты",R.drawable.ic_release,"topic:automation stars:>300",0xF97316},
                 {"Telegram-боты","Клиенты и боты",R.drawable.ic_discussion,"topic:telegram-bot stars:>100",0x2AABEE},
-                {"Игры","Движки и open-source игры",R.drawable.ic_explore,"topic:game stars:>500",0xE8683F},
+                {"Self-hosted","Свой сервер и облако",R.drawable.ic_organization,"topic:self-hosted stars:>1000",0x0EA5A4},
+                {"Веб и фронтенд","React, Vue, UI-киты",R.drawable.ic_globe,"topic:frontend stars:>1000",0x3178C6},
+                {"Backend и API","Серверы, Go, Rust",R.drawable.ic_repository,"topic:backend stars:>1000",0x64748B},
+                {"Данные и ML","Датасеты и обучение",R.drawable.ic_explore,"topic:machine-learning stars:>1000",0xEC4899},
+                {"DevOps","Docker, Kubernetes",R.drawable.ic_projects,"topic:devops stars:>1000",0x0EA5E9},
+                {"Игры","Движки и open-source игры",R.drawable.ic_issue,"topic:game stars:>500",0xE8683F},
                 {"Новые проекты","За последние 30 дней",R.drawable.ic_history,"created:>="+LocalDate.now().minusDays(30)+" stars:>20",0x4C7BBB}};
         for(int i=0;i<items.length;i+=2){
             LinearLayout row=new LinearLayout(activity);
