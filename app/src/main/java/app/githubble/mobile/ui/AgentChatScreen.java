@@ -65,6 +65,8 @@ public final class AgentChatScreen {
         default void exportMarkdown(String source){}
         default void openDiff(String id){}
         default void openCode(){}
+        /** -1 while the agent is idle, otherwise the number of steps of the live run (drives the badge on the code button). */
+        default int codeActivity(){return -1;}
         default JSONObject activeRun(){return null;}
         /** Sends the last user message again. */
         default void retryLast(){}
@@ -150,7 +152,18 @@ public final class AgentChatScreen {
                 android.graphics.Path right=new android.graphics.Path();
                 right.moveTo(x+dp(5),y-dp(7));right.lineTo(x+dp(12),y);right.lineTo(x+dp(5),y+dp(7));c.drawPath(right,paint);
                 c.drawLine(x+dp(2),y-dp(8),x-dp(2),y+dp(8),paint);
+                int live=-1;
+                try{live=actions.codeActivity();}catch(RuntimeException ignored){}
+                if(live>=0){
+                    android.graphics.Paint dot=new android.graphics.Paint(3);dot.setStyle(android.graphics.Paint.Style.FILL);
+                    dot.setColor(accent);dot.setAlpha(pulse?255:130);
+                    c.drawCircle(getWidth()-dp(11),dp(13),dp(5),dot);
+                }
             }
+            boolean pulse=true,polling;
+            final Runnable poll=new Runnable(){@Override public void run(){if(!polling)return;pulse=!pulse;invalidate();postDelayed(this,700);}};
+            @Override protected void onAttachedToWindow(){super.onAttachedToWindow();polling=true;postDelayed(poll,700);}
+            @Override protected void onDetachedFromWindow(){polling=false;removeCallbacks(poll);super.onDetachedFromWindow();}
         };
         code.setContentDescription("Код, файлы, терминал");ripple(code);
         code.setOnClickListener(v->actions.openCode());

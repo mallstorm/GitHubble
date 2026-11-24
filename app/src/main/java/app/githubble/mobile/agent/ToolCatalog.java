@@ -47,9 +47,10 @@ public final class ToolCatalog {
         add(b,"propose_skill","name description tools body","name description body",local,true,true,false);
         add(b,"github_account","","",gh,false,false,false);
         add(b,"github_get","path account","path",gh,false,false,false);
-        add(b,"github_request","method path body","method path",remote,true,false,false);
-        add(b,"delete_repository","repository","repository",remote,true,false,false);
-        add(b,"actions_cleanup","repository kind older_than_days:integer","repository kind",remote,true,false,false);
+        add(b,"github_request","method path body account","method path",remote,true,false,false);
+        add(b,"delete_repository","repository account","repository",remote,true,false,false);
+        add(b,"setup_release_signing","repository account replace:boolean","repository",remote,true,true,false);
+        add(b,"actions_cleanup","repository kind older_than_days:integer account","repository kind",remote,true,false,false);
         add(b,"github_accounts","","",gh,false,false,false);
         for (String n:Arrays.asList("list_repositories","github_profile","github_usage","github_rate_limit","github_capabilities"))
             add(b,n,"account","",gh,false,false,false);

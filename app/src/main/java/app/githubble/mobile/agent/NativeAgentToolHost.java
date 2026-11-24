@@ -136,10 +136,10 @@ public final class NativeAgentToolHost implements ProjectRuntime.ToolHost {
             "record_decision {title,decision,reason} saves an architecture decision to project memory; load_skill {name}; "+
             "propose_skill {name,description,tools,body} offers the user to SAVE a reusable skill (nothing is saved without their approval).";
         if(githubEnabled)result+="\nGITHUB GATEWAY: github_get {path,account?} reads any api.github.com resource (billing, packages, Actions caches/storage, rulesets). "+
-            "github_request {method,path,body?} does any other REST write as the user; delete_repository {repository}; actions_cleanup {repository,kind:caches|artifacts|runs,older_than_days?}. "+
-            "The host classifies risk itself: reversible writes follow the permission level, deletions always ask, irreversible actions need the user to type the exact name. "+
+            "github_request {method,path,body?,account?} does any other REST write as the user; delete_repository {repository,account?}; setup_release_signing {repository,account?,replace?}; actions_cleanup {repository,kind:caches|artifacts|runs,older_than_days?}. "+
+            "The host classifies risk itself: reversible writes follow the permission level, deletions always ask, repository deletion shows one Yes/No card (repository + account), other irreversible actions need the exact name typed. Pass {account:\"<login>\"} (or just the owner/repo of another connected account) to act as that account. "+
             "List and show what will change BEFORE a destructive call, and say what is irreversible. Claim success only when a tool returned ok.";
-        return result+"\nNo shell and no hosts other than api.github.com. Secret values, SSH/GPG keys, tokens and billing writes are unreachable. "+
+        return result+"\nNo shell and no hosts other than api.github.com. Secret values you could read, SSH/GPG keys, tokens and billing writes are unreachable (release signing secrets are created by setup_release_signing without ever showing you the values). "+
             "If GitHub answers 403/404, the GitHub App permission or account right is missing: say exactly which. "+
             "A cancelled operation must not be retried.";
     }
@@ -195,13 +195,17 @@ public final class NativeAgentToolHost implements ProjectRuntime.ToolHost {
     }
     /** typedToken != null: irreversible action, needs the exact text typed in the dialog at EVERY permission level. */
     private boolean approve(String name,String preview,boolean remote,boolean sensitive,String typedToken)throws Exception{
+        return approve(name,preview,remote,sensitive,typedToken,null);
+    }
+    /** card != null: {title,yesLabel,noLabel,"danger"?}: one explicit Yes/No card, always shown, nothing to type. */
+    private boolean approve(String name,String preview,boolean remote,boolean sensitive,String typedToken,String[] card)throws Exception{
         check();
         if(!AgentPermissionPolicy.mayWrite(permission.getAsInt(),planning))throw new ToolDenied("Запись запрещена");
         // Destructive Workspace lifecycle operations always need a physical UI approval,
         // even when the agent otherwise runs with local-auto permissions.
-        if(typedToken==null&&brokerApprovalInUse&&!name.startsWith("ChangeSet")){check();return true;}
+        if(card==null&&typedToken==null&&brokerApprovalInUse&&!name.startsWith("ChangeSet")){check();return true;}
         boolean workspaceLifecycle=name.startsWith("Workspace ·");
-        if(typedToken==null&&!workspaceLifecycle&&!AgentPermissionPolicy.needsReview(permission.getAsInt(),remote,sensitive))return true;
+        if(card==null&&typedToken==null&&!workspaceLifecycle&&!AgentPermissionPolicy.needsReview(permission.getAsInt(),remote,sensitive))return true;
         if(run!=null)run.approval(true);
         CompletableFuture<Boolean> answer=new CompletableFuture<>();
         AtomicReference<AlertDialog> dialog=new AtomicReference<>();
@@ -213,10 +217,10 @@ public final class NativeAgentToolHost implements ProjectRuntime.ToolHost {
             try{
                 check();owner.set(host);
                 android.widget.EditText typed=null;
-                AlertDialog.Builder builder=new AlertDialog.Builder(host).setTitle("Git Agent · "+name)
-                    .setMessage("Аккаунт: "+account+"\n"+preview+(typedToken==null?"":"\n\nНЕОБРАТИМО. Для подтверждения введите: "+typedToken))
-                    .setPositiveButton("Разрешить один раз",(v,w)->answer.complete(true))
-                    .setNegativeButton("Отклонить",(v,w)->answer.complete(false));
+                AlertDialog.Builder builder=new AlertDialog.Builder(host).setTitle(card!=null?card[0]:"Git Agent · "+name)
+                    .setMessage(card!=null?preview:"Аккаунт: "+github.writeLabel(actingAs)+"\n"+preview+(typedToken==null?"":"\n\nНЕОБРАТИМО. Для подтверждения введите: "+typedToken))
+                    .setPositiveButton(card!=null?card[1]:"Разрешить один раз",(v,w)->answer.complete(true))
+                    .setNegativeButton(card!=null?card[2]:"Отклонить",(v,w)->answer.complete(false));
                 if(typedToken!=null){
                     typed=new android.widget.EditText(host);typed.setSingleLine(true);typed.setHint(typedToken);
                     android.widget.FrameLayout box=new android.widget.FrameLayout(host);int pad=(int)(20*host.getResources().getDisplayMetrics().density);
@@ -227,6 +231,10 @@ public final class NativeAgentToolHost implements ProjectRuntime.ToolHost {
                 d.setOnCancelListener(v->answer.complete(false));
                 d.setOnDismissListener(v->{if(!host.isChangingConfigurations())answer.complete(false);});
                 dialog.set(d);d.show();
+                if(card!=null){
+                    if(card.length>3)d.getButton(AlertDialog.BUTTON_POSITIVE).setTextColor(0xFFD32F2F);
+                    d.getButton(AlertDialog.BUTTON_NEGATIVE).setTextColor(0xFF1565C0);
+                }
                 if(field!=null){
                     final android.widget.Button ok=d.getButton(AlertDialog.BUTTON_POSITIVE);ok.setEnabled(false);
                     field.addTextChangedListener(new android.text.TextWatcher(){
@@ -246,6 +254,8 @@ public final class NativeAgentToolHost implements ProjectRuntime.ToolHost {
             }
         }finally{if(run!=null)run.approval(false);main.post(()->{AlertDialog d=dialog.get();if(d!=null)d.dismiss();});}
     }
+    /** Login of another connected account the current gateway write goes to ("" = active account). */
+    private String actingAs="";
     private String brokerConfirmedName = "";
     private String brokerConfirmedArgs = "";
     private boolean brokerApprovalInUse;
@@ -603,7 +613,47 @@ public final class NativeAgentToolHost implements ProjectRuntime.ToolHost {
     /** All generic GitHub writes: the host classifies risk from (method,path,body) and picks the approval itself. */
     private String gateway(String name,JSONObject a)throws Exception{
         if(run!=null)run.requireNotDuplicate();
-        app.githubble.mobile.network.GitHubApiClient api=github.toolApi(account);
+        String subject=a.optString("repository",a.optString("path"));
+        actingAs=resolveAccount(a,subject);
+        try{
+            app.githubble.mobile.network.GitHubApiClient api=github.asLogin(actingAs,()->github.toolApi(account));
+            if("setup_release_signing".equals(name))return setupSigning(a,api);
+            return gatewayWrite(name,a,api);
+        }finally{actingAs="";}
+    }
+    /** Explicit {account} wins; otherwise a repository owned by another connected account is written as that account. */
+    private String resolveAccount(JSONObject a,String subject)throws Exception{
+        String explicit=github.foreignLogin(a.optString("account",""));
+        if(!explicit.isEmpty()||!a.optString("account","").trim().isEmpty())return explicit;
+        java.util.regex.Matcher m=java.util.regex.Pattern.compile("^(?:/repos/)?([A-Za-z0-9-]{1,39})/[A-Za-z0-9._-]+").matcher(subject==null?"":subject.trim());
+        if(!m.find())return "";
+        try{return github.foreignLogin(m.group(1));}catch(IllegalArgumentException notConnected){return "";}
+    }
+    private String setupSigning(JSONObject a,app.githubble.mobile.network.GitHubApiClient api)throws Exception{
+        String repo=GitHubAgentOperations.repository(a,repository);
+        if(!repo.matches("[A-Za-z0-9._-]+/[A-Za-z0-9._-]+"))throw new IllegalArgumentException("Нужно имя вида owner/repo");
+        boolean replace=a.optBoolean("replace",false);
+        if(ReleaseSigning.exists(api,repo)&&!replace)
+            return new JSONObject().put("ok",false).put("already_exists",true).put("secrets",new JSONArray().put(ReleaseSigning.S_KEYSTORE)
+                .put(ReleaseSigning.S_STORE_PASSWORD).put(ReleaseSigning.S_ALIAS).put(ReleaseSigning.S_KEY_PASSWORD))
+                .put("note","Секреты подписи уже есть. Заменять их можно только с replace:true — приложения, подписанные старым ключом, перестанут обновляться. Спросите пользователя.").toString();
+        String preview="Репозиторий: "+repo+"\nАккаунт: "+github.writeLabel(actingAs)+"\n\nНа телефоне будет создан ключ подписи Android (RSA 2048, 30 лет) и записан в Actions secrets: "
+            +ReleaseSigning.S_KEYSTORE+", "+ReleaseSigning.S_STORE_PASSWORD+", "+ReleaseSigning.S_ALIAS+", "+ReleaseSigning.S_KEY_PASSWORD+"."
+            +(replace?"\n\nСуществующие секреты будут заменены: ранее подписанные приложения не смогут обновиться поверх.":"")
+            +"\nКопия ключа сохранится в защищённом хранилище приложения.";
+        if(!approve("setup_release_signing",preview,true,true,null,new String[]{"Ключ подписи релиза","Да, создать","Нет"}))return denied("setup_release_signing");
+        check();requireWrite();github.requireAccount(account);if(run!=null)run.remoteDispatched();
+        String shortName=repo.substring(repo.indexOf('/')+1);
+        ReleaseSigning.Bundle bundle=ReleaseSigning.generate("release",shortName,"GitHubble");
+        ReleaseSigning.publish(api,repo,bundle);
+        ReleaseSigning.backup(activity,repo,bundle);
+        event("✓ Ключ подписи записан в "+repo,null);
+        return new JSONObject().put("ok",true).put("repository",repo).put("secrets",new JSONArray().put(ReleaseSigning.S_KEYSTORE)
+            .put(ReleaseSigning.S_STORE_PASSWORD).put(ReleaseSigning.S_ALIAS).put(ReleaseSigning.S_KEY_PASSWORD))
+            .put("alias",bundle.alias).put("certificate_sha256",bundle.sha256).put("store_type","PKCS12").put("key_password_equals_store_password",true)
+            .put("next","Подключите секреты к workflow: decode ANDROID_KEYSTORE_BASE64 в файл и передайте пароли в signingConfig. Значения секретов вам недоступны.").toString();
+    }
+    private String gatewayWrite(String name,JSONObject a,app.githubble.mobile.network.GitHubApiClient api)throws Exception{
         if("actions_cleanup".equals(name)){
             String repo=GitHubAgentOperations.repository(a,repository),kind=a.getString("kind");
             if(!repo.matches("[A-Za-z0-9._-]+/[A-Za-z0-9._-]+"))throw new IllegalArgumentException("Некорректный репозиторий");
@@ -629,13 +679,21 @@ public final class NativeAgentToolHost implements ProjectRuntime.ToolHost {
         String preview=d.method+" "+d.path+(body.trim().isEmpty()?"":"\n"+body)+(d.reason.isEmpty()?"":"\n"+d.reason);
         boolean ok;
         switch(d.risk){
-            case IRREVERSIBLE:ok=approve(name,preview,true,true,d.confirm);break;
+            case IRREVERSIBLE:{
+                boolean repoDelete="DELETE".equals(d.method)&&d.path.split("\\?")[0].matches("/repos/[^/]+/[^/]+");
+                if(repoDelete){
+                    String full=d.path.substring("/repos/".length()).split("\\?")[0];
+                    ok=approve(name,"Удалить репозиторий\n"+full+"\nАккаунт: "+github.writeLabel(actingAs)+"\n\nДействие необратимо: код, история коммитов, issues и настройки будут удалены.",
+                        true,true,null,new String[]{"Удаление репозитория","Да, удалить","Нет","danger"});
+                }else ok=approve(name,preview,true,true,d.confirm);
+                break;
+            }
             case DELETE:ok=approve(name,preview+"\nУдалённое нельзя вернуть автоматически.",true,true);break;
             default:ok=approve(name,preview,true,false);
         }
         if(!ok)return denied(name);
         check();requireWrite();github.requireAccount(account);if(run!=null)run.remoteDispatched();
-        JSONObject result=GatewayOps.write(api,d,body,account);
+        JSONObject result=GatewayOps.write(api,d,body,actingAs.isEmpty()?account:"");
         event("✓ "+d.method+" "+d.path,null);
         return result.toString();
     }

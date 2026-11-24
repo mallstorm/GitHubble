@@ -263,6 +263,11 @@ public final class AgentRun {
     return null;
   }
 
+  /** Cheap step counter for UI badges: no JSON copy. */
+  public synchronized int operationCount() {
+    return operations.length();
+  }
+
   public synchronized JSONObject snapshot() {
     try {
       JSONObject out = new JSONObject();
@@ -358,6 +363,8 @@ public final class AgentRun {
         return "Создание репозитория";
       case "delete_repository":
         return "Удаление репозитория";
+      case "setup_release_signing":
+        return "Ключ подписи релиза";
       case "create_issue":
         return "Создание задачи";
       case "update_issue":

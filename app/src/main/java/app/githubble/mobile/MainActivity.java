@@ -825,6 +825,11 @@ public class MainActivity extends Activity {
             @Override public void exportMarkdown(String source){if(owner.equals(accountStore.activeCacheKey())&&renderedThread.equals(agentProjects.activeConversation(owner)))agentExportMarkdown(source);}
             @Override public void openDiff(String id){agentOpenDiff(owner,renderedThread,id);}
             @Override public void openCode(){agentOpenCodePanel(owner,renderedThread);}
+            @Override public int codeActivity(){
+                app.githubble.mobile.agent.AgentRun run=app.githubble.mobile.agent.AgentRunRegistry.get(owner,renderedThread);
+                if(run==null||!run.active())return -1;
+                return run.operationCount();
+            }
             @Override public void resumeTask(String runId){agentResumeTask(owner,renderedThread,runId);}
             @Override public JSONObject activeRun(){app.githubble.mobile.agent.AgentRun run=app.githubble.mobile.agent.AgentRunRegistry.get(owner,renderedThread);return run==null?null:run.snapshot();}
             @Override public void openAgentSettings() { navigate(MainActivity.this::showSettingsGitAgentWorkspace); }
@@ -965,13 +970,18 @@ public class MainActivity extends Activity {
                 }
                 runOnUiThread(()->{
                     if(!expected.equals(accountStore.activeCacheKey()))return;
-                    new AlertDialog.Builder(this)
-                        .setTitle("GitHub: "+catalog.optInt("count")+
-                            (catalog.optBoolean("truncated")?"+":"")+" репозиториев")
-                        .setItems(values.toArray(new String[0]),(dialog,which)->{
-                            String full=list.optJSONObject(which).optString("full_name");
-                            if(!full.isEmpty())navigate(()->showRepository(full));
-                        }).setPositiveButton("Закрыть",null).show();
+                    app.githubble.mobile.ui.ListSheet sheet=app.githubble.mobile.ui.ListSheet.of(this,settingsPalette())
+                        .title("Репозитории GitHub",catalog.optInt("count")+(catalog.optBoolean("truncated")?"+":"")+" доступно")
+                        .searchable("Поиск репозитория");
+                    for(int i=0;i<list.length();i++){
+                        JSONObject item=list.optJSONObject(i);if(item==null)continue;
+                        final String full=item.optString("full_name");if(full.isEmpty())continue;
+                        int slash=full.indexOf('/');
+                        String owner=slash<0?"":full.substring(0,slash),shortName=slash<0?full:full.substring(slash+1);
+                        String desc=item.optString("description","");
+                        sheet.row(owner,shortName,desc.isEmpty()||"null".equals(desc)?full:desc,item.optBoolean("private")?"закрытый":"публичный",()->navigate(()->showRepository(full)));
+                    }
+                    sheet.show();
                 });
             }catch(Exception e){
                 runOnUiThread(()->{
@@ -1119,14 +1129,14 @@ public class MainActivity extends Activity {
         final app.githubble.mobile.agent.AgentSkills skills=app.githubble.mobile.agent.AgentSkills.get();
         if(skills==null)return;
         final java.util.List<app.githubble.mobile.agent.SkillDocument> all=skills.all();
-        String[] titles=new String[all.size()];boolean[] checked=new boolean[all.size()];
-        for(int i=0;i<titles.length;i++){app.githubble.mobile.agent.SkillDocument s=all.get(i);
-            titles[i]="/"+s.name+(s.builtin?"":" (свой)")+" — "+s.description;checked[i]=skills.enabled(s.name);}
-        new AlertDialog.Builder(this).setTitle("Навыки агента")
-            .setMultiChoiceItems(titles,checked,(d,w,on)->skills.setEnabled(all.get(w).name,on))
-            .setPositiveButton("Добавить",(d,w)->showAddSkill())
-            .setNeutralButton("Свои: экспорт / удалить",(d,w)->showOwnSkills())
-            .setNegativeButton("Закрыть",null).show();
+        app.githubble.mobile.ui.ListSheet sheet=app.githubble.mobile.ui.ListSheet.of(this,settingsPalette())
+            .title("Навыки агента",all.size()+" навыков · вызов в чате: /имя")
+            .searchable("Поиск навыков");
+        for(app.githubble.mobile.agent.SkillDocument s:all){
+            final String name=s.name;
+            sheet.toggle(s.builtin?"Встроенные":"Свои","/"+name,s.description,s.tools.isEmpty()?"":"доступ: "+s.tools.size(),skills.enabled(name),on->skills.setEnabled(name,on));
+        }
+        sheet.action("+ Добавить",true,this::showAddSkill).action("Свои",false,this::showOwnSkills).show();
     }
     private void showAddSkill(){
         final android.widget.EditText input=new android.widget.EditText(this);input.setMinLines(8);input.setGravity(android.view.Gravity.TOP);
@@ -1155,23 +1165,16 @@ public class MainActivity extends Activity {
         repo.setSingleLine(true);repo.setHint("OWNER/REPO");
         repo.setText(suggested.isEmpty()?agentProjects.project(expected).repository:suggested);
         new AlertDialog.Builder(this).setTitle("Удаление репозитория GitHub")
-            .setMessage("Удалить можно только собственный репозиторий с правами администратора. "+
-                "Операция необратима. Для неё у OAuth-приложения должно быть разрешение на удаление.")
+            .setMessage("Репозиторий активного аккаунта. Чтобы удалить репозиторий другого подключённого аккаунта, попросите агента в чате — он покажет карточку с нужным аккаунтом.")
             .setView(repo).setPositiveButton("Продолжить",(d,w)->{
                 String full=repo.getText().toString().trim();
                 if(!full.matches("[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}")){
                     toast("Введите OWNER/REPO");return;
                 }
-                EditText confirmation=new EditText(this);
-                confirmation.setHint("Введите "+full+" ещё раз");
-                new AlertDialog.Builder(this).setTitle("Последнее подтверждение")
-                    .setMessage("Будет безвозвратно удалён репозиторий "+full+
-                        " и его история. Для продолжения вручную введите точное имя.")
-                    .setView(confirmation)
-                    .setPositiveButton("Удалить навсегда",(yes,which)->{
-                        if(!full.equals(confirmation.getText().toString().trim())){
-                            toast("Имя не совпадает. Удаление отменено.");return;
-                        }
+                AlertDialog confirm=new AlertDialog.Builder(this).setTitle("Удаление репозитория")
+                    .setMessage("Удалить репозиторий\n"+full+"\nАккаунт: @"+(accountStore.activeAccount()==null?"":accountStore.activeAccount().login)
+                        +"\n\nДействие необратимо: код, история коммитов, issues и настройки будут удалены.")
+                    .setPositiveButton("Да, удалить",(yes,which)->{
                         io.execute(()->{
                             try{
                                 aiGithub.deleteOwnRepository(expected,full);
@@ -1188,7 +1191,10 @@ public class MainActivity extends Activity {
                             }
                             runOnUiThread(()->agentRefreshIfCurrent(expected));
                         });
-                    }).setNegativeButton("Отмена",null).show();
+                    }).setNegativeButton("Нет",null).create();
+                confirm.show();
+                confirm.getButton(AlertDialog.BUTTON_POSITIVE).setTextColor(0xFFD32F2F);
+                confirm.getButton(AlertDialog.BUTTON_NEGATIVE).setTextColor(0xFF1565C0);
             }).setNegativeButton("Отмена",null).show();
     }
 
@@ -1966,13 +1972,26 @@ public class MainActivity extends Activity {
     /** Right-hand code drawer: file changes, Workspace files and the journal of agent operations. */
     private void agentOpenCodePanel(String owner,String thread){
         if(!owner.equals(accountStore.activeCacheKey())||!thread.equals(agentProjects.activeConversation(owner)))return;
-        final JSONArray messages=agentProjects.messages(owner,thread);
         AgentProjectStore.Project project=agentProjects.project(owner);
         java.io.File root=null;
         try{if(project.workspaceId!=null&&!project.workspaceId.isEmpty())root=new app.githubble.mobile.agent.WorkspaceHub(this).root(owner,project.workspaceId);}catch(Exception ignored){}
         final java.io.File workspace=root;
         app.githubble.mobile.ui.AgentCodePanel.show(this,new app.githubble.mobile.ui.AgentCodePanel.Source(){
-            @Override public JSONArray messages(){return messages;}
+            private JSONArray cached;private long cachedAt;
+            @Override public synchronized JSONArray messages(){
+                long now=android.os.SystemClock.uptimeMillis();
+                if(cached==null||now-cachedAt>400){cached=agentProjects.messages(owner,thread);cachedAt=now;}
+                return cached;
+            }
+            @Override public JSONObject liveRun(){
+                app.githubble.mobile.agent.AgentRun run=app.githubble.mobile.agent.AgentRunRegistry.get(owner,thread);
+                return run!=null&&run.active()?run.snapshot():null;
+            }
+            @Override public String subtitle(){
+                AgentProjectStore.Project p=agentProjects.project(owner);
+                return p.repository.isEmpty()?(p.name.isEmpty()?"Проект не выбран":p.name):p.repository+" · "+p.branch;
+            }
+            @Override public void openProjects(){agentProjectHub(owner).show();}
             @Override public java.io.File workspaceRoot(){return workspace;}
             @Override public boolean taskFiles(){return !agentProjects.projectId(owner,thread).isEmpty();}
             private void taskRequest(String path,int position,java.util.function.Consumer<JSONObject> done,java.util.function.Consumer<String> error){io.execute(()->{
@@ -1988,7 +2007,7 @@ public class MainActivity extends Activity {
             @Override public void taskRead(String path,int start,java.util.function.Consumer<JSONObject> done,java.util.function.Consumer<String> error){taskRequest(path,start,done,error);}
             @Override public void reviewTask(){agentTaskChanges(owner,thread,false);}
             @Override public void openDiff(String id){agentOpenDiff(owner,thread,id);}
-        },TEXT,MUTED,GREEN,SUBTLE,BORDER,BG,0);
+        },TEXT,MUTED,GREEN,SUBTLE,BORDER,BG,-1);
     }
 
     private void agentOpenDiff(String owner,String thread,String id){

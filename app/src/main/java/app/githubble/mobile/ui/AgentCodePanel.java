@@ -48,7 +48,12 @@ public final class AgentCodePanel {
         default void taskPage(int offset,java.util.function.Consumer<JSONObject> done,java.util.function.Consumer<String> error){}
         default void taskRead(String path,int start,java.util.function.Consumer<JSONObject> done,java.util.function.Consumer<String> error){}
         default void reviewTask(){}
-
+        /** Snapshot of the run that is working right now (task_state, preview, elapsed_ms), or null when idle. */
+        default JSONObject liveRun(){return null;}
+        /** Short "repository · branch" line under the title. */
+        default String subtitle(){return "";}
+        /** Opens the Projects page so the user can create or pick the project folder. */
+        default void openProjects(){}
     }
 
     private static final int MAX_FILES = 400;
@@ -66,6 +71,9 @@ public final class AgentCodePanel {
     private static final java.util.Map<String, List<String[]>> HISTORY = new java.util.HashMap<>();
     private static final int[] CODE_COLORS = {0xFF16211F, 0xFFD7E3E0, 0xFF48C9A6, 0xFFE07A7A};
     private final List<TextView> tabs = new ArrayList<>();
+    private final android.os.Handler ticker = new android.os.Handler(android.os.Looper.getMainLooper());
+    private String signature = "";
+    private TextView titleView;
     private int tab;
     private int taskOffset;
 
@@ -84,7 +92,7 @@ public final class AgentCodePanel {
         this.subtle = subtle;
         this.border = border;
         this.surface = surface;
-        this.tab = Math.max(0, Math.min(3, initialTab));
+        this.tab = initialTab < 0 ? autoTab() : Math.max(0, Math.min(3, initialTab));
         dialog = new Dialog(activity);
         LinearLayout panel = new LinearLayout(activity);
         panel.setOrientation(LinearLayout.VERTICAL);
@@ -93,8 +101,19 @@ public final class AgentCodePanel {
         LinearLayout head = new LinearLayout(activity);
         head.setGravity(Gravity.CENTER_VERTICAL);
         head.setPadding(dp(16), dp(6), dp(6), 0);
-        TextView title = label("Код", 18, true, text);
-        head.addView(title, new LinearLayout.LayoutParams(0, dp(48), 1));
+        LinearLayout titleBox = new LinearLayout(activity);
+        titleBox.setOrientation(LinearLayout.VERTICAL);
+        titleBox.setGravity(Gravity.CENTER_VERTICAL);
+        titleView = label("Рабочий стол агента", 17, true, text);
+        titleBox.addView(titleView);
+        String sub = source.subtitle();
+        if (sub != null && !sub.isEmpty()) {
+            TextView subtitle = label(sub, 11.5f, false, muted);
+            subtitle.setSingleLine();
+            subtitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            titleBox.addView(subtitle);
+        }
+        head.addView(titleBox, new LinearLayout.LayoutParams(0, dp(52), 1));
         TextView close = label("✕", 18, false, text);
         close.setGravity(Gravity.CENTER);
         close.setContentDescription("Закрыть");
@@ -104,7 +123,7 @@ public final class AgentCodePanel {
 
         LinearLayout bar = new LinearLayout(activity);
         bar.setPadding(dp(10), dp(2), dp(10), dp(8));
-        String[] names = {"Изменения", "Файлы", "Терминал", "Журнал"};
+        String[] names = {"Журнал", "Изменения", "Файлы", "Терминал"};
         for (int i = 0; i < names.length; i++) {
             final int index = i;
             TextView chip = label(names[i], 12.5f, true, text);
@@ -172,7 +191,9 @@ public final class AgentCodePanel {
             window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         }
         select(tab);
+        dialog.setOnDismissListener(d -> ticker.removeCallbacksAndMessages(null));
         dialog.show();
+        schedule();
         if (window != null) {
             window.setGravity(Gravity.END | Gravity.TOP);
             window.setLayout(Math.min(dp(520), (int) (activity.getResources().getDisplayMetrics().widthPixels * .94f)),
@@ -189,11 +210,71 @@ public final class AgentCodePanel {
             chip.setBackground(shape(on ? accent : subtle, 19, border, on ? 0 : 1));
         }
         body.removeAllViews();
-        inputBar.setVisibility(index == 2 && source.workspaceRoot() != null ? View.VISIBLE : View.GONE);
-        if (index == 0) renderChanges();
-        else if (index == 1) renderFiles();
-        else if (index == 2) renderTerminal();
-        else renderJournal();
+        inputBar.setVisibility(index == 3 && source.workspaceRoot() != null ? View.VISIBLE : View.GONE);
+        signature = signature();
+        if (index == 0) renderJournal();
+        else if (index == 1) renderChanges();
+        else if (index == 2) renderFiles();
+        else renderTerminal();
+        refreshTabs();
+    }
+
+    // ------------------------------------------------------------ live updates
+
+    private int autoTab() {
+        if (source.liveRun() != null) return 0;
+        return changedFiles().isEmpty() ? 0 : 1;
+    }
+
+    private void schedule() {
+        ticker.postDelayed(() -> {
+            if (!dialog.isShowing()) return;
+            String now = signature();
+            if (!now.equals(signature) && (tab == 0 || tab == 1)) {
+                int y = scroll.getScrollY();
+                select(tab);
+                scroll.post(() -> scroll.scrollTo(0, y));
+            } else {
+                refreshTabs();
+            }
+            schedule();
+        }, 1200);
+    }
+
+    /** Cheap change detector for the journal: operation count, last state and the live run's stage. */
+    private String signature() {
+        List<JSONObject> ops = operations();
+        JSONObject live = source.liveRun();
+        JSONObject last = ops.isEmpty() ? null : ops.get(ops.size() - 1);
+        return ops.size() + "|" + (last == null ? "" : last.optString("state")) + "|"
+                + (live == null ? "idle" : live.optString("task_state") + live.optString("preview").length() / 40
+                + (live.optLong("elapsed_ms") / 3000));
+    }
+
+    private void refreshTabs() {
+        boolean live = source.liveRun() != null;
+        int files = changedFiles().size();
+        String[] base = {"Журнал", "Изменения", "Файлы", "Терминал"};
+        for (int i = 0; i < tabs.size(); i++) {
+            String name = base[i];
+            if (i == 0 && live) name = "● Журнал";
+            if (i == 1 && files > 0) name = "Изменения " + files;
+            tabs.get(i).setText(name);
+        }
+    }
+
+    private Map<String, JSONObject> changedFiles() {
+        Map<String, JSONObject> latest = new LinkedHashMap<>();
+        for (JSONObject op : operations()) {
+            JSONArray files = op.optJSONArray("files");
+            for (int i = 0; files != null && i < files.length(); i++) {
+                JSONObject file = files.optJSONObject(i);
+                if (file == null || file.optString("path").isEmpty()) continue;
+                latest.remove(file.optString("path"));
+                latest.put(file.optString("path"), file);
+            }
+        }
+        return latest;
     }
 
     private List<JSONObject> operations() {
@@ -225,7 +306,7 @@ public final class AgentCodePanel {
             }
         }
         if (latest.isEmpty()) {
-            empty("Пока нет изменений.\nКогда агент изменит файлы, их diff появится здесь.");
+            empty("Пока нет изменений.\nКогда агент изменит файлы, их diff появится здесь.", null, null);
             return;
         }
         List<String> paths = new ArrayList<>(latest.keySet());
@@ -238,6 +319,15 @@ public final class AgentCodePanel {
         TextView summary = label(paths.size() + " файл. · +" + added + " −" + removed, 12, true, muted);
         summary.setPadding(dp(2), 0, 0, dp(8));
         body.addView(summary);
+        if (source.taskFiles()) {
+            TextView review = label("Проверить и принять изменения", 14, true, Color.WHITE);
+            review.setGravity(Gravity.CENTER);
+            review.setBackground(shape(accent, 14, border, 0));
+            review.setOnClickListener(v -> source.reviewTask());
+            LinearLayout.LayoutParams reviewLp = new LinearLayout.LayoutParams(-1, dp(46));
+            reviewLp.bottomMargin = dp(10);
+            body.addView(review, reviewLp);
+        }
         for (String path : paths) {
             JSONObject file = latest.get(path);
             final String id = file.optString("diff_id");
@@ -249,9 +339,17 @@ public final class AgentCodePanel {
             name.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
             row.addView(name);
             boolean saved = Boolean.TRUE.equals(applied.get(path));
-            TextView meta = label("+" + file.optInt("added") + " −" + file.optInt("removed")
-                    + " · " + (saved ? "сохранено" : "предложено"), 11, false, muted);
-            row.addView(meta);
+            android.text.SpannableStringBuilder meta = new android.text.SpannableStringBuilder("+" + file.optInt("added"));
+            meta.setSpan(new android.text.style.ForegroundColorSpan(0xFF2E9E6B), 0, meta.length(), android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            int from = meta.length();
+            meta.append("  −").append(String.valueOf(file.optInt("removed")));
+            meta.setSpan(new android.text.style.ForegroundColorSpan(0xFFC75B66), from, meta.length(), android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            int tail = meta.length();
+            meta.append("  ·  ").append(saved ? "сохранено" : "предложено");
+            meta.setSpan(new android.text.style.ForegroundColorSpan(muted), tail, meta.length(), android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            TextView metaView = label("", 11.5f, true, muted);
+            metaView.setText(meta);
+            row.addView(metaView);
             if (!id.isEmpty()) row.setOnClickListener(v -> source.openDiff(id));
             LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
             params.bottomMargin = dp(6);
@@ -264,36 +362,46 @@ public final class AgentCodePanel {
 
         File root = source.workspaceRoot();
         if (root == null || !root.isDirectory()) {
-            empty("У проекта нет локального Workspace.\nСоздайте или подключите проект в чате, и файлы появятся здесь.");
+            empty("У этого диалога нет папки проекта.\nСоздайте проект — папка появится сама, и здесь откроются её файлы.", "Открыть проекты", source::openProjects);
             return;
         }
         List<String> files = new ArrayList<>();
         collect(root, root, files);
         Collections.sort(files);
         if (files.isEmpty()) {
-            empty("Workspace пуст.");
+            empty("Папка проекта пока пуста.\nФайлы появятся, когда агент или вы их добавите.", null, null);
             return;
         }
         TextView summary = label("Workspace · " + files.size() + (files.size() >= MAX_FILES ? "+" : "") + " файл.", 12, true, muted);
         summary.setPadding(dp(2), 0, 0, dp(8));
         body.addView(summary);
+        String lastDir = null;
         for (String path : files) {
             final File file = new File(root, path);
-            TextView row = label(path, 13, false, text);
+            int slash = path.lastIndexOf('/');
+            String dir = slash < 0 ? "" : path.substring(0, slash);
+            if (!dir.equals(lastDir)) {
+                TextView header = label(dir.isEmpty() ? "корень" : dir, 11.5f, true, muted);
+                header.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
+                header.setPadding(dp(4), dir.equals("") || lastDir == null ? 0 : dp(10), 0, dp(4));
+                body.addView(header);
+                lastDir = dir;
+            }
+            TextView row = label(slash < 0 ? path : path.substring(slash + 1), 13, false, text);
             row.setTypeface(Typeface.MONOSPACE);
-            row.setPadding(dp(12), dp(10), dp(12), dp(10));
+            row.setPadding(dp(12), dp(9), dp(12), dp(9));
             row.setBackground(shape(subtle, 10, border, 1));
             row.setOnClickListener(v -> openFile(root, file, path));
             LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
-            params.bottomMargin = dp(5);
+            params.bottomMargin = dp(4);
             body.addView(row, params);
         }
     }
 
     private void renderTaskFiles(){
-        empty("Загружаю файлы текущей задачи…");
+        empty("Загружаю файлы текущей задачи…", null, null);
         source.taskPage(taskOffset,page->{
-            if(!dialog.isShowing()||tab!=1)return;body.removeAllViews();
+            if(!dialog.isShowing()||tab!=2)return;body.removeAllViews();
             TextView review=label("Изменения задачи · diff и принятие",13,true,accent);review.setPadding(dp(10),dp(12),dp(10),dp(12));
             review.setOnClickListener(v->source.reviewTask());body.addView(review);
             JSONArray files=page.optJSONArray("files");if(files==null)return;
@@ -303,7 +411,7 @@ public final class AgentCodePanel {
             }
             if(taskOffset>0){TextView previous=label("← Предыдущие файлы",13,true,accent);previous.setOnClickListener(v->{taskOffset=Math.max(0,taskOffset-100);body.removeAllViews();renderTaskFiles();});body.addView(previous);}
             if(!page.isNull("next_offset")){TextView next=label("Следующие файлы →",13,true,accent);next.setPadding(dp(12),dp(12),dp(12),dp(12));next.setOnClickListener(v->{taskOffset=page.optInt("next_offset");body.removeAllViews();renderTaskFiles();});body.addView(next);}
-        },message->{if(dialog.isShowing()&&tab==1){body.removeAllViews();empty(message);}});
+        },message->{if(dialog.isShowing()&&tab==2){body.removeAllViews();empty(message,null,null);}});
     }
     private void taskFile(String path,int start){source.taskRead(path,start,page->{
         if(!dialog.isShowing())return;
@@ -365,7 +473,7 @@ public final class AgentCodePanel {
     private void renderTerminal() {
         File root = source.workspaceRoot();
         if (root == null || !root.isDirectory()) {
-            empty("Терминал работает внутри локального Workspace.\nСоздайте проект в чате: команды будут выполняться в его папке.");
+            empty("Терминал работает в папке проекта.\nСоздайте проект — и команды будут выполняться в его папке.", "Открыть проекты", source::openProjects);
             return;
         }
         HorizontalScrollView chipsScroll = new HorizontalScrollView(activity);
@@ -386,7 +494,7 @@ public final class AgentCodePanel {
         LinearLayout.LayoutParams chipsLp = new LinearLayout.LayoutParams(-1, -2);
         chipsLp.bottomMargin = dp(8);
         body.addView(chipsScroll, chipsLp);
-        TextView where = label("Папка Workspace · системная оболочка, без git и сети проекта", 11, false, muted);
+        TextView where = label("Папка проекта · системная оболочка без сети и git", 11, false, muted);
         where.setPadding(dp(2), 0, 0, dp(8));
         body.addView(where);
         List<String[]> entries = history();
@@ -452,7 +560,7 @@ public final class AgentCodePanel {
                 shellBusy = false;
                 entries.add(new String[]{command, shown, failed ? "1" : "0"});
                 while (entries.size() > 40) entries.remove(0);
-                if (dialog.isShowing() && tab == 2) {
+                if (dialog.isShowing() && tab == 3) {
                     body.removeAllViews();
                     renderTerminal();
                     scroll.post(() -> scroll.fullScroll(View.FOCUS_UP));
@@ -462,37 +570,155 @@ public final class AgentCodePanel {
     }
 
     private void renderJournal() {
-        List<JSONObject> operations = operations();
-        if (operations.isEmpty()) {
-            empty("Журнал пуст.\nОперации агента появятся здесь по мере выполнения.");
+        JSONObject live = source.liveRun();
+        if (live != null) body.addView(liveCard(live));
+        JSONArray messages = source.messages();
+        // Group operations by the request that caused them, newest first.
+        List<String> titles = new ArrayList<>();
+        List<List<JSONObject>> groups = new ArrayList<>();
+        List<JSONObject> runs = new ArrayList<>();
+        String request = "";
+        for (int i = 0; messages != null && i < messages.length(); i++) {
+            JSONObject entry = messages.optJSONObject(i);
+            if (entry == null) continue;
+            String role = entry.optString("role");
+            if ("user".equals(role)) { request = entry.optString("body"); continue; }
+            JSONObject run = entry.optJSONObject("run");
+            JSONArray operations = run == null ? null : run.optJSONArray("operations");
+            if (operations == null || operations.length() == 0) continue;
+            List<JSONObject> list = new ArrayList<>();
+            for (int k = 0; k < operations.length(); k++) { JSONObject op = operations.optJSONObject(k); if (op != null) list.add(op); }
+            titles.add(request);
+            groups.add(list);
+            runs.add(run);
+        }
+        if (groups.isEmpty()) {
+            if (live == null) empty("Журнал пуст.\nЗдесь по шагам видно, что делает агент: чтение файлов, правки, запросы к GitHub, сборки.", null, null);
             return;
         }
-        int from = Math.max(0, operations.size() - 80);
-        for (int i = operations.size() - 1; i >= from; i--) {
-            JSONObject op = operations.get(i);
-            String state = op.optString("state");
-            boolean failed = "failed".equals(state) || "unknown".equals(state) || "denied".equals(state);
-            boolean running = "running".equals(state);
-            StringBuilder out = new StringBuilder("$ ").append(AgentRun.label(op.optString("name")));
-            if (!op.optString("target").isEmpty()) out.append(' ').append(op.optString("target"));
-            out.append('\n').append(running ? "… выполняется" : failed ? "✗ " + (op.optString("error").isEmpty() ? state : op.optString("error"))
-                    : "✓ " + Math.max(1, op.optLong("elapsed_ms") / 100) / 10.0 + " с");
-            TextView row = label(out.toString(), 11, false, failed ? 0xFFC75B66 : text);
-            row.setTypeface(Typeface.MONOSPACE);
-            row.setTextIsSelectable(true);
-            row.setPadding(dp(12), dp(9), dp(12), dp(9));
-            row.setBackground(shape(subtle, 10, border, 1));
+        int shownGroups = 0;
+        for (int g = groups.size() - 1; g >= 0 && shownGroups < 12; g--, shownGroups++) {
+            List<JSONObject> list = groups.get(g);
+            int failed = 0;
+            for (JSONObject op : list) if (isFailed(op)) failed++;
+            String title = titles.get(g).replace('\n', ' ').trim();
+            if (title.length() > 70) title = title.substring(0, 69) + "…";
+            LinearLayout card = new LinearLayout(activity);
+            card.setOrientation(LinearLayout.VERTICAL);
+            card.setPadding(dp(12), dp(10), dp(12), dp(6));
+            card.setBackground(shape(subtle, 14, border, 1));
+            TextView head = label(title.isEmpty() ? "Работа агента" : title, 13, true, text);
+            head.setMaxLines(2);
+            head.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            card.addView(head);
+            JSONObject run = runs.get(g);
+            String meta = list.size() + " " + (list.size() == 1 ? "шаг" : "шагов")
+                    + (failed > 0 ? " · ошибок: " + failed : "")
+                    + (run.optLong("elapsed_ms") > 0 ? " · " + AgentRun.time(run.optLong("elapsed_ms")) : "");
+            TextView metaView = label(meta, 11.5f, false, failed > 0 ? 0xFFC75B66 : muted);
+            metaView.setPadding(0, dp(2), 0, dp(6));
+            card.addView(metaView);
+            int from = Math.max(0, list.size() - 40);
+            for (int i = list.size() - 1; i >= from; i--) card.addView(stepRow(list.get(i)));
             LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
-            params.bottomMargin = dp(5);
-            body.addView(row, params);
+            params.bottomMargin = dp(10);
+            body.addView(card, params);
         }
     }
 
-    private void empty(String message) {
+    private boolean isFailed(JSONObject op) {
+        String state = op.optString("state");
+        return "failed".equals(state) || "unknown".equals(state) || "denied".equals(state);
+    }
+
+    /** One timeline row: status dot, plain-language title, target, duration, error text. */
+    private View stepRow(JSONObject op) {
+        boolean failed = isFailed(op), running = "running".equals(op.optString("state"));
+        int color = failed ? 0xFFC75B66 : running ? 0xFFE0A030 : 0xFF2E9E6B;
+        LinearLayout row = new LinearLayout(activity);
+        row.setPadding(0, dp(5), 0, dp(5));
+        View dot = new View(activity);
+        GradientDrawable dotShape = new GradientDrawable();
+        dotShape.setShape(GradientDrawable.OVAL);
+        dotShape.setColor(color);
+        dot.setBackground(dotShape);
+        LinearLayout.LayoutParams dotLp = new LinearLayout.LayoutParams(dp(9), dp(9));
+        dotLp.topMargin = dp(5);
+        dotLp.rightMargin = dp(10);
+        row.addView(dot, dotLp);
+        LinearLayout column = new LinearLayout(activity);
+        column.setOrientation(LinearLayout.VERTICAL);
+        TextView title = label(AgentRun.label(op.optString("name")), 13, true, text);
+        column.addView(title);
+        String target = op.optString("target");
+        if (!target.isEmpty()) {
+            TextView t = label(target, 11.5f, false, muted);
+            t.setTypeface(Typeface.MONOSPACE);
+            t.setMaxLines(2);
+            t.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
+            column.addView(t);
+        }
+        if (failed) {
+            String error = op.optString("error").isEmpty() ? op.optString("state") : op.optString("error");
+            TextView e = label(error, 11.5f, false, 0xFFC75B66);
+            e.setMaxLines(4);
+            e.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            column.addView(e);
+        }
+        row.addView(column, new LinearLayout.LayoutParams(0, -2, 1));
+        TextView time = label(running ? "…" : Math.max(1, op.optLong("elapsed_ms") / 100) / 10.0 + " с", 11, false, muted);
+        time.setPadding(dp(8), dp(2), 0, 0);
+        row.addView(time);
+        row.setOnClickListener(v -> {
+            JSONArray files = op.optJSONArray("files");
+            JSONObject first = files == null ? null : files.optJSONObject(0);
+            if (first != null && !first.optString("diff_id").isEmpty()) source.openDiff(first.optString("diff_id"));
+        });
+        return row;
+    }
+
+    /** Live header: what the agent is doing right now and the beginning of the answer it is writing. */
+    private View liveCard(JSONObject live) {
+        LinearLayout card = new LinearLayout(activity);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(14), dp(12), dp(14), dp(12));
+        card.setBackground(shape(subtle, 16, accent, 1));
+        TextView head = label("● " + app.githubble.mobile.agent.AgentTaskLabels.activity(live.optString("task_state")) + "…", 15, true, accent);
+        card.addView(head);
+        head.animate().alpha(.45f).setDuration(700).withEndAction(() -> head.animate().alpha(1f).setDuration(700).start()).start();
+        JSONArray ops = live.optJSONArray("operations");
+        int count = ops == null ? 0 : ops.length();
+        TextView meta = label(AgentRun.time(live.optLong("elapsed_ms")) + " · " + app.githubble.mobile.agent.AgentTaskLabels.actions(count), 11.5f, false, muted);
+        meta.setPadding(0, dp(2), 0, 0);
+        card.addView(meta);
+        String preview = live.optString("preview").replace('\n', ' ').trim();
+        if (!preview.isEmpty()) {
+            if (preview.length() > 220) preview = "…" + preview.substring(preview.length() - 219);
+            TextView thought = label(preview, 12.5f, false, text);
+            thought.setPadding(0, dp(8), 0, 0);
+            card.addView(thought);
+        }
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
+        params.bottomMargin = dp(12);
+        card.setLayoutParams(params);
+        return card;
+    }
+
+    private void empty(String message, String actionLabel, Runnable action) {
         TextView view = label(message, 14, false, muted);
         view.setGravity(Gravity.CENTER);
-        view.setPadding(dp(16), dp(80), dp(16), 0);
+        view.setPadding(dp(16), dp(70), dp(16), 0);
         body.addView(view);
+        if (actionLabel != null && action != null) {
+            TextView button = label(actionLabel, 14, true, Color.WHITE);
+            button.setGravity(Gravity.CENTER);
+            button.setBackground(shape(accent, 16, border, 0));
+            button.setOnClickListener(v -> { dialog.dismiss(); action.run(); });
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(220), dp(46));
+            params.gravity = Gravity.CENTER_HORIZONTAL;
+            params.topMargin = dp(18);
+            body.addView(button, params);
+        }
     }
 
     private TextView label(String value, float size, boolean bold, int color) {
