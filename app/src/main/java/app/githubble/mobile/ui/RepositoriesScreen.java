@@ -310,15 +310,9 @@ public final class RepositoriesScreen {
         privacy.setPadding(dp(5),dp(4),dp(5),dp(4));
         privacy.setBackground(shape(mix(card,privateRepo?muted:green,.10f),15,0,0));
         LinearLayout.LayoutParams privacyLp=new LinearLayout.LayoutParams(-2,-2);
-        privacyLp.setMargins(dp(3),0,0,0);
+        privacyLp.setMargins(dp(3),0,dp(2),0);
         titleLine.addView(privacy,privacyLp);
 
-        TextView more=label("⋮",23,true,muted);
-        more.setGravity(Gravity.CENTER);
-        more.setContentDescription("Действия с репозиторием "+name);
-        more.setOnClickListener(v->actions.menu(repo));
-        LinearLayout.LayoutParams moreLp=new LinearLayout.LayoutParams(dp(44),dp(44));
-        titleLine.addView(more,moreLp);
         box.addView(titleLine);
         LinearLayout meta=horizontal(Gravity.CENTER_VERTICAL);
         meta.setPadding(0,dp(8),0,0);
@@ -342,6 +336,7 @@ public final class RepositoriesScreen {
         box.addView(meta);
         box.setContentDescription(full+(privateRepo?", приватный репозиторий":", публичный репозиторий"));
         box.setOnClickListener(v->actions.open(full));
+        box.setOnLongClickListener(v->{actions.menu(repo);return true;});
         if(target instanceof GridLayout){
             GridLayout.LayoutParams p=new GridLayout.LayoutParams();
             p.width=0;
@@ -391,12 +386,7 @@ public final class RepositoriesScreen {
         lock.setImageResource(privateRepo?R.drawable.ic_lock:R.drawable.ic_globe);
         lock.setColorFilter(privateRepo?muted:green);
         lock.setContentDescription(privateRepo?"Приватный репозиторий":"Публичный репозиторий");
-        top.addView(lock,new LinearLayout.LayoutParams(dp(dense?13:15),dp(dense?13:15)));
-        TextView more=label("⋮",dense?18:21,true,muted);
-        more.setGravity(Gravity.CENTER);
-        more.setContentDescription("Действия с репозиторием "+name);
-        more.setOnClickListener(v->actions.menu(repo));
-        top.addView(more,new LinearLayout.LayoutParams(dp(dense?22:28),dp(dense?30:38)));
+        top.addView(lock,new LinearLayout.LayoutParams(dp(dense?15:17),dp(dense?15:17)));
         box.addView(top);
 
         TextView title=label(name,dense?12:14,true,textColor);
