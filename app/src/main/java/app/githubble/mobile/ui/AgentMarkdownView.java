@@ -59,11 +59,9 @@ public final class AgentMarkdownView {
   private final Activity activity;
   private final int text, muted, accent, soft, border;
   private boolean selectable = true;
-  private boolean wideTables;
 
-  /** Kept for callers; tables now always stay inside the message column (no breaking out to the screen edges). */
+  /** Kept for callers; tables always use the full message plate (see stretchToPlate). */
   public AgentMarkdownView wideTables(boolean value) {
-    wideTables = false;
     return this;
   }
 
@@ -310,36 +308,41 @@ public final class AgentMarkdownView {
       tableCards(parent, cells, meta, cols);
       return;
     }
-    final float charPx = 7.4f * activity.getResources().getDisplayMetrics().density;
-    final int padding = dp(12), pad2 = padding * 2;
-    final int[] want = new int[cols], least = new int[cols];
-    for (int r = 0; r < cells.size(); r++) {
-      for (int c = 0; c < cells.get(r).size(); c++) {
-        String plain = cells.get(r).get(c).toString();
-        int longest = 0;
-        for (String word : plain.split("\\s+")) longest = Math.max(longest, word.length());
-        want[c] = Math.max(want[c], Math.min(dp(240), (int) (plain.length() * charPx) + pad2));
-        least[c] = Math.max(least[c], Math.min(dp(130), (int) (longest * charPx) + pad2));
-      }
-    }
-    for (int c = 0; c < cols; c++) {
-      least[c] = Math.max(least[c], dp(64));
-      want[c] = Math.max(want[c], least[c]);
-    }
-    // Light rendering: one plain TextView per cell in weighted rows (no horizontal scroller, no match_parent heights).
-    final float[] weight = new float[cols];
-    for (int c = 0; c < cols; c++) weight[c] = Math.max(1, Math.min(want[c], dp(240)));
-    // A tick matrix (name column + short marks): narrow fixed marker columns sized by their header, the name column takes the rest.
+    tableGrid(parent, cells, meta, cols, matrix);
+  }
+
+  /**
+   * Plain-view table: one TextView per cell in rows, beige "paper" palette with its own text colors (readable in any chat theme).
+   * A tick matrix keeps a flexible name column and narrow fixed marker columns, and scrolls sideways only when it cannot fit.
+   */
+  private void tableGrid(
+      LinearLayout parent,
+      final List<List<SpannableStringBuilder>> cells,
+      final List<List<TableCell>> meta,
+      final int cols,
+      final boolean matrix) {
+    final float density = activity.getResources().getDisplayMetrics().density;
+    // Column widths: marker columns of a matrix are fixed by their header, the rest share the row by content length.
     final int[] fixed = new int[cols];
+    final float[] weight = new float[cols];
+    for (int c = 0; c < cols; c++) {
+      int longest = 0;
+      for (List<SpannableStringBuilder> row : cells)
+        if (c < row.size()) longest = Math.max(longest, row.get(c).length());
+      weight[c] = Math.max(4, Math.min(longest, 40));
+    }
+    final int nameWidth = dp(128);
+    int markers = 0;
     if (matrix) {
       for (int c = 1; c < cols; c++) {
         int longest = 0;
         for (String word : cells.get(0).get(c).toString().split("\\s+")) longest = Math.max(longest, word.length());
-        fixed[c] = Math.max(dp(40), (int) (longest * 6.2f * activity.getResources().getDisplayMetrics().density) + dp(8));
+        fixed[c] = Math.max(dp(36), (int) (longest * 6.2f * density) + dp(4));
+        markers += fixed[c];
       }
     }
+    final boolean scrolls = matrix && nameWidth + markers > activity.getResources().getDisplayMetrics().widthPixels - dp(16);
 
-    // Beige "paper" palette, with its own text colors so contrast does not depend on the chat theme.
     final boolean night = Color.luminance(text) > .5;
     final int paper = night ? 0xFF3A3328 : 0xFFF6EFDF;
     final int headerBg = night ? 0xFF4C4232 : 0xFFE8DABB;
@@ -348,12 +351,7 @@ public final class AgentMarkdownView {
     final int ink = night ? 0xFFF1E8D4 : 0xFF3A3123;
     final int headInk = night ? 0xFFFFE6B0 : 0xFF2A200F;
     final int linkInk = night ? 0xFFF0C070 : 0xFF8A5A00;
-    // A matrix wider than the message column scrolls sideways (marker columns keep a fixed width).
-    final int nameWidth = dp(128);
-    int markers = 0;
-    for (int c = 1; c < cols; c++) markers += fixed[c];
-    final int available = activity.getResources().getDisplayMetrics().widthPixels - dp(34);
-    final boolean scrolls = matrix && nameWidth + markers > available;
+
     final LinearLayout frame = new LinearLayout(activity);
     GradientDrawable frameShape = new GradientDrawable();
     frameShape.setColor(paper);
@@ -370,57 +368,92 @@ public final class AgentMarkdownView {
       sideways.addView(grid, new FrameLayout.LayoutParams(nameWidth + markers, -2));
       frame.addView(sideways, new LinearLayout.LayoutParams(-1, -2));
     } else grid = frame;
-    final int columns = cols;
-    int[] next = {0};
-    Runnable[] more = {null};
-    TextView expand = label("Показать следующие строки", 12, accent);
+
+    final int[] next = {0};
+    final TextView expand = label("Показать следующие строки", 12, accent);
     expand.setTextIsSelectable(false);
     expand.setPadding(dp(8), dp(10), dp(8), dp(10));
     expand.setMinHeight(dp(48));
-    more[0] =
-        () -> {
-          int end = Math.min(rows.size(), next[0] + 150);
-          for (; next[0] < end; next[0]++) {
-            final int index = next[0];
-            boolean header = index == 0 && !meta.get(0).isEmpty() && meta.get(0).get(0).isHeader();
-            LinearLayout row = new LinearLayout(activity);
-            row.setOrientation(LinearLayout.HORIZONTAL);
-            row.setBackgroundColor(header ? headerBg : index % 2 == 0 ? Color.TRANSPARENT : zebra);
-            for (int c = 0; c < columns; c++) {
-              CharSequence content = c < cells.get(index).size() ? cells.get(index).get(c) : "";
-              TextView value = label(content, matrix && header ? 10 : header ? 12 : 13, header ? headInk : ink);
-              value.setTextIsSelectable(false);
-              value.setLinkTextColor(linkInk);
-              if (matrix && c > 0) {
-                value.setPadding(dp(2), dp(8), dp(2), dp(8));
-                value.setGravity(Gravity.CENTER_HORIZONTAL);
-              } else value.setPadding(dp(10), dp(8), dp(10), dp(8));
-              if (header) value.setTypeface(null, Typeface.BOLD);
-              TableCell cell = c < meta.get(index).size() ? meta.get(index).get(c) : null;
-              if (cell != null && cell.getAlignment() == TableCell.Alignment.RIGHT) value.setGravity(Gravity.END);
-              else if (cell != null && cell.getAlignment() == TableCell.Alignment.CENTER) value.setGravity(Gravity.CENTER_HORIZONTAL);
-              row.addView(
-                  value,
-                  fixed[c] > 0
-                      ? new LinearLayout.LayoutParams(fixed[c], -2)
-                      : scrolls && matrix
-                          ? new LinearLayout.LayoutParams(nameWidth, -2)
-                          : new LinearLayout.LayoutParams(0, -2, matrix ? 1f : weight[c]));
+    final Runnable more =
+        new Runnable() {
+          @Override
+          public void run() {
+            int end = Math.min(cells.size(), next[0] + 150);
+            for (; next[0] < end; next[0]++) {
+              final int index = next[0];
+              boolean header = index == 0 && !meta.get(0).isEmpty() && meta.get(0).get(0).isHeader();
+              LinearLayout row = new LinearLayout(activity);
+              row.setOrientation(LinearLayout.HORIZONTAL);
+              row.setBackgroundColor(header ? headerBg : index % 2 == 0 ? Color.TRANSPARENT : zebra);
+              for (int c = 0; c < cols; c++) {
+                CharSequence content = c < cells.get(index).size() ? cells.get(index).get(c) : "";
+                TextView value = label(content, matrix && header ? 10 : header ? 12 : 13, header ? headInk : ink);
+                value.setTextIsSelectable(false);
+                value.setLinkTextColor(linkInk);
+                boolean mark = matrix && c > 0;
+                value.setPadding(mark ? dp(2) : dp(10), dp(8), mark ? dp(2) : dp(10), dp(8));
+                if (mark) value.setGravity(Gravity.CENTER_HORIZONTAL);
+                if (header) value.setTypeface(null, Typeface.BOLD);
+                TableCell cell = c < meta.get(index).size() ? meta.get(index).get(c) : null;
+                if (cell != null && cell.getAlignment() == TableCell.Alignment.RIGHT) value.setGravity(Gravity.END);
+                else if (cell != null && cell.getAlignment() == TableCell.Alignment.CENTER) value.setGravity(Gravity.CENTER_HORIZONTAL);
+                LinearLayout.LayoutParams place =
+                    fixed[c] > 0
+                        ? new LinearLayout.LayoutParams(fixed[c], -2)
+                        : scrolls
+                            ? new LinearLayout.LayoutParams(nameWidth, -2)
+                            : new LinearLayout.LayoutParams(0, -2, matrix ? 1f : weight[c]);
+                row.addView(value, place);
+              }
+              grid.addView(row, new LinearLayout.LayoutParams(-1, -2));
+              View separator = new View(activity);
+              separator.setBackgroundColor(header ? (night ? 0xFF8C7A55 : 0xFFB59F6E) : line);
+              grid.addView(separator, new LinearLayout.LayoutParams(-1, header ? dp(2) : 1));
             }
-            grid.addView(row, new LinearLayout.LayoutParams(-1, -2));
-            View separator = new View(activity);
-            separator.setBackgroundColor(header ? (night ? 0xFF8C7A55 : 0xFFB59F6E) : line);
-            grid.addView(separator, new LinearLayout.LayoutParams(-1, header ? dp(2) : 1));
+            expand.setVisibility(next[0] < cells.size() ? View.VISIBLE : View.GONE);
           }
-          expand.setVisibility(next[0] < rows.size() ? View.VISIBLE : View.GONE);
         };
-    more[0].run();
-    expand.setOnClickListener(v -> more[0].run());
-    LinearLayout.LayoutParams framePlace = new LinearLayout.LayoutParams(-1, -2);
-    framePlace.topMargin = dp(6);
-    framePlace.bottomMargin = dp(6);
-    parent.addView(frame, framePlace);
+    more.run();
+    expand.setOnClickListener(v -> more.run());
+    LinearLayout.LayoutParams place = new LinearLayout.LayoutParams(-1, -2);
+    place.topMargin = dp(6);
+    place.bottomMargin = dp(6);
+    parent.addView(frame, place);
     parent.addView(expand);
+    stretchToPlate(frame);
+  }
+
+  /**
+   * Tables use the width of the whole message plate: from the left edge of the chat plates to 5 dp from the right screen edge,
+   * independent of the paddings of the message column around them.
+   */
+  private void stretchToPlate(final View frame) {
+    frame.addOnAttachStateChangeListener(
+        new View.OnAttachStateChangeListener() {
+          @Override
+          public void onViewAttachedToWindow(View v) {
+            for (android.view.ViewParent p = v.getParent(); p instanceof android.view.ViewGroup; p = p.getParent()) {
+              ((android.view.ViewGroup) p).setClipChildren(false);
+              ((android.view.ViewGroup) p).setClipToPadding(false);
+              if (p instanceof ScrollView) break;
+            }
+          }
+
+          @Override
+          public void onViewDetachedFromWindow(View v) {}
+        });
+    frame.addOnLayoutChangeListener(
+        (v, l, t, r, b, ol, ot, or, ob) -> {
+          int[] where = new int[2];
+          v.getLocationInWindow(where);
+          int screen = v.getResources().getDisplayMetrics().widthPixels;
+          int moveLeft = where[0] - dp(11), moveRight = (screen - dp(5)) - (where[0] + v.getWidth());
+          if (Math.abs(moveLeft) <= 1 && Math.abs(moveRight) <= 1) return;
+          LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) v.getLayoutParams();
+          lp.leftMargin -= moveLeft;
+          lp.rightMargin -= moveRight;
+          v.setLayoutParams(lp);
+        });
   }
 
   /** 3–7 columns, a header and body cells in the marker columns that are only a mark (✅, —, +): a tick matrix. */

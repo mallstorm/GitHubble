@@ -151,7 +151,7 @@ public final class GitHubReadLoop {
         JSONArray accounts=all.getJSONArray("accounts");
         StringBuilder out=new StringBuilder("**Подключено аккаунтов GitHub: ").append(accounts.length())
             .append(" · репозиториев всего: ").append(all.optInt("total_repositories")).append("**\n");
-        out.append("\n## Аккаунты\n\n| Аккаунт | Репозиториев |\n| --- | --- |\n");
+        out.append("\n## Аккаунты\n\n| Аккаунт | Репозиториев |\n| --- | ---: |\n");
         for(int a=0;a<accounts.length();a++){
             JSONObject account=accounts.getJSONObject(a);
             out.append("| @").append(cell(account.optString("login"))).append(account.optBoolean("active")?" (активный)":"").append(" | ");
