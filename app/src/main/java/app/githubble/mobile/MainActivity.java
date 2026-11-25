@@ -1779,7 +1779,7 @@ public class MainActivity extends Activity {
             }).setNegativeButton("Закрыть",null).show();
     }
     private EditText quotaField(LinearLayout form,String hint,int value){
-        TextView caption=ui.label(hint,12,true);caption.setPadding(0,dp(8),0,dp(2));form.addView(caption);
+        TextView caption=new TextView(this);caption.setText(hint);caption.setTextSize(12);caption.setTypeface(null,android.graphics.Typeface.BOLD);caption.setPadding(0,dp(8),0,dp(2));form.addView(caption);
         EditText field=new EditText(this);field.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);field.setSingleLine(true);field.setText(String.valueOf(value));
         form.addView(field);
         return field;
