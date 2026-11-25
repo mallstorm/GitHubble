@@ -200,8 +200,9 @@ public class MainActivity extends Activity {
             for(GitHubAccountStore.Account a:accountStore.listAccounts())
                 logins.append(logins.length()==0?"":", ").append(a.displayName()).append(a.active?" (active)":"");
             result+="Connected GitHub accounts ("+accountStore.count()+"): "+logins+
-                ". Use github_accounts, list_repositories {account:\"all\"} or {account:login} on read-only tools "+
-                "to see the repositories of every connected account; writes always use the active account.\n";
+                ". ALL of them are fully available to you: a repository named owner/repo is read and written through its owner's account automatically (writes show the user a card naming the account), "+
+                "list_repositories {account:\"all\"} shows every account's repositories, and mirror_repository {repository,to_account?,name?} copies any connected account's repository with full history into another one (default: the active account), like Mirror Manager. "+
+                "Builds and publishing of the open task use the active account.\n";
         }
         if(true
             &&project.repository!=null&&!project.repository.isEmpty())
@@ -414,6 +415,16 @@ public class MainActivity extends Activity {
         BuildMonitorJobService.reschedule(this);
         if (!trackingDb.getDevelopers(true).isEmpty()) TrackingJobService.schedule(this, prefs.getInt("tracking_interval_hours", 6));
         io.execute(() -> { try { features.offlineQueue.processReady(api); } catch (Exception failure) { android.util.Log.w("GitHubble", "Offline queue run failed", failure); } });
+        aiGithub.setMirror(new app.githubble.mobile.agent.GitHubAgentBridge.MirrorService() {
+            private org.json.JSONObject summary(MirrorManager.Job job) throws Exception {
+                return new org.json.JSONObject().put("job_id", job.id).put("source", job.source).put("destination", job.destination)
+                        .put("state", job.state).put("error", job.error).put("run_url", job.runUrl).put("private", job.privateSource);
+            }
+            @Override public org.json.JSONObject start(String source, String sourceAccountId, String targetAccountId, String targetName) throws Exception {
+                return summary(mirrorManager.start(source, sourceAccountId, targetAccountId, targetName, false));
+            }
+            @Override public org.json.JSONObject status(String jobId) throws Exception { return summary(mirrorManager.refresh(jobId)); }
+        });
         aiGithub.setRefresher((accountId, force) -> oauth.refreshAccount(accountId, effectiveGitHubClientId(), force));
         io.execute(() -> { for (app.githubble.mobile.auth.GitHubAccountStore.Account saved : accountStore.listAccounts()) { if (saved.active) continue; try { oauth.refreshAccount(saved.id, effectiveGitHubClientId(), false); } catch (Exception ignored) { } } });
         if (!oauth.hasUsableToken() && oauth.canRefresh()) io.execute(() -> { try { if(oauth.refreshIfNeeded(BuildConfig.GITHUB_CLIENT_ID)) runOnUiThread(this::showHome); } catch(Exception ignored) { } });
