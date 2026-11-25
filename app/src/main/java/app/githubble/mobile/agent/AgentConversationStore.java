@@ -401,6 +401,26 @@ public final class AgentConversationStore {
     }
   }
 
+  /**
+   * Cuts the conversation back to just before the user message at {@code index}: that message and everything
+   * after it is removed, so the thread can continue from there. Returns how many entries were removed, or -1
+   * when the message is not where the caller saw it (the transcript changed meanwhile).
+   */
+  public int truncateFrom(String owner, String id, int index, long at) {
+    synchronized (STORE_LOCK) {
+      ensure(owner);
+      safeId(id);
+      JSONArray old = messages(owner, id);
+      JSONObject target = index >= 0 && index < old.length() ? old.optJSONObject(index) : null;
+      if (target == null || !"user".equals(target.optString("role"))) return -1;
+      if (at > 0 && target.optLong("at") != at) return -1;
+      JSONArray kept = new JSONArray();
+      for (int i = 0; i < index; i++) kept.put(old.opt(i));
+      prefs.edit().putString(transcriptKey(owner, id), kept.toString()).commit();
+      return old.length() - index;
+    }
+  }
+
   public void appendRich(
       String owner,
       String id,

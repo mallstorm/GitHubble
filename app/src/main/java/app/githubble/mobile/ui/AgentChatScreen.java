@@ -70,6 +70,8 @@ public final class AgentChatScreen {
         default JSONObject activeRun(){return null;}
         /** Sends the last user message again. */
         default void retryLast(){}
+        /** Replaces the user message at {@code index} with {@code text}: everything after it is dropped and the run restarts from there. */
+        default void editResend(int index,long at,String text){}
     }
 
     private final Activity activity;
@@ -80,6 +82,8 @@ public final class AgentChatScreen {
     private boolean requestBusy;
     private TextView sendControl;
     private EditText inputField;
+    private JSONArray lastMessages=new JSONArray();
+    private boolean forceBottom;
     private final java.util.Map<String,View> retryIcons=new java.util.HashMap<>();
     private String building="";
     private String lastAgentKeyNow="";
@@ -388,11 +392,13 @@ public final class AgentChatScreen {
     public boolean attached(){return root.isAttachedToWindow()&&transcriptScroll!=null;}
     public void refresh(JSONArray messages,boolean busy){
         requestBusy=busy;
+        if(messages!=null)lastMessages=messages;
         if(sendControl!=null){sendControl.setText(busy?"■":"↑");sendControl.setContentDescription(busy?"Остановить запрос":"Отправить");
             boolean filled=inputField!=null&&!inputField.getText().toString().trim().isEmpty();
             sendControl.setTextColor(busy||filled?Color.WHITE:muted);sendControl.setBackground(shape(busy?0xFFC07055:filled?accent:subtle,50,0,0));}
         if(transcriptScroll==null||messages==null)return;
-        boolean bottom=transcript.getHeight()-transcriptScroll.getScrollY()-transcriptScroll.getHeight()<dp(90);
+        boolean bottom=forceBottom||transcript.getHeight()-transcriptScroll.getScrollY()-transcriptScroll.getHeight()<dp(90);
+        forceBottom=false;
         int oldY=transcriptScroll.getScrollY();
         if(rendered.isEmpty()&&messages.length()>0)transcript.removeAllViews();
         java.util.Set<String> keep=new java.util.HashSet<>();int position=0;String lastAgentKey="";
@@ -483,8 +489,7 @@ public final class AgentChatScreen {
             android.widget.Toast.makeText(activity,"Скопировано",android.widget.Toast.LENGTH_SHORT).show();}});
         items.add(new Object[]{R.drawable.ic_agent_scan,"Выделить текст",(Runnable)()->selectText(body)});
         if(user){
-            items.add(new Object[]{R.drawable.ic_msg_edit,"Изменить и отправить заново",(Runnable)()->{
-                if(inputField!=null){inputField.setText(body);inputField.setSelection(body.length());inputField.requestFocus();}}});
+            items.add(new Object[]{R.drawable.ic_msg_edit,"Изменить и отправить заново",(Runnable)()->editMessage(key,body,at)});
         }else{
             final AgentSpeaker speaker=AgentSpeaker.of(activity);
             boolean speaking=speaker.speaking(key);
@@ -521,6 +526,38 @@ public final class AgentChatScreen {
         int top=(int)y+dp(12);
         if(top+height>screen.heightPixels-dp(24))top=Math.max(dp(40),(int)y-height-dp(12));
         window.showAtLocation(anchor,Gravity.TOP|Gravity.START,left,top);
+    }
+
+    /**
+     * "Edit and resend": the message is edited in place. Everything that followed it is removed and the dialogue
+     * restarts from this point, instead of adding a copy at the bottom.
+     */
+    private void editMessage(String key,String body,long at){
+        if(requestBusy){android.widget.Toast.makeText(activity,"Сначала дождитесь ответа или остановите запрос",android.widget.Toast.LENGTH_SHORT).show();return;}
+        final int index;
+        try{index=Integer.parseInt(key.split(":")[1]);}catch(Exception bad){return;}
+        int after=0;boolean work=false,attachment=false;
+        for(int i=index;i<lastMessages.length();i++){
+            JSONObject e=lastMessages.optJSONObject(i);if(e==null)continue;
+            if(i>index){after++;if(e.optJSONObject("run")!=null||(e.optJSONArray("operations")!=null&&e.optJSONArray("operations").length()>0))work=true;}
+            else{JSONArray a=e.optJSONArray("attachments");attachment=a!=null&&a.length()>0;}
+        }
+        final EditText field=new EditText(activity);
+        field.setText(body);field.setSelection(body.length());field.setTextSize(15);field.setTextColor(text);
+        field.setInputType(android.text.InputType.TYPE_CLASS_TEXT|android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE|android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+        field.setMinLines(3);field.setMaxLines(10);field.setGravity(Gravity.TOP|Gravity.START);
+        field.setPadding(dp(14),dp(12),dp(14),dp(12));field.setBackground(shape(subtle,14,border,1));
+        StringBuilder note=new StringBuilder();
+        note.append(after>0?"Сообщения ниже ("+after+") будут удалены, и диалог продолжится с этого места.":"Диалог продолжится с этого сообщения.");
+        if(work)note.append(" Файлы, которые агент уже изменил, не откатываются.");
+        if(attachment)note.append(" Прикреплённое фото не сохранится.");
+        new app.githubble.mobile.ui.SheetDialog.Builder(activity).setTitle("Изменить сообщение")
+            .setMessage(note.toString()).setView(field)
+            .setPositiveButton("Отправить заново",(d,w)->{
+                String edited=field.getText().toString().trim();
+                if(edited.isEmpty()){android.widget.Toast.makeText(activity,"Сообщение пустое",android.widget.Toast.LENGTH_SHORT).show();return;}
+                forceBottom=true;actions.editResend(index,at,edited);})
+            .setNegativeButton("Отмена",null).show();
     }
 
     /** Full text in a selectable view, for partial copying. */
