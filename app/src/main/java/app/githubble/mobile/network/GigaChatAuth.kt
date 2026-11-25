@@ -22,8 +22,11 @@ internal class GigaChatAuth(
     private data class Session(val token: String, val expiresAtMs: Long)
     private val sessions = mutableMapOf<String, Session>()
     private val mutex = Mutex()
-    private val http = RussianTrust.forGigaChat(OkHttpClient.Builder()).dns(NetworkDnsPolicy.dns()).proxySelector(InAppVlessRouter.proxySelector()).addInterceptor(NetworkDnsPolicy.feedbackInterceptor()).followRedirects(false).followSslRedirects(false)
-        .connectTimeout(20, TimeUnit.SECONDS).readTimeout(30, TimeUnit.SECONDS).build()
+    private val http = RussianTrust.forGigaChat(
+        OkHttpClient.Builder().dns(NetworkDnsPolicy.dns()).proxySelector(InAppVlessRouter.proxySelector())
+            .addInterceptor(NetworkDnsPolicy.feedbackInterceptor()).followRedirects(false).followSslRedirects(false)
+            .connectTimeout(20, TimeUnit.SECONDS).readTimeout(30, TimeUnit.SECONDS).build()
+    )
 
     private fun fingerprint(authorizationKey: String, scope: String): String {
         val bytes = MessageDigest.getInstance("SHA-256")

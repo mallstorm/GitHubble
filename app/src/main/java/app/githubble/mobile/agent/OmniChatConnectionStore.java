@@ -129,6 +129,11 @@ public final class OmniChatConnectionStore {
         return provider != null && !OAuthSubscriptions.supports(provider);
     }
 
+    /** Embedding models cannot chat; they never belong in the model pickers. */
+    public static boolean isChatModel(String model) {
+        return model != null && !model.toLowerCase(java.util.Locale.ROOT).contains("embed");
+    }
+
     public static boolean isCustom(String provider) { return provider != null && provider.startsWith("custom-"); }
 
     private String legacyKey(String account, String provider) { return key(account, provider); }
@@ -488,7 +493,7 @@ public final class OmniChatConnectionStore {
     public synchronized void cacheModels(String account, String provider, java.util.List<String> models) {
         checkProvider(provider);
         org.json.JSONArray values = new org.json.JSONArray();
-        for (String model : models) if (model != null && !model.isBlank() && model.length() <= 160)
+        for (String model : models) if (model != null && !model.isBlank() && model.length() <= 160 && isChatModel(model))
             values.put(model);
         prefs.edit().putString(namespace(account) + "_models_" + provider, values.toString()).apply();
     }
@@ -503,7 +508,7 @@ public final class OmniChatConnectionStore {
                     namespace(account) + "_models_" + provider, "[]"));
             for (int i=0;i<values.length();i++) {
                 String value=values.optString(i);
-                if(!value.isEmpty())result.add(value);
+                if(!value.isEmpty()&&isChatModel(value))result.add(value);
             }
         } catch (Exception ignored) { /* An invalid cache must not break the current connection. */ }
         return new java.util.ArrayList<>(result);

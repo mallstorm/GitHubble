@@ -99,6 +99,48 @@ ZHuNM/m0TXt2wTTPL7JH2YC0gPz/BvvSzjksgzU5rLbRyUKQkgU=
 
     @JvmStatic fun isGigaChatHost(host: String): Boolean = host in GIGACHAT_HOSTS
 
+    private var appContext: android.content.Context? = null
+    @JvmStatic fun initialize(context: android.content.Context) { appContext = context.applicationContext }
+
+    private fun connectivity() = appContext?.getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
+
+    /**
+     * GigaChat is a Russian service that refuses connections arriving from foreign VPN exits. While a VPN is up, its
+     * traffic is bound to the physical network (Wi-Fi or mobile) instead, exactly like the VPN app protects its own
+     * sockets; without a VPN the default route is used. Null means "nothing to bypass".
+     */
+    private fun physicalNetwork(): android.net.Network? {
+        val cm = connectivity() ?: return null
+        return try {
+            val all = cm.allNetworks.mapNotNull { n -> cm.getNetworkCapabilities(n)?.let { n to it } }
+            if (all.none { it.second.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN) }) return null
+            all.filter {
+                val c = it.second
+                c.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                    !c.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN)
+            }.sortedWith(compareByDescending<Pair<android.net.Network, android.net.NetworkCapabilities>> {
+                it.second.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+            }.thenByDescending { it.second.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) }).firstOrNull()?.first
+        } catch (denied: SecurityException) { null }
+    }
+
+    private fun delegateFactory(): javax.net.SocketFactory = physicalNetwork()?.socketFactory ?: javax.net.SocketFactory.getDefault()
+
+    private val directSockets = object : javax.net.SocketFactory() {
+        override fun createSocket(): java.net.Socket = delegateFactory().createSocket()
+        override fun createSocket(host: String, port: Int): java.net.Socket = delegateFactory().createSocket(host, port)
+        override fun createSocket(host: String, port: Int, local: java.net.InetAddress, localPort: Int): java.net.Socket = delegateFactory().createSocket(host, port, local, localPort)
+        override fun createSocket(host: java.net.InetAddress, port: Int): java.net.Socket = delegateFactory().createSocket(host, port)
+        override fun createSocket(address: java.net.InetAddress, port: Int, local: java.net.InetAddress, localPort: Int): java.net.Socket = delegateFactory().createSocket(address, port, local, localPort)
+    }
+
+    private val directDns = object : okhttp3.Dns {
+        override fun lookup(hostname: String): List<java.net.InetAddress> {
+            val network = physicalNetwork()
+            return if (network != null) network.getAllByName(hostname).toList() else okhttp3.Dns.SYSTEM.lookup(hostname)
+        }
+    }
+
     internal fun anchors(): List<X509Certificate> {
         val factory = CertificateFactory.getInstance("X.509")
         return listOf(ROOT, SUB).map { pem -> factory.generateCertificate(ByteArrayInputStream(pem.trim().toByteArray(Charsets.US_ASCII))) as X509Certificate }
@@ -137,24 +179,28 @@ ZHuNM/m0TXt2wTTPL7JH2YC0gPz/BvvSzjksgzU5rLbRyUKQkgU=
         else "GigaChat: нет соединения с $host ($reason). Сервис мог закрыть соединение с зарубежного адреса — отключите VPN или прокси для GigaChat и повторите."
     }
 
-    private val explainErrors = okhttp3.Interceptor { chain ->
+    /** Direct route first (bypassing VPN/proxy); the ordinary route of the app is the fallback, errors are explained. */
+    private fun interceptorFor(fallback: OkHttpClient) = okhttp3.Interceptor { chain ->
         try { chain.proceed(chain.request()) }
-        catch (error: java.io.IOException) {
-            if (chain.call().isCanceled()) throw error
-            throw java.io.IOException(explain(chain.request().url.host, error), error)
+        catch (first: java.io.IOException) {
+            if (chain.call().isCanceled()) throw first
+            try { fallback.newCall(chain.request()).execute() }
+            catch (second: java.io.IOException) {
+                if (chain.call().isCanceled()) throw second
+                throw java.io.IOException(explain(chain.request().url.host, second), second)
+            }
         }
     }
 
-    /** The same client, trusting the Russian roots in addition to the system store. Use only for GigaChat hosts. */
-    @JvmStatic fun forGigaChat(base: OkHttpClient): OkHttpClient {
-        val context = SSLContext.getInstance("TLS")
-        context.init(null, arrayOf<TrustManager>(combined), null)
-        return base.newBuilder().sslSocketFactory(context.socketFactory, combined).addInterceptor(explainErrors).build()
-    }
+    private fun trustContext(): SSLContext = SSLContext.getInstance("TLS").also { it.init(null, arrayOf<TrustManager>(combined), null) }
 
-    @JvmStatic fun forGigaChat(base: OkHttpClient.Builder): OkHttpClient.Builder {
-        val context = SSLContext.getInstance("TLS")
-        context.init(null, arrayOf<TrustManager>(combined), null)
-        return base.sslSocketFactory(context.socketFactory, combined).addInterceptor(explainErrors)
+    /**
+     * The same client for GigaChat hosts only: trusts the Russian roots in addition to the system store and goes out
+     * directly (physical network, no proxy) while the ordinary route of the app stays as the fallback.
+     */
+    @JvmStatic fun forGigaChat(base: OkHttpClient): OkHttpClient {
+        val ordinary = base.newBuilder().sslSocketFactory(trustContext().socketFactory, combined).build()
+        return ordinary.newBuilder().proxy(java.net.Proxy.NO_PROXY).socketFactory(directSockets).dns(directDns)
+            .addInterceptor(interceptorFor(ordinary)).build()
     }
 }
