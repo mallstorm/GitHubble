@@ -13,9 +13,24 @@ import java.util.Objects;
 public final class GitHubReadLoop {
     private GitHubReadLoop(){}
 
+    /**
+     * «Сопоставь/сравни/проанализируй … репозитории … аккаунты»: a cross-check of every project against every connected account.
+     * Needs a repository word and an account word, so a code comparison of two named repositories is never hijacked.
+     */
+    public static boolean wantsAccountMatrix(String query){
+        if(query==null)return false;
+        String q=query.toLowerCase(Locale.ROOT);
+        boolean repo=q.contains("репозитор")||q.contains("проект")||q.contains("repositor")||q.contains("repos");
+        boolean account=q.contains("аккаунт")||q.contains("account");
+        boolean cross=q.contains("сравн")||q.contains("сопостав")||q.contains("сверь")||q.contains("сверк")||q.contains("табли")
+            ||q.contains("проанализ")||q.contains("на каком")||q.contains("по аккаунт")||q.contains("compare")||q.contains("matrix");
+        return repo&&account&&cross;
+    }
+
     public static boolean isDirectRepositoryQuestion(String query){
         if(query==null)return false;
         String q=query.toLowerCase(Locale.ROOT).trim();
+        if(wantsAccountMatrix(query))return true;
         if(q.matches("^/(?:repos|github repos|github whoami)(?:\\s*)$"))return true;
         return (q.contains("репозитор")||q.contains("repositories")||q.contains("repository"))
             && (q.contains("сколько")||q.contains("покажи")||q.contains("список")
@@ -43,11 +58,12 @@ public final class GitHubReadLoop {
             ||question.toLowerCase(Locale.ROOT).contains("how many"))
             &&!question.toLowerCase(Locale.ROOT).contains("покажи")&&!question.toLowerCase(Locale.ROOT).contains("список");
         JSONObject connected=github.connectedAccounts(owner);
-        String named=namedAccount(question,connected.optJSONArray("accounts"));
+        boolean matrix=wantsAccountMatrix(question);
+        String named=matrix?"":namedAccount(question,connected.optJSONArray("accounts"));
         if(!named.isEmpty())
             return singleAnswer(github.executeReadOnly(owner,"list_repositories",new JSONObject().put("account",named),"",""),countOnly);
         if(connected.optInt("count")>1)
-            return allAccountsAnswer(github.listAllRepositories(owner),countOnly,wantsComparison(question));
+            return allAccountsAnswer(github.listAllRepositories(owner),countOnly,wantsComparison(question)||matrix);
         return singleAnswer(github.listAccessibleRepositories(owner),countOnly);
     }
 

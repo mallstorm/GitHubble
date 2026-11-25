@@ -4,10 +4,14 @@ package app.githubble.mobile.agent;
 public final class DirectAnswers {
     private DirectAnswers() {}
     public static boolean handles(String question) {
-        if(question==null||question.length()>300)return false;
+        if(question==null||question.length()>1500)return false;
+        String q=question.toLowerCase(java.util.Locale.ROOT);
+        boolean changes=q.matches("(?s).*(?:исправ|измен|созда|добав|собер|сборк|удал|repair|fix|edit|build|create|delete).*");
+        // Cross-check of all projects against all accounts is answered from the GitHub API, never guessed by a model.
+        if(!changes&&GitHubReadLoop.wantsAccountMatrix(question))return true;
+        if(question.length()>300)return false;
         IntentRouter.Kind kind=IntentRouter.classify(question);
         if(kind==IntentRouter.Kind.PICK_REPO||kind==IntentRouter.Kind.CONTINUE)return false;
-        String q=question.toLowerCase(java.util.Locale.ROOT);
         if(q.matches("(?s).*(?:исправ|измен|проанализ|анализ|созда|добав|собер|сборк|repair|fix|edit|build|review|analy).*"))return false;
         return GitHubReadLoop.isDirectRepositoryQuestion(question);
     }
