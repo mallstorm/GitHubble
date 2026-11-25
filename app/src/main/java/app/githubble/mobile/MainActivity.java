@@ -851,6 +851,7 @@ public class MainActivity extends Activity {
             @Override public void voiceSettings() { showVoiceLanguageChooser(); }
             @Override public void cancelRequest() { agentCancelRequest(owner); }
             @Override public void retryLast() { agentRetryLast(owner,renderedThread); }
+            @Override public void editResend(int index,long at,String text) { agentEditResend(owner,renderedThread,index,at,text); }
             @Override public void draftChanged(String value) { prefs.edit().putString(agentDraftKey(owner, renderedThread), value).apply(); }
             @Override public void send(String prompt, boolean agentMode) {
                 agentSend(owner, prompt, agentMode);
@@ -874,6 +875,15 @@ public class MainActivity extends Activity {
                 connected ? aiConnections.model(owner, provider) : "", connected,
                 title, agentChatBusy(owner,renderedThread), prefs.getString(agentDraftKey(owner, renderedThread), ""));
         activeAgentChatScreen=screen;activeAgentChatScope=owner+"\n"+renderedThread;activeAgentChatConfiguration=agentChatConfiguration(owner,renderedThread);
+    }
+
+    /** Rewinds the chat to the edited user message (it and everything after it are removed) and sends the new text from there. */
+    private void agentEditResend(String owner,String thread,int index,long at,String text){
+        if(!owner.equals(accountStore.activeCacheKey())||!thread.equals(agentProjects.activeConversation(owner)))return;
+        if(agentChatBusy(owner,thread)){toast("Запрос ещё выполняется");return;}
+        int removed=agentProjects.truncateFrom(owner,thread,index,at);
+        if(removed<0){toast("Лента изменилась — откройте сообщение ещё раз");agentRefreshIfCurrent(owner);return;}
+        agentSend(owner,text,true);
     }
 
     private void agentRetryLast(String owner,String thread){

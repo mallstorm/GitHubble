@@ -342,6 +342,11 @@ public final class AgentProjectStore {
     conversations.upsertRun(account, thread, run);
   }
 
+  /** Drops the user message at {@code index} and everything after it. See {@link AgentConversationStore#truncateFrom}. */
+  public synchronized int truncateFrom(String account, String thread, int index, long at) {
+    return conversations.truncateFrom(account, thread, index, at);
+  }
+
   public synchronized void appendAttachments(
       String owner, String thread, String role, String body, JSONArray attachments) {
     conversations.appendRich(owner, thread, role, body, null, attachments);
