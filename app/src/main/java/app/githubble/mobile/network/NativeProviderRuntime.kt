@@ -124,10 +124,22 @@ class NativeProviderRuntime(context:Context,private val store:OmniChatConnection
         listOf(p,model,provider(p,model,raw,owner,"").first.baseUrl,wire).joinToString("|")
     fun postToolJson(p:String,model:String,raw:String,owner:String,wire:String,body:JSONObject):JSONObject=runBlocking{
         suspend fun once(session:String):JSONObject{val (entity,key)=provider(p,model,session,owner,"");return gateway.postJson(entity,key,wire,JSONObject(body.toString()))}
-        try{once(raw)}catch(e:ApiFailure){
-            if(e.statusCode!=401||!NativeSubscriptionRuntime.supports(p))throw e
-            once(NativeSubscriptionRuntime.current(p,raw,store,true).toString())
+        suspend fun attempt(session:String):JSONObject{
+            try{return once(session)}catch(e:ApiFailure){
+                if(e.statusCode!=401||!NativeSubscriptionRuntime.supports(p))throw e
+                return once(NativeSubscriptionRuntime.current(p,session,store,true).toString())
+            }
         }
+        var current=raw;var hops=0
+        while(true){
+            try{return@runBlocking attempt(current)}catch(e:ApiFailure){
+                // Several accounts of one subscription: a rejected or exhausted account hands over to the next one.
+                val next=if(NativeSubscriptionRuntime.supports(p)&&hops<12)store.failoverSession(owner,p,current,e.statusCode,e.message) else null
+                if(next==null)throw e
+                current=next;hops++
+            }
+        }
+        JSONObject()
     }
     fun completeStreaming(p:String,model:String,raw:String,owner:String,history:JSONArray,instructions:String,onText:java.util.function.Consumer<String>):String =
         complete(p,model,raw,owner,history,instructions,null,null,onText)

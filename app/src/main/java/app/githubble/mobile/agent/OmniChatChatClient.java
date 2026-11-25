@@ -44,6 +44,19 @@ public final class OmniChatChatClient {
      */
     private <T> T routed(String owner,String provider,String fallback,boolean record,java.util.concurrent.atomic.AtomicBoolean emitted,KeyedCall<T> call)throws Exception{
         ProviderPool pool=store==null?null:store.pool();
+        if(store!=null&&OAuthSubscriptions.supports(provider)&&store.sessionCount(owner,provider)>1){
+            String raw=fallback;
+            for(int hop=0;;hop++){
+                try{return call.run(raw);}
+                catch(Exception error){
+                    if(error instanceof java.util.concurrent.CancellationException||error instanceof InterruptedException||Thread.currentThread().isInterrupted())throw error;
+                    if(emitted!=null&&emitted.get()||hop>=12)throw error;
+                    String next=store.failoverSession(owner,provider,raw,statusOf(error),error.getMessage());
+                    if(next==null)throw error;
+                    raw=next;
+                }
+            }
+        }
         if(pool==null||!OmniChatConnectionStore.poolable(provider)||!pool.hasSlots(owner,provider))return call.run(fallback);
         java.util.HashSet<String> tried=new java.util.HashSet<>();
         Exception last=null;
