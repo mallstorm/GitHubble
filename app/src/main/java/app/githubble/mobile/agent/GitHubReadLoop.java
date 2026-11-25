@@ -42,17 +42,68 @@ public final class GitHubReadLoop {
         boolean countOnly=question!=null&&(question.toLowerCase(Locale.ROOT).contains("сколько")
             ||question.toLowerCase(Locale.ROOT).contains("how many"))
             &&!question.toLowerCase(Locale.ROOT).contains("покажи")&&!question.toLowerCase(Locale.ROOT).contains("список");
-        if(github.connectedAccounts(owner).optInt("count")>1)
+        JSONObject connected=github.connectedAccounts(owner);
+        String named=namedAccount(question,connected.optJSONArray("accounts"));
+        if(!named.isEmpty())
+            return singleAnswer(github.executeReadOnly(owner,"list_repositories",new JSONObject().put("account",named),"",""),countOnly);
+        if(connected.optInt("count")>1)
             return allAccountsAnswer(github.listAllRepositories(owner),countOnly,wantsComparison(question));
-        JSONObject data=github.listAccessibleRepositories(owner);
+        return singleAnswer(github.listAccessibleRepositories(owner),countOnly);
+    }
+
+    private static String singleAnswer(JSONObject data,boolean countOnly)throws Exception{
         JSONArray repos=data.getJSONArray("repositories");
         StringBuilder answer=new StringBuilder();
         answer.append("## @").append(data.optString("account")).append(" — ").append(data.optInt("count")).append(" репозиториев");
         if(data.optBoolean("truncated"))answer.append(" (показаны первые 1000; список неполный)");
         answer.append("\n");
         if(!countOnly)repoTable(answer,repos,80);
-        answer.append("\n*Источник: GitHub API активного аккаунта. Видимость зависит от OAuth-разрешений.*");
+        answer.append("\n*Источник: GitHub API. Видимость зависит от OAuth-разрешений.*");
         return answer.toString();
+    }
+
+    /** The connected account the user names («на аккаунте Малстором», «@ntl-nam»); "" when none or ambiguous. */
+    static String namedAccount(String question,JSONArray accounts){
+        if(question==null||accounts==null)return "";
+        String q=question.toLowerCase(Locale.ROOT);
+        String[] tokens=transliterate(q).split("[^a-z0-9-]+");
+        String best="";int bestDistance=Integer.MAX_VALUE;boolean tie=false;
+        for(int i=0;i<accounts.length();i++){
+            JSONObject account=accounts.optJSONObject(i);
+            if(account==null)continue;
+            String login=account.optString("login"),lower=login.toLowerCase(Locale.ROOT);
+            if(lower.isEmpty())continue;
+            if(q.contains(lower))return login;
+            int limit=Math.max(2,lower.length()/3),distance=Integer.MAX_VALUE;
+            for(String token:tokens)if(token.length()>=5)distance=Math.min(distance,editDistance(token,lower));
+            if(distance>limit)continue;
+            if(distance<bestDistance){best=login;bestDistance=distance;tie=false;}
+            else if(distance==bestDistance)tie=true;
+        }
+        return tie?"":best;
+    }
+
+    private static String transliterate(String text){
+        String from="абвгдеёжзийклмнопрстуфхцчшщыэюя",
+            to[]={"a","b","v","g","d","e","e","zh","z","i","y","k","l","m","n","o","p","r","s","t","u","f","h","c","ch","sh","sh","y","e","yu","ya"};
+        StringBuilder out=new StringBuilder();
+        for(char ch:text.toCharArray()){
+            int at=from.indexOf(ch);
+            out.append(at>=0?to[at]:(ch=='ь'||ch=='ъ')?"":String.valueOf(ch));
+        }
+        return out.toString();
+    }
+
+    private static int editDistance(String x,String y){
+        int[] previous=new int[y.length()+1],current=new int[y.length()+1];
+        for(int j=0;j<=y.length();j++)previous[j]=j;
+        for(int i=1;i<=x.length();i++){
+            current[0]=i;
+            for(int j=1;j<=y.length();j++)
+                current[j]=Math.min(Math.min(current[j-1],previous[j])+1,previous[j-1]+(x.charAt(i-1)==y.charAt(j-1)?0:1));
+            int[] swap=previous;previous=current;current=swap;
+        }
+        return previous[y.length()];
     }
 
     /** Two-column Markdown table (it renders as a real table on a phone, not as cards). */

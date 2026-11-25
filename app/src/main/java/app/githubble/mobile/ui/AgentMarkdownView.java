@@ -325,25 +325,9 @@ public final class AgentMarkdownView {
       least[c] = Math.max(least[c], dp(64));
       want[c] = Math.max(want[c], least[c]);
     }
-    final int screenWidth = activity.getResources().getDisplayMetrics().widthPixels;
-    final int available = wideTables ? screenWidth - dp(16) : screenWidth - dp(34);
-    int total = 0;
-    for (int w : want) total += w;
-    final int[] width = want.clone();
-    if (total < available) {
-      int used = 0;
-      for (int c = 0; c < cols; c++) {
-        width[c] = c == cols - 1 ? available - used : (int) ((long) want[c] * available / total);
-        used += width[c];
-      }
-    } else if (total > available) {
-      int excess = total - available, room = 0;
-      for (int c = 0; c < cols; c++) room += want[c] - least[c];
-      for (int c = 0; c < cols; c++)
-        width[c] = room <= 0 ? least[c] : want[c] - (int) ((long) Math.min(excess, room) * (want[c] - least[c]) / room);
-    }
-    int gridWidth = 0;
-    for (int w : width) gridWidth += w + 1;
+    // Light rendering: one plain TextView per cell in weighted rows (no horizontal scroller, no match_parent heights).
+    final float[] weight = new float[cols];
+    for (int c = 0; c < cols; c++) weight[c] = Math.max(1, Math.min(want[c], dp(240)));
 
     // Beige "paper" palette, with its own text colors so contrast does not depend on the chat theme.
     final boolean night = Color.luminance(text) > .5;
@@ -360,36 +344,7 @@ public final class AgentMarkdownView {
     frameShape.setStroke(dp(1), line);
     frame.setBackground(frameShape);
     frame.setOrientation(LinearLayout.VERTICAL);
-    if (wideTables) {
-      frame.addOnAttachStateChangeListener(
-          new View.OnAttachStateChangeListener() {
-            @Override
-            public void onViewAttachedToWindow(View v) {
-              for (android.view.ViewParent p = v.getParent(); p instanceof android.view.ViewGroup; p = p.getParent()) {
-                ((android.view.ViewGroup) p).setClipChildren(false);
-                ((android.view.ViewGroup) p).setClipToPadding(false);
-                if (p instanceof ScrollView) break;
-              }
-            }
-
-            @Override
-            public void onViewDetachedFromWindow(View v) {}
-          });
-      frame.addOnLayoutChangeListener(
-          (v, l, t, r, b, ol, ot, or, ob) -> {
-            int[] where = new int[2];
-            v.getLocationInWindow(where);
-            float shift = dp(8) - where[0];
-            if (Math.abs(shift) > 1) v.setTranslationX(v.getTranslationX() + shift);
-          });
-    }
-    HorizontalScrollView scroll = new HorizontalScrollView(activity);
-    scroll.setHorizontalScrollBarEnabled(false);
-    scroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
-    final LinearLayout grid = new LinearLayout(activity);
-    grid.setOrientation(LinearLayout.VERTICAL);
-    scroll.addView(grid, new FrameLayout.LayoutParams(gridWidth, -2));
-    frame.addView(scroll, new LinearLayout.LayoutParams(-1, -2));
+    final LinearLayout grid = frame;
     final int columns = cols;
     int[] next = {0};
     Runnable[] more = {null};
@@ -404,26 +359,19 @@ public final class AgentMarkdownView {
             final int index = next[0];
             boolean header = index == 0 && !meta.get(0).isEmpty() && meta.get(0).get(0).isHeader();
             LinearLayout row = new LinearLayout(activity);
-            row.setBaselineAligned(false);
+            row.setOrientation(LinearLayout.HORIZONTAL);
             row.setBackgroundColor(header ? headerBg : index % 2 == 0 ? Color.TRANSPARENT : zebra);
             for (int c = 0; c < columns; c++) {
-              if (c > 0) {
-                View vertical = new View(activity);
-                vertical.setBackgroundColor(line);
-                row.addView(vertical, new LinearLayout.LayoutParams(1, -1));
-              }
               CharSequence content = c < cells.get(index).size() ? cells.get(index).get(c) : "";
               TextView value = label(content, header ? 12 : 13, header ? headInk : ink);
+              value.setTextIsSelectable(false);
               value.setLinkTextColor(linkInk);
-              value.setPadding(padding, dp(9), padding, dp(9));
-              value.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
+              value.setPadding(dp(10), dp(8), dp(10), dp(8));
               if (header) value.setTypeface(null, Typeface.BOLD);
               TableCell cell = c < meta.get(index).size() ? meta.get(index).get(c) : null;
-              if (cell != null && cell.getAlignment() == TableCell.Alignment.RIGHT)
-                value.setGravity(Gravity.CENTER_VERTICAL | Gravity.END);
-              else if (cell != null && cell.getAlignment() == TableCell.Alignment.CENTER)
-                value.setGravity(Gravity.CENTER);
-              row.addView(value, new LinearLayout.LayoutParams(width[c], -1));
+              if (cell != null && cell.getAlignment() == TableCell.Alignment.RIGHT) value.setGravity(Gravity.END);
+              else if (cell != null && cell.getAlignment() == TableCell.Alignment.CENTER) value.setGravity(Gravity.CENTER_HORIZONTAL);
+              row.addView(value, new LinearLayout.LayoutParams(0, -2, weight[c]));
             }
             grid.addView(row, new LinearLayout.LayoutParams(-1, -2));
             View separator = new View(activity);
@@ -434,8 +382,7 @@ public final class AgentMarkdownView {
         };
     more[0].run();
     expand.setOnClickListener(v -> more[0].run());
-    LinearLayout.LayoutParams framePlace =
-        new LinearLayout.LayoutParams(wideTables ? screenWidth - dp(16) : -1, -2);
+    LinearLayout.LayoutParams framePlace = new LinearLayout.LayoutParams(-1, -2);
     framePlace.topMargin = dp(6);
     framePlace.bottomMargin = dp(6);
     parent.addView(frame, framePlace);
