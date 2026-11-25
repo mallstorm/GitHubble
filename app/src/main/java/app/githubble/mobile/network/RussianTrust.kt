@@ -127,16 +127,34 @@ ZHuNM/m0TXt2wTTPL7JH2YC0gPz/BvvSzjksgzU5rLbRyUKQkgU=
         }
     }
 
+    /** Says which GigaChat server could not be reached and why, instead of a bare "connection closed". */
+    internal fun explain(host: String, error: java.io.IOException): String {
+        val reason = generateSequence<Throwable>(error) { it.cause }.mapNotNull { it.message }.firstOrNull().orEmpty()
+        val certificate = generateSequence<Throwable>(error) { it.cause }.any {
+            it is javax.net.ssl.SSLPeerUnverifiedException || it is java.security.cert.CertPathValidatorException || it is java.security.cert.CertificateException
+        }
+        return if (certificate) "GigaChat: не удалось проверить сертификат сервера $host ($reason)"
+        else "GigaChat: нет соединения с $host ($reason). Сервис мог закрыть соединение с зарубежного адреса — отключите VPN или прокси для GigaChat и повторите."
+    }
+
+    private val explainErrors = okhttp3.Interceptor { chain ->
+        try { chain.proceed(chain.request()) }
+        catch (error: java.io.IOException) {
+            if (chain.call().isCanceled()) throw error
+            throw java.io.IOException(explain(chain.request().url.host, error), error)
+        }
+    }
+
     /** The same client, trusting the Russian roots in addition to the system store. Use only for GigaChat hosts. */
     @JvmStatic fun forGigaChat(base: OkHttpClient): OkHttpClient {
         val context = SSLContext.getInstance("TLS")
         context.init(null, arrayOf<TrustManager>(combined), null)
-        return base.newBuilder().sslSocketFactory(context.socketFactory, combined).build()
+        return base.newBuilder().sslSocketFactory(context.socketFactory, combined).addInterceptor(explainErrors).build()
     }
 
     @JvmStatic fun forGigaChat(base: OkHttpClient.Builder): OkHttpClient.Builder {
         val context = SSLContext.getInstance("TLS")
         context.init(null, arrayOf<TrustManager>(combined), null)
-        return base.sslSocketFactory(context.socketFactory, combined)
+        return base.sslSocketFactory(context.socketFactory, combined).addInterceptor(explainErrors)
     }
 }
