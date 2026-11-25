@@ -1482,7 +1482,8 @@ public class MainActivity extends Activity {
         String key = aiConnections.credential(expected, provider);
         io.execute(() -> {
             try {
-                java.util.List<String> models = aiChatClient.discoverModelsForAccount(expected,provider,key);
+                java.util.List<String> models = new java.util.ArrayList<>();
+                for (String found : aiChatClient.discoverModelsForAccount(expected,provider,key)) if (OmniChatConnectionStore.isChatModel(found)) models.add(found);
                 runOnUiThread(() -> {
                     loading.dismiss();
                     if (!expected.equals(accountStore.activeCacheKey())) return;

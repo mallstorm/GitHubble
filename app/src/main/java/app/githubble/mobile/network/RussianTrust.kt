@@ -134,9 +134,11 @@ ZHuNM/m0TXt2wTTPL7JH2YC0gPz/BvvSzjksgzU5rLbRyUKQkgU=
         override fun createSocket(address: java.net.InetAddress, port: Int, local: java.net.InetAddress, localPort: Int): java.net.Socket = delegateFactory().createSocket(address, port, local, localPort)
     }
 
-    private val directDns = okhttp3.Dns { host ->
-        val network = physicalNetwork()
-        if (network != null) network.getAllByName(host).toList() else okhttp3.Dns.SYSTEM.lookup(host)
+    private val directDns = object : okhttp3.Dns {
+        override fun lookup(hostname: String): List<java.net.InetAddress> {
+            val network = physicalNetwork()
+            return if (network != null) network.getAllByName(hostname).toList() else okhttp3.Dns.SYSTEM.lookup(hostname)
+        }
     }
 
     internal fun anchors(): List<X509Certificate> {
