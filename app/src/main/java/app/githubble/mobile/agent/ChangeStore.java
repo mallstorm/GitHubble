@@ -134,7 +134,7 @@ public final class ChangeStore {
                 if(!e.getString("sourceSha").equals(source.snapshot(path).sha))throw new Conflict("База изменилась: "+path);}
             }catch(Conflict conflict){set.put("state","CONFLICT");save(state);throw conflict;}
             if(!any)throw new IllegalStateException("Нет подтверждённых изменений");
-            set.put("checkpoint",checkpoint(state,"Before apply "+id));
+            set.put("checkpoint",checkpoint(state,"Before apply "+id)).put("appliedAt",System.currentTimeMillis());
             for(int i=0;i<entries.length();i++){JSONObject e=entries.getJSONObject(i);if("APPROVED".equals(e.getString("state")))e.put("state","LOCAL_APPLIED");}
             aggregate(set);save(state);return UnifiedAgentStore.copy(set);
         }
@@ -149,6 +149,51 @@ public final class ChangeStore {
             boolean later=false;JSONArray sets=state.getJSONArray("sets");for(int i=0;i<sets.length();i++){JSONObject next=sets.getJSONObject(i);if(next.getString("id").equals(id)){later=true;continue;}if(!later)continue;
                 JSONArray list=next.getJSONArray("entries");for(int j=0;j<list.length();j++)if(applied(list.getJSONObject(j))&&touched.contains(list.getJSONObject(j).getString("path")))throw new Conflict("Сначала отмените более позднее изменение этого файла");}
             for(int i=0;i<entries.length();i++)entries.getJSONObject(i).put("state","ROLLED_BACK");set.put("state","ROLLED_BACK");save(state);
+        }
+    }
+    /**
+     * Rewinds the task overlay to how it was at {@code since}: every change set proposed or applied from that moment on is
+     * undone (applied entries become ROLLED_BACK, pending ones REJECTED). Sets already published to GitHub stay as they are:
+     * a pushed commit is undone only by a new change set. Newest first, so later sets never block earlier ones.
+     */
+    public JSONObject rewind(long since)throws Exception {
+        synchronized(LOCK){
+            JSONObject state=load();mutable(state);JSONArray sets=state.getJSONArray("sets");
+            int undone=0,dropped=0,files=0,published=0,publishedFiles=0;
+            for(int i=sets.length()-1;i>=0;i--){
+                JSONObject set=sets.getJSONObject(i);
+                if(set.optLong("createdAt")<since&&set.optLong("appliedAt")<since)continue;
+                JSONArray entries=set.getJSONArray("entries");boolean pushed=false,applied=false,changed=false;
+                for(int j=0;j<entries.length();j++)if("PUBLISHED".equals(entries.getJSONObject(j).getString("state")))pushed=true;
+                if(pushed){published++;publishedFiles+=entries.length();continue;}
+                for(int j=0;j<entries.length();j++){
+                    JSONObject e=entries.getJSONObject(j);String s=e.getString("state");
+                    if("LOCAL_APPLIED".equals(s)){e.put("state","ROLLED_BACK");applied=true;changed=true;if(!"DIRECTORY".equals(e.optString("kind")))files++;}
+                    else if("PROPOSED".equals(s)||"APPROVED".equals(s)){e.put("state","REJECTED");changed=true;}
+                }
+                if(!changed)continue;
+                aggregate(set);
+                if(applied)undone++;else dropped++;
+            }
+            save(state);
+            return new JSONObject().put("undone",undone).put("dropped",dropped).put("files",files).put("published",published).put("publishedFiles",publishedFiles);
+        }
+    }
+    /** Live change sets for the state timeline: {at, applied, files, published}. Rolled back and rejected sets are left out. */
+    public JSONArray timeline()throws Exception {
+        synchronized(LOCK){
+            JSONArray out=new JSONArray(),sets=load().getJSONArray("sets");
+            for(int i=0;i<sets.length();i++){
+                JSONObject set=sets.getJSONObject(i);JSONArray entries=set.getJSONArray("entries");int files=0;boolean pushed=false;
+                for(int j=0;j<entries.length();j++){
+                    JSONObject e=entries.getJSONObject(j);String s=e.getString("state");
+                    if(s.equals("ROLLED_BACK")||s.equals("REJECTED"))continue;
+                    if(s.equals("PUBLISHED"))pushed=true;
+                    if(!"DIRECTORY".equals(e.optString("kind")))files++;
+                }
+                if(files>0)out.put(new JSONObject().put("at",set.optLong("createdAt")).put("applied",set.optLong("appliedAt")).put("files",files).put("published",pushed));
+            }
+            return out;
         }
     }
     public JSONObject approveHunks(String id,String path,Set<Integer> selected,WorkspaceSource source)throws Exception {

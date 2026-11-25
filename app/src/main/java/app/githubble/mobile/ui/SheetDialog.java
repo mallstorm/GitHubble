@@ -31,7 +31,7 @@ public class SheetDialog extends Dialog {
     public static final int BUTTON_NEGATIVE = DialogInterface.BUTTON_NEGATIVE;
     public static final int BUTTON_NEUTRAL = DialogInterface.BUTTON_NEUTRAL;
     private static final int DANGER = 0xFFD32F2F;
-    private static final Pattern DESTRUCTIVE = Pattern.compile("(?iu)(удал|сброс|очист|стер|отозв|отключ|выйти|выход|разлог|принудит|force|delete|remove|reset|wipe|revoke)");
+    private static final Pattern DESTRUCTIVE = Pattern.compile("(?iu)(удал|откат|сброс|очист|стер|отозв|отключ|выйти|выход|разлог|принудит|force|delete|remove|reset|wipe|revoke)");
 
     private final Context context;
     private CharSequence title = "", message = "";
