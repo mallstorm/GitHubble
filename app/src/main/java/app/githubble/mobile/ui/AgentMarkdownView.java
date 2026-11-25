@@ -305,7 +305,8 @@ public final class AgentMarkdownView {
     if (cols == 0) return;
     // Phone-friendly rendering: wide tables become compact cards (no sideways scrolling, plain TextViews, fast),
     // and a table that has only a header (unfinished answer) never becomes a giant empty block.
-    if (cols >= 3 || cells.size() < 2) {
+    final boolean matrix = isMatrix(cells, cols);
+    if ((cols >= 3 && !matrix) || cells.size() < 2) {
       tableCards(parent, cells, meta, cols);
       return;
     }
@@ -328,6 +329,15 @@ public final class AgentMarkdownView {
     // Light rendering: one plain TextView per cell in weighted rows (no horizontal scroller, no match_parent heights).
     final float[] weight = new float[cols];
     for (int c = 0; c < cols; c++) weight[c] = Math.max(1, Math.min(want[c], dp(240)));
+    // A tick matrix (name column + short marks): narrow fixed marker columns sized by their header, the name column takes the rest.
+    final int[] fixed = new int[cols];
+    if (matrix) {
+      for (int c = 1; c < cols; c++) {
+        int longest = 0;
+        for (String word : cells.get(0).get(c).toString().split("\\s+")) longest = Math.max(longest, word.length());
+        fixed[c] = Math.max(dp(40), (int) (longest * 6.2f * activity.getResources().getDisplayMetrics().density) + dp(8));
+      }
+    }
 
     // Beige "paper" palette, with its own text colors so contrast does not depend on the chat theme.
     final boolean night = Color.luminance(text) > .5;
@@ -363,15 +373,22 @@ public final class AgentMarkdownView {
             row.setBackgroundColor(header ? headerBg : index % 2 == 0 ? Color.TRANSPARENT : zebra);
             for (int c = 0; c < columns; c++) {
               CharSequence content = c < cells.get(index).size() ? cells.get(index).get(c) : "";
-              TextView value = label(content, header ? 12 : 13, header ? headInk : ink);
+              TextView value = label(content, matrix && header ? 10 : header ? 12 : 13, header ? headInk : ink);
               value.setTextIsSelectable(false);
               value.setLinkTextColor(linkInk);
-              value.setPadding(dp(10), dp(8), dp(10), dp(8));
+              if (matrix && c > 0) {
+                value.setPadding(dp(2), dp(8), dp(2), dp(8));
+                value.setGravity(Gravity.CENTER_HORIZONTAL);
+              } else value.setPadding(dp(10), dp(8), dp(10), dp(8));
               if (header) value.setTypeface(null, Typeface.BOLD);
               TableCell cell = c < meta.get(index).size() ? meta.get(index).get(c) : null;
               if (cell != null && cell.getAlignment() == TableCell.Alignment.RIGHT) value.setGravity(Gravity.END);
               else if (cell != null && cell.getAlignment() == TableCell.Alignment.CENTER) value.setGravity(Gravity.CENTER_HORIZONTAL);
-              row.addView(value, new LinearLayout.LayoutParams(0, -2, weight[c]));
+              row.addView(
+                  value,
+                  fixed[c] > 0
+                      ? new LinearLayout.LayoutParams(fixed[c], -2)
+                      : new LinearLayout.LayoutParams(0, -2, matrix ? 1f : weight[c]));
             }
             grid.addView(row, new LinearLayout.LayoutParams(-1, -2));
             View separator = new View(activity);
@@ -387,6 +404,15 @@ public final class AgentMarkdownView {
     framePlace.bottomMargin = dp(6);
     parent.addView(frame, framePlace);
     parent.addView(expand);
+  }
+
+  /** 3–7 columns, a header and body cells in the marker columns that are only a mark (✅, —, +): a tick matrix. */
+  private static boolean isMatrix(List<List<SpannableStringBuilder>> cells, int cols) {
+    if (cols < 3 || cols > 7 || cells.size() < 2) return false;
+    for (int r = 1; r < cells.size(); r++)
+      for (int c = 1; c < cols && c < cells.get(r).size(); c++)
+        if (cells.get(r).get(c).toString().trim().length() > 3) return false;
+    return true;
   }
 
   private void tableCards(
