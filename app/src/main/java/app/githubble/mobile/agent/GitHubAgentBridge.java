@@ -110,11 +110,6 @@ public final class GitHubAgentBridge {
     private volatile MirrorService mirror;
     public void setMirror(MirrorService value) { mirror = value; }
 
-    public String activeLogin() {
-        GitHubAccountStore.Account active = accounts.activeAccount();
-        return active == null ? "" : active.login;
-    }
-
     /** Copies {@code sourceFull} (owned by a connected account) into another connected account. "" target = active account. */
     public JSONObject mirrorStart(String sourceFull, String targetLogin, String targetName) throws Exception {
         MirrorService service = mirror;
