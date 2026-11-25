@@ -255,6 +255,16 @@ public final class ProviderHubScreen {
         LinearLayout footer = new LinearLayout(activity);
         if (slots.size() > limit) footer.addView(label("Ещё ключей: " + (slots.size() - limit), 12, palette.muted, false), params(0, -2, 1, 0, 0, 0, 0));
         else footer.addView(new View(activity), params(0, 1, 1, 0, 0, 0, 0));
+        TextView remove = textButton("Удалить", v -> confirm("Удалить «" + store.displayName(provider) + "»?",
+                "Все ключи и настройки этого сервиса будут удалены с устройства. Переписка сохранится.", () -> {
+                    if (OmniChatConnectionStore.isCustom(provider)) store.deleteCustomProvider(owner, provider);
+                    else store.disconnect(owner, provider);
+                    host.selectionChanged();
+                    toast("Сервис удалён");
+                    reload();
+                }));
+        remove.setTextColor(danger);
+        footer.addView(remove, params(-2, 40, 0, 0, 0, 0, 0));
         footer.addView(textButton("Открыть", v -> host.openProvider(provider)), params(-2, 40, 0, 0, 0, 0, 0));
         card.addView(footer, params(-1, -2, 0, 6, 0, 0));
         return card;

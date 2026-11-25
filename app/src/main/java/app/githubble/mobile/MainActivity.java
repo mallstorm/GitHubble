@@ -1520,7 +1520,17 @@ public class MainActivity extends Activity {
             } catch (Exception error) {
                 runOnUiThread(() -> {
                     loading.dismiss();
-                    app.githubble.mobile.ui.ConfirmSheet.info(this,"Ошибка каталога моделей",error.getMessage()==null?"Не удалось загрузить модели":error.getMessage());
+                    String detail=error.getMessage()==null?"Не удалось загрузить модели":error.getMessage();
+                    new SheetDialog.Builder(this).setTitle("Ошибка каталога моделей").setMessage(detail)
+                        .setPositiveButton("Понятно",null)
+                        .setNeutralButton("Удалить сервис",(d,w)->app.githubble.mobile.ui.ConfirmSheet.create(this,
+                            new app.githubble.mobile.ui.ConfirmSheet.Spec("Удалить сервис?","Да, удалить","Нет",true)
+                                .fact("Сервис",aiConnections.displayName(provider)).note("Ключи и настройки будут удалены с устройства. Переписка сохранится."),
+                            ()->{
+                                if(!expected.equals(accountStore.activeCacheKey()))return;
+                                if(OmniChatConnectionStore.isCustom(provider))aiConnections.deleteCustomProvider(expected,provider);else aiConnections.disconnect(expected,provider);
+                                agentRefreshIfCurrent(expected);if(currentScreen!=null)currentScreen.run();
+                            },null).show()).show();
                 });
             }
         });
