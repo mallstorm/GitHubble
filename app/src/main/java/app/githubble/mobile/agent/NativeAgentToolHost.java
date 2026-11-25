@@ -763,12 +763,12 @@ public final class NativeAgentToolHost implements ProjectRuntime.ToolHost {
         check();
         String question=a.getString("question");JSONArray opts=a.getJSONArray("options");
         final int n=Math.min(opts.length(),6);
-        final String[] plain=new String[n],labels=new String[n+1];
+        final String[] plain=new String[n];
+        final java.util.List<app.githubble.mobile.ui.QuestionSheet.Option> shown=new java.util.ArrayList<>();
         for(int i=0;i<n;i++){
-            JSONObject o=opts.getJSONObject(i);plain[i]=o.getString("label");String desc=o.optString("description","");
-            labels[i]=plain[i]+(o.optBoolean("recommended")?"  ★ рекомендую":"")+(desc.isEmpty()?"":"\n"+desc);
+            JSONObject o=opts.getJSONObject(i);plain[i]=o.getString("label");
+            shown.add(new app.githubble.mobile.ui.QuestionSheet.Option(plain[i],o.optString("description",""),o.optBoolean("recommended")));
         }
-        labels[n]="Свой вариант…";
         CompletableFuture<String> answer=new CompletableFuture<>();
         AtomicReference<SheetDialog> dialog=new AtomicReference<>();
         AtomicReference<Activity> owner=new AtomicReference<>();
@@ -778,15 +778,18 @@ public final class NativeAgentToolHost implements ProjectRuntime.ToolHost {
             if(host==null||host.isFinishing()||host.isDestroyed()||host==owner.get()||answer.isDone())return;
             try{
                 check();owner.set(host);
-                SheetDialog d=new SheetDialog.Builder(host).setTitle(question).setItems(labels,(dd,w)->{
-                    if(w<n){answer.complete(plain[w]);return;}
-                    android.widget.EditText t=new android.widget.EditText(host);t.setHint("Ваш вариант");
-                    android.widget.FrameLayout box=new android.widget.FrameLayout(host);int pad=(int)(20*host.getResources().getDisplayMetrics().density);
-                    box.setPadding(pad,0,pad,0);box.addView(t);
-                    new SheetDialog.Builder(host).setTitle("Ваш вариант").setView(box)
-                        .setPositiveButton("Отправить",(x,y)->answer.complete("custom: "+t.getText().toString().trim()))
-                        .setNegativeButton("Отмена",(x,y)->answer.complete("")).show();
-                }).setNegativeButton("Пропустить",(dd,w)->answer.complete("")).create();
+                SheetDialog d=app.githubble.mobile.ui.QuestionSheet.create(host,question,shown,new app.githubble.mobile.ui.QuestionSheet.Answer(){
+                    @Override public void choose(int index){answer.complete(plain[index]);}
+                    @Override public void skip(){answer.complete("");}
+                    @Override public void custom(){
+                        android.widget.EditText t=new android.widget.EditText(host);t.setHint("Ваш вариант");
+                        android.widget.FrameLayout box=new android.widget.FrameLayout(host);int pad=(int)(20*host.getResources().getDisplayMetrics().density);
+                        box.setPadding(pad,0,pad,0);box.addView(t);
+                        new SheetDialog.Builder(host).setTitle("Ваш вариант").setView(box)
+                            .setPositiveButton("Отправить",(x,y)->answer.complete("custom: "+t.getText().toString().trim()))
+                            .setNegativeButton("Отмена",(x,y)->answer.complete("")).show();
+                    }
+                });
                 d.setOnCancelListener(v->answer.complete(""));
                 dialog.set(d);d.show();
             }catch(Exception cancelled){answer.complete("");}
