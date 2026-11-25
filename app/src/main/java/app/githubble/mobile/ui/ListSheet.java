@@ -137,7 +137,7 @@ public final class ListSheet {
             WindowManager.LayoutParams p = w.getAttributes();
             p.dimAmount = .38f; w.setAttributes(p); w.setGravity(Gravity.BOTTOM);
             w.setLayout(activity.getResources().getDisplayMetrics().widthPixels,
-                    Math.min(activity.getResources().getDisplayMetrics().heightPixels - dp(56), dp(40 + 76 * Math.max(3, Math.min(rows.size(), 8)))));
+                    Math.min(activity.getResources().getDisplayMetrics().heightPixels - dp(56), dp(190 + (searchHint.isEmpty() ? 0 : 62) + 76 * Math.max(2, Math.min(rows.size(), 8)))));
         }
     }
 

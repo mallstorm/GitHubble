@@ -1818,7 +1818,7 @@ public class MainActivity extends Activity {
                         aiConnections.disconnect(owner,provider);agentRefreshIfCurrent(owner);
                         if(currentScreen!=null)currentScreen.run();
                     },null).show())
-            .action("Закрыть",false,()->{}).show();
+            .show();
     }
 
     private boolean subscriptionAttemptCurrent(String owner,AtomicBoolean cancelled){
