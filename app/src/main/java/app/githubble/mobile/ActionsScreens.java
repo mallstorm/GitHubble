@@ -1,6 +1,8 @@
 package app.githubble.mobile;
 
 import android.app.*;
+import app.githubble.mobile.ui.SheetProgress;
+import app.githubble.mobile.ui.SheetDialog;
 import android.os.*;
 import android.Manifest;
 import android.content.*;
@@ -142,7 +144,7 @@ final class ActionsScreens {
                 String[] values=names.toArray(new String[0]);
                 a.runOnUiThread(()->{
                     if(values.length==0){a.toast("Нет доступных репозиториев");return;}
-                    new AlertDialog.Builder(a).setTitle(title)
+                    new SheetDialog.Builder(a).setTitle(title)
                             .setItems(values,(d,which)->action.accept(values[which]))
                             .setNegativeButton("Отмена",null).show();
                 });
@@ -218,7 +220,7 @@ final class ActionsScreens {
                 });
             };
             if(sizeChanged&&size>10)
-                new AlertDialog.Builder(a).setTitle("Возможны списания GitHub")
+                new SheetDialog.Builder(a).setTitle("Возможны списания GitHub")
                         .setMessage("Кэш больше бесплатных 10 ГБ на репозиторий может оплачиваться. Установить лимит "+size+" ГБ?")
                         .setNegativeButton("Отмена",null).setPositiveButton("Подтвердить",(d,w)->apply.run()).show();
             else apply.run();
@@ -309,7 +311,7 @@ final class ActionsScreens {
         });
         a.addBillingQuickAction(tools,R.drawable.ic_settings,"Повторить запрос","Обновить отчёт и диагностику",()->showActionsBillingCost(full));
         a.content.addView(tools,new LinearLayout.LayoutParams(-1,-2));
-        a.settingsActionRow("Подробности API","Показать источники запросов",()->new AlertDialog.Builder(a)
+        a.settingsActionRow("Подробности API","Показать источники запросов",()->new SheetDialog.Builder(a)
                 .setTitle("Billing API")
                 .setMessage("Профиль и тариф:\nGET /user\n\nИспользование Actions:\nGET /users/{login}/settings/billing/usage/summary?year=…&month=…&product=Actions\n\nХранилище:\nGET /repos/{owner}/{repo}/actions/artifacts\nGET /repos/{owner}/{repo}/actions/caches")
                 .setPositiveButton("OK",null).show());
@@ -637,7 +639,7 @@ final class ActionsScreens {
                             StringBuilder names=new StringBuilder();
                             for(int i=0;i<Math.min(8,chosen.size());i++)names.append("\n• ").append(chosen.get(i).name);
                             if(chosen.size()>8)names.append("\n… и ещё ").append(chosen.size()-8);
-                            new AlertDialog.Builder(a).setTitle("Удалить выбранные: "+chosen.size()+"?")
+                            new SheetDialog.Builder(a).setTitle("Удалить выбранные: "+chosen.size()+"?")
                                     .setMessage(full+"\nРазмер: "+a.formatAccountBytes(sum)+names
                                             +"\n\nУдаление необратимо. Исходники и Releases не затрагиваются.")
                                     .setNegativeButton("Отмена",null)
@@ -655,7 +657,7 @@ final class ActionsScreens {
                                             final String explanation=lastError;
                                             a.runOnUiThread(()->{
                                                 if(generation!=a.screenGeneration.get()||host!=a.content)return;
-                                                new AlertDialog.Builder(a).setTitle("Результат удаления")
+                                                new SheetDialog.Builder(a).setTitle("Результат удаления")
                                                         .setMessage("Удалено: "+deleted+"\nОшибок: "+errors+
                                                                 (explanation.isEmpty()?"":"\n"+app.githubble.mobile.build.ActionsErrorText.describe(explanation)))
                                                         .setPositiveButton("Обновить",(dlg,w)->showActionsStorage(full)).show();
@@ -718,7 +720,7 @@ final class ActionsScreens {
                             for(int i=0;i<Math.min(8,selected.size());i++)
                                 names.append("\n• ").append(selected.get(i).name);
                             if(selected.size()>8)names.append("\n… и ещё ").append(selected.size()-8);
-                            new AlertDialog.Builder(a).setTitle("Подтвердить очистку?")
+                            new SheetDialog.Builder(a).setTitle("Подтвердить очистку?")
                                     .setMessage("Репозиторий: "+full+"\nОбъектов: "+selected.size()
                                             +"\nРазмер: "+a.formatAccountBytes(bytes)+names
                                             +"\n\nУдалённые файлы не восстановить. Это не изменит уже начисленную сумму Billing.")
@@ -735,7 +737,7 @@ final class ActionsScreens {
                                             final String explanation=lastError;
                                             a.runOnUiThread(()->{
                                                 if(generation!=a.screenGeneration.get()||host!=a.content)return;
-                                                new AlertDialog.Builder(a).setTitle("Результат очистки")
+                                                new SheetDialog.Builder(a).setTitle("Результат очистки")
                                                         .setMessage("Удалено: "+deleted+"\nОшибок: "+errors+
                                                                 (explanation.isEmpty()?"":"\n"+explanation))
                                                         .setPositiveButton("Обновить",(dlg,w)->showActionsStorage(full)).show();
@@ -766,7 +768,7 @@ final class ActionsScreens {
             EditText daysInput=new EditText(a);
             daysInput.setInputType(InputType.TYPE_CLASS_NUMBER);
             daysInput.setHint("Например, 7");
-            new AlertDialog.Builder(a).setTitle("Срок хранения · "+full)
+            new SheetDialog.Builder(a).setTitle("Срок хранения · "+full)
                     .setMessage("От 1 до "+maxDays+" дней. Применится только к новым объектам GitHub Actions.")
                     .setView(daysInput).setNegativeButton("Отмена",null)
                     .setPositiveButton("Сохранить",(dialog,which)->{
@@ -873,7 +875,7 @@ final class ActionsScreens {
                         for(int i=0;i<checks.size();i++)if(checks.get(i).isChecked()){selected.add(items.get(i));bytes+=items.get(i).sizeBytes;}
                         if(selected.isEmpty()){a.toast("Ничего не выбрано");return;}
                         long finalBytes=bytes;
-                        new AlertDialog.Builder(a).setTitle("Удалить выбранное?")
+                        new SheetDialog.Builder(a).setTitle("Удалить выбранное?")
                                 .setMessage("Объектов: "+selected.size()+"\nБудет освобождено примерно: "+a.formatAccountBytes(finalBytes)+"\n\nОперация необратима для выбранных кэшей Actions.")
                                 .setNegativeButton("Отмена",null)
                                 .setPositiveButton("Удалить",(d,w)->deleteActionsItems(full,selected)).show();
@@ -886,12 +888,12 @@ final class ActionsScreens {
     }
 
     void deleteActionsItems(String full,List<AccountOperationsController.CleanupItem> selected){
-        ProgressDialog dialog=ProgressDialog.show(a,"Очистка Actions","Удаление выбранных объектов…",true,false);
+        SheetProgress dialog=SheetProgress.show(a,"Очистка Actions","Удаление выбранных объектов…",true,false);
         a.io.execute(()->{
             AccountOperationsController.DeleteResult result=a.accountOperations.deleteCleanupItems(selected);
             a.runOnUiThread(()->{
                 dialog.dismiss();
-                new AlertDialog.Builder(a).setTitle("Очистка завершена")
+                new SheetDialog.Builder(a).setTitle("Очистка завершена")
                         .setMessage("Удалено: "+result.deleted+"\nОшибок: "+result.failed+"\nОсвобождено: "+a.formatAccountBytes(result.bytesFreed))
                         .setPositiveButton("Обновить",(d,w)->showActionsCleanup(full)).show();
             });

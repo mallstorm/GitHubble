@@ -1,7 +1,7 @@
 package app.githubble.mobile.ui;
 
 import android.app.Activity;
-import android.app.AlertDialog;
+import app.githubble.mobile.ui.SheetDialog;
 import android.app.Dialog;
 import android.content.SharedPreferences;
 import android.graphics.Color;
@@ -338,7 +338,7 @@ public final class ModelPickerSheet {
         LinearLayout box = new LinearLayout(activity);
         box.setPadding(dp(20), dp(8), dp(20), 0);
         box.addView(input, new LinearLayout.LayoutParams(-1, -2));
-        new AlertDialog.Builder(activity).setTitle(store.displayName(provider)).setView(box)
+        new SheetDialog.Builder(activity).setTitle(store.displayName(provider)).setView(box)
                 .setPositiveButton("Выбрать", (d, w) -> {
                     String id = input.getText().toString().trim();
                     if (id.isEmpty() || !host.isCurrent(owner)) return;

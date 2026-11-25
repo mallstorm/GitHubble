@@ -417,10 +417,10 @@ public final class AgentCodePanel {
         if(!dialog.isShowing())return;
         TextView value=label(page.optString("content","Файл не существует"),12,false,text);value.setTypeface(Typeface.MONOSPACE);value.setTextIsSelectable(true);value.setPadding(dp(12),dp(12),dp(12),dp(12));
         ScrollView viewer=new ScrollView(activity);viewer.addView(value);
-        android.app.AlertDialog.Builder popup=new android.app.AlertDialog.Builder(activity).setTitle(path+" · "+page.optInt("start_line")+"–"+page.optInt("end_line")).setView(viewer).setNegativeButton("Закрыть",null);
+        app.githubble.mobile.ui.SheetDialog.Builder popup=new app.githubble.mobile.ui.SheetDialog.Builder(activity).setTitle(path+" · "+page.optInt("start_line")+"–"+page.optInt("end_line")).setView(viewer).setNegativeButton("Закрыть",null);
         if(page.optBoolean("truncated")&&page.optInt("end_line")>=start)popup.setPositiveButton("Следующие строки",(d,w)->taskFile(path,page.optInt("end_line")+1));
         if(start>1)popup.setNeutralButton("Предыдущие строки",(d,w)->taskFile(path,Math.max(1,start-200)));popup.show();
-    },message->{if(dialog.isShowing())new android.app.AlertDialog.Builder(activity).setMessage(message).setPositiveButton("ОК",null).show();});}
+    },message->{if(dialog.isShowing())new app.githubble.mobile.ui.SheetDialog.Builder(activity).setMessage(message).setPositiveButton("ОК",null).show();});}
 
     private void collect(File root, File dir, List<String> out) {
         File[] children = dir.listFiles();
@@ -458,7 +458,7 @@ public final class AgentCodePanel {
         view.setPadding(dp(16), dp(8), dp(16), dp(8));
         ScrollView viewer = new ScrollView(activity);
         viewer.addView(view);
-        new android.app.AlertDialog.Builder(activity).setTitle(path).setView(viewer)
+        new app.githubble.mobile.ui.SheetDialog.Builder(activity).setTitle(path).setView(viewer)
                 .setPositiveButton("Закрыть", null).show();
     }
 

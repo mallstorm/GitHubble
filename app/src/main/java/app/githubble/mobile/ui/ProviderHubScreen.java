@@ -1,7 +1,7 @@
 package app.githubble.mobile.ui;
 
 import android.app.Activity;
-import android.app.AlertDialog;
+import app.githubble.mobile.ui.SheetDialog;
 import android.app.Dialog;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
@@ -618,7 +618,7 @@ public final class ProviderHubScreen {
     private void strategySheet(String provider) {
         String[] names = new String[4];
         for (int i = 0; i < 4; i++) names[i] = PoolPolicy.strategyName(i) + "\n" + PoolPolicy.strategyHint(i);
-        new AlertDialog.Builder(activity).setTitle("Распределение запросов")
+        new SheetDialog.Builder(activity).setTitle("Распределение запросов")
                 .setSingleChoiceItems(names, pool().strategy(owner, provider), (d, which) -> {
                     pool().setStrategy(owner, provider, which);
                     d.dismiss();
@@ -936,13 +936,13 @@ public final class ProviderHubScreen {
                 result = "Не удалось получить баланс: " + (error.getMessage() == null ? "ошибка" : error.getMessage());
             }
             final String text = result;
-            activity.runOnUiThread(() -> new AlertDialog.Builder(activity).setTitle("Баланс · " + slot.label)
+            activity.runOnUiThread(() -> new SheetDialog.Builder(activity).setTitle("Баланс · " + slot.label)
                     .setMessage(text).setPositiveButton("ОК", null).show());
         });
     }
 
     private void confirm(String title, String message, Runnable action) {
-        new AlertDialog.Builder(activity).setTitle(title).setMessage(message)
+        new SheetDialog.Builder(activity).setTitle(title).setMessage(message)
                 .setPositiveButton("Да", (d, w) -> { if (host.isCurrent(owner)) action.run(); })
                 .setNegativeButton("Отмена", null).show();
     }

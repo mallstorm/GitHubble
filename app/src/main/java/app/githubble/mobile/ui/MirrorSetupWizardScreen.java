@@ -1,7 +1,7 @@
 package app.githubble.mobile.ui;
 
 import android.app.Activity;
-import android.app.AlertDialog;
+import app.githubble.mobile.ui.SheetDialog;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.widget.Button;
@@ -80,7 +80,7 @@ public final class MirrorSetupWizardScreen {
             action(activity,panel,"Открыть папку GitHubble",accent,googleOpenFolder);
             action(activity,panel,"Выбрать другой Google-аккаунт",accent,googleConnect);
             action(activity,panel,"Отключить Google Drive",accent,()->
-                    new AlertDialog.Builder(activity).setTitle("Отключить Google Drive?")
+                    new SheetDialog.Builder(activity).setTitle("Отключить Google Drive?")
                         .setMessage("Связи на телефоне и файлы на Google Диске останутся. "
                                 +"GitHubble перестанет синхронизировать их с этим аккаунтом.")
                         .setNegativeButton("Отмена",null)

@@ -1,7 +1,7 @@
 package app.githubble.mobile.ui;
 
 import android.app.Activity;
-import android.app.AlertDialog;
+import app.githubble.mobile.ui.SheetDialog;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
@@ -428,7 +428,7 @@ public final class SearchScreen {
             topic = field("Тема, например android", filters.topic, InputType.TYPE_CLASS_TEXT); box.addView(topic);
         }
         final EditText fStars=stars,fUpdated=updated,fTopic=topic;
-        new AlertDialog.Builder(activity).setTitle(codeMode?"Фильтры поиска кода":"Фильтры репозиториев").setView(box)
+        new SheetDialog.Builder(activity).setTitle(codeMode?"Фильтры поиска кода":"Фильтры репозиториев").setView(box)
                 .setPositiveButton("Применить", (d,w) -> {
                     filters.language=clean(language.getText().toString());
                     filters.ownerOrOrg=clean(owner.getText().toString());
@@ -443,7 +443,7 @@ public final class SearchScreen {
         LinearLayout box=dialogBox();
         Spinner kind=new Spinner(activity);kind.setAdapter(new ArrayAdapter<>(activity,android.R.layout.simple_spinner_dropdown_item,new String[]{"Все","Только Issues","Только Pull Requests"}));kind.setSelection("issue".equals(filters.issueKind)?1:"pr".equals(filters.issueKind)?2:0);box.addView(kind,new LinearLayout.LayoutParams(-1,dp(52)));
         Spinner state=new Spinner(activity);state.setAdapter(new ArrayAdapter<>(activity,android.R.layout.simple_spinner_dropdown_item,new String[]{"Любое состояние","Открытые","Закрытые"}));state.setSelection("open".equals(filters.issueState)?1:"closed".equals(filters.issueState)?2:0);box.addView(state,new LinearLayout.LayoutParams(-1,dp(52)));
-        new AlertDialog.Builder(activity).setTitle("Фильтры Issues / PR").setView(box).setPositiveButton("Применить",(d,w)->{
+        new SheetDialog.Builder(activity).setTitle("Фильтры Issues / PR").setView(box).setPositiveButton("Применить",(d,w)->{
             filters.issueKind=kind.getSelectedItemPosition()==1?"issue":kind.getSelectedItemPosition()==2?"pr":"all";
             filters.issueState=state.getSelectedItemPosition()==1?"open":state.getSelectedItemPosition()==2?"closed":"all";
             saveFilters();applyModeVisuals();
@@ -454,7 +454,7 @@ public final class SearchScreen {
         LinearLayout box=dialogBox();
         Spinner kind=new Spinner(activity);kind.setAdapter(new ArrayAdapter<>(activity,android.R.layout.simple_spinner_dropdown_item,new String[]{"Пользователи и организации","Только пользователи","Только организации"}));kind.setSelection("user".equals(filters.peopleKind)?1:"org".equals(filters.peopleKind)?2:0);box.addView(kind,new LinearLayout.LayoutParams(-1,dp(52)));
         EditText owner=field("Дополнительно: точный login",filters.ownerOrOrg,InputType.TYPE_CLASS_TEXT);box.addView(owner);
-        new AlertDialog.Builder(activity).setTitle("Фильтры людей и организаций").setView(box).setPositiveButton("Применить",(d,w)->{
+        new SheetDialog.Builder(activity).setTitle("Фильтры людей и организаций").setView(box).setPositiveButton("Применить",(d,w)->{
             filters.peopleKind=kind.getSelectedItemPosition()==1?"user":kind.getSelectedItemPosition()==2?"org":"all";
             filters.ownerOrOrg=clean(owner.getText().toString());saveFilters();applyModeVisuals();
         }).setNeutralButton("Сбросить",(d,w)->{filters.peopleKind="all";filters.ownerOrOrg="";saveFilters();applyModeVisuals();}).setNegativeButton("Отмена",null).show();

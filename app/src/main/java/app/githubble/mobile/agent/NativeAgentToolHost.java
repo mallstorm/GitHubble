@@ -2,7 +2,7 @@ package app.githubble.mobile.agent;
 
 import android.app.Activity;
 import java.io.File;
-import android.app.AlertDialog;
+import app.githubble.mobile.ui.SheetDialog;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -243,7 +243,7 @@ public final class NativeAgentToolHost implements ProjectRuntime.ToolHost {
                     dialog.set(cd);cd.show();return;
                 }
                 android.widget.EditText typed=null;
-                AlertDialog.Builder builder=new AlertDialog.Builder(host).setTitle("Git Agent · "+name)
+                SheetDialog.Builder builder=new SheetDialog.Builder(host).setTitle("Git Agent · "+name)
                     .setMessage("Аккаунт: "+github.writeLabel(actingAs)+"\n"+preview+(typedToken==null?"":"\n\nНЕОБРАТИМО. Для подтверждения введите: "+typedToken))
                     .setPositiveButton("Разрешить один раз",(v,w)->answer.complete(true))
                     .setNegativeButton("Отклонить",(v,w)->answer.complete(false));
@@ -252,13 +252,13 @@ public final class NativeAgentToolHost implements ProjectRuntime.ToolHost {
                     android.widget.FrameLayout box=new android.widget.FrameLayout(host);int pad=(int)(20*host.getResources().getDisplayMetrics().density);
                     box.setPadding(pad,0,pad,0);box.addView(typed);builder.setView(box);
                 }
-                AlertDialog d=builder.create();
+                SheetDialog d=builder.create();
                 final android.widget.EditText field=typed;
                 d.setOnCancelListener(v->answer.complete(false));
                 d.setOnDismissListener(v->{if(!host.isChangingConfigurations())answer.complete(false);});
                 dialog.set(d);d.show();
                 if(field!=null){
-                    final android.widget.Button ok=d.getButton(AlertDialog.BUTTON_POSITIVE);ok.setEnabled(false);
+                    final android.widget.Button ok=d.getButton(SheetDialog.BUTTON_POSITIVE);ok.setEnabled(false);
                     field.addTextChangedListener(new android.text.TextWatcher(){
                         public void beforeTextChanged(CharSequence s,int a,int b,int c){}
                         public void onTextChanged(CharSequence s,int a,int b,int c){}
@@ -770,7 +770,7 @@ public final class NativeAgentToolHost implements ProjectRuntime.ToolHost {
         }
         labels[n]="Свой вариант…";
         CompletableFuture<String> answer=new CompletableFuture<>();
-        AtomicReference<AlertDialog> dialog=new AtomicReference<>();
+        AtomicReference<SheetDialog> dialog=new AtomicReference<>();
         AtomicReference<Activity> owner=new AtomicReference<>();
         android.os.Handler main=new android.os.Handler(android.os.Looper.getMainLooper());
         Runnable present=()->{
@@ -778,12 +778,12 @@ public final class NativeAgentToolHost implements ProjectRuntime.ToolHost {
             if(host==null||host.isFinishing()||host.isDestroyed()||host==owner.get()||answer.isDone())return;
             try{
                 check();owner.set(host);
-                AlertDialog d=new AlertDialog.Builder(host).setTitle(question).setItems(labels,(dd,w)->{
+                SheetDialog d=new SheetDialog.Builder(host).setTitle(question).setItems(labels,(dd,w)->{
                     if(w<n){answer.complete(plain[w]);return;}
                     android.widget.EditText t=new android.widget.EditText(host);t.setHint("Ваш вариант");
                     android.widget.FrameLayout box=new android.widget.FrameLayout(host);int pad=(int)(20*host.getResources().getDisplayMetrics().density);
                     box.setPadding(pad,0,pad,0);box.addView(t);
-                    new AlertDialog.Builder(host).setTitle("Ваш вариант").setView(box)
+                    new SheetDialog.Builder(host).setTitle("Ваш вариант").setView(box)
                         .setPositiveButton("Отправить",(x,y)->answer.complete("custom: "+t.getText().toString().trim()))
                         .setNegativeButton("Отмена",(x,y)->answer.complete("")).show();
                 }).setNegativeButton("Пропустить",(dd,w)->answer.complete("")).create();

@@ -1,6 +1,8 @@
 package app.githubble.mobile;
 
 import android.app.*;
+import app.githubble.mobile.ui.SheetProgress;
+import app.githubble.mobile.ui.SheetDialog;
 import android.os.*;
 import android.Manifest;
 import android.content.*;
@@ -933,7 +935,7 @@ public class MainActivity extends Activity {
      * not through the selected AI provider, and never contain the token itself. */
     private void agentShowGitHubConnection(String expected){
         if("guest".equals(expected)||!expected.equals(accountStore.activeCacheKey())||!isSignedIn()){
-            new AlertDialog.Builder(this).setTitle("GitHub не подключён")
+            new SheetDialog.Builder(this).setTitle("GitHub не подключён")
                 .setMessage("Откройте «Настройки → Аккаунт и доступ» и войдите в GitHub. "+
                     "OAuth выбранной нейросети не даёт ей разрешений GitHub.")
                 .setPositiveButton("ОК",null).show();return;
@@ -958,7 +960,7 @@ public class MainActivity extends Activity {
             final String report=message;
             runOnUiThread(()->{
                 if(expected.equals(accountStore.activeCacheKey()))
-                    new AlertDialog.Builder(this).setTitle("Связь Hubble Agent ↔ GitHub")
+                    new SheetDialog.Builder(this).setTitle("Связь Hubble Agent ↔ GitHub")
                         .setMessage(report).setPositiveButton("Закрыть",null).show();
             });
         });
@@ -1012,7 +1014,7 @@ public class MainActivity extends Activity {
             agentRefreshIfCurrent(owner);return;
         }
         final String chat=agentProjects.activeConversation(owner);
-        final ProgressDialog fetching=ProgressDialog.show(this,"GitHub",
+        final SheetProgress fetching=SheetProgress.show(this,"GitHub",
             "Загружаем доступные репозитории…",true,false);
         io.execute(()->{
             try{
@@ -1042,13 +1044,13 @@ public class MainActivity extends Activity {
                     fetching.dismiss();
                     if(!owner.equals(accountStore.activeCacheKey()) || isFinishing())return;
                     if(titles.length==0){errorDialog("GitHub","Нет доступных репозиториев");return;}
-                    new AlertDialog.Builder(this)
+                    new SheetDialog.Builder(this)
                         .setTitle("Импорт репозитория в Workspace")
                         .setItems(titles,(dialog,selected)->{
                             JSONObject choice=candidates.get(selected);
                             String repoName=choice.optString("full_name");
                             String repoBranch=choice.optString("default_branch","main");
-                            new AlertDialog.Builder(this)
+                            new SheetDialog.Builder(this)
                                 .setTitle("Создать локальный Workspace?")
                                 .setMessage(repoName+" · "+repoBranch+"\n\n"+
                                     "GitHubble загрузит снимок конкретного commit SHA: ZIP до 32 MiB, "+
@@ -1060,7 +1062,7 @@ public class MainActivity extends Activity {
                                 .setPositiveButton("Импортировать",(confirm,which)->{
                                     if(!owner.equals(accountStore.activeCacheKey())
                                             ||!chat.equals(agentProjects.activeConversation(owner)))return;
-                                    final ProgressDialog running=ProgressDialog.show(this,
+                                    final SheetProgress running=SheetProgress.show(this,
                                         "Импорт из GitHub","Получаем исходники в локальный Workspace…",true,false);
                                     io.execute(()->{
                                         try{
@@ -1151,7 +1153,7 @@ public class MainActivity extends Activity {
     private void showAddSkill(){
         final android.widget.EditText input=new android.widget.EditText(this);input.setMinLines(8);input.setGravity(android.view.Gravity.TOP);
         input.setHint("---\nname: my-skill\ndescription: когда применять\ntools: github_request\n---\nИнструкции навыка");
-        new AlertDialog.Builder(this).setTitle("Новый навык (SKILL.md)").setView(input)
+        new SheetDialog.Builder(this).setTitle("Новый навык (SKILL.md)").setView(input)
             .setPositiveButton("Сохранить",(d,w)->{
                 try{app.githubble.mobile.agent.AgentSkills.get().saveUser(app.githubble.mobile.agent.SkillDocument.parse(input.getText().toString(),false));toast("Навык сохранён");}
                 catch(Exception e){toast(e.getMessage()==null?"Не удалось сохранить навык":e.getMessage());}})
@@ -1162,7 +1164,7 @@ public class MainActivity extends Activity {
         final java.util.List<app.githubble.mobile.agent.SkillDocument> own=skills.user();
         if(own.isEmpty()){toast("Своих навыков пока нет");return;}
         String[] names=new String[own.size()];for(int i=0;i<names.length;i++)names[i]="Удалить /"+own.get(i).name;
-        new AlertDialog.Builder(this).setTitle("Свои навыки").setItems(names,(d,w)->{skills.deleteUser(own.get(w).name);toast("Удалено");})
+        new SheetDialog.Builder(this).setTitle("Свои навыки").setItems(names,(d,w)->{skills.deleteUser(own.get(w).name);toast("Удалено");})
             .setPositiveButton("Экспорт (поделиться)",(d,w)->{Intent send=new Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT,skills.exportUser());
                 startActivity(Intent.createChooser(send,"Экспорт навыков"));})
             .setNegativeButton("Закрыть",null).show();
@@ -1174,7 +1176,7 @@ public class MainActivity extends Activity {
         EditText repo=new EditText(this);
         repo.setSingleLine(true);repo.setHint("OWNER/REPO");
         repo.setText(suggested.isEmpty()?agentProjects.project(expected).repository:suggested);
-        new AlertDialog.Builder(this).setTitle("Удаление репозитория GitHub")
+        new SheetDialog.Builder(this).setTitle("Удаление репозитория GitHub")
             .setMessage("Репозиторий активного аккаунта. Чтобы удалить репозиторий другого подключённого аккаунта, попросите агента в чате — он покажет карточку с нужным аккаунтом.")
             .setView(repo).setPositiveButton("Продолжить",(d,w)->{
                 String full=repo.getText().toString().trim();
@@ -1224,7 +1226,7 @@ public class MainActivity extends Activity {
         privateBox.setText("Приватный репозиторий");
         privateBox.setChecked(defaultPrivate);
         fields.addView(privateBox);
-        new AlertDialog.Builder(this)
+        new SheetDialog.Builder(this)
                 .setTitle("Создать репозиторий в активном GitHub")
                 .setMessage("Операция создаёт реальный репозиторий. Проверьте видимость и имя перед подтверждением.")
                 .setView(fields).setPositiveButton("Создать на GitHub", (dialog, which) -> {
@@ -1259,7 +1261,7 @@ public class MainActivity extends Activity {
     private void agentAttachSelectedRepository(String full){
         final String owner=accountStore.activeCacheKey();
         if("guest".equals(owner)||!isSignedIn()){toast("Подключите GitHub");return;}
-        new AlertDialog.Builder(this).setTitle("Открыть в Hubble Agent?")
+        new SheetDialog.Builder(this).setTitle("Открыть в Hubble Agent?")
             .setMessage(full+"\n\nПривязать репозиторий к этому диалогу? GitHub не будет изменён.")
             .setPositiveButton("Привязать",(d,w)->io.execute(()->{
                 try{
@@ -1280,7 +1282,7 @@ public class MainActivity extends Activity {
         repo.setSingleLine(true);
         repo.setHint("OWNER/REPO");
         repo.setTextColor(TEXT);
-        new AlertDialog.Builder(this).setTitle("Привязать существующий репозиторий")
+        new SheetDialog.Builder(this).setTitle("Привязать существующий репозиторий")
                 .setView(repo).setPositiveButton("Проверить и привязать", (d, w) -> {
                     String full = repo.getText().toString().trim();
                     if (!full.matches("[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}")) {
@@ -1399,7 +1401,7 @@ public class MainActivity extends Activity {
         if (!expected.equals(accountStore.activeCacheKey())) return;
         String provider = aiConnections.selectedProvider(expected);
         if (provider.isEmpty()) { toast("AI-подключение не выбрано"); return; }
-        new AlertDialog.Builder(this).setTitle("Отключить " + aiConnections.displayName(provider) + "?")
+        new SheetDialog.Builder(this).setTitle("Отключить " + aiConnections.displayName(provider) + "?")
                 .setMessage("Сохранённый API-ключ этого провайдера для текущего AI-профиля будет удалён. История переписки сохранится.")
                 .setPositiveButton("Удалить ключ", (d, w) -> {
                     if (!expected.equals(accountStore.activeCacheKey())) {
@@ -1416,7 +1418,7 @@ public class MainActivity extends Activity {
         if (provider.isEmpty() || !aiConnections.hasKey(expected,provider)) {
             agentChooseComposerModel(expected); return;
         }
-        ProgressDialog loading = ProgressDialog.show(this, "Hubble Agent",
+        SheetProgress loading = SheetProgress.show(this, "Hubble Agent",
                 "Загружаем модели с сервера " + aiConnections.displayName(provider), true, false);
         String key = aiConnections.credential(expected, provider);
         io.execute(() -> {
@@ -1573,13 +1575,13 @@ public class MainActivity extends Activity {
                 });
                 item.setOnLongClickListener(v -> {
                     String[] options = {"Переименовать", "Удалить диалог"};
-                    new AlertDialog.Builder(this).setTitle(name)
+                    new SheetDialog.Builder(this).setTitle(name)
                             .setItems(options, (d, choice) -> {
                                 if (choice == 0) {
                                     EditText change = new EditText(this);
                                     change.setSingleLine(true);
                                     change.setText(name);
-                                    new AlertDialog.Builder(this).setTitle("Название диалога")
+                                    new SheetDialog.Builder(this).setTitle("Название диалога")
                                             .setView(change).setPositiveButton("Сохранить", (x, y) -> {
                                                 if (!owner.equals(accountStore.activeCacheKey())) return;
                                                 try {
@@ -1590,7 +1592,7 @@ public class MainActivity extends Activity {
                                                 } catch (Exception error) { toast(error.getMessage()); }
                                             }).setNegativeButton("Отмена", null).show();
                                 } else {
-                                    new AlertDialog.Builder(this).setTitle("Удалить диалог?")
+                                    new SheetDialog.Builder(this).setTitle("Удалить диалог?")
                                             .setMessage("Сообщения этого диалога будут удалены без возможности восстановления.")
                                             .setPositiveButton("Удалить", (x, y) -> {
                                                 if (!owner.equals(accountStore.activeCacheKey())) return;
@@ -1696,11 +1698,11 @@ public class MainActivity extends Activity {
     private void agentShowAgentSettings(String owner) {
         if(!owner.equals(accountStore.activeCacheKey()))return;
         String[] labels=app.githubble.mobile.agent.AgentPermissionPolicy.LABELS;
-        new AlertDialog.Builder(this).setTitle("Разрешения Hubble Agent")
+        new SheetDialog.Builder(this).setTitle("Разрешения Hubble Agent")
             .setSingleChoiceItems(labels,agentPermission(owner),(d,which)->{
                 if(!owner.equals(accountStore.activeCacheKey())){d.dismiss();return;}
                 Runnable save=()->{prefs.edit().putInt("ai_execution_permission_"+owner,which).apply();d.dismiss();agentRefreshIfCurrent(owner);};
-                if(which>=2)new AlertDialog.Builder(this).setTitle(labels[which])
+                if(which>=2)new SheetDialog.Builder(this).setTitle(labels[which])
                     .setMessage(which==3?"Запрошенные изменения файлов и обычные записи в GitHub будут выполняться автоматически. Профиль, настройки репозитория, merge и запуск workflow требуют отдельного подтверждения. Доступ на чтение настраивается отдельно.":"Запрошенные локальные изменения будут применяться автоматически с точками восстановления. Записи в GitHub требуют подтверждения. Доступ на чтение настраивается отдельно.")
                     .setPositiveButton("Включить",(v,w)->save.run()).setNegativeButton("Отмена",null).show();
                 else save.run();
@@ -1709,7 +1711,7 @@ public class MainActivity extends Activity {
     }
 
     private void agentUnavailable(String title,String reason){
-        new AlertDialog.Builder(this).setTitle(title).setMessage(reason).setPositiveButton("Понятно",null).show();
+        new SheetDialog.Builder(this).setTitle(title).setMessage(reason).setPositiveButton("Понятно",null).show();
     }
 
     /** One tap on a sign-in connection: connect when new, otherwise a small menu (refresh models, sign in again, disconnect). */
@@ -1746,7 +1748,7 @@ public class MainActivity extends Activity {
         if(app.githubble.mobile.network.NativeSubscriptionRuntime.supports(provider)){agentBeginBrowserSubscription(owner,provider);return;}
         if(!owner.equals(accountStore.activeCacheKey()))return;
         AtomicBoolean cancelled=new AtomicBoolean(false),old=subscriptionAttempts.put(owner,cancelled);if(old!=null)old.set(true);
-        ProgressDialog progress=ProgressDialog.show(this,aiConnections.displayName(provider),"Получаем код входа…",true,true);
+        SheetProgress progress=SheetProgress.show(this,aiConnections.displayName(provider),"Получаем код входа…",true,true);
         progress.setOnCancelListener(d->cancelled.set(true));
         io.execute(()->{
             try{
@@ -1757,12 +1759,12 @@ public class MainActivity extends Activity {
                     ui.note(body,"Подтвердите вход на странице провайдера. Код действителен ограниченное время.");
                     TextView code=ui.label(login.userCode,28,true);code.setTextIsSelectable(true);code.setGravity(Gravity.CENTER);body.addView(code);
                     TextView status=ui.label("Ожидание подтверждения…",13,false);status.setPadding(0,dp(14),0,0);body.addView(status);
-                    AlertDialog dialog=new AlertDialog.Builder(this).setTitle(aiConnections.displayName(provider)).setView(body)
+                    SheetDialog dialog=new SheetDialog.Builder(this).setTitle(aiConnections.displayName(provider)).setView(body)
                         .setPositiveButton("Открыть браузер",null).setNeutralButton("Копировать код",null).setNegativeButton("Отмена",null).create();
                     dialog.setOnDismissListener(d->{cancelled.set(true);subscriptionAttempts.remove(owner,cancelled);});
                     dialog.setOnShowListener(d->{
-                        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{if(subscriptionAttemptCurrent(owner,cancelled))openWeb(login.url);});
-                        dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v->{
+                        dialog.getButton(SheetDialog.BUTTON_POSITIVE).setOnClickListener(v->{if(subscriptionAttemptCurrent(owner,cancelled))openWeb(login.url);});
+                        dialog.getButton(SheetDialog.BUTTON_NEUTRAL).setOnClickListener(v->{
                             android.content.ClipboardManager clipboard=(android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE);
                             if(clipboard!=null)clipboard.setPrimaryClip(ClipData.newPlainText("Код входа",login.userCode));
                         });
@@ -1774,7 +1776,7 @@ public class MainActivity extends Activity {
         });
     }
 
-    private void agentPollSubscription(String owner,OAuthSubscriptions.DeviceLogin login,AtomicBoolean cancelled,AlertDialog dialog,TextView status){
+    private void agentPollSubscription(String owner,OAuthSubscriptions.DeviceLogin login,AtomicBoolean cancelled,SheetDialog dialog,TextView status){
         new Handler(Looper.getMainLooper()).postDelayed(()->{
             if(!subscriptionAttemptCurrent(owner,cancelled)){dialog.dismiss();return;}
             io.execute(()->{
@@ -1803,7 +1805,7 @@ public class MainActivity extends Activity {
     private void agentBeginBrowserSubscription(String owner,String provider){
         if(!owner.equals(accountStore.activeCacheKey()))return;
         AtomicBoolean cancelled=new AtomicBoolean(false),old=subscriptionAttempts.put(owner,cancelled);if(old!=null)old.set(true);
-        ProgressDialog progress=ProgressDialog.show(this,aiConnections.displayName(provider),"Готовим браузерный вход…",true,true);
+        SheetProgress progress=SheetProgress.show(this,aiConnections.displayName(provider),"Готовим браузерный вход…",true,true);
         progress.setOnCancelListener(d->cancelled.set(true));
         io.execute(()->{
             try{
@@ -1811,7 +1813,7 @@ public class MainActivity extends Activity {
                 runOnUiThread(()->{
                     progress.dismiss();if(!subscriptionAttemptCurrent(owner,cancelled)){login.cancel();return;}
                     java.util.concurrent.atomic.AtomicReference<java.util.concurrent.Future<?>> waiting=new java.util.concurrent.atomic.AtomicReference<>();
-                    AlertDialog dialog=new AlertDialog.Builder(this).setTitle(aiConnections.displayName(provider))
+                    SheetDialog dialog=new SheetDialog.Builder(this).setTitle(aiConnections.displayName(provider))
                         .setMessage(login.getDetail()+"\n\nОткройте браузер и подтвердите вход. Ключ API не требуется.")
                         .setPositiveButton("Открыть браузер",null).setNegativeButton("Отмена",null).create();
                     dialog.setOnDismissListener(d->{cancelled.set(true);subscriptionAttempts.remove(owner,cancelled);login.cancel();java.util.concurrent.Future<?> f=waiting.get();if(f!=null)f.cancel(true);});
@@ -1854,7 +1856,7 @@ public class MainActivity extends Activity {
         EditText task=new EditText(this);
         task.setHint("Что создать или изменить в Workspace?");
         task.setMinLines(4);
-        new AlertDialog.Builder(this).setTitle("Подготовить изменения проекта")
+        new SheetDialog.Builder(this).setTitle("Подготовить изменения проекта")
             .setView(task).setPositiveButton("Подготовить план",(dialog,which)->
                 agentProposeWorkspaceChange(owner,project,task.getText().toString().trim()))
             .setNegativeButton("Отмена",null).show();
@@ -1865,7 +1867,7 @@ public class MainActivity extends Activity {
         // One-time disclosure permission for local sources; it does not change
         // the stored global/account preference without the user's decision.
         if(!true){
-            new AlertDialog.Builder(this).setTitle("Разрешить AI читать файлы проекта?")
+            new SheetDialog.Builder(this).setTitle("Разрешить AI читать файлы проекта?")
                 .setMessage("Чтобы безопасно изменять существующие файлы, модель должна "+
                     "увидеть ограниченный контекст Workspace через выбранного AI-провайдера. "+
                     "GitHub OAuth-токен не передаётся. Источники будут обработаны "+
@@ -1934,7 +1936,7 @@ public class MainActivity extends Activity {
         if(!owner.equals(accountStore.activeCacheKey())||!chat.equals(agentProjects.activeConversation(owner)))return;
         String mime=getContentResolver().getType(chosen);
         if(!java.util.Arrays.asList("image/jpeg","image/png","image/webp").contains(mime)){toast("Нужны JPEG, PNG или WebP");return;}
-        new AlertDialog.Builder(this).setTitle(ocr?"Распознать текст на фото?":"Прикрепить фото?")
+        new SheetDialog.Builder(this).setTitle(ocr?"Распознать текст на фото?":"Прикрепить фото?")
             .setMessage("Изображение до 20 MiB будет отправлено выбранному провайдеру после нажатия кнопки отправки.")
             .setPositiveButton("Прикрепить",(d,w)->{
                 if(!owner.equals(accountStore.activeCacheKey())||!chat.equals(agentProjects.activeConversation(owner)))return;
@@ -1948,7 +1950,7 @@ public class MainActivity extends Activity {
     private void agentPhotoTool(String owner,boolean question){
         if(question){
             EditText text=new EditText(this);text.setHint("Что спросить по изображению?");text.setMinLines(2);
-            new AlertDialog.Builder(this).setTitle("Вопрос по изображению").setView(text)
+            new SheetDialog.Builder(this).setTitle("Вопрос по изображению").setView(text)
                 .setPositiveButton("Выбрать фото",(d,w)->{
                     if(!owner.equals(accountStore.activeCacheKey()))return;
                     String value=text.getText().toString().trim();if(value.isEmpty())value="Ответь на вопрос по изображению и объясни детали.";
@@ -2030,7 +2032,7 @@ public class MainActivity extends Activity {
 
     private void agentShowWebSearch(String owner){
         EditText query=new EditText(this);query.setHint("Что найти в интернете?");query.setMinLines(2);
-        new AlertDialog.Builder(this).setTitle("Веб-поиск").setMessage("Агент ищет в интернете и читает найденные страницы сам, когда нужны свежие данные. Запросы уходят публичным поисковикам, текст страниц читает выбранная модель. Страницы с JavaScript открываются через облачный ридер r.jina.ai.")
+        new SheetDialog.Builder(this).setTitle("Веб-поиск").setMessage("Агент ищет в интернете и читает найденные страницы сам, когда нужны свежие данные. Запросы уходят публичным поисковикам, текст страниц читает выбранная модель. Страницы с JavaScript открываются через облачный ридер r.jina.ai.")
             .setView(query).setPositiveButton("Найти",(d,w)->{
                 if(!owner.equals(accountStore.activeCacheKey()))return;
                 String q=query.getText().toString().trim();if(q.length()<2){toast("Введите запрос");return;}
@@ -2050,13 +2052,13 @@ public class MainActivity extends Activity {
             JSONObject plugin=plugins.optJSONObject(i);if(plugin==null)continue;
             String id=plugin.optString("id");
             ui.action(body,(plugin.optBoolean("enabled")?"✓ ":"")+plugin.optString("name"),plugin.optString("kind")+" · "+plugin.optString("url"),GREEN,()->{
-                sheet[0].dismiss();new AlertDialog.Builder(this).setTitle(plugin.optString("name"))
+                sheet[0].dismiss();new SheetDialog.Builder(this).setTitle(plugin.optString("name"))
                     .setItems(new String[]{"Проверить / обновить инструменты","Включить / выключить","Изменить","Удалить"},(d,n)->{
                         if(!owner.equals(accountStore.activeCacheKey()))return;
-                        if(n==0){ProgressDialog progress=ProgressDialog.show(this,"Плагин","Получаем инструменты…",true,false);io.execute(()->{try{String result=registry.discover(id);runOnUiThread(()->{progress.dismiss();if(owner.equals(accountStore.activeCacheKey()))new AlertDialog.Builder(this).setTitle("Плагин").setMessage(result).setPositiveButton("ОК",null).show();});}catch(Exception e){runOnUiThread(()->{progress.dismiss();if(owner.equals(accountStore.activeCacheKey()))errorDialog("Проверка плагина",e.getMessage());});}});}
+                        if(n==0){SheetProgress progress=SheetProgress.show(this,"Плагин","Получаем инструменты…",true,false);io.execute(()->{try{String result=registry.discover(id);runOnUiThread(()->{progress.dismiss();if(owner.equals(accountStore.activeCacheKey()))new SheetDialog.Builder(this).setTitle("Плагин").setMessage(result).setPositiveButton("ОК",null).show();});}catch(Exception e){runOnUiThread(()->{progress.dismiss();if(owner.equals(accountStore.activeCacheKey()))errorDialog("Проверка плагина",e.getMessage());});}});}
                         else if(n==1){registry.toggle(id);agentShowPlugins(owner);}
                         else if(n==2)agentEditPlugin(owner,plugin);
-                        else new AlertDialog.Builder(this).setTitle("Удалить плагин?").setMessage(plugin.optString("name")).setPositiveButton("Удалить",(v,w)->{if(owner.equals(accountStore.activeCacheKey())){registry.remove(id);agentShowPlugins(owner);}}).setNegativeButton("Отмена",null).show();
+                        else new SheetDialog.Builder(this).setTitle("Удалить плагин?").setMessage(plugin.optString("name")).setPositiveButton("Удалить",(v,w)->{if(owner.equals(accountStore.activeCacheKey())){registry.remove(id);agentShowPlugins(owner);}}).setNegativeButton("Отмена",null).show();
                     }).show();
             });
         }
@@ -2069,7 +2071,7 @@ public class MainActivity extends Activity {
         String[] hints={"Название","Публичный HTTPS URL","GET / POST / MCP","Bearer · пусто — сохранить","MCP версия: 2025-11-25 / 2026-07-28"};
         String[] values={existing.optString("name"),existing.optString("url"),existing.optString("kind","POST"),"",existing.optString("version","2025-11-25")};
         EditText[] inputs=new EditText[hints.length];for(int i=0;i<inputs.length;i++){inputs[i]=new EditText(this);inputs[i].setTextColor(TEXT);inputs[i].setHint(hints[i]);inputs[i].setText(values[i]);inputs[i].setSingleLine(true);if(i==3)inputs[i].setInputType(129);form.addView(inputs[i]);}
-        AlertDialog d=new AlertDialog.Builder(this).setTitle("Плагин / MCP").setView(form).setPositiveButton("Сохранить",null).setNegativeButton("Отмена",null).create();
+        SheetDialog d=new SheetDialog.Builder(this).setTitle("Плагин / MCP").setView(form).setPositiveButton("Сохранить",null).setNegativeButton("Отмена",null).create();
         d.setOnShowListener(v->d.getButton(-1).setOnClickListener(w->{
             if(!owner.equals(accountStore.activeCacheKey())){d.dismiss();return;}
             try{new app.githubble.mobile.agent.NativePluginRegistry(this,owner).save(existing.optString("id"),inputs[0].getText().toString(),inputs[1].getText().toString(),inputs[2].getText().toString().trim().toUpperCase(Locale.ROOT),inputs[3].getText().toString(),inputs[4].getText().toString().trim());inputs[3].setText("");d.dismiss();agentShowPlugins(owner);}
@@ -2087,7 +2089,7 @@ public class MainActivity extends Activity {
         EditText prompt=new EditText(this);prompt.setHint("Опишите изображение");prompt.setMinLines(3);prompt.setTextColor(TEXT);form.addView(prompt);
         EditText model=new EditText(this);model.setHint("Модель генерации / основная модель ChatGPT");model.setSingleLine(true);model.setTextColor(TEXT);model.setText(app.githubble.mobile.network.NativeMediaRuntime.defaultModel(aiConnections,owner,provider));form.addView(model);
         EditText size=new EditText(this);size.setSingleLine(true);size.setHint("Размер");size.setText("1024x1024");size.setTextColor(TEXT);form.addView(size);
-        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Создание изображения · "+aiConnections.displayName(provider)).setMessage("Запрос выполняется через выбранное подключение и учитывает тариф провайдера.").setView(form).setPositiveButton("Создать",null).setNegativeButton("Отмена",null).create();
+        SheetDialog dialog=new SheetDialog.Builder(this).setTitle("Создание изображения · "+aiConnections.displayName(provider)).setMessage("Запрос выполняется через выбранное подключение и учитывает тариф провайдера.").setView(form).setPositiveButton("Создать",null).setNegativeButton("Отмена",null).create();
         dialog.setOnShowListener(v->dialog.getButton(-1).setOnClickListener(w->{
             if(!owner.equals(accountStore.activeCacheKey())||!thread.equals(agentProjects.activeConversation(owner))){dialog.dismiss();return;}
             String request=prompt.getText().toString().trim(),selectedModel=model.getText().toString().trim(),selectedSize=size.getText().toString().trim();
@@ -2116,7 +2118,7 @@ public class MainActivity extends Activity {
         ui.tile(quick,"Камера",R.drawable.ic_agent_camera,0xFF1C9C76,()->{dialog[0].dismiss();agentCaptureImage(owner,false);});
         ui.tile(quick,"Фото",R.drawable.ic_agent_photo,0xFF347EE2,()->{dialog[0].dismiss();agentPickImageAttachment(owner,false);});
         ui.tile(quick,"Файлы",R.drawable.ic_agent_attach,0xFFE5A126,()->{dialog[0].dismiss();agentPickTextAttachment(owner);});
-        ui.tile(quick,"Сканировать текст",R.drawable.ic_agent_scan,0xFF8E59DE,()->{dialog[0].dismiss();new AlertDialog.Builder(this).setTitle("Источник текста").setItems(new String[]{"Камера","Галерея"},(d,n)->{if(n==0)agentCaptureImage(owner,true);else agentPickImageAttachment(owner,true);}).show();});
+        ui.tile(quick,"Сканировать текст",R.drawable.ic_agent_scan,0xFF8E59DE,()->{dialog[0].dismiss();new SheetDialog.Builder(this).setTitle("Источник текста").setItems(new String[]{"Камера","Галерея"},(d,n)->{if(n==0)agentCaptureImage(owner,true);else agentPickImageAttachment(owner,true);}).show();});
         body.addView(quick,new LinearLayout.LayoutParams(-1,ui.dp(106)));
         ui.section(body,"Инструменты с изображениями");
         ui.note(body,"Фото, вопросы и OCR используют мультимодальный протокол выбранного подключения. Изображение отправляется после подтверждения и отправки. Генерация зависит от модели и тарифа провайдера.");
@@ -2155,7 +2157,7 @@ public class MainActivity extends Activity {
     private void agentShowChatTools(String owner) {
         if (!owner.equals(accountStore.activeCacheKey())) return;
         AgentProjectStore.Project project = agentProjects.project(owner);
-        new AlertDialog.Builder(this).setTitle("Hubble Agent · инструменты")
+        new SheetDialog.Builder(this).setTitle("Hubble Agent · инструменты")
                 .setItems(new String[]{
                         "📎  Прикрепить текстовый файл",
                         "🖼  Фото и мультимедиа",
@@ -2173,7 +2175,7 @@ public class MainActivity extends Activity {
                         case 1: agentShowAttachments(owner);break;
                         case 2: agentGenerateProjectCode(owner, ""); break;
                         case 3:
-                            new AlertDialog.Builder(this).setTitle("Проекты GitHub")
+                            new SheetDialog.Builder(this).setTitle("Проекты GitHub")
                                     .setItems(new String[]{"Новый проект", "Привязать репозиторий",
                                             "Создать репозиторий", "Открыть репозиторий"},
                                             (x, i) -> {
@@ -2287,7 +2289,7 @@ public class MainActivity extends Activity {
                     ScrollView scroll = new ScrollView(this);
                     scroll.setPadding(dp(14), dp(9), dp(14), dp(8));
                     scroll.addView(preview);
-                    new AlertDialog.Builder(this).setTitle("Добавить файл " + title + "?")
+                    new SheetDialog.Builder(this).setTitle("Добавить файл " + title + "?")
                             .setMessage("Его текст будет добавлен в черновик. При отправке содержимое попадёт выбранному AI-провайдеру.")
                             .setView(scroll)
                             .setPositiveButton("Добавить в сообщение", (d,w) -> {
@@ -2543,7 +2545,7 @@ public class MainActivity extends Activity {
     private void agentGenerateProjectCode(String owner,String initialTask) {
         if(!owner.equals(accountStore.activeCacheKey()))return;
         EditText request=new EditText(this);request.setHint("Опишите изменение кода");request.setText(initialTask);
-        new AlertDialog.Builder(this).setTitle("Изменить код задачи").setView(request)
+        new SheetDialog.Builder(this).setTitle("Изменить код задачи").setView(request)
             .setPositiveButton("Продолжить",(d,w)->agentSend(owner,"/edit "+request.getText().toString(),true)).setNegativeButton("Отмена",null).show();
     }
 
@@ -2582,7 +2584,7 @@ public class MainActivity extends Activity {
                     if (!account.equals(accountStore.activeCacheKey())) return;
                     AgentProjectStore.Project now = agentProjects.project(account);
                     if (!project.repository.equals(now.repository)) return;
-                    new AlertDialog.Builder(this).setTitle("Диагностика GitHub Actions")
+                    new SheetDialog.Builder(this).setTitle("Диагностика GitHub Actions")
                             .setItems(labels, (d, selected) -> {
                                 JSONObject run = list.optJSONObject(selected);
                                 if (run != null) agentInspectBuildDiagnostics(account, project,
@@ -2600,7 +2602,7 @@ public class MainActivity extends Activity {
     private void agentInspectBuildDiagnostics(String account,
                                               AgentProjectStore.Project project, long runId) {
         if (runId <= 0) return;
-        ProgressDialog progress = ProgressDialog.show(this, "GitHub Actions",
+        SheetProgress progress = SheetProgress.show(this, "GitHub Actions",
                 "Получаем состояние сборки и фрагменты ошибок…", true, false);
         io.execute(() -> {
             try {
@@ -2640,7 +2642,7 @@ public class MainActivity extends Activity {
                     body.setPadding(dp(14), dp(12), dp(14), dp(12));
                     ScrollView scroll = new ScrollView(this);
                     scroll.addView(body);
-                    AlertDialog.Builder dialog = new AlertDialog.Builder(this)
+                    SheetDialog.Builder dialog = new SheetDialog.Builder(this)
                             .setTitle("Проверка CI · #" + runId).setView(scroll)
                             .setPositiveButton("Артефакты", (d, w) ->
                                     agentShowRunArtifacts(account, project.repository, runId,
@@ -2656,7 +2658,7 @@ public class MainActivity extends Activity {
                 runOnUiThread(() -> {
                     progress.dismiss();
                     if (account.equals(accountStore.activeCacheKey()))
-                        new AlertDialog.Builder(this).setTitle("Ошибка диагностики")
+                        new SheetDialog.Builder(this).setTitle("Ошибка диагностики")
                                 .setMessage(error.getMessage()).setPositiveButton("ОК", null).show();
                 });
             }
@@ -2672,7 +2674,7 @@ public class MainActivity extends Activity {
         if(!account.equals(accountStore.activeCacheKey()))return;
         final String thread=agentProjects.activeConversation(account);
         if(project.workspaceId==null||project.workspaceId.isEmpty()){
-            new AlertDialog.Builder(this).setTitle("Нужен локальный Workspace")
+            new SheetDialog.Builder(this).setTitle("Нужен локальный Workspace")
                 .setMessage("Для исправления сборки импортируйте соответствующую ветку "+
                     "репозитория в локальный Workspace. Прямой коммит по журналу ошибок "+
                     "без просмотра исходников недоступен.")
@@ -2681,7 +2683,7 @@ public class MainActivity extends Activity {
                 .setNegativeButton("Отмена",null).show();
             return;
         }
-        final ProgressDialog loading=ProgressDialog.show(this,"Hubble Agent",
+        final SheetProgress loading=SheetProgress.show(this,"Hubble Agent",
             "Проверяем SHA сборки и актуальную ветку…",true,false);
         io.execute(()->{
             try{
@@ -2697,7 +2699,7 @@ public class MainActivity extends Activity {
                     if(!account.equals(accountStore.activeCacheKey())||
                         !thread.equals(agentProjects.activeConversation(account))||
                         !project.workspaceId.equals(agentProjects.project(account).workspaceId))return;
-                    new AlertDialog.Builder(this)
+                    new SheetDialog.Builder(this)
                         .setTitle("Передать диагностику выбранной модели?")
                         .setMessage(ticket.preview()+"\n\n"+
                             "Отрывки журнала и исходников фильтруются от известных секретов, "+
@@ -2712,7 +2714,7 @@ public class MainActivity extends Activity {
                 runOnUiThread(()->{
                     loading.dismiss();
                     if(account.equals(accountStore.activeCacheKey()))
-                        new AlertDialog.Builder(this)
+                        new SheetDialog.Builder(this)
                             .setTitle("Исправление этой сборки недоступно")
                             .setMessage(error.getMessage()+
                                 "\n\nМожно исследовать журнал вручную или импортировать "+
@@ -2753,7 +2755,7 @@ public class MainActivity extends Activity {
                 }
                 runOnUiThread(() -> {
                     if (!expected.equals(accountStore.activeCacheKey())) return;
-                    new AlertDialog.Builder(this).setTitle("GitHub Actions · " + p.repository)
+                    new SheetDialog.Builder(this).setTitle("GitHub Actions · " + p.repository)
                             .setItems(names, (dialog, selected) -> {
                                 JSONObject run = runs.optJSONObject(selected);
                                 if (run != null) agentShowRunArtifacts(expected, p.repository,
@@ -2787,7 +2789,7 @@ public class MainActivity extends Activity {
                 }
                 runOnUiThread(() -> {
                     if (!expected.equals(accountStore.activeCacheKey())) return;
-                    new AlertDialog.Builder(this).setTitle("Артефакты сборки #" + runId)
+                    new SheetDialog.Builder(this).setTitle("Артефакты сборки #" + runId)
                             .setItems(entries, (dialog, selected) -> {
                                 JSONObject a = list.optJSONObject(selected);
                                 if (a == null) return;
@@ -2834,12 +2836,12 @@ public class MainActivity extends Activity {
                 }
                 runOnUiThread(() -> {
                     if (!expected.equals(accountStore.activeCacheKey())) return;
-                    new AlertDialog.Builder(this).setTitle("GitHub Actions · " + p.repository)
+                    new SheetDialog.Builder(this).setTitle("GitHub Actions · " + p.repository)
                             .setItems(choices, (d, selected) -> {
                                 JSONObject workflow = list.optJSONObject(selected);
                                 if (workflow == null) return;
                                 String id = workflow.optString("id");
-                                new AlertDialog.Builder(this).setTitle("Запустить workflow?")
+                                new SheetDialog.Builder(this).setTitle("Запустить workflow?")
                                         .setMessage(choices[selected] + "\nВетка: " + p.branch
                                                 + "\nТребуется workflow_dispatch в YAML.")
                                         .setPositiveButton("Запустить", (confirm, which) -> io.execute(() -> {
@@ -3516,7 +3518,7 @@ public class MainActivity extends Activity {
         quickMic.setOnLongClickListener(v->{showVoiceLanguageChooser();return true;});
         FrameLayout.LayoutParams micP=new FrameLayout.LayoutParams(dp(50),dp(54),Gravity.END|Gravity.TOP);
         micP.setMargins(0,dp(4),dp(18),0);holder.addView(quickMic,micP);
-        new android.app.AlertDialog.Builder(this)
+        new app.githubble.mobile.ui.SheetDialog.Builder(this)
                 .setTitle("Быстрый поиск")
                 .setMessage("Для истории, фильтров и подборок откройте нижний раздел «Поиск».")
                 .setView(holder)
@@ -3944,7 +3946,7 @@ public class MainActivity extends Activity {
         EditText input=new EditText(this);input.setSingleLine(true);input.setHint("ghp_…");
         input.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD);
         form.addView(input);
-        new AlertDialog.Builder(this).setTitle("Токен для Inbox").setView(form)
+        new SheetDialog.Builder(this).setTitle("Токен для Inbox").setView(form)
                 .setNeutralButton("Создать на GitHub",(d,w)->openSecureGitHubPage("https://github.com/settings/tokens/new?scopes=notifications&description=GitHubble%20Inbox"))
                 .setNegativeButton(inboxToken().isEmpty()?"Отмена":"Удалить токен",(d,w)->{
                     if(!inboxToken().isEmpty()){secureStore.put("inbox_token_"+account,"");showGitHubInbox();}
@@ -3977,7 +3979,7 @@ public class MainActivity extends Activity {
         if(!isSignedIn()){accountRequiredCard("Подключите GitHub.");return;}
         final String account=accountStore.activeCacheKey();
         final long generation=screenGeneration.get();
-        ProgressDialog progress=ProgressDialog.show(this,"CI Doctor",
+        SheetProgress progress=SheetProgress.show(this,"CI Doctor",
                 "Проверяем задания и получаем безопасные фрагменты журналов…",true,false);
         io.execute(()->{
             try{
@@ -4022,7 +4024,7 @@ public class MainActivity extends Activity {
                     message.setTextIsSelectable(true);
                     message.setPadding(dp(15),dp(12),dp(15),dp(12));
                     ScrollView scroll=new ScrollView(this);scroll.addView(message);
-                    AlertDialog.Builder dialog=new AlertDialog.Builder(this)
+                    SheetDialog.Builder dialog=new SheetDialog.Builder(this)
                             .setTitle("CI Doctor · #"+runId).setView(scroll)
                             .setPositiveButton("GitHub Actions",(d,w)->openWeb(
                                     "https://github.com/"+repository+"/actions/runs/"+runId))
@@ -4483,7 +4485,7 @@ public class MainActivity extends Activity {
         EditText field=new EditText(this);
         field.setSingleLine(true);
         field.setHint("mallstorm/GitHubble");
-        new AlertDialog.Builder(this).setTitle("Добавить репозиторий")
+        new SheetDialog.Builder(this).setTitle("Добавить репозиторий")
                 .setView(field)
                 .setPositiveButton("Следить",(dialog,which)->{
                     String full=field.getText().toString().trim();
@@ -4534,7 +4536,7 @@ public class MainActivity extends Activity {
             }
         }
         if(values.isEmpty()){
-            new AlertDialog.Builder(this).setTitle("Нет синхронизированных репозиториев")
+            new SheetDialog.Builder(this).setTitle("Нет синхронизированных репозиториев")
                     .setMessage("Сначала обновите список репозиториев или добавьте проект по имени.")
                     .setPositiveButton("Обновить", (d,w)->navigate(()->showMyRepositories(true)))
                     .setNegativeButton("Отмена",null).show();
@@ -4544,10 +4546,10 @@ public class MainActivity extends Activity {
         Set<String> chosen=new LinkedHashSet<>(BuildMonitor.watched(this));
         boolean[] checked=new boolean[names.length];
         for(int i=0;i<names.length;i++)checked[i]=chosen.contains(names[i]);
-        new AlertDialog.Builder(this).setTitle("Мониторинг проектов · до 30")
+        new SheetDialog.Builder(this).setTitle("Мониторинг проектов · до 30")
                 .setMultiChoiceItems(names,checked,(dialog,index,on)->{
                     if(on&&chosen.size()>=30&&!chosen.contains(names[index])){
-                        ((AlertDialog)dialog).getListView().setItemChecked(index,false);
+                        ((SheetDialog)dialog).uncheck(index);
                         toast("Ограничение: 30 проектов");
                     }else if(on)chosen.add(names[index]);
                     else chosen.remove(names[index]);
@@ -4592,7 +4594,7 @@ public class MainActivity extends Activity {
                             @Override public void menu(JSONObject repo){
                                 String full=repo.optString("full_name","");
                                 String[] items={"Открыть","Управление","Зеркалировать","Открыть на GitHub","Обновить репозитории"};
-                                new AlertDialog.Builder(MainActivity.this)
+                                new SheetDialog.Builder(MainActivity.this)
                                         .setTitle(full).setItems(items,(dialog,index)->{
                                             if(index==0)navigate(() -> showRepository(full));
                                             if(index==1)navigate(() -> showRepositoryAdmin(full,repo));
@@ -4793,7 +4795,7 @@ public class MainActivity extends Activity {
 
     private void showDiscussionCommentDialog(String full,int number,String discussionId){
         if(discussionId.isEmpty()){toast("Не удалось определить Discussion ID");return;}final EditText body=new EditText(this);body.setMinLines(4);body.setGravity(Gravity.TOP);body.setHint("Ваш ответ в Markdown");body.setTextColor(TEXT);body.setHintTextColor(MUTED);
-        new AlertDialog.Builder(this).setTitle("Ответить в Discussion").setView(body).setPositiveButton("Отправить",(d,w)->{String value=body.getText().toString().trim();if(value.isEmpty())return;ProgressDialog progress=ProgressDialog.show(this,"Discussion","Отправляем ответ…",true,false);io.execute(() -> {try{JSONObject vars=new JSONObject();vars.put("discussionId",discussionId);vars.put("body",value);String mutation="mutation AddDiscussionComment($discussionId:ID!,$body:String!){ addDiscussionComment(input:{discussionId:$discussionId,body:$body}){ comment{id} } }";graphql.execute(mutation,vars);runOnUiThread(() -> {progress.dismiss();toast("Ответ добавлен");showDiscussionDetail(full,number);});}catch(Exception e){runOnUiThread(() -> {progress.dismiss();toast("Не удалось отправить: "+e.getMessage());});}});}).setNegativeButton("Отмена",null).show();
+        new SheetDialog.Builder(this).setTitle("Ответить в Discussion").setView(body).setPositiveButton("Отправить",(d,w)->{String value=body.getText().toString().trim();if(value.isEmpty())return;SheetProgress progress=SheetProgress.show(this,"Discussion","Отправляем ответ…",true,false);io.execute(() -> {try{JSONObject vars=new JSONObject();vars.put("discussionId",discussionId);vars.put("body",value);String mutation="mutation AddDiscussionComment($discussionId:ID!,$body:String!){ addDiscussionComment(input:{discussionId:$discussionId,body:$body}){ comment{id} } }";graphql.execute(mutation,vars);runOnUiThread(() -> {progress.dismiss();toast("Ответ добавлен");showDiscussionDetail(full,number);});}catch(Exception e){runOnUiThread(() -> {progress.dismiss();toast("Не удалось отправить: "+e.getMessage());});}});}).setNegativeButton("Отмена",null).show();
     }
 
     private void showReleases(){
@@ -5223,7 +5225,7 @@ public class MainActivity extends Activity {
         row.addView(refineChip("⇅ "+feedSortLabel(),!feedSort.isEmpty(),()->{
             String[] ids={"","stars","forks","updated"};String[] names={"Лучшие совпадения","Звёзды","Форки","Недавно обновлённые"};
             int cur=0;for(int i=0;i<ids.length;i++)if(ids[i].equals(feedSort))cur=i;
-            new AlertDialog.Builder(this).setTitle("Сортировка").setSingleChoiceItems(names,cur,(d,w)->{feedSort=ids[w];d.dismiss();rerun.run();}).setNegativeButton("Закрыть",null).show();
+            new SheetDialog.Builder(this).setTitle("Сортировка").setSingleChoiceItems(names,cur,(d,w)->{feedSort=ids[w];d.dismiss();rerun.run();}).setNegativeButton("Закрыть",null).show();
         }));
         row.addView(refineChip("Без форков",feedNoForks,()->{feedNoForks=!feedNoForks;rerun.run();}));
         row.addView(refineChip("Живые · за год",feedFresh,()->{feedFresh=!feedFresh;rerun.run();}));
@@ -5554,7 +5556,7 @@ public class MainActivity extends Activity {
     }
 
     private void showBranchChooser(String full, String current) {
-        ProgressDialog dialog = ProgressDialog.show(this, "Ветки", "Загрузка…", true, false);
+        SheetProgress dialog = SheetProgress.show(this, "Ветки", "Загрузка…", true, false);
         io.execute(() -> {
             try {
                 JSONArray branches = getArray("https://api.github.com/repos/"+full+"/branches?per_page=100");
@@ -5562,7 +5564,7 @@ public class MainActivity extends Activity {
                 int checked = 0;
                 for (int i=0;i<branches.length();i++) { names[i]=branches.optJSONObject(i).optString("name"); if(names[i].equals(current)) checked=i; }
                 int finalChecked = checked;
-                runOnUiThread(() -> { dialog.dismiss(); new AlertDialog.Builder(this).setTitle("Выберите ветку").setSingleChoiceItems(names, finalChecked, (d, which) -> { d.dismiss(); navigate(() -> showRepositoryFiles(full, names[which], "")); }).setNegativeButton("Отмена",null).show(); });
+                runOnUiThread(() -> { dialog.dismiss(); new SheetDialog.Builder(this).setTitle("Выберите ветку").setSingleChoiceItems(names, finalChecked, (d, which) -> { d.dismiss(); navigate(() -> showRepositoryFiles(full, names[which], "")); }).setNegativeButton("Отмена",null).show(); });
             } catch(Exception e) { runOnUiThread(() -> { dialog.dismiss(); toast("Не удалось загрузить ветки"); }); }
         });
     }
@@ -5583,7 +5585,7 @@ public class MainActivity extends Activity {
 
     private void connectMirrorGoogle(){
         if(mirrorManager.googleCloud().connected()){
-            new AlertDialog.Builder(this)
+            new SheetDialog.Builder(this)
                     .setTitle("Выбрать другой Google-аккаунт?")
                     .setMessage("При смене аккаунта связанные репозитории из локального "
                             +"реестра будут сохранены в новом Google Диске. "
@@ -5640,7 +5642,7 @@ public class MainActivity extends Activity {
                     if(!prefs.getString("theme","light").equals(activeTheme)){applyTheme();switchLauncherIcon(activeTheme);}
                     Runnable back=mirrorGoogleReturn;mirrorGoogleReturn=null;
                     if(back!=null)back.run();else showMirrorSetupWizard();
-                    new AlertDialog.Builder(this)
+                    new SheetDialog.Builder(this)
                             .setTitle("Google Drive подключён")
                             .setMessage("Аккаунт: "+out.email
                                     +"\nПапка: Мой диск / GitHubble"
@@ -5700,7 +5702,7 @@ public class MainActivity extends Activity {
                 runOnUiThread(()->{
                     if(isFinishing())return;
                     showMirrorSetupWizard();
-                    new AlertDialog.Builder(this).setTitle("Облачный реестр синхронизирован")
+                    new SheetDialog.Builder(this).setTitle("Облачный реестр синхронизирован")
                         .setMessage("Всего связанных пар: "+result.merged
                                 +"\nИмпортировано обновлений: "+result.imported
                                 +"\nЗаписан облачный файл: "+(result.wrote?"да":"изменений нет"))
@@ -5794,10 +5796,10 @@ public class MainActivity extends Activity {
 
     /** Horizontal task progress with stage description positioned below the bar. */
     private static final class FullProgressUi {
-        final AlertDialog dialog;
+        final SheetDialog dialog;
         final ProgressBar progress;
         final TextView detail;
-        FullProgressUi(AlertDialog dialog,ProgressBar progress,TextView detail){
+        FullProgressUi(SheetDialog dialog,ProgressBar progress,TextView detail){
             this.dialog=dialog;this.progress=progress;this.detail=detail;
         }
         void update(int percentage,String text){
@@ -5819,7 +5821,7 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,-2);
         params.setMargins(0,dp(14),0,0);
         panel.addView(label,params);
-        AlertDialog dialog=new AlertDialog.Builder(this).setTitle(title)
+        SheetDialog dialog=new SheetDialog.Builder(this).setTitle(title)
                 .setView(panel).setCancelable(false).create();
         dialog.show();
         return new FullProgressUi(dialog,bar,label);
@@ -5834,7 +5836,7 @@ public class MainActivity extends Activity {
         releases.setText("Также сохранять APK и файлы Releases (увеличит размер)");
         releases.setTextSize(13);
         releases.setPadding(dp(16),dp(8),dp(16),dp(8));
-        new AlertDialog.Builder(this).setTitle("Создание резервной копии репозитория")
+        new SheetDialog.Builder(this).setTitle("Создание резервной копии репозитория")
                 .setMessage("Полный Git bundle, ветки, теги, LFS и метаданные. "
                         +"GitHub Actions создаст ZIP, который нужно сохранить вне репозитория. "
                         +"Для запуска добавляется служебный workflow в основную ветку.")
@@ -6020,7 +6022,7 @@ public class MainActivity extends Activity {
         name.setText(suffix+"-restored");name.setHint("Имя нового репозитория");
         form.addView(name);
         ScrollView scroll=new ScrollView(this);scroll.addView(form);
-        new AlertDialog.Builder(this).setTitle("Восстановить репозиторий?")
+        new SheetDialog.Builder(this).setTitle("Восстановить репозиторий?")
                 .setView(scroll).setNegativeButton("Отмена",null)
                 .setPositiveButton("Восстановление",(dialog,which)->{
                     final String targetName=name.getText().toString().trim();
@@ -6055,7 +6057,7 @@ public class MainActivity extends Activity {
         final String accountId;
         try{accountId=backupAccount(full,false).id;}
         catch(Exception e){errorDialog("Архив репозитория",e.getMessage());return;}
-        ProgressDialog progress=ProgressDialog.show(this,"Архив GitHub",
+        SheetProgress progress=SheetProgress.show(this,"Архив GitHub",
                 "Читаются все страницы метаданных репозитория…",true,false);
         io.execute(()->{
             try {
@@ -6097,7 +6099,7 @@ public class MainActivity extends Activity {
         final String accountId;
         try{accountId=backupAccount(target,true).id;}
         catch(Exception error){errorDialog("Восстановление",error.getMessage());return;}
-        ProgressDialog progress=ProgressDialog.show(this,"Проверка архива",
+        SheetProgress progress=SheetProgress.show(this,"Проверка архива",
                 "Проверка ZIP, SHA-256 и состояния репозитория…",true,false);
         io.execute(()->{
             try {
@@ -6159,25 +6161,25 @@ public class MainActivity extends Activity {
         TextView warning=text("Изменения выполняются через GitHub API. В случае сетевой ошибки "
                 +"часть записей может быть создана; автоматического повтора нет.",12,false);
         warning.setTextColor(MUTED);frame.addView(warning);
-        new AlertDialog.Builder(this).setTitle("Восстановить метаданные?")
+        new SheetDialog.Builder(this).setTitle("Восстановить метаданные?")
                 .setView(frame).setNegativeButton("Отмена",null)
                 .setPositiveButton("Восстановить",(dialog,which)->{
                     boolean withIssues=issues.isChecked();
                     if(plan.newLabels==0&&plan.newMilestones==0&&!withIssues){
-                        new AlertDialog.Builder(this).setTitle("Данные уже на месте")
+                        new SheetDialog.Builder(this).setTitle("Данные уже на месте")
                                 .setMessage("Новых меток и этапов нет. Существующие данные "
                                         +"не изменены; повторное создание Issues не запрашивалось.")
                                 .setPositiveButton("Готово",null).show();
                         return;
                     }
-                    ProgressDialog working=ProgressDialog.show(this,"Восстановление",
+                    SheetProgress working=SheetProgress.show(this,"Восстановление",
                             "Создаются только отсутствующие метки и этапы…",true,false);
                     io.execute(()->{
                         try {
                             RepositoryMetadataBackup.Result done=manager.apply(archive,plan,withIssues);
                             runOnUiThread(()->{
                                 working.dismiss();
-                                if(!isFinishing())new AlertDialog.Builder(this)
+                                if(!isFinishing())new SheetDialog.Builder(this)
                                         .setTitle("Восстановление завершено")
                                         .setMessage("Добавлено меток: "+done.labels
                                                 +"\nЭтапов: "+done.milestones
@@ -6263,14 +6265,14 @@ public class MainActivity extends Activity {
         note.setPadding(0,dp(9),0,dp(8));
         form.addView(note);
 
-        AlertDialog dialog=new AlertDialog.Builder(this)
+        SheetDialog dialog=new SheetDialog.Builder(this)
                 .setTitle("Создание копии репозитория")
                 .setView(form)
                 .setPositiveButton("Создать копию",null)
                 .setNegativeButton("Отмена",null)
                 .create();
         dialog.setOnShowListener(ignored->
-                dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
+                dialog.getButton(SheetDialog.BUTTON_POSITIVE).setOnClickListener(v->{
                     String newName=name.getText().toString().trim();
                     try{ExternalRepositoryImport.validateName(newName);}
                     catch(Exception invalid){name.setError(invalid.getMessage());return;}
@@ -6279,7 +6281,7 @@ public class MainActivity extends Activity {
                     String destinationAccountId=connected.get(selected).id;
                     boolean isPrivate=privateDestination.isChecked();
                     dialog.dismiss();
-                    ProgressDialog progress=ProgressDialog.show(this,"Импорт GitHub",
+                    SheetProgress progress=SheetProgress.show(this,"Импорт GitHub",
                             "Создание независимого репозитория и запуск Actions…",true,false);
                     io.execute(()->{
                         try{
@@ -6348,13 +6350,13 @@ public class MainActivity extends Activity {
         nameInput.setText(suggestedName);
         form.addView(nameInput);
 
-        AlertDialog dialog=new AlertDialog.Builder(this)
+        SheetDialog dialog=new SheetDialog.Builder(this)
                 .setTitle("Восстановить копирование")
                 .setView(form)
                 .setPositiveButton("Найти копию",null)
                 .setNegativeButton("Отмена",null).create();
         dialog.setOnShowListener(ignored->
-                dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
+                dialog.getButton(SheetDialog.BUTTON_POSITIVE).setOnClickListener(v->{
                     String name=nameInput.getText().toString().trim();
                     try {ExternalRepositoryImport.validateName(name);}
                     catch(Exception error){nameInput.setError(error.getMessage());return;}
@@ -6366,7 +6368,7 @@ public class MainActivity extends Activity {
                         return;
                     }
                     dialog.dismiss();
-                    ProgressDialog progress=ProgressDialog.show(this,"Восстановить копирование",
+                    SheetProgress progress=SheetProgress.show(this,"Восстановить копирование",
                             "Поиск предыдущего запуска GitHub Actions…",true,false);
                     io.execute(()->{
                         try {
@@ -6388,7 +6390,7 @@ public class MainActivity extends Activity {
     }
 
     private void recoverExternalImport(String destination) {
-        ProgressDialog progress=ProgressDialog.show(this,"Создать копию",
+        SheetProgress progress=SheetProgress.show(this,"Создать копию",
                 "Поиск предыдущего запуска GitHub Actions…",true,false);
         io.execute(()->{
             try {
@@ -6427,19 +6429,19 @@ public class MainActivity extends Activity {
         TextView explanation=text(description,13,false);
         layout.addView(explanation);
         layout.addView(sourceField);
-        AlertDialog dialog=new AlertDialog.Builder(this)
+        SheetDialog dialog=new SheetDialog.Builder(this)
                 .setTitle("Восстановить копирование")
                 .setView(layout)
                 .setPositiveButton("Восстановить",null)
                 .setNegativeButton("Отмена",null)
                 .create();
         dialog.setOnShowListener(ignored->
-                dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
+                dialog.getButton(SheetDialog.BUTTON_POSITIVE).setOnClickListener(v->{
                     String source=sourceField.getText().toString().trim();
                     try { ExternalRepositoryImport.validateSource(source); }
                     catch(Exception invalid) {sourceField.setError(invalid.getMessage());return;}
                     dialog.dismiss();
-                    ProgressDialog progress=ProgressDialog.show(this,"Создать копию",
+                    SheetProgress progress=SheetProgress.show(this,"Создать копию",
                             "Проверка источника и сохранённого GitHub Actions…",true,false);
                     io.execute(()->{
                         try {
@@ -6458,7 +6460,7 @@ public class MainActivity extends Activity {
     }
 
     private void checkExternalImport(String jobId) {
-        ProgressDialog progress=ProgressDialog.show(this,"Импорт GitHub",
+        SheetProgress progress=SheetProgress.show(this,"Импорт GitHub",
                 "Проверка выполнения GitHub Actions…",true,false);
         io.execute(()->{
             try{
@@ -6471,7 +6473,7 @@ public class MainActivity extends Activity {
     }
 
     private void retryExternalImport(String jobId) {
-        ProgressDialog progress=ProgressDialog.show(this,"Создать копию",
+        SheetProgress progress=SheetProgress.show(this,"Создать копию",
                 "Проверка состояния репозитория и повторный запуск…",true,false);
         io.execute(()->{
             try {
@@ -6497,7 +6499,7 @@ public class MainActivity extends Activity {
                   failed?job.error:
                   verifying?"GitHub Actions завершился. "+job.error:
                   "Перенос выполняется на GitHub Actions. Можно закрыть приложение и проверить позднее.");
-        new AlertDialog.Builder(this)
+        new SheetDialog.Builder(this)
                 .setTitle(title).setMessage(message)
                 .setPositiveButton(done?"Открыть репозиторий":
                         failed?"Повторить копирование":"Проверить статус",(d,w)->{
@@ -6517,8 +6519,8 @@ public class MainActivity extends Activity {
         EditText description=new EditText(this);description.setHint("Описание");description.setMinLines(2);form.addView(description);
         CheckBox privateRepo=new CheckBox(this);privateRepo.setText("Приватный репозиторий");form.addView(privateRepo);
         CheckBox readme=new CheckBox(this);readme.setText("Создать README");readme.setChecked(true);form.addView(readme);
-        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Новый репозиторий").setView(form).setPositiveButton("Создать",null).setNegativeButton("Отмена",null).create();
-        dialog.setOnShowListener(x->dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{String n=name.getText().toString().trim();if(n.isEmpty()){name.setError("Введите название");return;}dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(false);io.execute(()->{try{JSONObject repo=features.repositoryAdmin.createRepository(n,description.getText().toString().trim(),privateRepo.isChecked(),readme.isChecked());String full=repo.optString("full_name",n);runOnUiThread(()->{dialog.dismiss();toast("Репозиторий создан");navigate(()->showRepositoryAdmin(full,repo));});}catch(Exception e){runOnUiThread(()->{dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(true);errorDialog("Не удалось создать репозиторий",e.getMessage());});}});}));dialog.show();
+        SheetDialog dialog=new SheetDialog.Builder(this).setTitle("Новый репозиторий").setView(form).setPositiveButton("Создать",null).setNegativeButton("Отмена",null).create();
+        dialog.setOnShowListener(x->dialog.getButton(SheetDialog.BUTTON_POSITIVE).setOnClickListener(v->{String n=name.getText().toString().trim();if(n.isEmpty()){name.setError("Введите название");return;}dialog.getButton(SheetDialog.BUTTON_POSITIVE).setEnabled(false);io.execute(()->{try{JSONObject repo=features.repositoryAdmin.createRepository(n,description.getText().toString().trim(),privateRepo.isChecked(),readme.isChecked());String full=repo.optString("full_name",n);runOnUiThread(()->{dialog.dismiss();toast("Репозиторий создан");navigate(()->showRepositoryAdmin(full,repo));});}catch(Exception e){runOnUiThread(()->{dialog.getButton(SheetDialog.BUTTON_POSITIVE).setEnabled(true);errorDialog("Не удалось создать репозиторий",e.getMessage());});}});}));dialog.show();
     }
 
     private void showRepositoryAdmin(String full,JSONObject repo){
@@ -6566,7 +6568,7 @@ public class MainActivity extends Activity {
         String full=pendingRepositoryImportFull.isEmpty()?prefs.getString("pending_repo_import_full",""):pendingRepositoryImportFull;String branch=pendingRepositoryImportBranch==null||pendingRepositoryImportBranch.isEmpty()?prefs.getString("pending_repo_import_branch","main"):pendingRepositoryImportBranch;
         if(full.isEmpty()){errorDialog("Импорт не запущен","Не удалось восстановить целевой репозиторий. Откройте «Управление» и выберите импорт ещё раз.");return;}
         try{getContentResolver().takePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION);}catch(Exception ignored){}
-        ProgressDialog scan=ProgressDialog.show(this,"Импорт","Анализируем выбранные данные…",true,false);io.execute(()->{try{RepositoryImportController.Preview preview=requestCode==REQUEST_REPOSITORY_FOLDER?features.repositoryImport.previewFolder(uri):requestCode==REQUEST_REPOSITORY_ZIP?features.repositoryImport.previewZip(uri):features.repositoryImport.previewFile(uri);runOnUiThread(()->{scan.dismiss();showRepositoryImportPreview(requestCode,full,branch,uri,preview);});}catch(Exception e){runOnUiThread(()->{scan.dismiss();errorDialog("Не удалось прочитать выбранные данные",e.getMessage());});}});
+        SheetProgress scan=SheetProgress.show(this,"Импорт","Анализируем выбранные данные…",true,false);io.execute(()->{try{RepositoryImportController.Preview preview=requestCode==REQUEST_REPOSITORY_FOLDER?features.repositoryImport.previewFolder(uri):requestCode==REQUEST_REPOSITORY_ZIP?features.repositoryImport.previewZip(uri):features.repositoryImport.previewFile(uri);runOnUiThread(()->{scan.dismiss();showRepositoryImportPreview(requestCode,full,branch,uri,preview);});}catch(Exception e){runOnUiThread(()->{scan.dismiss();errorDialog("Не удалось прочитать выбранные данные",e.getMessage());});}});
     }
 
     private void showRepositoryImportPreview(int requestCode,String full,String branch,Uri uri,RepositoryImportController.Preview preview){
@@ -6576,28 +6578,28 @@ public class MainActivity extends Activity {
         TextView info=text(summary.toString().trim(),12,false);info.setTextColor(MUTED);form.addView(info);
         EditText target=new EditText(this);if(requestCode==REQUEST_REPOSITORY_FILE){target.setHint("Путь в репозитории");target.setText(preview.sourceName);target.setSingleLine(true);form.addView(target);}
         EditText message=new EditText(this);message.setHint("Сообщение коммита");message.setText(requestCode==REQUEST_REPOSITORY_FOLDER?"Import source folder with GitHubble":requestCode==REQUEST_REPOSITORY_ZIP?"Import ZIP sources with GitHubble":"Upload file with GitHubble");message.setSingleLine(true);form.addView(message);
-        AlertDialog dialog=new AlertDialog.Builder(this).setTitle(requestCode==REQUEST_REPOSITORY_FOLDER?"Загрузить папку?":requestCode==REQUEST_REPOSITORY_ZIP?"Распаковать ZIP в репозиторий?":"Загрузить файл?").setView(form).setPositiveButton("Загрузить",null).setNegativeButton("Отмена",(d,w)->clearPendingRepositoryImport()).create();
-        dialog.setOnShowListener(x->dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{String targetPath=target.getText().toString().trim();String commitMessage=message.getText().toString().trim();dialog.dismiss();runRepositoryImport(requestCode,full,branch,uri,targetPath,commitMessage);}));dialog.show();
+        SheetDialog dialog=new SheetDialog.Builder(this).setTitle(requestCode==REQUEST_REPOSITORY_FOLDER?"Загрузить папку?":requestCode==REQUEST_REPOSITORY_ZIP?"Распаковать ZIP в репозиторий?":"Загрузить файл?").setView(form).setPositiveButton("Загрузить",null).setNegativeButton("Отмена",(d,w)->clearPendingRepositoryImport()).create();
+        dialog.setOnShowListener(x->dialog.getButton(SheetDialog.BUTTON_POSITIVE).setOnClickListener(v->{String targetPath=target.getText().toString().trim();String commitMessage=message.getText().toString().trim();dialog.dismiss();runRepositoryImport(requestCode,full,branch,uri,targetPath,commitMessage);}));dialog.show();
     }
 
     private void runRepositoryImport(int requestCode,String full,String branch,Uri uri,String targetPath,String message){
-        ProgressDialog progress=new ProgressDialog(this);progress.setTitle("Загрузка в GitHub");progress.setProgressStyle(ProgressDialog.STYLE_HORIZONTAL);progress.setIndeterminate(false);progress.setMax(100);progress.setProgress(0);progress.setMessage("Подготовка…");progress.setCancelable(false);progress.show();
-        io.execute(()->{try{RepositoryImportController.ProgressListener listener=(done,total,path)->runOnUiThread(()->{int percent=total<=0?0:(int)Math.min(100,(done*100L)/total);progress.setProgress(percent);progress.setMessage(done+" / "+total+" · "+path);});RepositoryImportController.ImportResult result=requestCode==REQUEST_REPOSITORY_FOLDER?features.repositoryImport.importFolder(full,branch,uri,message,listener):requestCode==REQUEST_REPOSITORY_ZIP?features.repositoryImport.importZip(full,branch,uri,message,listener):features.repositoryImport.importFile(full,branch,uri,targetPath,message,listener);runOnUiThread(()->{progress.dismiss();clearPendingRepositoryImport();new AlertDialog.Builder(this).setTitle("Загрузка завершена").setMessage("Файлов: "+result.files+"\nВетка: "+result.branch+"\nКоммит: "+shortSha(result.commitSha)).setPositiveButton("Открыть файлы",(d,w)->navigate(()->showRepositoryFiles(full,result.branch,""))).setNegativeButton("Готово",null).show();});}catch(Exception e){runOnUiThread(()->{progress.dismiss();String msg=e.getMessage();if(e instanceof GitHubApiClient.ApiException&&((GitHubApiClient.ApiException)e).statusCode==403)msg=(msg==null?"GitHub вернул 403":msg)+"\n\nПроверьте Contents: write, Administration: write и Workflows: write в настройках GiHubble.";errorDialog("Не удалось загрузить исходники",msg);});}});
+        SheetProgress progress=new SheetProgress(this);progress.setTitle("Загрузка в GitHub");progress.setProgressStyle(SheetProgress.STYLE_HORIZONTAL);progress.setIndeterminate(false);progress.setMax(100);progress.setProgress(0);progress.setMessage("Подготовка…");progress.setCancelable(false);progress.show();
+        io.execute(()->{try{RepositoryImportController.ProgressListener listener=(done,total,path)->runOnUiThread(()->{int percent=total<=0?0:(int)Math.min(100,(done*100L)/total);progress.setProgress(percent);progress.setMessage(done+" / "+total+" · "+path);});RepositoryImportController.ImportResult result=requestCode==REQUEST_REPOSITORY_FOLDER?features.repositoryImport.importFolder(full,branch,uri,message,listener):requestCode==REQUEST_REPOSITORY_ZIP?features.repositoryImport.importZip(full,branch,uri,message,listener):features.repositoryImport.importFile(full,branch,uri,targetPath,message,listener);runOnUiThread(()->{progress.dismiss();clearPendingRepositoryImport();new SheetDialog.Builder(this).setTitle("Загрузка завершена").setMessage("Файлов: "+result.files+"\nВетка: "+result.branch+"\nКоммит: "+shortSha(result.commitSha)).setPositiveButton("Открыть файлы",(d,w)->navigate(()->showRepositoryFiles(full,result.branch,""))).setNegativeButton("Готово",null).show();});}catch(Exception e){runOnUiThread(()->{progress.dismiss();String msg=e.getMessage();if(e instanceof GitHubApiClient.ApiException&&((GitHubApiClient.ApiException)e).statusCode==403)msg=(msg==null?"GitHub вернул 403":msg)+"\n\nПроверьте Contents: write, Administration: write и Workflows: write в настройках GiHubble.";errorDialog("Не удалось загрузить исходники",msg);});}});
     }
 
     private void showEditRepositoryDialog(String full,JSONObject repo){
         LinearLayout form=new LinearLayout(this);form.setOrientation(LinearLayout.VERTICAL);form.setPadding(dp(18),0,dp(18),0);EditText name=new EditText(this);name.setHint("Название");name.setText(repo==null?(full.contains("/")?full.substring(full.indexOf('/')+1):full):app.githubble.mobile.ui.JsonText.of(repo,"name",""));name.setSingleLine(true);form.addView(name);EditText description=new EditText(this);description.setHint("Описание");description.setText(repo==null?"":app.githubble.mobile.ui.JsonText.of(repo,"description",""));description.setMinLines(2);form.addView(description);
-        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Имя и описание").setView(form).setPositiveButton("Сохранить",null).setNegativeButton("Отмена",null).create();dialog.setOnShowListener(x->dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{String n=name.getText().toString().trim();if(n.isEmpty()){name.setError("Введите название");return;}dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(false);io.execute(()->{try{JSONObject updated=features.repositoryAdmin.updateRepository(full,n,description.getText().toString());String newFull=updated.optString("full_name",full);runOnUiThread(()->{dialog.dismiss();toast("Репозиторий обновлён");showRepositoryAdmin(newFull,updated);});}catch(Exception e){runOnUiThread(()->{dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(true);errorDialog("Не удалось обновить репозиторий",e.getMessage());});}});}));dialog.show();
+        SheetDialog dialog=new SheetDialog.Builder(this).setTitle("Имя и описание").setView(form).setPositiveButton("Сохранить",null).setNegativeButton("Отмена",null).create();dialog.setOnShowListener(x->dialog.getButton(SheetDialog.BUTTON_POSITIVE).setOnClickListener(v->{String n=name.getText().toString().trim();if(n.isEmpty()){name.setError("Введите название");return;}dialog.getButton(SheetDialog.BUTTON_POSITIVE).setEnabled(false);io.execute(()->{try{JSONObject updated=features.repositoryAdmin.updateRepository(full,n,description.getText().toString());String newFull=updated.optString("full_name",full);runOnUiThread(()->{dialog.dismiss();toast("Репозиторий обновлён");showRepositoryAdmin(newFull,updated);});}catch(Exception e){runOnUiThread(()->{dialog.getButton(SheetDialog.BUTTON_POSITIVE).setEnabled(true);errorDialog("Не удалось обновить репозиторий",e.getMessage());});}});}));dialog.show();
     }
 
     private void showRepositoryVisibilityDialog(String full,boolean currentlyPrivate){
         boolean makePrivate=!currentlyPrivate;String title=makePrivate?"Сделать репозиторий приватным?":"Сделать репозиторий публичным?";String message=makePrivate?"После подтверждения содержимое будет доступно только вам и приглашённым участникам.":"После подтверждения код и история репозитория станут доступны всем. Не публикуйте секреты, ключи и приватные данные.";
-        new AlertDialog.Builder(this).setTitle(title).setMessage(message).setPositiveButton(makePrivate?"Сделать приватным":"Сделать публичным",(d,w)->{ProgressDialog p=ProgressDialog.show(this,"Видимость","Изменяем настройки GitHub…",true,false);io.execute(()->{try{JSONObject updated=features.repositoryAdmin.setPrivate(full,makePrivate);runOnUiThread(()->{p.dismiss();toast(makePrivate?"Репозиторий теперь приватный":"Репозиторий теперь публичный");showRepositoryAdmin(updated.optString("full_name",full),updated);});}catch(Exception e){runOnUiThread(()->{p.dismiss();errorDialog("Не удалось изменить видимость",e.getMessage());});}});}).setNegativeButton("Отмена",null).show();
+        new SheetDialog.Builder(this).setTitle(title).setMessage(message).setPositiveButton(makePrivate?"Сделать приватным":"Сделать публичным",(d,w)->{SheetProgress p=SheetProgress.show(this,"Видимость","Изменяем настройки GitHub…",true,false);io.execute(()->{try{JSONObject updated=features.repositoryAdmin.setPrivate(full,makePrivate);runOnUiThread(()->{p.dismiss();toast(makePrivate?"Репозиторий теперь приватный":"Репозиторий теперь публичный");showRepositoryAdmin(updated.optString("full_name",full),updated);});}catch(Exception e){runOnUiThread(()->{p.dismiss();errorDialog("Не удалось изменить видимость",e.getMessage());});}});}).setNegativeButton("Отмена",null).show();
     }
 
     private void showDeleteRepositoryDialog(String full){
         LinearLayout form=new LinearLayout(this);form.setOrientation(LinearLayout.VERTICAL);form.setPadding(dp(18),0,dp(18),0);TextView warning=text("Это удалит репозиторий на GitHub. Для подтверждения введите точное имя:\n\n"+full,13,false);warning.setTextColor(Color.rgb(190,55,60));form.addView(warning);EditText confirm=new EditText(this);confirm.setHint(full);confirm.setSingleLine(true);form.addView(confirm);
-        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Удалить репозиторий").setView(form).setPositiveButton("Удалить",null).setNegativeButton("Отмена",null).create();dialog.setOnShowListener(x->{Button delete=dialog.getButton(AlertDialog.BUTTON_POSITIVE);delete.setTextColor(Color.rgb(190,55,60));delete.setOnClickListener(v->{if(!full.equals(confirm.getText().toString().trim())){confirm.setError("Введите "+full);return;}delete.setEnabled(false);io.execute(()->{try{features.repositoryAdmin.deleteRepository(full);forgetDeletedRepository(currentAccountId(),full);runOnUiThread(()->{dialog.dismiss();toast("Репозиторий удалён");openRoot(()->showMyRepositories(true));});}catch(Exception e){runOnUiThread(()->{delete.setEnabled(true);errorDialog("Не удалось удалить репозиторий",e.getMessage());});}});});});dialog.show();
+        SheetDialog dialog=new SheetDialog.Builder(this).setTitle("Удалить репозиторий").setView(form).setPositiveButton("Удалить",null).setNegativeButton("Отмена",null).create();dialog.setOnShowListener(x->{Button delete=dialog.getButton(SheetDialog.BUTTON_POSITIVE);delete.setTextColor(Color.rgb(190,55,60));delete.setOnClickListener(v->{if(!full.equals(confirm.getText().toString().trim())){confirm.setError("Введите "+full);return;}delete.setEnabled(false);io.execute(()->{try{features.repositoryAdmin.deleteRepository(full);forgetDeletedRepository(currentAccountId(),full);runOnUiThread(()->{dialog.dismiss();toast("Репозиторий удалён");openRoot(()->showMyRepositories(true));});}catch(Exception e){runOnUiThread(()->{delete.setEnabled(true);errorDialog("Не удалось удалить репозиторий",e.getMessage());});}});});});dialog.show();
     }
 
     private String humanBytes(long bytes){if(bytes<=0)return "неизвестно";double value=bytes;String[] units={"Б","КиБ","МиБ","ГиБ"};int i=0;while(value>=1024&&i<units.length-1){value/=1024;i++;}return String.format(Locale.ROOT,value>=10?"%.0f %s":"%.1f %s",value,units[i]);}
@@ -6605,22 +6607,22 @@ public class MainActivity extends Activity {
 
     private void showForkDialog(String full){
         LinearLayout form=new LinearLayout(this);form.setOrientation(LinearLayout.VERTICAL);form.setPadding(dp(18),0,dp(18),0);EditText org=new EditText(this);org.setHint("Организация (необязательно)");org.setSingleLine(true);form.addView(org);EditText name=new EditText(this);name.setHint("Новое название (необязательно)");name.setSingleLine(true);form.addView(name);
-        new AlertDialog.Builder(this).setTitle("Создать fork").setView(form).setPositiveButton("Создать",(d,w)->{ProgressDialog p=ProgressDialog.show(this,"Fork","GitHub создаёт копию…",true,false);io.execute(()->{try{JSONObject result=features.repositoryAdmin.fork(full,org.getText().toString(),name.getText().toString());String target=result.optString("full_name","");runOnUiThread(()->{p.dismiss();toast("Fork создан");if(!target.isEmpty())navigate(()->showRepository(target));});}catch(Exception e){runOnUiThread(()->{p.dismiss();errorDialog("Не удалось создать fork",e.getMessage());});}});}).setNegativeButton("Отмена",null).show();
+        new SheetDialog.Builder(this).setTitle("Создать fork").setView(form).setPositiveButton("Создать",(d,w)->{SheetProgress p=SheetProgress.show(this,"Fork","GitHub создаёт копию…",true,false);io.execute(()->{try{JSONObject result=features.repositoryAdmin.fork(full,org.getText().toString(),name.getText().toString());String target=result.optString("full_name","");runOnUiThread(()->{p.dismiss();toast("Fork создан");if(!target.isEmpty())navigate(()->showRepository(target));});}catch(Exception e){runOnUiThread(()->{p.dismiss();errorDialog("Не удалось создать fork",e.getMessage());});}});}).setNegativeButton("Отмена",null).show();
     }
 
     private void showCreateBranchDialog(String full,String defaultBranch){
         LinearLayout form=new LinearLayout(this);form.setOrientation(LinearLayout.VERTICAL);form.setPadding(dp(18),0,dp(18),0);EditText name=new EditText(this);name.setHint("Название новой ветки");name.setSingleLine(true);form.addView(name);EditText source=new EditText(this);source.setHint("Исходная ветка или SHA");source.setText(defaultBranch);source.setSingleLine(true);form.addView(source);
-        new AlertDialog.Builder(this).setTitle("Новая ветка").setView(form).setPositiveButton("Создать",(d,w)->{String n=name.getText().toString().trim();if(n.isEmpty()){toast("Название ветки не заполнено");return;}ProgressDialog p=ProgressDialog.show(this,"Ветка","Создание…",true,false);io.execute(()->{try{features.repositoryAdmin.createBranch(full,n,source.getText().toString());runOnUiThread(()->{p.dismiss();toast("Ветка "+n+" создана");navigate(()->showRepositoryFiles(full,n,""));});}catch(Exception e){runOnUiThread(()->{p.dismiss();errorDialog("Не удалось создать ветку",e.getMessage());});}});}).setNegativeButton("Отмена",null).show();
+        new SheetDialog.Builder(this).setTitle("Новая ветка").setView(form).setPositiveButton("Создать",(d,w)->{String n=name.getText().toString().trim();if(n.isEmpty()){toast("Название ветки не заполнено");return;}SheetProgress p=SheetProgress.show(this,"Ветка","Создание…",true,false);io.execute(()->{try{features.repositoryAdmin.createBranch(full,n,source.getText().toString());runOnUiThread(()->{p.dismiss();toast("Ветка "+n+" создана");navigate(()->showRepositoryFiles(full,n,""));});}catch(Exception e){runOnUiThread(()->{p.dismiss();errorDialog("Не удалось создать ветку",e.getMessage());});}});}).setNegativeButton("Отмена",null).show();
     }
 
     private void showCreateTagDialog(String full,String defaultBranch){
         LinearLayout form=new LinearLayout(this);form.setOrientation(LinearLayout.VERTICAL);form.setPadding(dp(18),0,dp(18),0);EditText name=new EditText(this);name.setHint("Тег, например v1.0.0");name.setSingleLine(true);form.addView(name);EditText source=new EditText(this);source.setHint("Ветка, тег или SHA");source.setText(defaultBranch);source.setSingleLine(true);form.addView(source);
-        new AlertDialog.Builder(this).setTitle("Новый тег").setView(form).setPositiveButton("Создать",(d,w)->{String n=name.getText().toString().trim();if(n.isEmpty()){toast("Название тега не заполнено");return;}ProgressDialog p=ProgressDialog.show(this,"Тег","Создание…",true,false);io.execute(()->{try{features.repositoryAdmin.createTag(full,n,source.getText().toString());runOnUiThread(()->{p.dismiss();toast("Тег "+n+" создан");});}catch(Exception e){runOnUiThread(()->{p.dismiss();errorDialog("Не удалось создать тег",e.getMessage());});}});}).setNegativeButton("Отмена",null).show();
+        new SheetDialog.Builder(this).setTitle("Новый тег").setView(form).setPositiveButton("Создать",(d,w)->{String n=name.getText().toString().trim();if(n.isEmpty()){toast("Название тега не заполнено");return;}SheetProgress p=SheetProgress.show(this,"Тег","Создание…",true,false);io.execute(()->{try{features.repositoryAdmin.createTag(full,n,source.getText().toString());runOnUiThread(()->{p.dismiss();toast("Тег "+n+" создан");});}catch(Exception e){runOnUiThread(()->{p.dismiss();errorDialog("Не удалось создать тег",e.getMessage());});}});}).setNegativeButton("Отмена",null).show();
     }
 
     private void showCreateReleaseDialog(String full,String defaultBranch){
         LinearLayout form=new LinearLayout(this);form.setOrientation(LinearLayout.VERTICAL);form.setPadding(dp(18),0,dp(18),0);EditText tag=new EditText(this);tag.setHint("Тег, например v1.0.0");tag.setSingleLine(true);form.addView(tag);EditText target=new EditText(this);target.setHint("Целевая ветка");target.setText(defaultBranch);target.setSingleLine(true);form.addView(target);EditText title=new EditText(this);title.setHint("Название Release");title.setSingleLine(true);form.addView(title);EditText body=new EditText(this);body.setHint("Описание Markdown");body.setMinLines(4);form.addView(body);CheckBox draft=new CheckBox(this);draft.setText("Черновик");form.addView(draft);CheckBox prerelease=new CheckBox(this);prerelease.setText("Предварительный релиз");form.addView(prerelease);CheckBox notes=new CheckBox(this);notes.setText("Сгенерировать заметки GitHub");form.addView(notes);
-        new AlertDialog.Builder(this).setTitle("Новый Release").setView(form).setPositiveButton("Создать",(d,w)->{String t=tag.getText().toString().trim();if(t.isEmpty()){toast("Укажите тег");return;}ProgressDialog p=ProgressDialog.show(this,"Release","Публикация…",true,false);io.execute(()->{try{features.repositoryAdmin.createRelease(full,t,target.getText().toString().trim(),title.getText().toString().trim(),body.getText().toString(),draft.isChecked(),prerelease.isChecked(),notes.isChecked());runOnUiThread(()->{p.dismiss();toast("Release создан");navigate(()->showRepoReleases(full));});}catch(Exception e){runOnUiThread(()->{p.dismiss();errorDialog("Не удалось создать Release",e.getMessage());});}});}).setNegativeButton("Отмена",null).show();
+        new SheetDialog.Builder(this).setTitle("Новый Release").setView(form).setPositiveButton("Создать",(d,w)->{String t=tag.getText().toString().trim();if(t.isEmpty()){toast("Укажите тег");return;}SheetProgress p=SheetProgress.show(this,"Release","Публикация…",true,false);io.execute(()->{try{features.repositoryAdmin.createRelease(full,t,target.getText().toString().trim(),title.getText().toString().trim(),body.getText().toString(),draft.isChecked(),prerelease.isChecked(),notes.isChecked());runOnUiThread(()->{p.dismiss();toast("Release создан");navigate(()->showRepoReleases(full));});}catch(Exception e){runOnUiThread(()->{p.dismiss();errorDialog("Не удалось создать Release",e.getMessage());});}});}).setNegativeButton("Отмена",null).show();
     }
 
     private void showPullChecks(String full,int number,JSONObject pull){
@@ -6688,16 +6690,16 @@ public class MainActivity extends Activity {
         LinearLayout form=new LinearLayout(this);form.setOrientation(LinearLayout.VERTICAL);form.setPadding(dp(18),0,dp(18),0);
         EditText title=new EditText(this);title.setHint("Заголовок");title.setSingleLine(true);title.setText(oldTitle);title.setTextColor(TEXT);title.setHintTextColor(MUTED);form.addView(title);
         EditText body=new EditText(this);body.setHint("Описание в Markdown");body.setMinLines(6);body.setGravity(Gravity.TOP);body.setText(oldBody);body.setTextColor(TEXT);body.setHintTextColor(MUTED);form.addView(body);
-        new AlertDialog.Builder(this).setTitle(number>0?"Редактировать Issue":"Создать Issue").setView(form).setPositiveButton(number>0?"Сохранить":"Создать",(d,w)->{
+        new SheetDialog.Builder(this).setTitle(number>0?"Редактировать Issue":"Создать Issue").setView(form).setPositiveButton(number>0?"Сохранить":"Создать",(d,w)->{
             String titleValue=title.getText().toString().trim();String bodyValue=body.getText().toString();if(titleValue.isEmpty()){toast("Нужен заголовок");return;}
-            ProgressDialog progress=ProgressDialog.show(this,"Issue",number>0?"Сохраняем…":"Создаём…",true,false);
+            SheetProgress progress=SheetProgress.show(this,"Issue",number>0?"Сохраняем…":"Создаём…",true,false);
             io.execute(() -> {try{JSONObject payload=new JSONObject();payload.put("title",titleValue);payload.put("body",bodyValue);JSONObject result;if(number>0){String url="https://api.github.com/repos/"+full+"/issues/"+number;result=features.offlineDispatcher.executeOrQueue("PATCH",url,payload,"issue:"+full+"#"+number,"Редактирование Issue #"+number,url,"updated_at",baseUpdatedAt,mutationOwner).response;}else result=api.postJson("https://api.github.com/repos/"+full+"/issues",payload,true);int created=result.optInt("number",number);boolean queued=result.optBoolean("queued",false);runOnUiThread(() -> {progress.dismiss();if(queued){toast("Изменение сохранено в офлайн-очереди");navigate(this::showOfflineQueue);}else{toast(number>0?"Issue обновлена":"Issue создана");navigate(() -> showIssueDetail(full,created));}});}catch(Exception e){runOnUiThread(() -> {progress.dismiss();toast("GitHub не принял изменение: "+e.getMessage());});}});
         }).setNegativeButton("Отмена",null).show();
     }
 
     private void showIssueCommentDialog(String full,int number){
         EditText input=new EditText(this);input.setMinLines(4);input.setGravity(Gravity.TOP);input.setHint("Комментарий в Markdown");input.setTextColor(TEXT);input.setHintTextColor(MUTED);
-        new AlertDialog.Builder(this).setTitle("Новый комментарий").setView(input).setPositiveButton("Отправить",(d,w)->{String value=input.getText().toString().trim();if(value.isEmpty())return;ProgressDialog progress=ProgressDialog.show(this,"Issue","Отправляем комментарий…",true,false);io.execute(() -> {try{JSONObject body=new JSONObject();body.put("body",value);api.postJson("https://api.github.com/repos/"+full+"/issues/"+number+"/comments",body,true);runOnUiThread(() -> {progress.dismiss();toast("Комментарий добавлен");showIssueDetail(full,number);});}catch(Exception e){runOnUiThread(() -> {progress.dismiss();toast("Не удалось отправить: "+e.getMessage());});}});}).setNegativeButton("Отмена",null).show();
+        new SheetDialog.Builder(this).setTitle("Новый комментарий").setView(input).setPositiveButton("Отправить",(d,w)->{String value=input.getText().toString().trim();if(value.isEmpty())return;SheetProgress progress=SheetProgress.show(this,"Issue","Отправляем комментарий…",true,false);io.execute(() -> {try{JSONObject body=new JSONObject();body.put("body",value);api.postJson("https://api.github.com/repos/"+full+"/issues/"+number+"/comments",body,true);runOnUiThread(() -> {progress.dismiss();toast("Комментарий добавлен");showIssueDetail(full,number);});}catch(Exception e){runOnUiThread(() -> {progress.dismiss();toast("Не удалось отправить: "+e.getMessage());});}});}).setNegativeButton("Отмена",null).show();
     }
 
     private void postIssueReaction(String full,int number,String reaction){
@@ -6709,7 +6711,7 @@ public class MainActivity extends Activity {
     }
 
     private void postReaction(String endpoint,String reaction){
-        ProgressDialog progress=ProgressDialog.show(this,"GitHub","Добавляем реакцию…",true,false);io.execute(() -> {try{JSONObject body=new JSONObject();body.put("content",reaction);api.postJson(endpoint,body,true);runOnUiThread(() -> {progress.dismiss();toast("Реакция добавлена");});}catch(Exception e){runOnUiThread(() -> {progress.dismiss();toast("Не удалось добавить реакцию: "+e.getMessage());});}});
+        SheetProgress progress=SheetProgress.show(this,"GitHub","Добавляем реакцию…",true,false);io.execute(() -> {try{JSONObject body=new JSONObject();body.put("content",reaction);api.postJson(endpoint,body,true);runOnUiThread(() -> {progress.dismiss();toast("Реакция добавлена");});}catch(Exception e){runOnUiThread(() -> {progress.dismiss();toast("Не удалось добавить реакцию: "+e.getMessage());});}});
     }
 
     private void showRepoPulls(String full){rememberScreen("repo_pulls",routeArgs("full",full));showRepoPullsPage(full,1,true);}
@@ -6720,7 +6722,7 @@ public class MainActivity extends Activity {
 
     private void showCreatePullRequest(String full){
         if(!isSignedIn()){accountRequiredCard("Для создания Pull Request подключите GitHub.");return;}
-        ProgressDialog progress=ProgressDialog.show(this,"Новый Pull Request","Загружаем ветки…",true,false);
+        SheetProgress progress=SheetProgress.show(this,"Новый Pull Request","Загружаем ветки…",true,false);
         io.execute(()->{try{
             JSONObject repo=getJson("https://api.github.com/repos/"+full);
             JSONArray branches=getArray("https://api.github.com/repos/"+full+"/branches?per_page=100");
@@ -6733,8 +6735,8 @@ public class MainActivity extends Activity {
                 TextView headLabel=text("Ветка с изменениями",12,true);box.addView(headLabel);Spinner head=new Spinner(this);head.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,names));box.addView(head,new LinearLayout.LayoutParams(-1,dp(50)));
                 TextView baseLabel=text("Целевая ветка",12,true);box.addView(baseLabel);Spinner base=new Spinner(this);base.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,names));int baseIndex=0;for(int i=0;i<names.length;i++)if(defaultBranch.equals(names[i]))baseIndex=i;base.setSelection(baseIndex);box.addView(base,new LinearLayout.LayoutParams(-1,dp(50)));
                 Switch draft=new Switch(this);draft.setText("Создать как черновик");draft.setPadding(0,dp(6),0,dp(6));box.addView(draft);
-                AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Создать Pull Request").setView(box).setPositiveButton("Создать",null).setNegativeButton("Отмена",null).create();
-                dialog.setOnShowListener(x->dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{String t=title.getText().toString().trim();String h=String.valueOf(head.getSelectedItem());String b=String.valueOf(base.getSelectedItem());if(t.isEmpty()){title.setError("Введите заголовок");return;}if(h.equals(b)){toast("Исходная и целевая ветки должны отличаться");return;}dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(false);io.execute(()->{try{JSONObject created=repositoryController.createPullRequest(full,t,body.getText().toString(),h,b,draft.isChecked());int number=created.optInt("number");runOnUiThread(()->{dialog.dismiss();toast("Pull Request #"+number+" создан");navigate(()->showPullDetail(full,number));});}catch(Exception e){runOnUiThread(()->{dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(true);new AlertDialog.Builder(this).setTitle("Не удалось создать PR").setMessage(e.getMessage()).setPositiveButton("ОК",null).show();});}}); }));dialog.show();
+                SheetDialog dialog=new SheetDialog.Builder(this).setTitle("Создать Pull Request").setView(box).setPositiveButton("Создать",null).setNegativeButton("Отмена",null).create();
+                dialog.setOnShowListener(x->dialog.getButton(SheetDialog.BUTTON_POSITIVE).setOnClickListener(v->{String t=title.getText().toString().trim();String h=String.valueOf(head.getSelectedItem());String b=String.valueOf(base.getSelectedItem());if(t.isEmpty()){title.setError("Введите заголовок");return;}if(h.equals(b)){toast("Исходная и целевая ветки должны отличаться");return;}dialog.getButton(SheetDialog.BUTTON_POSITIVE).setEnabled(false);io.execute(()->{try{JSONObject created=repositoryController.createPullRequest(full,t,body.getText().toString(),h,b,draft.isChecked());int number=created.optInt("number");runOnUiThread(()->{dialog.dismiss();toast("Pull Request #"+number+" создан");navigate(()->showPullDetail(full,number));});}catch(Exception e){runOnUiThread(()->{dialog.getButton(SheetDialog.BUTTON_POSITIVE).setEnabled(true);new SheetDialog.Builder(this).setTitle("Не удалось создать PR").setMessage(e.getMessage()).setPositiveButton("ОК",null).show();});}}); }));dialog.show();
             });
         }catch(Exception e){runOnUiThread(()->{progress.dismiss();errorDialog("Не удалось подготовить Pull Request",e.getMessage());});}});
     }
@@ -6744,20 +6746,20 @@ public class MainActivity extends Activity {
         LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);box.setPadding(dp(18),0,dp(18),0);
         Spinner event=new Spinner(this);event.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,labels));box.addView(event,new LinearLayout.LayoutParams(-1,dp(54)));
         EditText body=new EditText(this);body.setHint("Текст ревью");body.setMinLines(4);body.setGravity(Gravity.TOP);box.addView(body,new LinearLayout.LayoutParams(-1,dp(140)));
-        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Ревью Pull Request").setView(box).setPositiveButton("Отправить",null).setNegativeButton("Отмена",null).create();
-        dialog.setOnShowListener(x->dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{String selected=events[event.getSelectedItemPosition()];String text=body.getText().toString().trim();if(!"APPROVE".equals(selected)&&text.isEmpty()){body.setError("Добавьте комментарий");return;}dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(false);io.execute(()->{try{repositoryController.createReview(full,number,text,selected);runOnUiThread(()->{dialog.dismiss();toast("Ревью отправлено");showPullDetail(full,number);});}catch(Exception e){runOnUiThread(()->{dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(true);errorDialog("Не удалось отправить ревью",e.getMessage());});}});}));dialog.show();
+        SheetDialog dialog=new SheetDialog.Builder(this).setTitle("Ревью Pull Request").setView(box).setPositiveButton("Отправить",null).setNegativeButton("Отмена",null).create();
+        dialog.setOnShowListener(x->dialog.getButton(SheetDialog.BUTTON_POSITIVE).setOnClickListener(v->{String selected=events[event.getSelectedItemPosition()];String text=body.getText().toString().trim();if(!"APPROVE".equals(selected)&&text.isEmpty()){body.setError("Добавьте комментарий");return;}dialog.getButton(SheetDialog.BUTTON_POSITIVE).setEnabled(false);io.execute(()->{try{repositoryController.createReview(full,number,text,selected);runOnUiThread(()->{dialog.dismiss();toast("Ревью отправлено");showPullDetail(full,number);});}catch(Exception e){runOnUiThread(()->{dialog.getButton(SheetDialog.BUTTON_POSITIVE).setEnabled(true);errorDialog("Не удалось отправить ревью",e.getMessage());});}});}));dialog.show();
     }
 
     private void showMergePullDialog(String full,int number,JSONObject pull){
-        ProgressDialog progress=ProgressDialog.show(this,"Слияние PR","Проверяем настройки репозитория…",true,false);
+        SheetProgress progress=SheetProgress.show(this,"Слияние PR","Проверяем настройки репозитория…",true,false);
         io.execute(()->{try{JSONObject repo=getJson("https://api.github.com/repos/"+full);runOnUiThread(()->{progress.dismiss();List<String> names=new ArrayList<>();List<String> methods=new ArrayList<>();if(repo.optBoolean("allow_merge_commit",true)){names.add("Merge commit");methods.add("merge");}if(repo.optBoolean("allow_squash_merge",true)){names.add("Squash and merge");methods.add("squash");}if(repo.optBoolean("allow_rebase_merge",true)){names.add("Rebase and merge");methods.add("rebase");}if(names.isEmpty()){toast("В репозитории не разрешён ни один способ слияния");return;}
             LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);box.setPadding(dp(18),0,dp(18),0);Spinner strategy=new Spinner(this);strategy.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,names));box.addView(strategy,new LinearLayout.LayoutParams(-1,dp(54)));EditText title=new EditText(this);title.setHint("Заголовок merge-коммита (необязательно)");title.setSingleLine(true);box.addView(title,new LinearLayout.LayoutParams(-1,dp(54)));EditText message=new EditText(this);message.setHint("Описание merge-коммита (необязательно)");message.setMinLines(3);box.addView(message,new LinearLayout.LayoutParams(-1,dp(110)));
-            AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Слить Pull Request #"+number+"?").setMessage("GitHub проверит правила ветки, обязательные проверки и права доступа.").setView(box).setPositiveButton("Слить",null).setNegativeButton("Отмена",null).create();dialog.setOnShowListener(x->dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(false);String method=methods.get(strategy.getSelectedItemPosition());JSONObject head=pull.optJSONObject("head");String sha=head==null?"":head.optString("sha","");io.execute(()->{try{JSONObject result=repositoryController.merge(full,number,method,title.getText().toString().trim(),message.getText().toString().trim(),sha);runOnUiThread(()->{dialog.dismiss();if(result.optBoolean("merged",false)){toast("Pull Request успешно слит");showPullDetail(full,number);}else errorDialog("Слияние не выполнено",result.optString("message","GitHub отклонил слияние"));});}catch(Exception e){runOnUiThread(()->{dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(true);errorDialog("Не удалось слить PR",e.getMessage());});}});}));dialog.show();});}catch(Exception e){runOnUiThread(()->{progress.dismiss();errorDialog("Не удалось проверить параметры слияния",e.getMessage());});}});
+            SheetDialog dialog=new SheetDialog.Builder(this).setTitle("Слить Pull Request #"+number+"?").setMessage("GitHub проверит правила ветки, обязательные проверки и права доступа.").setView(box).setPositiveButton("Слить",null).setNegativeButton("Отмена",null).create();dialog.setOnShowListener(x->dialog.getButton(SheetDialog.BUTTON_POSITIVE).setOnClickListener(v->{dialog.getButton(SheetDialog.BUTTON_POSITIVE).setEnabled(false);String method=methods.get(strategy.getSelectedItemPosition());JSONObject head=pull.optJSONObject("head");String sha=head==null?"":head.optString("sha","");io.execute(()->{try{JSONObject result=repositoryController.merge(full,number,method,title.getText().toString().trim(),message.getText().toString().trim(),sha);runOnUiThread(()->{dialog.dismiss();if(result.optBoolean("merged",false)){toast("Pull Request успешно слит");showPullDetail(full,number);}else errorDialog("Слияние не выполнено",result.optString("message","GitHub отклонил слияние"));});}catch(Exception e){runOnUiThread(()->{dialog.getButton(SheetDialog.BUTTON_POSITIVE).setEnabled(true);errorDialog("Не удалось слить PR",e.getMessage());});}});}));dialog.show();});}catch(Exception e){runOnUiThread(()->{progress.dismiss();errorDialog("Не удалось проверить параметры слияния",e.getMessage());});}});
     }
 
     private void showIssueMetadataDialog(String full,int number,JSONObject issue){
         final String mutationOwner=currentAccountId();
-        ProgressDialog progress=ProgressDialog.show(this,"Метки и участники","Загрузка…",true,false);
+        SheetProgress progress=SheetProgress.show(this,"Метки и участники","Загрузка…",true,false);
         io.execute(()->{try{JSONArray labels=repositoryController.labels(full);JSONArray assignees=repositoryController.assignees(full);JSONArray milestones=repositoryController.milestones(full);runOnUiThread(()->{progress.dismiss();
             LinkedHashSet<String> selectedLabels=new LinkedHashSet<>();JSONArray currentLabels=issue.optJSONArray("labels");if(currentLabels!=null)for(int i=0;i<currentLabels.length();i++){JSONObject v=currentLabels.optJSONObject(i);if(v!=null)selectedLabels.add(v.optString("name"));}
             LinkedHashSet<String> selectedAssignees=new LinkedHashSet<>();JSONArray currentAssignees=issue.optJSONArray("assignees");if(currentAssignees!=null)for(int i=0;i<currentAssignees.length();i++){JSONObject v=currentAssignees.optJSONObject(i);if(v!=null)selectedAssignees.add(v.optString("login"));}
@@ -6766,12 +6768,12 @@ public class MainActivity extends Activity {
             Button labelsButton=compactButton("Выбрать метки");labelsButton.setOnClickListener(v->showMultiSelect("Метки",labels,"name",selectedLabels,()->labelsState.setText(metadataSummary("Метки",selectedLabels))));box.addView(labelsButton,new LinearLayout.LayoutParams(-1,dp(48)));box.addView(labelsState);
             Button assigneesButton=compactButton("Выбрать исполнителей");assigneesButton.setOnClickListener(v->showMultiSelect("Исполнители",assignees,"login",selectedAssignees,()->assigneesState.setText(metadataSummary("Исполнители",selectedAssignees))));box.addView(assigneesButton,new LinearLayout.LayoutParams(-1,dp(48)));box.addView(assigneesState);
             Button milestoneButton=compactButton("Выбрать этап");milestoneButton.setOnClickListener(v->showMilestoneSelect(milestones,selectedMilestone,()->milestoneState.setText("Этап: "+milestoneTitle(milestones,selectedMilestone[0]))));box.addView(milestoneButton,new LinearLayout.LayoutParams(-1,dp(48)));box.addView(milestoneState);
-            AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Управление Issue #"+number).setView(box).setPositiveButton("Сохранить",null).setNegativeButton("Отмена",null).create();dialog.setOnShowListener(x->dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(false);io.execute(()->{try{JSONObject payload=new JSONObject();payload.put("labels",new JSONArray(selectedLabels));payload.put("assignees",new JSONArray(selectedAssignees));payload.put("milestone",selectedMilestone[0]==null?JSONObject.NULL:selectedMilestone[0]);String url="https://api.github.com/repos/"+full+"/issues/"+number;OfflineMutationDispatcher.Result result=features.offlineDispatcher.executeOrQueue("PATCH",url,payload,"issue-meta:"+full+"#"+number,"Метки и участники Issue #"+number,url,"updated_at",issue.optString("updated_at",""),mutationOwner);runOnUiThread(()->{dialog.dismiss();if(result.queued){toast("Изменение сохранено в офлайн-очереди");navigate(this::showOfflineQueue);}else{toast("Метки и участники обновлены");if(issue.has("pull_request")||currentTitle.startsWith("PR #"))showPullDetail(full,number);else showIssueDetail(full,number);}});}catch(Exception e){runOnUiThread(()->{dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(true);errorDialog("Не удалось обновить Issue",e.getMessage());});}});}));dialog.show();
+            SheetDialog dialog=new SheetDialog.Builder(this).setTitle("Управление Issue #"+number).setView(box).setPositiveButton("Сохранить",null).setNegativeButton("Отмена",null).create();dialog.setOnShowListener(x->dialog.getButton(SheetDialog.BUTTON_POSITIVE).setOnClickListener(v->{dialog.getButton(SheetDialog.BUTTON_POSITIVE).setEnabled(false);io.execute(()->{try{JSONObject payload=new JSONObject();payload.put("labels",new JSONArray(selectedLabels));payload.put("assignees",new JSONArray(selectedAssignees));payload.put("milestone",selectedMilestone[0]==null?JSONObject.NULL:selectedMilestone[0]);String url="https://api.github.com/repos/"+full+"/issues/"+number;OfflineMutationDispatcher.Result result=features.offlineDispatcher.executeOrQueue("PATCH",url,payload,"issue-meta:"+full+"#"+number,"Метки и участники Issue #"+number,url,"updated_at",issue.optString("updated_at",""),mutationOwner);runOnUiThread(()->{dialog.dismiss();if(result.queued){toast("Изменение сохранено в офлайн-очереди");navigate(this::showOfflineQueue);}else{toast("Метки и участники обновлены");if(issue.has("pull_request")||currentTitle.startsWith("PR #"))showPullDetail(full,number);else showIssueDetail(full,number);}});}catch(Exception e){runOnUiThread(()->{dialog.getButton(SheetDialog.BUTTON_POSITIVE).setEnabled(true);errorDialog("Не удалось обновить Issue",e.getMessage());});}});}));dialog.show();
         });}catch(Exception e){runOnUiThread(()->{progress.dismiss();errorDialog("Не удалось загрузить данные репозитория",e.getMessage());});}});
     }
 
-    private void showMultiSelect(String title,JSONArray source,String key,Set<String> selected,Runnable changed){String[] names=new String[source.length()];boolean[] checked=new boolean[source.length()];for(int i=0;i<source.length();i++){JSONObject item=source.optJSONObject(i);names[i]=item==null?"":item.optString(key,"");checked[i]=selected.contains(names[i]);}new AlertDialog.Builder(this).setTitle(title).setMultiChoiceItems(names,checked,(d,which,isChecked)->{if(isChecked)selected.add(names[which]);else selected.remove(names[which]);}).setPositiveButton("Готово",(d,w)->changed.run()).setNegativeButton("Отмена",null).show();}
-    private void showMilestoneSelect(JSONArray milestones,Integer[] selected,Runnable changed){String[] names=new String[milestones.length()+1];names[0]="Без этапа";int checked=0;for(int i=0;i<milestones.length();i++){JSONObject m=milestones.optJSONObject(i);names[i+1]=m==null?"":m.optString("title","");if(m!=null&&selected[0]!=null&&m.optInt("number")==selected[0])checked=i+1;}new AlertDialog.Builder(this).setTitle("Этап").setSingleChoiceItems(names,checked,(d,which)->{selected[0]=which==0?null:milestones.optJSONObject(which-1).optInt("number");d.dismiss();changed.run();}).setNegativeButton("Отмена",null).show();}
+    private void showMultiSelect(String title,JSONArray source,String key,Set<String> selected,Runnable changed){String[] names=new String[source.length()];boolean[] checked=new boolean[source.length()];for(int i=0;i<source.length();i++){JSONObject item=source.optJSONObject(i);names[i]=item==null?"":item.optString(key,"");checked[i]=selected.contains(names[i]);}new SheetDialog.Builder(this).setTitle(title).setMultiChoiceItems(names,checked,(d,which,isChecked)->{if(isChecked)selected.add(names[which]);else selected.remove(names[which]);}).setPositiveButton("Готово",(d,w)->changed.run()).setNegativeButton("Отмена",null).show();}
+    private void showMilestoneSelect(JSONArray milestones,Integer[] selected,Runnable changed){String[] names=new String[milestones.length()+1];names[0]="Без этапа";int checked=0;for(int i=0;i<milestones.length();i++){JSONObject m=milestones.optJSONObject(i);names[i+1]=m==null?"":m.optString("title","");if(m!=null&&selected[0]!=null&&m.optInt("number")==selected[0])checked=i+1;}new SheetDialog.Builder(this).setTitle("Этап").setSingleChoiceItems(names,checked,(d,which)->{selected[0]=which==0?null:milestones.optJSONObject(which-1).optInt("number");d.dismiss();changed.run();}).setNegativeButton("Отмена",null).show();}
     private String metadataSummary(String label,Set<String> values){return label+": "+(values.isEmpty()?"не выбраны":android.text.TextUtils.join(", ",values));}
     private String milestoneTitle(JSONArray milestones,Integer number){if(number==null)return "не выбран";for(int i=0;i<milestones.length();i++){JSONObject m=milestones.optJSONObject(i);if(m!=null&&m.optInt("number")==number)return m.optString("title","#"+number);}return "#"+number;}
 
@@ -6858,7 +6860,7 @@ public class MainActivity extends Activity {
     private void applyDiffLineStyle(TextView row,DiffModel.Line line){if(line.kind==DiffModel.Kind.ADD){row.setTextColor(GREEN);row.setBackgroundColor(blend(CARD,GREEN,0.10f));}else if(line.kind==DiffModel.Kind.DELETE){row.setTextColor(Color.rgb(198,62,72));row.setBackgroundColor(blend(CARD,Color.rgb(198,62,72),0.09f));}else if(line.kind==DiffModel.Kind.HUNK){row.setTextColor(BLUE);row.setTypeface(android.graphics.Typeface.MONOSPACE,android.graphics.Typeface.BOLD);}else if(line.kind==DiffModel.Kind.META||line.kind==DiffModel.Kind.HEADER)row.setTextColor(MUTED);else row.setTextColor(TEXT);}
 
     private void showLineCommentDialog(String full,int number,JSONObject file,DiffModel.Line line){
-        ProgressDialog progress=ProgressDialog.show(this,"Комментарий к строке","Получаем актуальный commit SHA…",true,false);io.execute(()->{try{JSONObject pull=getJson("https://api.github.com/repos/"+full+"/pulls/"+number);JSONObject head=pull.optJSONObject("head");String commit=head==null?"":head.optString("sha","");runOnUiThread(()->{progress.dismiss();LinearLayout form=new LinearLayout(this);form.setOrientation(LinearLayout.VERTICAL);form.setPadding(dp(18),0,dp(18),0);TextView where=text(file.optString("filename")+" · "+line.side()+" · строка "+line.commentLine(),12,true);where.setTextColor(MUTED);form.addView(where);EditText body=new EditText(this);body.setHint("Комментарий");body.setMinLines(4);body.setGravity(Gravity.TOP);form.addView(body,new LinearLayout.LayoutParams(-1,dp(130)));Switch suggestion=new Switch(this);suggestion.setText("Оформить как suggested change");form.addView(suggestion);EditText replacement=new EditText(this);replacement.setHint("Предлагаемый код");replacement.setMinLines(3);replacement.setTypeface(android.graphics.Typeface.MONOSPACE);replacement.setVisibility(View.GONE);form.addView(replacement,new LinearLayout.LayoutParams(-1,dp(110)));suggestion.setOnCheckedChangeListener((b,checked)->replacement.setVisibility(checked?View.VISIBLE:View.GONE));AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Комментарий к строке").setView(form).setPositiveButton("Отправить",null).setNegativeButton("Отмена",null).create();dialog.setOnShowListener(x->dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{String note=body.getText().toString().trim();if(!suggestion.isChecked()&&note.isEmpty()){body.setError("Введите комментарий");return;}dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(false);io.execute(()->{try{if(suggestion.isChecked())features.pullAdvanced.createSuggestedChange(full,number,replacement.getText().toString(),note,commit,file.optString("filename"),line.commentLine(),line.side(),null,null);else features.pullAdvanced.createLineComment(full,number,note,commit,file.optString("filename"),line.commentLine(),line.side(),null,null);runOnUiThread(()->{dialog.dismiss();toast("Комментарий к строке отправлен");});}catch(Exception e){runOnUiThread(()->{dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(true);errorDialog("Не удалось отправить комментарий",e.getMessage());});}});}));dialog.show();});}catch(Exception e){runOnUiThread(()->{progress.dismiss();errorDialog("Не удалось подготовить комментарий",e.getMessage());});}});
+        SheetProgress progress=SheetProgress.show(this,"Комментарий к строке","Получаем актуальный commit SHA…",true,false);io.execute(()->{try{JSONObject pull=getJson("https://api.github.com/repos/"+full+"/pulls/"+number);JSONObject head=pull.optJSONObject("head");String commit=head==null?"":head.optString("sha","");runOnUiThread(()->{progress.dismiss();LinearLayout form=new LinearLayout(this);form.setOrientation(LinearLayout.VERTICAL);form.setPadding(dp(18),0,dp(18),0);TextView where=text(file.optString("filename")+" · "+line.side()+" · строка "+line.commentLine(),12,true);where.setTextColor(MUTED);form.addView(where);EditText body=new EditText(this);body.setHint("Комментарий");body.setMinLines(4);body.setGravity(Gravity.TOP);form.addView(body,new LinearLayout.LayoutParams(-1,dp(130)));Switch suggestion=new Switch(this);suggestion.setText("Оформить как suggested change");form.addView(suggestion);EditText replacement=new EditText(this);replacement.setHint("Предлагаемый код");replacement.setMinLines(3);replacement.setTypeface(android.graphics.Typeface.MONOSPACE);replacement.setVisibility(View.GONE);form.addView(replacement,new LinearLayout.LayoutParams(-1,dp(110)));suggestion.setOnCheckedChangeListener((b,checked)->replacement.setVisibility(checked?View.VISIBLE:View.GONE));SheetDialog dialog=new SheetDialog.Builder(this).setTitle("Комментарий к строке").setView(form).setPositiveButton("Отправить",null).setNegativeButton("Отмена",null).create();dialog.setOnShowListener(x->dialog.getButton(SheetDialog.BUTTON_POSITIVE).setOnClickListener(v->{String note=body.getText().toString().trim();if(!suggestion.isChecked()&&note.isEmpty()){body.setError("Введите комментарий");return;}dialog.getButton(SheetDialog.BUTTON_POSITIVE).setEnabled(false);io.execute(()->{try{if(suggestion.isChecked())features.pullAdvanced.createSuggestedChange(full,number,replacement.getText().toString(),note,commit,file.optString("filename"),line.commentLine(),line.side(),null,null);else features.pullAdvanced.createLineComment(full,number,note,commit,file.optString("filename"),line.commentLine(),line.side(),null,null);runOnUiThread(()->{dialog.dismiss();toast("Комментарий к строке отправлен");});}catch(Exception e){runOnUiThread(()->{dialog.getButton(SheetDialog.BUTTON_POSITIVE).setEnabled(true);errorDialog("Не удалось отправить комментарий",e.getMessage());});}});}));dialog.show();});}catch(Exception e){runOnUiThread(()->{progress.dismiss();errorDialog("Не удалось подготовить комментарий",e.getMessage());});}});
     }
 
     private String firstLine(String value){if(value==null)return "";int i=value.indexOf('\n');return i<0?value:value.substring(0,i);}
@@ -7074,7 +7076,7 @@ public class MainActivity extends Activity {
     }
 
     private void showDownloadProgress(DownloadManager manager,long id,String name){
-        ProgressDialog dialog=new ProgressDialog(this);dialog.setTitle("Загрузка релиза");dialog.setMessage(name);dialog.setProgressStyle(ProgressDialog.STYLE_HORIZONTAL);dialog.setMax(100);dialog.setIndeterminate(true);dialog.setCancelable(true);dialog.show();
+        SheetProgress dialog=new SheetProgress(this);dialog.setTitle("Загрузка релиза");dialog.setMessage(name);dialog.setProgressStyle(SheetProgress.STYLE_HORIZONTAL);dialog.setMax(100);dialog.setIndeterminate(true);dialog.setCancelable(true);dialog.show();
         Handler handler=new Handler(Looper.getMainLooper());
         Runnable poll=new Runnable(){@Override public void run(){
             if(!dialog.isShowing())return;
@@ -7112,7 +7114,7 @@ public class MainActivity extends Activity {
         Collections.sort(names,String.CASE_INSENSITIVE_ORDER);
         ArrayList<String> choices=new ArrayList<>(names);
         choices.add("Указать владелец/репозиторий вручную…");
-        new AlertDialog.Builder(this).setTitle("В каком репозитории искать файл?")
+        new SheetDialog.Builder(this).setTitle("В каком репозитории искать файл?")
                 .setItems(choices.toArray(new String[0]),(dialog,index)->{
                     if(index<names.size()){
                         String full=names.get(index);
@@ -7123,7 +7125,7 @@ public class MainActivity extends Activity {
                         LinearLayout holder=new LinearLayout(this);
                         holder.setPadding(dp(20),0,dp(20),0);
                         holder.addView(input,new LinearLayout.LayoutParams(-1,dp(56)));
-                        new AlertDialog.Builder(this).setTitle("Репозиторий").setView(holder)
+                        new SheetDialog.Builder(this).setTitle("Репозиторий").setView(holder)
                                 .setPositiveButton("Продолжить",(d,w)->{
                                     String full=input.getText().toString().trim();
                                     if(!full.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")){
@@ -7426,9 +7428,9 @@ public class MainActivity extends Activity {
     private void addLoadMoreButton(String label,Runnable action){Button more=button(label);more.setTextColor(GREEN);more.setBackground(round(CARD,14,GREEN,1));more.setOnClickListener(v->{content.removeView(more);action.run();});LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,dp(48));p.setMargins(0,dp(6),0,dp(12));content.addView(more,p);}
     private String numberedSlice(String[] lines,int from,int to){StringBuilder b=new StringBuilder();int width=String.valueOf(lines.length).length();for(int i=from;i<to;i++)b.append(String.format(Locale.ROOT,"%"+width+"d  %s\n",i+1,lines[i]));return b.toString();}
     private String addLineNumbers(String raw){String[] lines=raw.split("\n",-1);return numberedSlice(lines,0,lines.length);}
-    private void showCodeSearchDialog(String full,String name,String raw,int currentLine,String oldQuery){final EditText input=new EditText(this);input.setSingleLine(true);input.setHint("Текст для поиска");input.setText(oldQuery==null?"":oldQuery);new AlertDialog.Builder(this).setTitle("Поиск в файле").setView(input).setPositiveButton("Найти",(d,w)->{String q=input.getText().toString();int idx=raw.toLowerCase(Locale.ROOT).indexOf(q.toLowerCase(Locale.ROOT));int line=idx<0?currentLine:1+raw.substring(0,idx).split("\n",-1).length-1;if(idx<0)toast("Совпадений не найдено");renderCodeViewer(full,name,raw,line,q);}).setNeutralButton("Очистить",(d,w)->renderCodeViewer(full,name,raw,currentLine,"")).setNegativeButton("Отмена",null).show();}
-    private void showGoToLineDialog(String full,String name,String raw,int currentLine,String query){final EditText input=new EditText(this);input.setSingleLine(true);input.setInputType(InputType.TYPE_CLASS_NUMBER);input.setHint("Номер строки");new AlertDialog.Builder(this).setTitle("Перейти к строке").setView(input).setPositiveButton("Перейти",(d,w)->{int line=currentLine;try{line=Integer.parseInt(input.getText().toString());}catch(Exception ignored){}renderCodeViewer(full,name,raw,line,query);}).setNegativeButton("Отмена",null).show();}
-    private void showCopyLinesDialog(String name,String raw){LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);final EditText from=new EditText(this);from.setHint("С строки");from.setInputType(InputType.TYPE_CLASS_NUMBER);final EditText to=new EditText(this);to.setHint("По строку");to.setInputType(InputType.TYPE_CLASS_NUMBER);box.addView(from);box.addView(to);new AlertDialog.Builder(this).setTitle("Копировать диапазон").setView(box).setPositiveButton("Копировать",(d,w)->{String[] lines=raw.replace("\r","").split("\n",-1);int a=1,b=lines.length;try{a=Integer.parseInt(from.getText().toString());}catch(Exception ignored){}try{b=Integer.parseInt(to.getText().toString());}catch(Exception ignored){}a=Math.max(1,Math.min(lines.length,a));b=Math.max(a,Math.min(lines.length,b));StringBuilder out=new StringBuilder();for(int i=a-1;i<b;i++){if(out.length()>0)out.append('\n');out.append(lines[i]);}ClipboardManager cm=(ClipboardManager)getSystemService(CLIPBOARD_SERVICE);if(cm!=null)cm.setPrimaryClip(ClipData.newPlainText(name+":"+a+"-"+b,out.toString()));toast("Строки "+a+"–"+b+" скопированы");}).setNegativeButton("Отмена",null).show();}
+    private void showCodeSearchDialog(String full,String name,String raw,int currentLine,String oldQuery){final EditText input=new EditText(this);input.setSingleLine(true);input.setHint("Текст для поиска");input.setText(oldQuery==null?"":oldQuery);new SheetDialog.Builder(this).setTitle("Поиск в файле").setView(input).setPositiveButton("Найти",(d,w)->{String q=input.getText().toString();int idx=raw.toLowerCase(Locale.ROOT).indexOf(q.toLowerCase(Locale.ROOT));int line=idx<0?currentLine:1+raw.substring(0,idx).split("\n",-1).length-1;if(idx<0)toast("Совпадений не найдено");renderCodeViewer(full,name,raw,line,q);}).setNeutralButton("Очистить",(d,w)->renderCodeViewer(full,name,raw,currentLine,"")).setNegativeButton("Отмена",null).show();}
+    private void showGoToLineDialog(String full,String name,String raw,int currentLine,String query){final EditText input=new EditText(this);input.setSingleLine(true);input.setInputType(InputType.TYPE_CLASS_NUMBER);input.setHint("Номер строки");new SheetDialog.Builder(this).setTitle("Перейти к строке").setView(input).setPositiveButton("Перейти",(d,w)->{int line=currentLine;try{line=Integer.parseInt(input.getText().toString());}catch(Exception ignored){}renderCodeViewer(full,name,raw,line,query);}).setNegativeButton("Отмена",null).show();}
+    private void showCopyLinesDialog(String name,String raw){LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);final EditText from=new EditText(this);from.setHint("С строки");from.setInputType(InputType.TYPE_CLASS_NUMBER);final EditText to=new EditText(this);to.setHint("По строку");to.setInputType(InputType.TYPE_CLASS_NUMBER);box.addView(from);box.addView(to);new SheetDialog.Builder(this).setTitle("Копировать диапазон").setView(box).setPositiveButton("Копировать",(d,w)->{String[] lines=raw.replace("\r","").split("\n",-1);int a=1,b=lines.length;try{a=Integer.parseInt(from.getText().toString());}catch(Exception ignored){}try{b=Integer.parseInt(to.getText().toString());}catch(Exception ignored){}a=Math.max(1,Math.min(lines.length,a));b=Math.max(a,Math.min(lines.length,b));StringBuilder out=new StringBuilder();for(int i=a-1;i<b;i++){if(out.length()>0)out.append('\n');out.append(lines[i]);}ClipboardManager cm=(ClipboardManager)getSystemService(CLIPBOARD_SERVICE);if(cm!=null)cm.setPrimaryClip(ClipData.newPlainText(name+":"+a+"-"+b,out.toString()));toast("Строки "+a+"–"+b+" скопированы");}).setNegativeButton("Отмена",null).show();}
 
     private void showReadme(String full,String readme){setCurrentScreen(() -> showReadme(full,readme));shell("README",true);repoSectionHeader(full,"README","Документация проекта",R.drawable.ic_repository);showReadmeInline(full,readme);}
     private void showReadmeInline(String full,String readme){sectionTitle("README",null);addTranslatableMarkdownCard("readme:"+full,readme,prefs.getString("cache_repo_updated_"+full,""));}
@@ -7465,7 +7467,7 @@ public class MainActivity extends Activity {
     /** Private text leaves the device for the AI provider only after a one-time yes. */
     private void allowTranslationSend(String scopeKey,Runnable proceed){
         if(!translationRepoPrivate(scopeKey)||prefs.getBoolean("translator_private_ok",false)){proceed.run();return;}
-        new AlertDialog.Builder(this).setTitle("Перевести приватный текст?")
+        new SheetDialog.Builder(this).setTitle("Перевести приватный текст?")
             .setMessage("Текст приватного репозитория будет отправлен вашей нейросети ("+translationController.serviceLabel()+") для перевода. Код не отправляется.")
             .setPositiveButton("Перевести",(d,w)->{prefs.edit().putBoolean("translator_private_ok",true).apply();proceed.run();})
             .setNegativeButton("Отмена",null).show();
@@ -7481,7 +7483,7 @@ public class MainActivity extends Activity {
         String full=translationRepoOf(scopeKey);if(full.isEmpty()){showTranslationSettingsHint();return;}
         int choice=prefs.getInt("translator_repo_"+full,0);
         String[] items={"Всегда переводить "+full,"Не переводить "+full,"Как в настройках"};
-        new AlertDialog.Builder(this).setTitle("Перевод для репозитория").setSingleChoiceItems(items,choice>0?0:choice<0?1:2,(d,w)->{
+        new SheetDialog.Builder(this).setTitle("Перевод для репозитория").setSingleChoiceItems(items,choice>0?0:choice<0?1:2,(d,w)->{
             prefs.edit().putInt("translator_repo_"+full,w==0?1:w==1?-1:0).apply();d.dismiss();toast("Сохранено · откройте страницу заново");}).setNegativeButton("Закрыть",null).show();
     }
     private void showTranslationSettingsHint(){toast("Автоперевод: Настройки → Перевод");}
@@ -7615,7 +7617,7 @@ public class MainActivity extends Activity {
     }
     void errorCard(String title,String message){LinearLayout b=new LinearLayout(this);b.setOrientation(LinearLayout.VERTICAL);TextView h=text(title,18,true);h.setTextColor(Color.rgb(190,55,60));b.addView(h);TextView m=text(message==null?"Неизвестная ошибка":message,14,false);m.setTextColor(MUTED);b.addView(m);card(b);}
 
-    private void showTranslationInfo(){new AlertDialog.Builder(this).setTitle("Как работает перевод").setMessage("Переводит ваша подключённая нейросеть (ChatGPT, Grok или другая) — без отдельных ключей и настроек. Переводится только человеческий текст: описания, README, обсуждения, сообщения коммитов. Код, команды, ссылки, пути, версии и хеши защищаются и не меняются. Приватные репозитории не переводятся сами; ручной перевод спросит подтверждение один раз. Переводы хранятся на устройстве. Долгое нажатие на значок 🌐 — выбрать поведение для репозитория.").setPositiveButton("Понятно",null).show();}
+    private void showTranslationInfo(){new SheetDialog.Builder(this).setTitle("Как работает перевод").setMessage("Переводит ваша подключённая нейросеть (ChatGPT, Grok или другая) — без отдельных ключей и настроек. Переводится только человеческий текст: описания, README, обсуждения, сообщения коммитов. Код, команды, ссылки, пути, версии и хеши защищаются и не меняются. Приватные репозитории не переводятся сами; ручной перевод спросит подтверждение один раз. Переводы хранятся на устройстве. Долгое нажатие на значок 🌐 — выбрать поведение для репозитория.").setPositiveButton("Понятно",null).show();}
 
     private void showFavorites(){setCurrentScreen(this::showFavorites);shell("Избранное",true);Set<String> f=prefs.getStringSet("favorites",new LinkedHashSet<>());if(f.isEmpty()){card(text("Пока ничего не добавлено. Откройте репозиторий и нажмите «Избранное».",16,false));return;}sectionTitle("Сохранённые проекты",null);for(String s:f){LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);ImageView i=imageIcon(R.drawable.ic_star,Color.rgb(245,191,39),14);row.addView(i,new LinearLayout.LayoutParams(dp(44),dp(44)));TextView t=text(s,16,true);row.addView(t,new LinearLayout.LayoutParams(0,-2,1));row.setOnClickListener(v->navigate(() -> showRepository(s)));card(row);}}
     private void saveFavorite(String s){Set<String> old=new LinkedHashSet<>(prefs.getStringSet("favorites",new LinkedHashSet<>()));old.add(s);prefs.edit().putStringSet("favorites",old).apply();}
@@ -7929,7 +7931,7 @@ public class MainActivity extends Activity {
         content.addView(stats,statsP);
 
         profileSection("Быстрые действия","Все действия",()->{
-            new AlertDialog.Builder(this).setTitle("Действия с аккаунтом").setItems(
+            new SheetDialog.Builder(this).setTitle("Действия с аккаунтом").setItems(
                 new String[]{"Мои репозитории","Организации","История","Открыть GitHub",
                         "Настройки","Обновить профиль"},
                 (dialog,which)->{
@@ -8079,7 +8081,7 @@ public class MainActivity extends Activity {
 
     private void profileChoosePinned(RepositoryStore.Snapshot snapshot){
         if(!snapshot.hasData()||snapshot.repositories.length()==0){
-            new AlertDialog.Builder(this).setTitle("Закреплённые репозитории")
+            new SheetDialog.Builder(this).setTitle("Закреплённые репозитории")
                     .setMessage("Сначала синхронизируйте репозитории GitHub.")
                     .setPositiveButton("Открыть репозитории",(d,w)->navigate(this::showMyRepositories))
                     .setNegativeButton("Закрыть",null).show();
@@ -8097,11 +8099,11 @@ public class MainActivity extends Activity {
                 profilePinsKey(),new LinkedHashSet<>()));
         boolean[] checked=new boolean[names.length];
         for(int i=0;i<names.length;i++)checked[i]=chosen.contains(names[i]);
-        AlertDialog dialog=new AlertDialog.Builder(this)
+        SheetDialog dialog=new SheetDialog.Builder(this)
                 .setTitle("Закрепить до трёх репозиториев")
                 .setMultiChoiceItems(names,checked,(d,index,on)->{
                     if(on&&chosen.size()>=3&&!chosen.contains(names[index])){
-                        ((AlertDialog)d).getListView().setItemChecked(index,false);
+                        ((SheetDialog)d).uncheck(index);
                         toast("Можно закрепить не более трёх репозиториев");
                     }else if(on)chosen.add(names[index]);
                     else chosen.remove(names[index]);
@@ -8498,7 +8500,7 @@ public class MainActivity extends Activity {
 
     private void showAddDeveloperDialog(boolean openProfileAfter){
         EditText input=new EditText(this);input.setSingleLine(true);input.setHint("GitHub login, например torvalds");input.setTextColor(TEXT);input.setHintTextColor(MUTED);
-        new AlertDialog.Builder(this).setTitle("Добавить разработчика").setMessage("GitHubble сохранит базовый снимок публичных репозиториев, затем будет сравнивать новые проверки с ним.").setView(input)
+        new SheetDialog.Builder(this).setTitle("Добавить разработчика").setMessage("GitHubble сохранит базовый снимок публичных репозиториев, затем будет сравнивать новые проверки с ним.").setView(input)
                 .setPositiveButton("Добавить",(d,w)->{String login=input.getText().toString().trim();if(login.isEmpty())return;addDeveloperToTracking(login,openProfileAfter);})
                 .setNegativeButton("Отмена",null).show();
     }
@@ -8509,16 +8511,16 @@ public class MainActivity extends Activity {
         if(trackingDb.isTracked(normalizedLogin)){toast("Этот разработчик уже отслеживается");if(openProfileAfter)navigate(() -> showDeveloperProfile(normalizedLogin));else showTracking();return;}
         if(!trackingCheckInFlight.compareAndSet(false,true)){toast("Проверка уже выполняется");return;}
         requestTrackingNotificationPermission();
-        ProgressDialog progress=ProgressDialog.show(this,"Наблюдение","Создаём базовый снимок…",true,false);
+        SheetProgress progress=SheetProgress.show(this,"Наблюдение","Создаём базовый снимок…",true,false);
         io.execute(() -> {try{
             trackingEngine.addDeveloper(normalizedLogin);
             runOnUiThread(() -> {trackingCheckInFlight.set(false);progress.dismiss();toast("Разработчик добавлен. Базовый снимок создан без старых уведомлений.");if(openProfileAfter)navigate(() -> showDeveloperProfile(normalizedLogin));else showTracking();});
-        }catch(Exception e){runOnUiThread(() -> {trackingCheckInFlight.set(false);progress.dismiss();new AlertDialog.Builder(this).setTitle("Не удалось добавить").setMessage(e.getMessage()).setPositiveButton("ОК",null).show();});}});
+        }catch(Exception e){runOnUiThread(() -> {trackingCheckInFlight.set(false);progress.dismiss();new SheetDialog.Builder(this).setTitle("Не удалось добавить").setMessage(e.getMessage()).setPositiveButton("ОК",null).show();});}});
     }
 
     private void toggleDeveloperTracking(String login){
         if(trackingDb.isTracked(login)){
-            new AlertDialog.Builder(this).setTitle("Перестать следить за @"+login+"?").setMessage("Локальная история и снимки этого разработчика будут удалены.")
+            new SheetDialog.Builder(this).setTitle("Перестать следить за @"+login+"?").setMessage("Локальная история и снимки этого разработчика будут удалены.")
                     .setPositiveButton("Удалить",(d,w)->{trackingDb.removeDeveloper(login);if(trackingDb.getDevelopers(true).isEmpty())TrackingJobService.cancel(this);toast("Наблюдение отключено");if(currentScreen!=null)currentScreen.run();})
                     .setNegativeButton("Отмена",null).show();
         }else addDeveloperToTracking(login,false);
@@ -8527,7 +8529,7 @@ public class MainActivity extends Activity {
     private void runTrackingCheck(boolean userInitiated){
         if(trackingDb.getDevelopers(true).isEmpty()){toast("Сначала добавьте разработчика");return;}
         if(!trackingCheckInFlight.compareAndSet(false,true)){toast("Проверка уже выполняется");return;}
-        ProgressDialog progress=userInitiated?ProgressDialog.show(this,"Наблюдение","Проверяем новые репозитории и релизы…",true,false):null;
+        SheetProgress progress=userInitiated?SheetProgress.show(this,"Наблюдение","Проверяем новые репозитории и релизы…",true,false):null;
         io.execute(() -> {TrackingEngine.CheckResult result=trackingEngine.checkAll();runOnUiThread(() -> {
             trackingCheckInFlight.set(false);if(progress!=null)progress.dismiss();TrackingNotificationHelper.notifyEvents(this,result.newEvents);
             String message=result.newEvents.isEmpty()?"Новых изменений нет":"Найдено новых событий: "+result.newEvents.size();
@@ -8623,21 +8625,21 @@ public class MainActivity extends Activity {
 
     private void showTrackingIntervalChooser(){
         String[] labels={"1 час","3 часа","6 часов","12 часов","24 часа"};int[] values={1,3,6,12,24};int current=prefs.getInt("tracking_interval_hours",6),checked=2;for(int i=0;i<values.length;i++)if(values[i]==current)checked=i;
-        new AlertDialog.Builder(this).setTitle("Интервал фоновой проверки").setSingleChoiceItems(labels,checked,(d,which)->{prefs.edit().putInt("tracking_interval_hours",values[which]).apply();TrackingJobService.schedule(this,values[which]);d.dismiss();showTrackingSettings();}).setNegativeButton("Отмена",null).show();
+        new SheetDialog.Builder(this).setTitle("Интервал фоновой проверки").setSingleChoiceItems(labels,checked,(d,which)->{prefs.edit().putInt("tracking_interval_hours",values[which]).apply();TrackingJobService.schedule(this,values[which]);d.dismiss();showTrackingSettings();}).setNegativeButton("Отмена",null).show();
     }
 
     private void showTrackingThresholdDialog(String key,String title,int defaultValue){
         EditText input=new EditText(this);input.setInputType(InputType.TYPE_CLASS_NUMBER);input.setSingleLine(true);input.setText(String.valueOf(prefs.getInt(key,defaultValue)));input.setTextColor(TEXT);
-        new AlertDialog.Builder(this).setTitle(title).setView(input).setPositiveButton("Сохранить",(d,w)->{try{int value=Math.max(1,Math.min(100000,Integer.parseInt(input.getText().toString().trim())));prefs.edit().putInt(key,value).apply();}catch(Exception ignored){}showTrackingSettings();}).setNegativeButton("Отмена",null).show();
+        new SheetDialog.Builder(this).setTitle(title).setView(input).setPositiveButton("Сохранить",(d,w)->{try{int value=Math.max(1,Math.min(100000,Integer.parseInt(input.getText().toString().trim())));prefs.edit().putInt(key,value).apply();}catch(Exception ignored){}showTrackingSettings();}).setNegativeButton("Отмена",null).show();
     }
 
     private void showTrackingLimitDialog(String key,String title,int defaultValue,int max){
         EditText input=new EditText(this);input.setInputType(InputType.TYPE_CLASS_NUMBER);input.setSingleLine(true);input.setText(String.valueOf(Math.max(1,Math.min(max,prefs.getInt(key,defaultValue)))));input.setTextColor(TEXT);
-        new AlertDialog.Builder(this).setTitle(title).setView(input).setPositiveButton("Сохранить",(d,w)->{try{int value=Math.max(1,Math.min(max,Integer.parseInt(input.getText().toString().trim())));prefs.edit().putInt(key,value).apply();}catch(Exception ignored){}showTrackingSettings();}).setNegativeButton("Отмена",null).show();
+        new SheetDialog.Builder(this).setTitle(title).setView(input).setPositiveButton("Сохранить",(d,w)->{try{int value=Math.max(1,Math.min(max,Integer.parseInt(input.getText().toString().trim())));prefs.edit().putInt(key,value).apply();}catch(Exception ignored){}showTrackingSettings();}).setNegativeButton("Отмена",null).show();
     }
 
     private void confirmClearTrackingHistory(String filter){
-        new AlertDialog.Builder(this).setTitle("Очистить историю?").setMessage("Снимки репозиториев и список разработчиков останутся. Будут удалены только события ленты.").setPositiveButton("Очистить",(d,w)->{trackingDb.clearEvents();showTrackingFiltered(filter);}).setNegativeButton("Отмена",null).show();
+        new SheetDialog.Builder(this).setTitle("Очистить историю?").setMessage("Снимки репозиториев и список разработчиков останутся. Будут удалены только события ленты.").setPositiveButton("Очистить",(d,w)->{trackingDb.clearEvents();showTrackingFiltered(filter);}).setNegativeButton("Отмена",null).show();
     }
 
     private void requestTrackingNotificationPermission(){
@@ -8673,7 +8675,7 @@ public class MainActivity extends Activity {
         addProfileDetail(info,"Результат",prefs.getString("tracking_job_last_result","Нет данных"));
         String error=prefs.getString("tracking_job_last_error","");if(!error.isEmpty())addProfileDetail(info,"Ошибка",error);card(info);
         if(state.optBoolean("is_miui_family",false)){TextView miui=text("На MIUI/HyperOS дополнительно разрешите автозапуск и фоновую активность для GitHubble. Системные названия пунктов зависят от версии прошивки.",12,false);miui.setTextColor(MUTED);card(miui);}
-        Button test=button("Запустить проверку сейчас");test.setOnClickListener(v->{if(trackingCheckInFlight.get()){toast("Проверка уже выполняется");return;}trackingCheckInFlight.set(true);ProgressDialog dialog=ProgressDialog.show(this,"Наблюдение","Проверяем фоновые условия и репозитории…",true,false);io.execute(()->{try{TrackingEngine.CheckResult result=trackingEngine.checkAll();TrackingNotificationHelper.notifyEvents(this,result.newEvents);prefs.edit().putLong("tracking_job_last_success",System.currentTimeMillis()).putString("tracking_job_last_result","Ручной тест: разработчиков "+result.checkedDevelopers+", репозиториев "+result.checkedRepositories+", новых событий "+result.newEvents.size()).apply();runOnUiThread(()->{dialog.dismiss();trackingCheckInFlight.set(false);toast("Диагностика завершена");showTrackingDiagnostics();});}catch(Exception e){prefs.edit().putString("tracking_job_last_error",e.getMessage()==null?e.getClass().getSimpleName():e.getMessage()).apply();runOnUiThread(()->{dialog.dismiss();trackingCheckInFlight.set(false);toast("Ошибка проверки: "+e.getMessage());showTrackingDiagnostics();});}});});content.addView(test,new LinearLayout.LayoutParams(-1,dp(50)));
+        Button test=button("Запустить проверку сейчас");test.setOnClickListener(v->{if(trackingCheckInFlight.get()){toast("Проверка уже выполняется");return;}trackingCheckInFlight.set(true);SheetProgress dialog=SheetProgress.show(this,"Наблюдение","Проверяем фоновые условия и репозитории…",true,false);io.execute(()->{try{TrackingEngine.CheckResult result=trackingEngine.checkAll();TrackingNotificationHelper.notifyEvents(this,result.newEvents);prefs.edit().putLong("tracking_job_last_success",System.currentTimeMillis()).putString("tracking_job_last_result","Ручной тест: разработчиков "+result.checkedDevelopers+", репозиториев "+result.checkedRepositories+", новых событий "+result.newEvents.size()).apply();runOnUiThread(()->{dialog.dismiss();trackingCheckInFlight.set(false);toast("Диагностика завершена");showTrackingDiagnostics();});}catch(Exception e){prefs.edit().putString("tracking_job_last_error",e.getMessage()==null?e.getClass().getSimpleName():e.getMessage()).apply();runOnUiThread(()->{dialog.dismiss();trackingCheckInFlight.set(false);toast("Ошибка проверки: "+e.getMessage());showTrackingDiagnostics();});}});});content.addView(test,new LinearLayout.LayoutParams(-1,dp(50)));
         Button battery=button("Настройки экономии батареи");battery.setTextColor(GREEN);battery.setBackground(round(CARD,14,GREEN,1));battery.setOnClickListener(v->{try{startActivity(TrackingDiagnostics.batteryOptimizationIntent(this));}catch(Exception e){startActivity(TrackingDiagnostics.appDetailsIntent(this));}});LinearLayout.LayoutParams bp=new LinearLayout.LayoutParams(-1,dp(50));bp.setMargins(0,dp(8),0,0);content.addView(battery,bp);
         Button app=button("Открыть системные настройки приложения");app.setTextColor(GREEN);app.setBackground(round(CARD,14,GREEN,1));app.setOnClickListener(v->startActivity(TrackingDiagnostics.appDetailsIntent(this)));LinearLayout.LayoutParams ap=new LinearLayout.LayoutParams(-1,dp(50));ap.setMargins(0,dp(8),0,0);content.addView(app,ap);
     }
@@ -8919,7 +8921,7 @@ public class MainActivity extends Activity {
         final LinearLayout host=content;
         RepositoryFileRestore restore=new RepositoryFileRestore(
                 new RepositorySelectiveTransfer(accountStore));
-        ProgressDialog progress=ProgressDialog.show(this,"Проверка версии файла",
+        SheetProgress progress=SheetProgress.show(this,"Проверка версии файла",
                 "Чтение исторического Git-объекта и состояния основной ветки…",true,false);
         io.execute(()->{
             try{
@@ -8938,12 +8940,12 @@ public class MainActivity extends Activity {
                             +"\nРазмер: "+snapshot.bytes+" Б"
                             +"\n\n"+change+" через отдельную ветку и Draft PR."
                             +"\nОсновная ветка не изменяется автоматически.";
-                    new AlertDialog.Builder(this)
+                    new SheetDialog.Builder(this)
                         .setTitle("Восстановить версию файла?")
                         .setMessage(message)
                         .setNegativeButton("Отмена",null)
                         .setPositiveButton("Создать Draft PR",(dialog,which)->{
-                            ProgressDialog working=ProgressDialog.show(this,
+                            SheetProgress working=SheetProgress.show(this,
                                     "Восстановление файла","Проверка SHA и создание Pull Request…",
                                     true,false);
                             io.execute(()->{
@@ -8952,7 +8954,7 @@ public class MainActivity extends Activity {
                                     runOnUiThread(()->{
                                         working.dismiss();
                                         if(!screenRequestCurrent(generation,active,host))return;
-                                        new AlertDialog.Builder(this)
+                                        new SheetDialog.Builder(this)
                                             .setTitle("Черновик PR создан")
                                             .setMessage("Версия файла подготовлена к восстановлению."
                                                 +"\nВетка: "+pr.branch
@@ -9190,7 +9192,7 @@ public class MainActivity extends Activity {
                         mirrorGoogleReturn=this::showSettingsCloud;connectMirrorGoogle();}));
             account.add(SettingsScreen.Item.danger(R.drawable.ic_back,"Отключить Google Drive",
                     "Файлы на Диске и данные на устройстве остаются",keywords+" выйти отключить",()->
-                    new AlertDialog.Builder(this).setTitle("Отключить Google Drive?")
+                    new SheetDialog.Builder(this).setTitle("Отключить Google Drive?")
                             .setMessage("Синхронизация остановится. Файлы в папке GitHubble не удаляются, "
                                     +"связи, подключения и настройки на этом устройстве сохраняются.")
                             .setNegativeButton("Отмена",null)
@@ -9327,7 +9329,7 @@ public class MainActivity extends Activity {
         catch(Exception e){errorCard("Аккаунт изменился",e.getMessage());return;}
         if(first){
             SettingsScreen.Section manage=new SettingsScreen.Section("Управление блокировками");
-            manage.add(SettingsScreen.Item.action(R.drawable.ic_profile,"Заблокировать пользователя","Добавить GitHub login в список блокировок","",()->{EditText login=new EditText(this);login.setSingleLine(true);login.setHint("GitHub login без @");new AlertDialog.Builder(this).setTitle("Блокировка в GitHub").setView(login).setPositiveButton("Продолжить",(d,w)->{final String selected=login.getText().toString().trim();confirmAccountChange(controller,generation,account,destination,"Заблокировать @"+selected+"?",()->controller.block(selected,true),()->showBlockedUsers(1,true));}).setNegativeButton("Отмена",null).show();}));
+            manage.add(SettingsScreen.Item.action(R.drawable.ic_profile,"Заблокировать пользователя","Добавить GitHub login в список блокировок","",()->{EditText login=new EditText(this);login.setSingleLine(true);login.setHint("GitHub login без @");new SheetDialog.Builder(this).setTitle("Блокировка в GitHub").setView(login).setPositiveButton("Продолжить",(d,w)->{final String selected=login.getText().toString().trim();confirmAccountChange(controller,generation,account,destination,"Заблокировать @"+selected+"?",()->controller.block(selected,true),()->showBlockedUsers(1,true));}).setNegativeButton("Отмена",null).show();}));
             new SettingsScreen(this,content,settingsPalette()).renderPage(null,GREEN,Collections.singletonList(manage));
         }
         ProgressBar loading=new ProgressBar(this);content.addView(loading);
@@ -9344,9 +9346,9 @@ public class MainActivity extends Activity {
     private interface AccountChange { void run() throws Exception; }
     private void confirmAccountChange(app.githubble.mobile.controller.GitHubAccountController controller,long generation,String account,LinearLayout destination,String title,AccountChange change,Runnable reload){
         if(!screenRequestCurrent(generation,account,destination))return;
-        new AlertDialog.Builder(this).setTitle(title).setMessage("Изменение будет выполнено в GitHub для активного аккаунта.").setPositiveButton("Подтвердить",(d,w)->{
+        new SheetDialog.Builder(this).setTitle(title).setMessage("Изменение будет выполнено в GitHub для активного аккаунта.").setPositiveButton("Подтвердить",(d,w)->{
             if(!screenRequestCurrent(generation,account,destination))return;
-            ProgressDialog progress=ProgressDialog.show(this,"GitHub","Сохраняем…",true,false);
+            SheetProgress progress=SheetProgress.show(this,"GitHub","Сохраняем…",true,false);
             io.execute(()->{try{change.run();runOnUiThread(()->{progress.dismiss();if(!screenRequestCurrent(generation,account,destination))return;toast("Изменение принято GitHub");reload.run();});}
             catch(Exception e){runOnUiThread(()->{progress.dismiss();if(screenRequestCurrent(generation,account,destination))errorDialog("Не удалось подтвердить изменение",e.getMessage());});}});
         }).setNegativeButton("Отмена",null).show();
@@ -9381,8 +9383,8 @@ public class MainActivity extends Activity {
         SettingsScreen.Section status=new SettingsScreen.Section("Сейчас");
         status.add(SettingsScreen.Item.info(R.drawable.ic_lock,active.isEmpty()?"Без ограничений":name,active.isEmpty()?"Дополнительные ограничения не установлены":"До "+formatGitHubDate(state.optString("expires_at")),""));sections.add(status);
         SettingsScreen.Section options=new SettingsScreen.Section("Настроить ограничение");
-        options.add(SettingsScreen.Item.action(R.drawable.ic_profile,"Кто может взаимодействовать",labels[mode],"",()->new AlertDialog.Builder(this).setTitle("Кто может взаимодействовать").setSingleChoiceItems(labels,mode,(dialog,index)->{dialog.dismiss();renderAccountLimits(controller,generation,account,destination,state,index,duration);}).setNegativeButton("Отмена",null).show()));
-        options.add(SettingsScreen.Item.action(R.drawable.ic_history,"Новый срок",times[duration],"",()->new AlertDialog.Builder(this).setTitle("Срок ограничения").setSingleChoiceItems(times,duration,(dialog,index)->{dialog.dismiss();renderAccountLimits(controller,generation,account,destination,state,mode,index);}).setNegativeButton("Отмена",null).show()));
+        options.add(SettingsScreen.Item.action(R.drawable.ic_profile,"Кто может взаимодействовать",labels[mode],"",()->new SheetDialog.Builder(this).setTitle("Кто может взаимодействовать").setSingleChoiceItems(labels,mode,(dialog,index)->{dialog.dismiss();renderAccountLimits(controller,generation,account,destination,state,index,duration);}).setNegativeButton("Отмена",null).show()));
+        options.add(SettingsScreen.Item.action(R.drawable.ic_history,"Новый срок",times[duration],"",()->new SheetDialog.Builder(this).setTitle("Срок ограничения").setSingleChoiceItems(times,duration,(dialog,index)->{dialog.dismiss();renderAccountLimits(controller,generation,account,destination,state,mode,index);}).setNegativeButton("Отмена",null).show()));
         options.note("GitHub ограничит создание Issues, PR и комментариев в ваших репозиториях согласно выбранному режиму.");sections.add(options);
         SettingsScreen.Section apply=new SettingsScreen.Section("Изменения");
         apply.add(SettingsScreen.Item.action(R.drawable.ic_lock,"Применить ограничение",labels[mode]+" · "+times[duration],"",()->confirmAccountChange(controller,generation,account,destination,"Установить ограничения: "+labels[mode]+" на "+times[duration]+"?",()->controller.setLimits(modes[mode],periods[duration]),this::showAccountInteractionLimits)));
@@ -9884,7 +9886,7 @@ public class MainActivity extends Activity {
         final String[] ids={"light","beige","dark","blue"};
         final String[] labels={"Светлая — белая и зелёная","Бежевая — тёплая и зелёная","Тёмная — графитовая и зелёная","Светло-синяя — голубая и синяя"};
         int checked=themeIconIndex(activeTheme);
-        new AlertDialog.Builder(this).setTitle("Тема оформления")
+        new SheetDialog.Builder(this).setTitle("Тема оформления")
                 .setSingleChoiceItems(labels,checked,(dialog,which)->{
                     dialog.dismiss();
                     if(ids[which].equals(activeTheme))return;
@@ -9901,7 +9903,7 @@ public class MainActivity extends Activity {
 
     private void chooseRepositoryViewDialog(){
         final String[] labels={"Список","Плитки — 2 в ряд","Плитки — 3 в ряд"};
-        new AlertDialog.Builder(this).setTitle("Вид репозиториев")
+        new SheetDialog.Builder(this).setTitle("Вид репозиториев")
                 .setSingleChoiceItems(labels,Math.max(1,Math.min(3,repositoriesColumns))-1,(dialog,which)->{
                     dialog.dismiss();
                     setRepositoryColumns(which+1);
@@ -9924,7 +9926,7 @@ public class MainActivity extends Activity {
         final String[] values={"updated","name","stars"};
         final String[] labels={"Недавно обновлённые","По названию","По звёздам"};
         int checked=0;for(int i=0;i<values.length;i++)if(values[i].equals(repositoriesSort))checked=i;
-        new AlertDialog.Builder(this).setTitle("Сортировка репозиториев")
+        new SheetDialog.Builder(this).setTitle("Сортировка репозиториев")
                 .setSingleChoiceItems(labels,checked,(dialog,which)->{
                     dialog.dismiss();
                     repositoriesSort=values[which];
@@ -9937,7 +9939,7 @@ public class MainActivity extends Activity {
         final String[] values={"unified","split"};
         final String[] labels={"Unified — одна колонка","Split — две колонки, было и стало"};
         int checked="split".equals(featureState.diffMode)?1:0;
-        new AlertDialog.Builder(this).setTitle("Сравнение изменений")
+        new SheetDialog.Builder(this).setTitle("Сравнение изменений")
                 .setSingleChoiceItems(labels,checked,(dialog,which)->{
                     dialog.dismiss();
                     featureState.diffMode=values[which];
@@ -10120,7 +10122,7 @@ public class MainActivity extends Activity {
     private void showReauthorizeActiveAccountDialog(){
         GitHubAccountStore.Account active=accountStore.activeAccount();
         String name=active==null?"GitHub":active.displayName();
-        new AlertDialog.Builder(this)
+        new SheetDialog.Builder(this)
                 .setTitle("Нужно обновить вход")
                 .setMessage("Сохранённая сессия "+name+" истекла и не может быть обновлена автоматически. Пройдите Device Flow ещё раз для этого аккаунта.")
                 .setNegativeButton("Позже",null)
@@ -10136,7 +10138,7 @@ public class MainActivity extends Activity {
         if(account==null)return;
         String title=account.active?"Отключить активный аккаунт?":"Удалить сохранённый аккаунт?";
         String message=account.displayName()+"\n\nOAuth-токены, приватный кэш и отложенные действия этого аккаунта будут удалены с устройства. Репозитории на GitHub не изменятся.";
-        new AlertDialog.Builder(this).setTitle(title).setMessage(message)
+        new SheetDialog.Builder(this).setTitle(title).setMessage(message)
                 .setNegativeButton("Отмена",null)
                 .setPositiveButton("Удалить",(d,w)->removeGitHubAccount(account)).show();
     }
@@ -10258,11 +10260,11 @@ public class MainActivity extends Activity {
     }
 
     private void processOfflineQueueNow(){
-        final String account=currentAccountId();final long generation=screenGeneration.get();final LinearLayout destination=content;ProgressDialog progress=ProgressDialog.show(this,"Офлайн-очередь","Проверяем изменения и отправляем…",true,false);io.execute(()->{try{OfflineActionQueue.ProcessResult r=features.offlineQueue.processReady(api);runOnUiThread(()->{progress.dismiss();if(!screenRequestCurrent(generation,account,destination))return;toast("Отправлено: "+r.completed+", конфликтов: "+r.conflicts+", отложено: "+r.deferred);showOfflineQueue();});}catch(Exception e){runOnUiThread(()->{progress.dismiss();errorDialog("Не удалось обработать очередь",e.getMessage());});}});
+        final String account=currentAccountId();final long generation=screenGeneration.get();final LinearLayout destination=content;SheetProgress progress=SheetProgress.show(this,"Офлайн-очередь","Проверяем изменения и отправляем…",true,false);io.execute(()->{try{OfflineActionQueue.ProcessResult r=features.offlineQueue.processReady(api);runOnUiThread(()->{progress.dismiss();if(!screenRequestCurrent(generation,account,destination))return;toast("Отправлено: "+r.completed+", конфликтов: "+r.conflicts+", отложено: "+r.deferred);showOfflineQueue();});}catch(Exception e){runOnUiThread(()->{progress.dismiss();errorDialog("Не удалось обработать очередь",e.getMessage());});}});
     }
 
     private void retryOfflineAction(OfflineActionQueue.Action action,boolean force){
-        new AlertDialog.Builder(this).setTitle(force?"Отправить поверх изменений?":"Повторить действие?")
+        new SheetDialog.Builder(this).setTitle(force?"Отправить поверх изменений?":"Повторить действие?")
             .setMessage("Сначала проверьте результат на GitHub. Если предыдущая запись уже выполнилась, повтор может перезаписать более свежие данные.")
             .setNegativeButton("Отмена",null).setPositiveButton("Повторить",(d,w)->io.execute(()->{
                 try{if(!action.accountId.equals(currentAccountId()))return;features.offlineQueue.retry(action.id,force);
@@ -10274,14 +10276,14 @@ public class MainActivity extends Activity {
     private void renderOfflineAction(OfflineActionQueue.Action action){
         LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);String status=OfflineActionQueue.IN_FLIGHT.equals(action.status)?"Выполняется":OfflineActionQueue.UNKNOWN.equals(action.status)?"Результат неизвестен":OfflineActionQueue.PENDING.equals(action.status)?"Ожидает сети":OfflineActionQueue.CONFLICT.equals(action.status)?"Конфликт":"Ошибка";TextView title=text(action.summary.isEmpty()?action.method+" "+action.url:action.summary,14,true);box.addView(title);TextView meta=text(status+" · попыток "+action.attempts+" · "+formatEpoch(action.createdAt),11,false);meta.setTextColor(OfflineActionQueue.CONFLICT.equals(action.status)?Color.rgb(190,120,20):OfflineActionQueue.FAILED.equals(action.status)?Color.rgb(190,55,60):MUTED);box.addView(meta);if(!action.lastError.isEmpty()){TextView error=text(action.lastError,11,false);error.setTextColor(MUTED);box.addView(error);}LinearLayout buttons=new LinearLayout(this);buttons.setPadding(0,dp(8),0,0);
         if(OfflineActionQueue.CONFLICT.equals(action.status)){Button compare=compactButton("Сравнить");compare.setOnClickListener(v->showOfflineConflictPreview(action));buttons.addView(compare,new LinearLayout.LayoutParams(0,dp(44),1));Button force=compactButton("Всё равно отправить");force.setOnClickListener(v->retryOfflineAction(action,true));LinearLayout.LayoutParams fp=new LinearLayout.LayoutParams(0,dp(44),1);fp.setMargins(dp(5),0,0,0);buttons.addView(force,fp);}else{Button retry=compactButton("Повторить");retry.setEnabled(!OfflineActionQueue.IN_FLIGHT.equals(action.status));retry.setOnClickListener(v->retryOfflineAction(action,false));buttons.addView(retry,new LinearLayout.LayoutParams(0,dp(44),1));}
-        Button discard=compactButton("Удалить");discard.setEnabled(!OfflineActionQueue.IN_FLIGHT.equals(action.status));discard.setOnClickListener(v->new AlertDialog.Builder(this).setTitle("Удалить действие?").setMessage(action.summary).setPositiveButton("Удалить",(d,w)->{features.offlineQueue.discard(action.id);showOfflineQueue();}).setNegativeButton("Отмена",null).show());LinearLayout.LayoutParams dpv=new LinearLayout.LayoutParams(0,dp(44),1);dpv.setMargins(dp(5),0,0,0);buttons.addView(discard,dpv);box.addView(buttons);card(box);
+        Button discard=compactButton("Удалить");discard.setEnabled(!OfflineActionQueue.IN_FLIGHT.equals(action.status));discard.setOnClickListener(v->new SheetDialog.Builder(this).setTitle("Удалить действие?").setMessage(action.summary).setPositiveButton("Удалить",(d,w)->{features.offlineQueue.discard(action.id);showOfflineQueue();}).setNegativeButton("Отмена",null).show());LinearLayout.LayoutParams dpv=new LinearLayout.LayoutParams(0,dp(44),1);dpv.setMargins(dp(5),0,0,0);buttons.addView(discard,dpv);box.addView(buttons);card(box);
     }
 
     private void showOfflineConflictPreview(OfflineActionQueue.Action action){
         setCurrentScreen(()->showOfflineConflictPreview(action));shell("Конфликт",true);heroBanner(action.summary,"Проверьте локальную и серверную версии",R.drawable.ic_history);
         sectionTitle("Локальное изменение",null);TextView local=text(prettyJson(action.body),12,false);local.setTypeface(android.graphics.Typeface.MONOSPACE);local.setTextIsSelectable(true);card(local);
         sectionTitle("Текущая версия GitHub",null);TextView server=text(action.serverSnapshot.isEmpty()?"Снимок недоступен":prettyJson(action.serverSnapshot),12,false);server.setTypeface(android.graphics.Typeface.MONOSPACE);server.setTextIsSelectable(true);card(server);
-        Button force=button("Отправить локальную версию");force.setOnClickListener(v->new AlertDialog.Builder(this).setTitle("Перезаписать данные GitHub?").setMessage("Изменения на сервере могут быть потеряны.").setPositiveButton("Отправить",(d,w)->{features.offlineQueue.retry(action.id,true);processOfflineQueueNow();}).setNegativeButton("Отмена",null).show());content.addView(force,new LinearLayout.LayoutParams(-1,dp(50)));
+        Button force=button("Отправить локальную версию");force.setOnClickListener(v->new SheetDialog.Builder(this).setTitle("Перезаписать данные GitHub?").setMessage("Изменения на сервере могут быть потеряны.").setPositiveButton("Отправить",(d,w)->{features.offlineQueue.retry(action.id,true);processOfflineQueueNow();}).setNegativeButton("Отмена",null).show());content.addView(force,new LinearLayout.LayoutParams(-1,dp(50)));
         Button discard=button("Оставить версию GitHub");discard.setOnClickListener(v->{features.offlineQueue.discard(action.id);navigate(this::showOfflineQueue);});LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,dp(50));p.setMargins(0,dp(8),0,0);content.addView(discard,p);
     }
 
@@ -10364,7 +10366,7 @@ public class MainActivity extends Activity {
                         runOnUiThread(()->{
                             if(isFinishing())return;
                             showMirrorSetupWizard();
-                            new AlertDialog.Builder(this)
+                            new SheetDialog.Builder(this)
                                 .setTitle("Облачный реестр подключён")
                                 .setMessage("Связанных пар: "+outcome.merged
                                         +"\nИмпортировано изменений: "+outcome.imported
@@ -10426,7 +10428,7 @@ public class MainActivity extends Activity {
             JSONObject snapshot=pendingRepositoryBackup;
             pendingRepositoryBackup=null;
             if(snapshot==null){errorDialog("Экспорт","Снимок архива не сохранился. Повторите экспорт.");return;}
-            ProgressDialog saving=ProgressDialog.show(this,"Архив GitHub",
+            SheetProgress saving=SheetProgress.show(this,"Архив GitHub",
                     "Сохранение ZIP и контрольных сумм SHA-256…",true,false);
             io.execute(()->{
                 try(OutputStream out=getContentResolver().openOutputStream(uri)){
@@ -10452,7 +10454,7 @@ public class MainActivity extends Activity {
         if(requestCode==REQUEST_REPOSITORY_FOLDER||requestCode==REQUEST_REPOSITORY_ZIP||requestCode==REQUEST_REPOSITORY_FILE){handleRepositoryImportUri(requestCode,uri);return;}
         if(requestCode==REQUEST_EXPORT_PORTABLE){try(OutputStream out=getContentResolver().openOutputStream(uri)){if(out==null)throw new IOException("Не удалось открыть файл");out.write(pendingPortableExport.getBytes(StandardCharsets.UTF_8));out.flush();pendingPortableExport="";toast("Резервная копия сохранена");}catch(Exception e){errorDialog("Ошибка экспорта",e.getMessage());}}
         else if(requestCode==REQUEST_EXPORT_USER_DATA){try(OutputStream out=getContentResolver().openOutputStream(uri)){if(out==null)throw new IOException("Не удалось открыть файл");out.write(pendingUserDataExport.getBytes(StandardCharsets.UTF_8));out.flush();pendingUserDataExport="";toast("Данные пользователя экспортированы");}catch(Exception e){errorDialog("Ошибка экспорта данных",e.getMessage());}}
-        else if(requestCode==REQUEST_IMPORT_PORTABLE){try(InputStream in=getContentResolver().openInputStream(uri)){if(in==null)throw new IOException("Не удалось открыть файл");JSONObject root=new JSONObject(readAll(in));PortableSettingsManager.ImportResult r=features.portableSettings.importData(root);reloadUiPreferences();applyTheme();switchLauncherIcon(activeTheme);TrackingJobService.schedule(this,prefs.getInt("tracking_interval_hours",6));new AlertDialog.Builder(this).setTitle("Импорт завершён").setMessage("Добавлено избранных: "+r.favoritesAdded+"\nДобавлено разработчиков: "+r.developersAdded+"\nПрименено настроек: "+r.settingsApplied).setPositiveButton("ОК",(d,w)->showPortableBackup()).show();}catch(Exception e){errorDialog("Ошибка импорта",e.getMessage());}}
+        else if(requestCode==REQUEST_IMPORT_PORTABLE){try(InputStream in=getContentResolver().openInputStream(uri)){if(in==null)throw new IOException("Не удалось открыть файл");JSONObject root=new JSONObject(readAll(in));PortableSettingsManager.ImportResult r=features.portableSettings.importData(root);reloadUiPreferences();applyTheme();switchLauncherIcon(activeTheme);TrackingJobService.schedule(this,prefs.getInt("tracking_interval_hours",6));new SheetDialog.Builder(this).setTitle("Импорт завершён").setMessage("Добавлено избранных: "+r.favoritesAdded+"\nДобавлено разработчиков: "+r.developersAdded+"\nПрименено настроек: "+r.settingsApplied).setPositiveButton("ОК",(d,w)->showPortableBackup()).show();}catch(Exception e){errorDialog("Ошибка импорта",e.getMessage());}}
     }
 
     void settingsRow(String title,String value){settingsActionRow(title,value,null);}
@@ -10511,7 +10513,7 @@ public class MainActivity extends Activity {
     }
 
     private void confirmDeleteAllLocalData(){
-        new AlertDialog.Builder(this).setTitle("Удалить все локальные данные?")
+        new SheetDialog.Builder(this).setTitle("Удалить все локальные данные?")
             .setMessage("Android удалит все аккаунты, AI-ключи и подписки, диалоги, Workspace, настройки и кэш. Приложение закроется. Скачанные в общую папку Downloads файлы и данные на GitHub сохранятся.")
             .setPositiveButton("Удалить",(d,w)->{
                 try{userDataManager.deleteAllLocalData();}
@@ -10545,33 +10547,33 @@ public class MainActivity extends Activity {
     private void chooseTranslationScopes(){
         final boolean[] checked=new boolean[TranslationController.SCOPE_IDS.length];
         for(int i=0;i<checked.length;i++)checked[i]=translationController.scopeEnabled(TranslationController.SCOPE_IDS[i]);
-        new AlertDialog.Builder(this).setTitle("Что переводить автоматически").setMultiChoiceItems(TranslationController.SCOPE_TITLES,checked,(d,w,on)->checked[w]=on)
+        new SheetDialog.Builder(this).setTitle("Что переводить автоматически").setMultiChoiceItems(TranslationController.SCOPE_TITLES,checked,(d,w,on)->checked[w]=on)
             .setPositiveButton("Сохранить",(d,w)->{for(int i=0;i<checked.length;i++)translationController.setScope(TranslationController.SCOPE_IDS[i],checked[i]);showSettings();})
             .setNegativeButton("Отмена",null).show();
     }
     private void chooseTranslationService(){
         final java.util.List<TranslationController.Candidate> connected=translationController.connected();
-        if(connected.isEmpty()){new AlertDialog.Builder(this).setTitle("Нет подключённых моделей").setMessage("Перевод идёт через ваши подключения: ChatGPT, Grok или любую другую модель. Подключите их в разделе «Подключения» агента.").setPositiveButton("Понятно",null).show();return;}
+        if(connected.isEmpty()){new SheetDialog.Builder(this).setTitle("Нет подключённых моделей").setMessage("Перевод идёт через ваши подключения: ChatGPT, Grok или любую другую модель. Подключите их в разделе «Подключения» агента.").setPositiveButton("Понятно",null).show();return;}
         String[] items=new String[connected.size()+1];items[0]="Авто · ChatGPT → Grok → остальные";
         String current=translationController.service();int selected=0;
         for(int i=0;i<connected.size();i++){items[i+1]=connected.get(i).title+" · "+connected.get(i).model;if(connected.get(i).provider.equals(current))selected=i+1;}
-        new AlertDialog.Builder(this).setTitle("Чем переводить").setSingleChoiceItems(items,selected,(d,w)->{
+        new SheetDialog.Builder(this).setTitle("Чем переводить").setSingleChoiceItems(items,selected,(d,w)->{
             translationController.setService(w==0?"auto":connected.get(w-1).provider);d.dismiss();showSettings();}).setNegativeButton("Закрыть",null).show();
     }
 
     private String cacheSizeText(){long bytes=0;for(Map.Entry<String,?> entry:prefs.getAll().entrySet()){String key=entry.getKey();if(key.startsWith("cache_")||key.startsWith("translation_")||key.startsWith("github_profile_json_")){Object value=entry.getValue();if(value!=null)bytes+=value.toString().getBytes(StandardCharsets.UTF_8).length;}}File[] files=getFilesDir().listFiles();if(files!=null)for(File file:files)if(file.isFile()&&file.getName().startsWith("github_avatar_")&&file.getName().endsWith(".png"))bytes+=file.length();bytes+=translationCache.sizeBytes()+entityCache.sizeBytes();return bytes<1024?bytes+" Б":bytes<1024*1024?String.format(Locale.ROOT,"%.1f КБ",bytes/1024.0):String.format(Locale.ROOT,"%.1f МБ",bytes/(1024.0*1024.0));}
-    private void showCacheDialog(){new AlertDialog.Builder(this).setTitle("Офлайн-кэш").setMessage("Сохранены профили, репозитории, Issues, Pull Requests, Releases, README, переводы и аватары аккаунтов. Сущностей: "+entityCache.count()+", переводов: "+translationCache.count()+". Общий объём: "+cacheSizeText()+".").setPositiveButton("Очистить всё",(d,w)->clearOfflineCache()).setNeutralButton("Только переводы",(d,w)->{translationCache.clear();toast("Кэш переводов очищен");showSettings();}).setNegativeButton("Отмена",null).show();}
+    private void showCacheDialog(){new SheetDialog.Builder(this).setTitle("Офлайн-кэш").setMessage("Сохранены профили, репозитории, Issues, Pull Requests, Releases, README, переводы и аватары аккаунтов. Сущностей: "+entityCache.count()+", переводов: "+translationCache.count()+". Общий объём: "+cacheSizeText()+".").setPositiveButton("Очистить всё",(d,w)->clearOfflineCache()).setNeutralButton("Только переводы",(d,w)->{translationCache.clear();toast("Кэш переводов очищен");showSettings();}).setNegativeButton("Отмена",null).show();}
     private void clearOfflineCache(){SharedPreferences.Editor editor=prefs.edit();for(String key:prefs.getAll().keySet())if(key.startsWith("cache_")||key.startsWith("translation_")||key.startsWith("github_profile_json_")||key.startsWith("github_avatar_url_")||key.equals("github_profile_json")||key.equals("github_avatar_url"))editor.remove(key);editor.apply();translationCache.clear();entityCache.clear();File[] files=getFilesDir().listFiles();if(files!=null)for(File file:files)if(file.isFile()&&file.getName().startsWith("github_avatar_")&&file.getName().endsWith(".png"))file.delete();File legacy=new File(getFilesDir(),"github_avatar.png");if(legacy.isFile())legacy.delete();toast("Офлайн-кэш очищен");showSettings();}
 
     private void exportDiagnostics(){
-        ProgressDialog progress=ProgressDialog.show(this,"Диагностика","Формируем безопасный ZIP…",true,false);
-        io.execute(()->{try{DiagnosticsExporter.Result result=DiagnosticsExporter.export(this,prefs,entityCache,translationCache,trackingDb,api);runOnUiThread(()->{progress.dismiss();new AlertDialog.Builder(this).setTitle("Диагностика экспортирована").setMessage(result.displayName+" сохранён в Downloads/GitHubble. Токены, API-ключи, пароли и signing key не включены.").setPositiveButton("Поделиться",(d,w)->{try{Intent share=new Intent(Intent.ACTION_SEND);share.setType("application/zip");share.putExtra(Intent.EXTRA_STREAM,result.uri);share.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);startActivity(Intent.createChooser(share,"Отправить диагностику"));}catch(Exception e){toast("Файл сохранён в Downloads/GitHubble");}}).setNegativeButton("Закрыть",null).show();});}catch(Exception e){runOnUiThread(()->{progress.dismiss();errorDialog("Не удалось экспортировать диагностику",e.getMessage());});}});
+        SheetProgress progress=SheetProgress.show(this,"Диагностика","Формируем безопасный ZIP…",true,false);
+        io.execute(()->{try{DiagnosticsExporter.Result result=DiagnosticsExporter.export(this,prefs,entityCache,translationCache,trackingDb,api);runOnUiThread(()->{progress.dismiss();new SheetDialog.Builder(this).setTitle("Диагностика экспортирована").setMessage(result.displayName+" сохранён в Downloads/GitHubble. Токены, API-ключи, пароли и signing key не включены.").setPositiveButton("Поделиться",(d,w)->{try{Intent share=new Intent(Intent.ACTION_SEND);share.setType("application/zip");share.putExtra(Intent.EXTRA_STREAM,result.uri);share.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);startActivity(Intent.createChooser(share,"Отправить диагностику"));}catch(Exception e){toast("Файл сохранён в Downloads/GitHubble");}}).setNegativeButton("Закрыть",null).show();});}catch(Exception e){runOnUiThread(()->{progress.dismiss();errorDialog("Не удалось экспортировать диагностику",e.getMessage());});}});
     }
 
     private void confirmSignOut(){
         GitHubAccountStore.Account active=accountStore.activeAccount();
         if(active!=null){confirmRemoveGitHubAccount(active);return;}
-        new AlertDialog.Builder(this).setTitle("Выйти из GitHub?")
+        new SheetDialog.Builder(this).setTitle("Выйти из GitHub?")
                 .setMessage("Локальный OAuth-сеанс будет удалён. Репозитории на GitHub не изменятся.")
                 .setPositiveButton("Выйти",(d,w)->{oauth.signOut();onActiveGitHubAccountChanged();openRoot(this::showSettings);})
                 .setNegativeButton("Отмена",null).show();
@@ -10737,7 +10739,7 @@ public class MainActivity extends Activity {
     }
 
     private void startGitHubDeviceFlow(String clientId){
-        final ProgressDialog progress=new ProgressDialog(this);
+        final SheetProgress progress=new SheetProgress(this);
         progress.setTitle("Подготовка входа");
         progress.setMessage("Получаем одноразовый код у GitHub…");
         progress.setCancelable(false);
@@ -10752,7 +10754,7 @@ public class MainActivity extends Activity {
             }catch(Exception e){
                 runOnUiThread(() -> {
                     progress.dismiss();
-                    new AlertDialog.Builder(this)
+                    new SheetDialog.Builder(this)
                         .setTitle("Не удалось начать вход")
                         .setMessage((e instanceof java.net.SocketTimeoutException || e instanceof java.net.ConnectException || e instanceof java.net.UnknownHostException)
                             ? "Не удалось подключиться к GitHub. Проверьте интернет, VPN и разрешение доступа к сети для GitHubble.\n\n"+e.getMessage()
@@ -10846,7 +10848,7 @@ public class MainActivity extends Activity {
         copyGitHubDeviceCode(session,false);
         code.setOnClickListener(v -> copyGitHubDeviceCode(session,true));
 
-        AlertDialog dialog=new AlertDialog.Builder(this)
+        SheetDialog dialog=new SheetDialog.Builder(this)
             .setTitle("Войти через GitHub")
             .setView(box)
             .create();
@@ -10906,7 +10908,7 @@ public class MainActivity extends Activity {
     private void showRegistrationReturnDialog(){
         if(registrationReturnDialogVisible||isFinishing()||isDestroyed())return;
         registrationReturnDialogVisible=true;
-        AlertDialog dialog=new AlertDialog.Builder(this)
+        SheetDialog dialog=new SheetDialog.Builder(this)
             .setTitle("Регистрация GitHub")
             .setMessage("Аккаунт уже создан? Продолжите подключение GiHubble. GitHub откроет официальный Device Flow, а GitHubble автоматически получит токен после подтверждения.")
             .setPositiveButton("Продолжить подключение",(d,w)->startSmartLogin())
@@ -10925,7 +10927,7 @@ public class MainActivity extends Activity {
         }catch(Exception e){toast("Не удалось открыть подтверждение GitHub: "+e.getMessage());}
     }
 
-    private void pollDeviceAuthorization(OAuthManager.DeviceSession session,String clientId,TextView status,AlertDialog dialog,AtomicBoolean cancelled){
+    private void pollDeviceAuthorization(OAuthManager.DeviceSession session,String clientId,TextView status,SheetDialog dialog,AtomicBoolean cancelled){
         io.execute(() -> {
             int interval=session.intervalSeconds;
             while(!cancelled.get()&&!session.isExpired()){
@@ -10952,7 +10954,7 @@ public class MainActivity extends Activity {
                         DeviceCodeAssist.clear(this);
                         runOnUiThread(() -> {
                             if(dialog.isShowing())dialog.dismiss();
-                            new AlertDialog.Builder(this).setTitle("Вход не завершён").setMessage(result.message).setPositiveButton("ОК",null).show();
+                            new SheetDialog.Builder(this).setTitle("Вход не завершён").setMessage(result.message).setPositiveButton("ОК",null).show();
                         });
                         return;
                     }
@@ -11087,9 +11089,9 @@ public class MainActivity extends Activity {
         return value;
     }
 
-    private void restoreRepositoryAdmin(String full){if(full==null||full.isEmpty()){showHome();return;}ProgressDialog p=ProgressDialog.show(this,"Управление","Восстанавливаем экран…",true,false);io.execute(()->{try{JSONObject repo=getJson("https://api.github.com/repos/"+full);runOnUiThread(()->{p.dismiss();showRepositoryAdmin(full,repo);});}catch(Exception e){runOnUiThread(()->{p.dismiss();showRepository(full);});}});}
+    private void restoreRepositoryAdmin(String full){if(full==null||full.isEmpty()){showHome();return;}SheetProgress p=SheetProgress.show(this,"Управление","Восстанавливаем экран…",true,false);io.execute(()->{try{JSONObject repo=getJson("https://api.github.com/repos/"+full);runOnUiThread(()->{p.dismiss();showRepositoryAdmin(full,repo);});}catch(Exception e){runOnUiThread(()->{p.dismiss();showRepository(full);});}});}
 
-    private void restorePullChecks(String full,int number){if(full==null||full.isEmpty()||number<=0){showHome();return;}ProgressDialog p=ProgressDialog.show(this,"Проверки","Восстанавливаем экран…",true,false);io.execute(()->{try{JSONObject pull=getJson("https://api.github.com/repos/"+full+"/pulls/"+number);runOnUiThread(()->{p.dismiss();showPullChecks(full,number,pull);});}catch(Exception e){runOnUiThread(()->{p.dismiss();showPullDetail(full,number);});}});}
+    private void restorePullChecks(String full,int number){if(full==null||full.isEmpty()||number<=0){showHome();return;}SheetProgress p=SheetProgress.show(this,"Проверки","Восстанавливаем экран…",true,false);io.execute(()->{try{JSONObject pull=getJson("https://api.github.com/repos/"+full+"/pulls/"+number);runOnUiThread(()->{p.dismiss();showPullChecks(full,number,pull);});}catch(Exception e){runOnUiThread(()->{p.dismiss();showPullDetail(full,number);});}});}
 
     private void restoreScreenFromState(){
         if(screenState==null)return;
@@ -11155,7 +11157,7 @@ public class MainActivity extends Activity {
     private JSONObject getJson(String url)throws Exception{return api.getJson(url);}
     private static String readAll(InputStream in)throws Exception{ByteArrayOutputStream o=new ByteArrayOutputStream();byte[] b=new byte[8192];int n;while((n=in.read(b))>0)o.write(b,0,n);return o.toString("UTF-8");}
     private static String limit(String s,int n){return s.length()>n?s.substring(0,n)+"\n…":s;}
-    void errorDialog(String title,String message){new AlertDialog.Builder(this).setTitle(title).setMessage(message==null?"Неизвестная ошибка":message).setPositiveButton("ОК",null).show();}
+    void errorDialog(String title,String message){new SheetDialog.Builder(this).setTitle(title).setMessage(message==null?"Неизвестная ошибка":message).setPositiveButton("ОК",null).show();}
     void toast(String s){Toast.makeText(this,s,Toast.LENGTH_SHORT).show();}
 }
 
