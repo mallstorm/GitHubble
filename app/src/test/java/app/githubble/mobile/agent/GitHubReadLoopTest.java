@@ -44,4 +44,12 @@ public final class GitHubReadLoopTest {
         assertTrue(GitHubReadLoop.wantsComparison("Сравни все репозитории и какие проекты на каком аккаунте есть. Табличный вид."));
         assertFalse(GitHubReadLoop.wantsComparison("покажи мои репозитории"));
     }
+    @Test public void findsTheNamedAccountEvenWhenSpelledInRussian()throws Exception{
+        org.json.JSONArray accounts=sample().getJSONArray("accounts");
+        assertEquals("mallstorm",GitHubReadLoop.namedAccount("Сколько репозиториев на аккаунте Малстором?",accounts));
+        assertEquals("mallstorm",GitHubReadLoop.namedAccount("сколько репозиториев у Малтсторм",accounts));
+        assertEquals("marwell4",GitHubReadLoop.namedAccount("репозитории @marwell4",accounts));
+        assertEquals("",GitHubReadLoop.namedAccount("Сколько репозиториев на аккаунте?",accounts));
+        assertEquals("",GitHubReadLoop.namedAccount("Сравни все репозитории и какие проекты на каком аккаунте есть. Табличный вид.",accounts));
+    }
 }
