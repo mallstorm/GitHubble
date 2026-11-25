@@ -265,11 +265,11 @@ final class ActionsScreens {
         a.card(costCard);
 
         a.sectionTitle("Бюджеты",null);
-        a.settingsActionRow("Настроить бюджеты GitHub","Лимиты, уведомления и правила",
-                ()->a.openSecureGitHubPage("https://github.com/settings/billing"));
-        a.settingsActionRow("Budgets and alerts","Открыть официальные настройки GitHub",
-                ()->a.openSecureGitHubPage("https://github.com/settings/billing"));
-        a.settingsActionRow("Открыть Billing & payment","Управление оплатой только на GitHub",
+        a.settingsActionRow("Бюджеты и расходы","Статистика, лимиты и бюджеты организаций в приложении",
+                ()->a.navigate(()->new BudgetScreens(a).show()));
+        a.settingsActionRow("Budgets and alerts на GitHub","Бюджет личного аккаунта — только на сайте",
+                ()->a.openSecureGitHubPage(BudgetScreens.BUDGETS_PAGE));
+        a.settingsActionRow("Billing & payment","Платёжные данные и тариф на GitHub",
                 ()->a.openSecureGitHubPage(AccountOperationsController.BILLING_PAGE));
         TextView budgetWarning=a.text("Локальные лимиты GitHubble не останавливают биллинг GitHub. Для запрета платного использования используйте официальный Billing → Budgets and alerts.",11,false);
         budgetWarning.setTextColor(0xFF9A6500);budgetWarning.setBackground(a.round(a.blend(a.CARD,0xFFFFB020,0.10f),14,0,0));
@@ -816,8 +816,8 @@ final class ActionsScreens {
         });
         a.settingsActionRow("Стоимость Actions для проекта","Официальный отчёт GitHub Billing · если разрешён",
                 ()->a.navigate(()->showActionsBillingCost(full)));
-        a.settingsActionRow("Денежный бюджет GitHub","Настроить в официальном Billing → Budgets and alerts",
-                ()->a.openSecureGitHubPage("https://github.com/settings/billing"));
+        a.settingsActionRow("Денежный бюджет GitHub","Расходы, лимиты и бюджеты организаций",
+                ()->a.navigate(()->new BudgetScreens(a).show()));
         addCacheQuotaCard(full,manager);
         a.sectionTitle("Правила очистки на устройстве","Применяются только по нажатию «Предпросмотр», затем подтверждение");
         a.card(labeledField("Сохранять последних артефактов",keepInput));
