@@ -266,6 +266,55 @@ public final class OAuthManager {
     return true;
   }
 
+  /**
+   * Silently renews the saved session of any connected account with its refresh token (no browser, no code entry).
+   * The foreground account goes through {@link #refreshIfNeeded}. Returns false when a person has to sign in again:
+   * no refresh token, or it has expired or been revoked.
+   */
+  public synchronized boolean refreshAccount(String id, String clientId, boolean force) throws Exception {
+    if (id == null || id.isEmpty() || clientId == null || clientId.trim().isEmpty()) return false;
+    if (accountStore.isActive(id)) return refreshIfNeeded(clientId);
+    if (!force && accountStore.tokenUsable(id)) return true;
+    String refresh = accountStore.accountSecret(id, "github_refresh_token");
+    if (refresh.isEmpty()) return false;
+    String until = accountStore.accountSecret(id, "github_refresh_token_expires_at");
+    if (!until.isEmpty()) {
+      try {
+        if (Long.parseLong(until) <= System.currentTimeMillis() / 1000L + 60L) return false;
+      } catch (Exception e) {
+        return false;
+      }
+    }
+    JSONObject response =
+        transport.post(
+            ACCESS_TOKEN_URL,
+            "client_id="
+                + enc(clientId.trim())
+                + "&grant_type=refresh_token&refresh_token="
+                + enc(refresh));
+    String token = response.optString("access_token", "");
+    if (token.isEmpty()) {
+      if ("bad_refresh_token".equals(response.optString("error", "")))
+        accountStore.putAccountSecret(id, "github_reauth_required", "true");
+      return false;
+    }
+    long now = System.currentTimeMillis() / 1000L;
+    accountStore.putAccountSecret(id, "github_token", token);
+    accountStore.putAccountSecret(id, "github_token_type", response.optString("token_type", "bearer"));
+    accountStore.putAccountSecret(
+        id, "github_token_scope", response.optString("scope", accountStore.accountSecret(id, "github_token_scope")));
+    long expiresIn = response.optLong("expires_in", 0L);
+    accountStore.putAccountSecret(
+        id, "github_token_expires_at", expiresIn > 0L ? String.valueOf(now + expiresIn) : "");
+    String rotated = response.optString("refresh_token", "");
+    if (!rotated.isEmpty()) accountStore.putAccountSecret(id, "github_refresh_token", rotated);
+    long refreshTtl = response.optLong("refresh_token_expires_in", 0L);
+    if (refreshTtl > 0L)
+      accountStore.putAccountSecret(id, "github_refresh_token_expires_at", String.valueOf(now + refreshTtl));
+    accountStore.putAccountSecret(id, "github_reauth_required", "");
+    return true;
+  }
+
   private static JSONObject postForm(String endpoint, String body) throws Exception {
     HttpURLConnection connection = (HttpURLConnection) new URL(endpoint).openConnection();
     connection.setInstanceFollowRedirects(false);

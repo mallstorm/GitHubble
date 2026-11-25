@@ -102,11 +102,34 @@ public final class GitHubAgentBridge {
     }
 
     /** A client for another connected account. It never switches the foreground account and is never used for writes. */
+    /** Renews a saved session of any connected account without the user (set by the host). */
+    public interface AccountRefresher { boolean refresh(String accountId, boolean force) throws Exception; }
+    private volatile AccountRefresher refresher;
+    public void setRefresher(AccountRefresher value) { refresher = value; }
+
+    private boolean renew(GitHubAccountStore.Account account, boolean force) {
+        AccountRefresher r = refresher;
+        if (r == null) return false;
+        try { return r.refresh(account.id, force); } catch (Exception ignored) { return false; }
+    }
+
     private GitHubApiClient foreignClient(String login) throws Exception {
         GitHubAccountStore.Account account = accountByLogin(login);
         if (account == null) throw new IllegalArgumentException("Аккаунт @" + login + " не подключён к GitHubble");
+        if (!accounts.tokenUsable(account.id)) renew(account, false);
+        try { return openForeign(account); }
+        catch (SecurityException wrongAccount) { throw wrongAccount; }
+        catch (Exception rejected) {
+            // The token may have been revoked or rotated: one forced silent refresh, then a single retry.
+            if (!renew(account, true)) throw rejected;
+            return openForeign(account);
+        }
+    }
+
+    private GitHubApiClient openForeign(GitHubAccountStore.Account account) throws Exception {
+        String login = account.login;
         String token = accounts.tokenForAccount(account.id);
-        if (token == null || token.isEmpty()) throw new IllegalStateException("Нет действующего токена @" + login + ": войдите в аккаунт заново");
+        if (token == null || token.isEmpty()) throw new IllegalStateException("Нет действующего токена @" + login + ": войдите в аккаунт заново (автоматическое обновление не сработало: сессия отозвана или истекла)");
         final app.githubble.mobile.network.GitHubSession session =
                 new app.githubble.mobile.network.GitHubSession(token, account.login, 0L);
         GitHubApiClient client = new GitHubApiClient(new app.githubble.mobile.network.GitHubSession.Source() {
