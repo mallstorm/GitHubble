@@ -29,9 +29,9 @@ public final class GitHubReadLoopTest {
     }
     @Test public void comparisonIsAMarkdownTableOfProjectsByAccount()throws Exception{
         String text=GitHubReadLoop.allAccountsAnswer(sample(),false,true);
-        assertTrue(text,text.contains("| Проект | Где есть |"));
-        assertTrue(text,text.contains("| OmniChat | @mallstorm · @marwell4 |"));
-        assertTrue(text,text.contains("| GitHubble | @mallstorm · @marwell4 (доступ к mallstorm) |"));
+        assertTrue(text,text.contains("| Проект | mallstorm | marwell4 |"));
+        assertTrue(text,text.contains("| OmniChat | ✅ | ✅ |"));
+        assertTrue(text,text.contains("| GitHubble | ✅ | 🔗 |"));
         assertTrue(text,text.contains("| @mallstorm (активный) | 2 · приватных 1 |"));
     }
     @Test public void listingIsATablePerAccount()throws Exception{

@@ -120,6 +120,12 @@ public final class GitHubReadLoop {
         if(repos.length()>show)out.append("\n… ещё ").append(repos.length()-show).append(". Полный список — в разделе «Репозитории».\n");
     }
 
+    private static int count(String[] row){
+        int c=0;
+        for(String mark:row)if(mark!=null)c++;
+        return c;
+    }
+
     private static String cell(String text){
         return text==null?"":text.replace("|","\\|").replace("\n"," ");
     }
@@ -141,10 +147,12 @@ public final class GitHubReadLoop {
                 .append(" · приватных ").append(priv).append(" |\n");
         }
         if(compare){
-            // project (short name) -> accounts that have it; own copies and access to somebody else's copy are told apart.
-            java.util.Map<String,java.util.List<String>> where=new java.util.LinkedHashMap<>();
+            // Matrix: projects (short names) down the side, accounts across the top, a green tick where the account has the project.
+            // ✅ = the account owns it, 🔗 = the account only has access to somebody else's repository of that name.
+            int n=accounts.length();
+            java.util.Map<String,String[]> marks=new java.util.LinkedHashMap<>();
             java.util.Map<String,String> title=new java.util.HashMap<>();
-            for(int a=0;a<accounts.length();a++){
+            for(int a=0;a<n;a++){
                 JSONObject account=accounts.getJSONObject(a);
                 String login=account.optString("login");
                 JSONArray repos=account.optJSONArray("repositories");
@@ -155,18 +163,28 @@ public final class GitHubReadLoop {
                     String ownerName=slash<0?login:full.substring(0,slash);
                     String key=name.toLowerCase(Locale.ROOT);
                     title.putIfAbsent(key,name);
-                    where.computeIfAbsent(key,k->new java.util.ArrayList<>())
-                        .add("@"+login+(ownerName.equalsIgnoreCase(login)?"":" (доступ к "+ownerName+")"));
+                    String[] row=marks.computeIfAbsent(key,k->new String[n]);
+                    boolean own=ownerName.equalsIgnoreCase(login);
+                    if(own||row[a]==null)row[a]=own?"✅":"🔗";
                 }
             }
-            java.util.List<String> keys=new java.util.ArrayList<>(where.keySet());
+            java.util.List<String> keys=new java.util.ArrayList<>(marks.keySet());
             java.util.Collections.sort(keys,(x,y)->{
-                int byCount=Integer.compare(where.get(y).size(),where.get(x).size());
+                int byCount=Integer.compare(count(marks.get(y)),count(marks.get(x)));
                 return byCount!=0?byCount:x.compareTo(y);
             });
-            out.append("\n## Проекты и аккаунты\n\n| Проект | Где есть |\n| --- | --- |\n");
-            for(String key:keys)out.append("| ").append(cell(title.get(key))).append(" | ")
-                .append(cell(String.join(" · ",where.get(key)))).append(" |\n");
+            out.append("\n## Проекты по аккаунтам\n\n| Проект |");
+            for(int a=0;a<n;a++)out.append(" ").append(cell(accounts.getJSONObject(a).optString("login"))).append(" |");
+            out.append("\n| --- |");
+            for(int a=0;a<n;a++)out.append(" :---: |");
+            out.append("\n");
+            for(String key:keys){
+                out.append("| ").append(cell(title.get(key))).append(" |");
+                String[] row=marks.get(key);
+                for(int a=0;a<n;a++)out.append(" ").append(row[a]==null?"":row[a]).append(" |");
+                out.append("\n");
+            }
+            out.append("\n✅ — собственный репозиторий аккаунта · 🔗 — доступ к чужому\n");
         }else if(!countOnly){
             for(int a=0;a<accounts.length();a++){
                 JSONObject account=accounts.getJSONObject(a);
