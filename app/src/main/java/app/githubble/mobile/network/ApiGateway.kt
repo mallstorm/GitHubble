@@ -54,6 +54,7 @@ class ApiGateway(private val context: Context) {
         .readTimeout(90, TimeUnit.SECONDS)
         .callTimeout(10, TimeUnit.MINUTES)
         .followRedirects(false).followSslRedirects(false).build()
+    private val gigaClient by lazy { RussianTrust.forGigaChat(client) }
     private val jsonType = "application/json; charset=utf-8".toMediaType()
     private val gigaAuth = GigaChatAuth()
     private val gigaUploadedFiles = ConcurrentHashMap<String, String>()
@@ -282,7 +283,7 @@ class ApiGateway(private val context: Context) {
     }
 
     private suspend fun execute(req: Request, action: suspend (Response) -> Unit) {
-        val call = client.newCall(req)
+        val call = (if (RussianTrust.isGigaChatHost(req.url.host)) gigaClient else client).newCall(req)
         val nvidiaHosted = req.url.host == "integrate.api.nvidia.com"
         if (nvidiaHosted) {
             // Hosted NIM can currently leave unauthorized Personal org inference requests

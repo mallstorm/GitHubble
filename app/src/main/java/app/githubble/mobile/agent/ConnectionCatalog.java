@@ -93,6 +93,7 @@ public final class ConnectionCatalog {
         KEYS.put("cohere", new String[]{"https://dashboard.cohere.com/api-keys", "", "Пробный бесплатный ключ"});
         KEYS.put("cloudflare", new String[]{"https://dash.cloudflare.com/profile/api-tokens", "", "Workers AI: бесплатная квота"});
         KEYS.put("sambanova", new String[]{"https://cloud.sambanova.ai/apis", "", "Бесплатный тариф"});
+        KEYS.put("gigachat", new String[]{"https://developers.sber.ru/studio", "", "Вставьте «Ключ авторизации» из GigaChat Studio — токен доступа (30 мин) обновляется сам; сертификат Минцифры встроен"});
         KEYS.put("zai", new String[]{"https://z.ai/manage-apikey/apikey-list", "", ""});
     }
 

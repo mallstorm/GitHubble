@@ -26,7 +26,8 @@ internal class AiHttpConnection(url: URL): HttpURLConnection(url) {
     override fun getOutputStream(): OutputStream { check(!connected);return output }
     override fun connect() {
         if(connected)return
-        val client=AiNetwork.client().newBuilder().connectTimeout(connectTimeout.toLong(),TimeUnit.MILLISECONDS)
+        val shared=AiNetwork.client().let { if(RussianTrust.isGigaChatHost(url.host))RussianTrust.forGigaChat(it) else it }
+        val client=shared.newBuilder().connectTimeout(connectTimeout.toLong(),TimeUnit.MILLISECONDS)
             .readTimeout(readTimeout.toLong(),TimeUnit.MILLISECONDS).followRedirects(instanceFollowRedirects).followSslRedirects(false).build()
         val builder=Request.Builder().url(url)
         headers.forEach { (name,value)->builder.header(name,value) }
