@@ -12,6 +12,7 @@ import java.util.concurrent.TimeUnit
 object AiNetwork {
     @JvmStatic fun initialize(context: Context) {
         NetworkDnsPolicy.initialize(context)
+        RussianTrust.initialize(context)
         DnsRegistryManager.initialize(context)
         DnsRouteStore.initialize(context)
         InAppVlessRouter.initialize(context)
