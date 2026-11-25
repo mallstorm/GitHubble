@@ -13,9 +13,9 @@ public final class AgentBudget {
         this.value=UnifiedAgentStore.copy(value); this.persist=persist;
     }
     public synchronized void round(long estimatedInput) throws Exhausted, org.json.JSONException {
-        if (value.optInt("rounds")>=Math.min(value.optInt("roundWindowStart")+25,value.optInt("maxRounds",12))) throw new Exhausted("Исчерпан бюджет раундов");
+        if (value.optInt("rounds")>=value.optInt("maxRounds",AgentQuota.rounds())) throw new Exhausted("Исчерпан лимит раундов ("+AgentQuota.rounds()+" за запуск)");
         long used=value.optLong("inputTokens")+value.optLong("outputTokens");
-        if (used+estimatedInput+8192>value.optLong("maxTokens",180000)) throw new Exhausted("Исчерпан бюджет токенов");
+        if (used+estimatedInput+8192>value.optLong("maxTokens",AgentQuota.tokens())) throw new Exhausted("Исчерпан лимит токенов ("+AgentQuota.format(AgentQuota.tokens())+" за запуск)");
         if (value.optLong("maxCostMicros",-1)>=0 && value.optLong("costMicros")>=value.optLong("maxCostMicros"))
             throw new Exhausted("Исчерпан бюджет расходов");
         long maximumCost=value.optLong("maxCostMicros",-1);
@@ -34,11 +34,11 @@ public final class AgentBudget {
     public synchronized void output(long input,long tokens) throws org.json.JSONException,Exhausted {
         value.put("inputTokens",value.optLong("inputTokens")+Math.max(0,input-reservedInput));
         value.put("outputTokens",value.optLong("outputTokens")+tokens); persist.accept(UnifiedAgentStore.copy(value));
-        if(value.optLong("inputTokens")+value.optLong("outputTokens")>value.optLong("maxTokens",180000))
-            throw new Exhausted("Ответ модели превысил оставшийся бюджет токенов");
+        if(value.optLong("inputTokens")+value.optLong("outputTokens")>value.optLong("maxTokens",AgentQuota.tokens()))
+            throw new Exhausted("Ответ модели превысил лимит токенов ("+AgentQuota.format(AgentQuota.tokens())+" за запуск)");
     }
     public synchronized void tool() throws Exhausted, org.json.JSONException {
-        if (value.optInt("tools")>=Math.min(value.optInt("toolWindowStart")+100,value.optInt("maxTools",100))) throw new Exhausted("Исчерпан бюджет инструментов");
+        if (value.optInt("tools")>=value.optInt("maxTools",AgentQuota.tools())) throw new Exhausted("Исчерпан лимит инструментов ("+AgentQuota.tools()+" за запуск)");
         value.put("tools",value.optInt("tools")+1); persist.accept(UnifiedAgentStore.copy(value));
     }
     public synchronized int rounds() { return value.optInt("rounds"); }

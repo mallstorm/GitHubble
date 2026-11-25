@@ -15,7 +15,7 @@ public final class TaskRepository {
                 .put("conversationId", id).put("title", title).put("goal", goal).put("state", "READY")
                 .put("workingBranch", "").put("changeSets", new JSONArray()).put("evidence", new JSONArray())
                 .put("budget", new JSONObject().put("rounds", 0).put("tools", 0).put("inputTokens", 0)
-                    .put("outputTokens", 0).put("costMicros", 0).put("maxRounds", 12).put("maxTools", 100))
+                    .put("outputTokens", 0).put("costMicros", 0).put("maxRounds", AgentQuota.rounds()).put("maxTools", AgentQuota.tools()).put("maxTokens", AgentQuota.tokens()))
                 .put("createdAt", now).put("updatedAt", now);
         } catch (org.json.JSONException bad) { throw new IllegalStateException(bad); }
     }
@@ -92,9 +92,9 @@ public final class TaskRepository {
             if(budget==null)return;
             AgentController.put(budget,"roundWindowStart",budget.optInt("rounds"));
             AgentController.put(budget,"toolWindowStart",budget.optInt("tools"));
-            AgentController.put(budget,"maxRounds",budget.optInt("rounds")+12);
-            AgentController.put(budget,"maxTools",budget.optInt("tools")+100);
-            AgentController.put(budget,"maxTokens",Math.max(budget.optLong("maxTokens",180000),budget.optLong("inputTokens")+budget.optLong("outputTokens")+180000));
+            AgentController.put(budget,"maxRounds",budget.optInt("rounds")+AgentQuota.rounds());
+            AgentController.put(budget,"maxTools",budget.optInt("tools")+AgentQuota.tools());
+            AgentController.put(budget,"maxTokens",Math.max(budget.optLong("maxTokens",AgentQuota.tokens()),budget.optLong("inputTokens")+budget.optLong("outputTokens")+AgentQuota.tokens()));
         });
     }
     /** Invoked only by a physical user confirmation; audit previous budget instead of losing it. */
@@ -103,9 +103,9 @@ public final class TaskRepository {
             JSONObject budget=t.optJSONObject("budget");
             AgentController.put(budget,"roundWindowStart",budget.optInt("rounds"));
             AgentController.put(budget,"toolWindowStart",budget.optInt("tools"));
-            AgentController.put(budget,"maxRounds",budget.optInt("rounds")+12);
-            AgentController.put(budget,"maxTools",budget.optInt("tools")+100);
-            AgentController.put(budget,"maxTokens",Math.max(budget.optLong("maxTokens",180000),budget.optLong("inputTokens")+budget.optLong("outputTokens")+180000));
+            AgentController.put(budget,"maxRounds",budget.optInt("rounds")+AgentQuota.rounds());
+            AgentController.put(budget,"maxTools",budget.optInt("tools")+AgentQuota.tools());
+            AgentController.put(budget,"maxTokens",Math.max(budget.optLong("maxTokens",AgentQuota.tokens()),budget.optLong("inputTokens")+budget.optLong("outputTokens")+AgentQuota.tokens()));
             JSONObject ci=t.optJSONObject("ci");
             if(ci!=null){
                 String state=ci.optString("state");

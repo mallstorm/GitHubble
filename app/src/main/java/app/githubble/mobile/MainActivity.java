@@ -344,6 +344,7 @@ public class MainActivity extends Activity {
 
     @Override public void onCreate(Bundle b) {
         super.onCreate(b);
+        app.githubble.mobile.agent.AgentQuota.init(this);
         if (Build.VERSION.SDK_INT >= 33) {
             getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
                     android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT,
@@ -1746,6 +1747,43 @@ public class MainActivity extends Activity {
 
     // The agent plans naturally. Write authority remains controlled by AgentPermissionPolicy.
     private boolean agentPlanning(String owner){return false;}
+    /** Settings → «Лимиты агента»: presets and own values for rounds, tools and tokens of one agent run. */
+    private void agentQuotaDialog(){
+        final app.githubble.mobile.agent.AgentQuota.Preset[] presets=app.githubble.mobile.agent.AgentQuota.PRESETS;
+        final int current=app.githubble.mobile.agent.AgentQuota.currentPreset();
+        String[] labels=new String[presets.length+1];
+        for(int i=0;i<presets.length;i++)labels[i]=(i==current?"✓ ":"")+presets[i].name+"\n"+presets[i].rounds+" раундов · "+presets[i].tools+" инструментов · "
+            +app.githubble.mobile.agent.AgentQuota.format(presets[i].tokens)+" токенов";
+        labels[presets.length]=(current<0?"✓ ":"")+"Свои значения…\n"+(current<0?app.githubble.mobile.agent.AgentQuota.describe():"Раунды, инструменты и токены вручную");
+        new SheetDialog.Builder(this).setTitle("Лимиты агента")
+            .setMessage("Столько агент делает за один запуск, потом останавливается и ждёт «Продолжить». Каждое новое сообщение открывает свежий запуск такого размера. "
+                +"Раунд — один вызов модели; токены считаются по тексту, который уходит модели и приходит обратно.")
+            .setItems(labels,(d,w)->{
+                if(w<presets.length){
+                    app.githubble.mobile.agent.AgentQuota.save(this,presets[w].rounds,presets[w].tools,presets[w].tokens);
+                    toast("Лимиты агента: "+presets[w].name);
+                    return;
+                }
+                LinearLayout form=new LinearLayout(this);form.setOrientation(LinearLayout.VERTICAL);form.setPadding(dp(20),0,dp(20),0);
+                final EditText roundsInput=quotaField(form,"Раунды (вызовы модели)",app.githubble.mobile.agent.AgentQuota.rounds());
+                final EditText toolsInput=quotaField(form,"Инструменты (действия)",app.githubble.mobile.agent.AgentQuota.tools());
+                final EditText tokensInput=quotaField(form,"Токены за запуск, тысячи",(int)(app.githubble.mobile.agent.AgentQuota.tokens()/1000));
+                new SheetDialog.Builder(this).setTitle("Свои значения").setView(form)
+                    .setPositiveButton("Сохранить",(x,y)->{
+                        try{
+                            app.githubble.mobile.agent.AgentQuota.save(this,Integer.parseInt(roundsInput.getText().toString().trim()),
+                                Integer.parseInt(toolsInput.getText().toString().trim()),Long.parseLong(tokensInput.getText().toString().trim())*1000L);
+                            toast("Лимиты агента: "+app.githubble.mobile.agent.AgentQuota.describe());
+                        }catch(NumberFormatException bad){toast("Введите целые числа");}
+                    }).setNegativeButton("Отмена",null).show();
+            }).setNegativeButton("Закрыть",null).show();
+    }
+    private EditText quotaField(LinearLayout form,String hint,int value){
+        TextView caption=new TextView(this);caption.setText(hint);caption.setTextSize(12);caption.setTypeface(null,android.graphics.Typeface.BOLD);caption.setPadding(0,dp(8),0,dp(2));form.addView(caption);
+        EditText field=new EditText(this);field.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);field.setSingleLine(true);field.setText(String.valueOf(value));
+        form.addView(field);
+        return field;
+    }
     /** Short status for the chat header: permission level and what is left of the current budget window. */
     private String agentHeaderNote(String owner){
         try{
@@ -1754,8 +1792,8 @@ public class MainActivity extends Activity {
             String chat=agentProjects.activeConversation(owner);
             JSONObject b=agentProjects.tasks.get(owner,chat).optJSONObject("budget");
             if(b!=null){
-                int left=Math.max(0,Math.min(b.optInt("roundWindowStart")+25,b.optInt("maxRounds",12))-b.optInt("rounds"));
-                long tokens=Math.max(0,b.optLong("maxTokens",180000)-b.optLong("inputTokens")-b.optLong("outputTokens"));
+                int left=Math.max(0,b.optInt("maxRounds",app.githubble.mobile.agent.AgentQuota.rounds())-b.optInt("rounds"));
+                long tokens=Math.max(0,b.optLong("maxTokens",app.githubble.mobile.agent.AgentQuota.tokens())-b.optLong("inputTokens")-b.optLong("outputTokens"));
                 note.append(" · ").append(left).append(" р. · ").append(tokens/1000).append("k ток.");
             }
             return note.toString();
@@ -9882,6 +9920,9 @@ public class MainActivity extends Activity {
                 "Контекст проектов, импорт и экспорт","память контекст",()->agentFeatures(owner).memory()));
         workspace.add(SettingsScreen.Item.action(R.drawable.ic_history,"Задачи агента",
                 "Все задачи, состояние и продолжение прерванных","задачи агент продолжить прервана",()->agentFeatures(owner).tasks()));
+        workspace.add(SettingsScreen.Item.action(R.drawable.ic_ai,"Лимиты агента",
+                "Сколько действий агент делает за запуск: сейчас "+app.githubble.mobile.agent.AgentQuota.describe(),
+                "лимит квота бюджет токены раунды инструменты действия агент",()->agentQuotaDialog()));
         workspace.add(SettingsScreen.Item.action(R.drawable.ic_history,"История и архив диалогов",
                 "Поиск по перепискам и экспорт JSON","история архив диалоги чат",()->agentFeatures(owner).history()));
         sections.add(workspace);

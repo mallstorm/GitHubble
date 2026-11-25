@@ -15,7 +15,7 @@ public final class TaskWorkPanel {
         this.activity=activity;this.store=store;this.account=account;this.id=id;this.current=current;this.refresh=refresh;this.changes=changes;
     }
     public void show(){if(!current.getAsBoolean())return;JSONObject t=store.tasks.get(account,id);
-        String[] actions={"Открыть обсуждение","Изменения и diff","CI и проверка результата","Разрешить продолжение","Увеличить текущий бюджет до 25 раундов"};
+        String[] actions={"Открыть обсуждение","Изменения и diff","CI и проверка результата","Разрешить продолжение","Добавить ещё один запуск к текущему бюджету"};
         new SheetDialog.Builder(activity).setTitle(t.optString("title")+" · "+state(t.optString("state")))
             .setItems(actions,(d,n)->{if(!current.getAsBoolean())return;
                 if(n==0){store.switchConversation(account,id);refresh.run();}
@@ -25,9 +25,9 @@ public final class TaskWorkPanel {
                     android.widget.Toast.makeText(activity,"Сначала остановите текущий запуск",android.widget.Toast.LENGTH_LONG).show();return;
                 }
                 if(n==3)new SheetDialog.Builder(activity).setTitle("Разрешить продолжение?")
-                    .setMessage("Дополнительно: до 12 раундов, 100 инструментов и 180000 токенов; CI — до 8 сборок и 5 исправлений. Денежный лимит сохраняется. Сначала устраните указанную внешнюю причину. Неопределённые операции сохраняют блокировку повторной отправки.")
+                    .setMessage("Дополнительно: "+app.githubble.mobile.agent.AgentQuota.describe()+"; CI — до 8 сборок и 5 исправлений. Денежный лимит сохраняется. Сначала устраните указанную внешнюю причину. Неопределённые операции сохраняют блокировку повторной отправки.")
                     .setPositiveButton("Разрешить",(x,y)->{if(current.getAsBoolean()){store.tasks.authorizeContinuation(account,id);refresh.run();show();}}).setNegativeButton("Отмена",null).show();
-                if(n==4){store.tasks.update(account,id,v->{try{JSONObject b=v.getJSONObject("budget");b.put("maxRounds",b.optInt("roundWindowStart")+25).put("maxTokens",Math.max(b.optLong("maxTokens",180000),360000));}catch(JSONException e){throw new IllegalStateException(e);}});show();}
+                if(n==4){store.tasks.update(account,id,v->{try{JSONObject b=v.getJSONObject("budget");b.put("maxRounds",b.optInt("maxRounds")+app.githubble.mobile.agent.AgentQuota.rounds()).put("maxTokens",Math.max(b.optLong("maxTokens",app.githubble.mobile.agent.AgentQuota.tokens()),b.optLong("inputTokens")+b.optLong("outputTokens")+app.githubble.mobile.agent.AgentQuota.tokens()));}catch(JSONException e){throw new IllegalStateException(e);}});show();}
             }).setNegativeButton("Закрыть",null).show();
     }
     private void details(){JSONObject t=store.tasks.get(account,id);JSONObject b=t.optJSONObject("budget"),ci=t.optJSONObject("ci"),delivery=t.optJSONObject("delivery");

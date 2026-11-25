@@ -70,7 +70,7 @@ public final class AgentLoop {
                 checkpoint.save(history);
             }
         } catch (AgentBudget.Exhausted exhausted) {
-            return new Outcome(exhausted.getMessage()+". Задача сохранена. Нажмите «Продолжить» или напишите «продолжай».",true);
+            return new Outcome(exhausted.getMessage()+". Задача сохранена. Нажмите «Продолжить» или напишите «продолжай». Лимит запуска меняется в Настройки → Лимиты агента.",true);
         }
     }
 }

@@ -50,6 +50,13 @@ public final class GatewayPolicy {
         String p = raw.trim();
         if (p.startsWith(HOST)) p = p.substring(HOST.length());
         if (p.isEmpty() || p.charAt(0) != '/' || p.length() > 600) return null;
+        // A query string is data: spaces and non-ASCII characters are percent-encoded and a dangling "?" is dropped,
+        // instead of rejecting the whole request; the path itself stays strict.
+        int question = p.indexOf('?');
+        if (question >= 0) {
+            String query = encodeQuery(p.substring(question + 1));
+            p = query.isEmpty() ? p.substring(0, question) : p.substring(0, question) + "?" + query;
+        }
         for (int i = 0; i < p.length(); i++) {
             char c = p.charAt(i);
             if (c < 0x21 || c > 0x7e || c == '\\' || c == '#') return null;
@@ -58,6 +65,16 @@ public final class GatewayPolicy {
         if (lower.contains("..") || lower.contains("%2e") || lower.contains("%2f") || lower.contains("%5c")
             || lower.contains("%00") || lower.contains("//")) return null;
         return p;
+    }
+
+    private static String encodeQuery(String query) {
+        StringBuilder out = new StringBuilder();
+        for (byte b : query.trim().getBytes(java.nio.charset.StandardCharsets.UTF_8)) {
+            int c = b & 0xff;
+            if (c >= 0x21 && c <= 0x7e && c != '\\' && c != '#') out.append((char) c);
+            else out.append('%').append(String.format(Locale.ROOT, "%02X", c));
+        }
+        return out.toString();
     }
 
     public static Decision classify(String method, String rawPath) { return classify(method, rawPath, null); }
