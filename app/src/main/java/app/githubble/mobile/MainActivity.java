@@ -414,6 +414,8 @@ public class MainActivity extends Activity {
         BuildMonitorJobService.reschedule(this);
         if (!trackingDb.getDevelopers(true).isEmpty()) TrackingJobService.schedule(this, prefs.getInt("tracking_interval_hours", 6));
         io.execute(() -> { try { features.offlineQueue.processReady(api); } catch (Exception failure) { android.util.Log.w("GitHubble", "Offline queue run failed", failure); } });
+        aiGithub.setRefresher((accountId, force) -> oauth.refreshAccount(accountId, effectiveGitHubClientId(), force));
+        io.execute(() -> { for (app.githubble.mobile.auth.GitHubAccountStore.Account saved : accountStore.listAccounts()) { if (saved.active) continue; try { oauth.refreshAccount(saved.id, effectiveGitHubClientId(), false); } catch (Exception ignored) { } } });
         if (!oauth.hasUsableToken() && oauth.canRefresh()) io.execute(() -> { try { if(oauth.refreshIfNeeded(BuildConfig.GITHUB_CLIENT_ID)) runOnUiThread(this::showHome); } catch(Exception ignored) { } });
         migrateSecureSettings();
         applyTheme();

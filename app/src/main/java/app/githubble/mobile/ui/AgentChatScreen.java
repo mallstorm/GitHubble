@@ -284,8 +284,8 @@ public final class AgentChatScreen {
         send.setOnClickListener(v->{
             if(requestBusy){actions.cancelRequest();return;}
             String value=input.getText().toString().trim();
-            if(value.isEmpty()){input.setError("Введите сообщение");return;}
-            if(value.length()>4900){input.setError("Сообщение превышает 4900 символов. Разбейте его на части.");return;}
+            if(value.isEmpty())return;
+            if(value.length()>4900){android.widget.Toast.makeText(activity,"Сообщение превышает 4900 символов. Разбейте его на части.",android.widget.Toast.LENGTH_LONG).show();return;}
             actions.draftChanged("");input.setText("");
             actions.send(value,true);
         });

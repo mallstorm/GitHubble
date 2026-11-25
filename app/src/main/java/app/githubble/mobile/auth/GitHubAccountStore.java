@@ -305,6 +305,43 @@ public final class GitHubAccountStore {
     for (String key : SESSION_KEYS) secureStore.remove(key);
   }
 
+  public boolean isActive(String id) {
+    synchronized (SecureStore.SESSION_LOCK) {
+      return id != null && id.equals(activeId());
+    }
+  }
+
+  /** Per-account secret (token, expiry, refresh data). Never log the result. */
+  public String accountSecret(String id, String key) {
+    synchronized (SecureStore.SESSION_LOCK) {
+      return secureStore.get(accountSecretKey(id, key));
+    }
+  }
+
+  public void putAccountSecret(String id, String key, String value) {
+    synchronized (SecureStore.SESSION_LOCK) {
+      if (find(readAccounts(), id) == null) return;
+      String target = accountSecretKey(id, key);
+      if (value == null || value.isEmpty()) secureStore.remove(target);
+      else secureStore.put(target, value);
+    }
+  }
+
+  /** True when the saved token of the account has not expired and is not flagged for re-login. */
+  public boolean tokenUsable(String id) {
+    synchronized (SecureStore.SESSION_LOCK) {
+      if (accountSecret(id, "github_token").isEmpty()) return false;
+      if ("true".equals(accountSecret(id, "github_reauth_required"))) return false;
+      String expires = accountSecret(id, "github_token_expires_at");
+      if (expires.isEmpty()) return true;
+      try {
+        return Long.parseLong(expires) > System.currentTimeMillis() / 1000L + 30L;
+      } catch (Exception e) {
+        return false;
+      }
+    }
+  }
+
   private String accountSecretKey(String id, String legacyKey) {
     return SECRET_PREFIX + safeKey(id) + "_" + legacyKey;
   }
