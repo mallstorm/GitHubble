@@ -71,7 +71,11 @@ public final class AgentChatScreen {
         /** Sends the last user message again. */
         default void retryLast(){}
         /** Replaces the user message at {@code index} with {@code text}: everything after it is dropped and the run restarts from there. */
-        default void editResend(int index,long at,String text){}
+        default void editResend(int index,long at,String text,boolean rollbackFiles){}
+        /** Returns to just before the user message at {@code index}: the chat is cut there and its text goes back to the input. */
+        default void rewind(int index,long at,String text,boolean rollbackFiles){}
+        /** Change sets of this task: {at, applied, files, state, published}. */
+        default JSONArray changeSets(){return new JSONArray();}
     }
 
     private final Activity activity;
@@ -169,6 +173,21 @@ public final class AgentChatScreen {
             @Override protected void onAttachedToWindow(){super.onAttachedToWindow();polling=true;postDelayed(poll,700);}
             @Override protected void onDetachedFromWindow(){polling=false;removeCallbacks(poll);super.onDetachedFromWindow();}
         };
+        View history=new View(activity){
+            final android.graphics.Paint paint=new android.graphics.Paint(3);
+            @Override protected void onDraw(android.graphics.Canvas c){
+                paint.setColor(codeColor);paint.setStrokeWidth(dp(2));paint.setStyle(android.graphics.Paint.Style.STROKE);
+                paint.setStrokeCap(android.graphics.Paint.Cap.ROUND);paint.setStrokeJoin(android.graphics.Paint.Join.ROUND);
+                float x=getWidth()/2f,y=getHeight()/2f,r=dp(9);
+                c.drawArc(new android.graphics.RectF(x-r,y-r,x+r,y+r),-60,300,false,paint);
+                android.graphics.Path arrow=new android.graphics.Path();
+                arrow.moveTo(x-r-dp(3),y-dp(6));arrow.lineTo(x-r+dp(1),y-dp(1));arrow.lineTo(x-r+dp(5),y-dp(7));c.drawPath(arrow,paint);
+                c.drawLine(x,y-dp(5),x,y,paint);c.drawLine(x,y,x+dp(4),y+dp(3),paint);
+            }
+        };
+        history.setContentDescription("Лента состояния: вернуться к точке диалога");ripple(history);
+        history.setOnClickListener(v->showTimeline());
+        top.addView(history,new LinearLayout.LayoutParams(dp(44),dp(48)));
         code.setContentDescription("Код, файлы, терминал");ripple(code);
         code.setOnClickListener(v->actions.openCode());
         top.addView(code,new LinearLayout.LayoutParams(dp(52),dp(48)));
@@ -490,6 +509,8 @@ public final class AgentChatScreen {
         items.add(new Object[]{R.drawable.ic_agent_scan,"Выделить текст",(Runnable)()->selectText(body)});
         if(user){
             items.add(new Object[]{R.drawable.ic_msg_edit,"Изменить и отправить заново",(Runnable)()->editMessage(key,body,at)});
+            items.add(new Object[]{R.drawable.ic_msg_retry,"Вернуться к этой точке",(Runnable)()->{
+                try{rewindDialog(Integer.parseInt(key.split(":")[1]),at,body);}catch(Exception bad){/* key without an index */}}});
         }else{
             final AgentSpeaker speaker=AgentSpeaker.of(activity);
             boolean speaking=speaker.speaking(key);
@@ -547,17 +568,86 @@ public final class AgentChatScreen {
         field.setInputType(android.text.InputType.TYPE_CLASS_TEXT|android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE|android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
         field.setMinLines(3);field.setMaxLines(10);field.setGravity(Gravity.TOP|Gravity.START);
         field.setPadding(dp(14),dp(12),dp(14),dp(12));field.setBackground(shape(subtle,14,border,1));
+        final int[] effect=impact(index);
+        final android.widget.CheckBox files=new android.widget.CheckBox(activity);
+        files.setText("Откатить и файлы агента ("+effect[1]+")");files.setTextColor(text);files.setTextSize(14);files.setChecked(true);
+        LinearLayout form=new LinearLayout(activity);form.setOrientation(LinearLayout.VERTICAL);
+        form.addView(field);
+        if(effect[1]>0){LinearLayout.LayoutParams fp=new LinearLayout.LayoutParams(-1,-2);fp.topMargin=dp(8);form.addView(files,fp);}
         StringBuilder note=new StringBuilder();
         note.append(after>0?"Сообщения ниже ("+after+") будут удалены, и диалог продолжится с этого места.":"Диалог продолжится с этого сообщения.");
-        if(work)note.append(" Файлы, которые агент уже изменил, не откатываются.");
+        if(effect[2]>0)note.append(" Уже опубликованное в GitHub не откатывается.");
         if(attachment)note.append(" Прикреплённое фото не сохранится.");
         new app.githubble.mobile.ui.SheetDialog.Builder(activity).setTitle("Изменить сообщение")
-            .setMessage(note.toString()).setView(field)
+            .setMessage(note.toString()).setView(form)
             .setPositiveButton("Отправить заново",(d,w)->{
                 String edited=field.getText().toString().trim();
                 if(edited.isEmpty()){android.widget.Toast.makeText(activity,"Сообщение пустое",android.widget.Toast.LENGTH_SHORT).show();return;}
-                forceBottom=true;actions.editResend(index,at,edited);})
+                forceBottom=true;actions.editResend(index,at,edited,effect[1]>0&&files.isChecked());})
             .setNegativeButton("Отмена",null).show();
+    }
+
+    /** {messages that will be removed, agent file changes that can be undone, files already published}. */
+    private int[] impact(int index){
+        JSONObject first=index>=0&&index<lastMessages.length()?lastMessages.optJSONObject(index):null;
+        long since=first==null?Long.MAX_VALUE:first.optLong("at");
+        int after=Math.max(0,lastMessages.length()-index),undo=0,kept=0;
+        JSONArray sets=actions.changeSets();
+        for(int i=0;i<sets.length();i++){
+            JSONObject s=sets.optJSONObject(i);if(s==null)continue;
+            if(s.optLong("at")<since&&s.optLong("applied")<since)continue;
+            if(s.optBoolean("published"))kept+=s.optInt("files");else undo+=s.optInt("files");
+        }
+        return new int[]{after,undo,kept};
+    }
+
+    private String dayGroup(long at){
+        String label=menuTime(at);
+        if(label.startsWith("Вчера"))return "Вчера";
+        if(at>0&&!label.contains(","))return "Сегодня";
+        return new java.text.SimpleDateFormat("d MMMM",java.util.Locale.getDefault()).format(new java.util.Date(at));
+    }
+
+    /** The state timeline: every message you sent is a point you can return to, like local history in an IDE. */
+    private void showTimeline(){
+        java.util.List<Integer> turns=new java.util.ArrayList<>();
+        for(int i=0;i<lastMessages.length();i++){
+            JSONObject e=lastMessages.optJSONObject(i);
+            if(e!=null&&"user".equals(e.optString("role"))&&!e.optString("body").trim().isEmpty())turns.add(i);
+        }
+        if(turns.isEmpty()){android.widget.Toast.makeText(activity,"Лента появится после первого сообщения",android.widget.Toast.LENGTH_SHORT).show();return;}
+        JSONArray sets=actions.changeSets();
+        ListSheet sheet=ListSheet.of(activity,new HomeScreen.Palette(background,surface,subtle,text,muted,accent,border,new int[]{accent},dark))
+            .title("Лента состояния","Каждое ваше сообщение — точка. Вернитесь к любой: диалог и изменения агента откатятся.");
+        for(int k=turns.size()-1;k>=0;k--){
+            final int index=turns.get(k);JSONObject entry=lastMessages.optJSONObject(index);
+            final long at=entry.optLong("at");final String body=entry.optString("body");
+            int end=k+1<turns.size()?turns.get(k+1):lastMessages.length();
+            long next=k+1<turns.size()?lastMessages.optJSONObject(end).optLong("at"):Long.MAX_VALUE;
+            int answers=0;
+            for(int j=index+1;j<end;j++){JSONObject m=lastMessages.optJSONObject(j);
+                if(m!=null&&!"user".equals(m.optString("role"))&&!"system".equals(m.optString("role")))answers++;}
+            int files=0;boolean pushed=false;
+            for(int j=0;j<sets.length();j++){JSONObject s=sets.optJSONObject(j);
+                if(s!=null&&s.optLong("at")>=at&&s.optLong("at")<next){files+=s.optInt("files");pushed|=s.optBoolean("published");}}
+            String snippet=body.replace('\n',' ').trim();if(snippet.length()>70)snippet=snippet.substring(0,70)+"…";
+            String sub=menuTime(at)+" · "+(answers==0?"без ответа":"ответов: "+answers)+(files>0?" · ✎ файлов: "+files:"")+(pushed?" · ↑ в GitHub":"");
+            sheet.row(dayGroup(at),snippet,sub,k==turns.size()-1?"сейчас":"",()->rewindDialog(index,at,body));
+        }
+        sheet.show();
+    }
+
+    private void rewindDialog(final int index,final long at,final String body){
+        if(requestBusy){android.widget.Toast.makeText(activity,"Сначала дождитесь ответа или остановите запрос",android.widget.Toast.LENGTH_SHORT).show();return;}
+        int[] effect=impact(index);
+        StringBuilder note=new StringBuilder("Вернёмся к моменту перед этим сообщением. Из диалога уйдёт сообщений: "+effect[0]+" (включая это).");
+        if(effect[1]>0)note.append(" Изменения агента в задаче (файлов: ").append(effect[1]).append(") будут отменены.");
+        if(effect[2]>0)note.append(" Уже опубликованное в GitHub (файлов: ").append(effect[2]).append(") не откатывается.");
+        note.append(" Текст сообщения вернётся в поле ввода: поправьте его и отправьте заново.");
+        SheetDialog.Builder dialog=new SheetDialog.Builder(activity).setTitle("Вернуться к этой точке?").setMessage(note.toString())
+            .setPositiveButton(effect[1]>0?"Откатить диалог и файлы":"Откатить диалог",(d,w)->actions.rewind(index,at,body,true));
+        if(effect[1]>0)dialog.setNeutralButton("Только диалог",(d,w)->actions.rewind(index,at,body,false));
+        dialog.setNegativeButton("Отмена",null).show();
     }
 
     /** Full text in a selectable view, for partial copying. */

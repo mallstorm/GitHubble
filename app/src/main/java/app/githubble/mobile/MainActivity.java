@@ -851,7 +851,9 @@ public class MainActivity extends Activity {
             @Override public void voiceSettings() { showVoiceLanguageChooser(); }
             @Override public void cancelRequest() { agentCancelRequest(owner); }
             @Override public void retryLast() { agentRetryLast(owner,renderedThread); }
-            @Override public void editResend(int index,long at,String text) { agentEditResend(owner,renderedThread,index,at,text); }
+            @Override public void editResend(int index,long at,String text,boolean rollbackFiles) { agentEditResend(owner,renderedThread,index,at,text,rollbackFiles); }
+            @Override public void rewind(int index,long at,String text,boolean rollbackFiles) { agentRewind(owner,renderedThread,index,at,text,rollbackFiles); }
+            @Override public org.json.JSONArray changeSets() { return agentChangeTimeline(owner,renderedThread); }
             @Override public void draftChanged(String value) { prefs.edit().putString(agentDraftKey(owner, renderedThread), value).apply(); }
             @Override public void send(String prompt, boolean agentMode) {
                 agentSend(owner, prompt, agentMode);
@@ -878,12 +880,46 @@ public class MainActivity extends Activity {
     }
 
     /** Rewinds the chat to the edited user message (it and everything after it are removed) and sends the new text from there. */
-    private void agentEditResend(String owner,String thread,int index,long at,String text){
+    private void agentEditResend(String owner,String thread,int index,long at,String text,boolean rollbackFiles){
         if(!owner.equals(accountStore.activeCacheKey())||!thread.equals(agentProjects.activeConversation(owner)))return;
         if(agentChatBusy(owner,thread)){toast("Запрос ещё выполняется");return;}
+        if(rollbackFiles)agentRewindFiles(owner,thread,at);
         int removed=agentProjects.truncateFrom(owner,thread,index,at);
         if(removed<0){toast("Лента изменилась — откройте сообщение ещё раз");agentRefreshIfCurrent(owner);return;}
         agentSend(owner,text,true);
+    }
+
+    private app.githubble.mobile.agent.ChangeStore agentChangeStore(String owner,String thread)throws Exception{
+        String project=agentProjects.projectId(owner,thread);
+        if(project.isEmpty())return null;
+        return new app.githubble.mobile.agent.ChangeStore(new java.io.File(getFilesDir(),"task-changes"),owner,project,thread);
+    }
+
+    private org.json.JSONArray agentChangeTimeline(String owner,String thread){
+        try{app.githubble.mobile.agent.ChangeStore store=agentChangeStore(owner,thread);return store==null?new org.json.JSONArray():store.timeline();}
+        catch(Exception unavailable){return new org.json.JSONArray();}
+    }
+
+    /** Undoes the agent's file changes made since {@code since}; GitHub commits already pushed stay as they are. */
+    private void agentRewindFiles(String owner,String thread,long since){
+        try{
+            app.githubble.mobile.agent.ChangeStore store=agentChangeStore(owner,thread);if(store==null)return;
+            org.json.JSONObject result=store.rewind(since);
+            int files=result.optInt("files"),dropped=result.optInt("dropped");
+            if(files>0||dropped>0)toast("Откат: файлов "+files+(dropped>0?", отклонено предложений "+dropped:""));
+        }catch(Exception failure){toast("Файлы не откатились: "+(failure.getMessage()==null?failure.getClass().getSimpleName():failure.getMessage()));}
+    }
+
+    /** Returns to the point before a user message: cuts the chat there, undoes later file changes and puts the text back into the input. */
+    private void agentRewind(String owner,String thread,int index,long at,String text,boolean rollbackFiles){
+        if(!owner.equals(accountStore.activeCacheKey())||!thread.equals(agentProjects.activeConversation(owner)))return;
+        if(agentChatBusy(owner,thread)){toast("Запрос ещё выполняется");return;}
+        if(rollbackFiles)agentRewindFiles(owner,thread,at);
+        int removed=agentProjects.truncateFrom(owner,thread,index,at);
+        if(removed<0){toast("Лента изменилась — откройте ленту ещё раз");agentRefreshIfCurrent(owner);return;}
+        prefs.edit().putString(agentDraftKey(owner,thread),text).apply();
+        agentRefreshIfCurrent(owner);
+        toast("Вернулись к точке: сообщений убрано "+removed);
     }
 
     private void agentRetryLast(String owner,String thread){
