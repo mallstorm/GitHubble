@@ -80,7 +80,7 @@ object NativeSubscriptionRuntime {
     fun current(p:String,raw:String,store:OmniChatConnectionStore,force:Boolean=false):JSONObject {
         val original=JSONObject(raw);val owner=original.getString("owner")
         synchronized(locks.getOrPut("$owner:$p"){Any()}){
-            val saved=store.credential(owner,p);require(saved.isNotBlank()){ "Подписка отключена" }
+            val saved=store.latestFor(owner,p,raw);require(saved.isNotBlank()){ "Подписка отключена" }
             val old=JSONObject(saved)
             require(saved==raw || (old.optString("session_generation").isNotBlank()&&old.optString("session_generation")==original.optString("session_generation"))){"Сессия изменена; повторите запрос"}
             if(!force&&old.optLong("expires_at")>System.currentTimeMillis()+60000)return old

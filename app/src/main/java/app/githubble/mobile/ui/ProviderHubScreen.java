@@ -205,6 +205,8 @@ public final class ProviderHubScreen {
                 String identity = info.optString("identity"), plan = info.optString("plan");
                 if (!identity.isEmpty()) detail += " · " + identity;
                 if (!plan.isEmpty()) detail += " · " + plan;
+                int accounts = store.sessionCount(owner, provider);
+                if (accounts > 1) detail += " · аккаунтов: " + accounts;
             } catch (Exception ignored) { }
             if (!store.isConfigured(owner, provider)) detail = "Сессия сохранена · нажмите, чтобы загрузить модели";
         }

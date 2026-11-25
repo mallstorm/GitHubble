@@ -1781,14 +1781,37 @@ public class MainActivity extends Activity {
         if(account!=null&&app.githubble.mobile.agent.ConnectionCatalog.ENDPOINT.equals(account.method)){agentEditAiProvider(owner,provider);return;}
         if(!aiConnections.hasKey(owner,provider)){agentBeginSubscription(owner,provider);return;}
         String name=aiConnections.displayName(provider);
-        app.githubble.mobile.ui.ListSheet.of(this,settingsPalette()).title(name,"Подписка подключена")
-            .row("","Обновить модели","Запросить свежий список моделей","",()->{
+        java.util.List<OmniChatConnectionStore.OAuthSession> accounts=aiConnections.sessions(owner,provider);
+        app.githubble.mobile.ui.ListSheet sheet=app.githubble.mobile.ui.ListSheet.of(this,settingsPalette())
+            .title(name,accounts.size()>1?"Аккаунтов: "+accounts.size()+" · при лимите включается следующий":"Подписка подключена");
+        java.text.DateFormat clock=android.text.format.DateFormat.getTimeFormat(this);
+        if(accounts.size()>1)for(OmniChatConnectionStore.OAuthSession account2:accounts){
+            String state=account2.active?"Сейчас используется":account2.pausedUntil>0?"Отдыхает до "+clock.format(new java.util.Date(account2.pausedUntil))+" (лимит или ошибка)":"Нажмите, чтобы переключиться";
+            sheet.row("Аккаунты",account2.label,state+(account2.plan.isEmpty()||account2.label.contains(account2.plan)?"":" · "+account2.plan),account2.active?"●":"",()->{
+                if(!owner.equals(accountStore.activeCacheKey())||account2.active)return;
+                try{aiConnections.activateSession(owner,provider,account2.id);}catch(RuntimeException e){toast(e.getMessage());return;}
+                agentRefreshIfCurrent(owner);agentDiscoverAiModels(owner);toast("Активен: "+account2.label);
+            });
+        }
+        sheet.row("","Добавить аккаунт","Войти ещё в один аккаунт "+name+" — прежние останутся","",()->agentBeginSubscription(owner,provider))
+            .row("","Обновить модели","Запросить свежий список моделей активного аккаунта","",()->{
                 if(!owner.equals(accountStore.activeCacheKey()))return;
-                aiConnections.selectAuthenticated(owner,provider);agentDiscoverAiModels(owner);})
-            .row("","Войти заново","Если сессия устарела или нужен другой аккаунт","",()->agentBeginSubscription(owner,provider))
-            .row("","Отключить","Сессия на устройстве будет удалена, переписка сохранится","",()->
+                aiConnections.selectAuthenticated(owner,provider);agentDiscoverAiModels(owner);});
+        if(accounts.size()>1)sheet.row("","Убрать один аккаунт","Остальные продолжат работать","",()->{
+            java.util.List<String> labels=new ArrayList<>();for(OmniChatConnectionStore.OAuthSession x:accounts)labels.add(x.label);
+            new SheetDialog.Builder(this).setTitle("Убрать аккаунт").setItems(labels.toArray(new String[0]),(d,n)->{
+                OmniChatConnectionStore.OAuthSession picked=accounts.get(n);
+                app.githubble.mobile.ui.ConfirmSheet.create(this,new app.githubble.mobile.ui.ConfirmSheet.Spec("Убрать аккаунт?","Да, убрать","Нет",true)
+                    .fact("Аккаунт",picked.label).note("Сессия этого аккаунта будет удалена с устройства. Остальные аккаунты и переписка сохранятся."),
+                    ()->{
+                        if(!owner.equals(accountStore.activeCacheKey()))return;
+                        try{aiConnections.removeSession(owner,provider,picked.id);}catch(RuntimeException e){toast(e.getMessage());return;}
+                        agentRefreshIfCurrent(owner);if(currentScreen!=null)currentScreen.run();
+                    },null).show();
+            }).setNegativeButton("Отмена",null).show();});
+        sheet.row("","Отключить"+(accounts.size()>1?" все аккаунты":""),"Сессии на устройстве будут удалены, переписка сохранится","",()->
                 app.githubble.mobile.ui.ConfirmSheet.create(this,new app.githubble.mobile.ui.ConfirmSheet.Spec("Отключить подписку?","Да, отключить","Нет",true)
-                    .fact("Подписка",name).note("Локальная сессия будет удалена. Переписка сохранится, войти можно снова в любой момент."),
+                    .fact("Подписка",name).note("Локальные сессии будут удалены. Переписка сохранится, войти можно снова в любой момент."),
                     ()->{
                         if(!owner.equals(accountStore.activeCacheKey()))return;
                         AtomicBoolean pending=subscriptionAttempts.remove(owner);if(pending!=null)pending.set(true);

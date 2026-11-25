@@ -204,7 +204,9 @@ public final class OmniChatConnectionStore {
         if(!OAuthSubscriptions.supports(provider))throw new IllegalArgumentException("Не OAuth-провайдер");
         if(session.optString("access_token").isEmpty()||!java.util.Arrays.asList(OAuthSubscriptions.GROK,"openrouter-account","kilo-account").contains(app.githubble.mobile.network.NativeSubscriptionRuntime.base(provider))&&session.optString("refresh_token").isEmpty())throw new IllegalArgumentException("Нет подтверждённой OAuth-сессии");
         try{session=new org.json.JSONObject(session.toString()).put("owner",account).put("provider",provider);
+            ensureSessions(account,provider);
             vault.put(key(account,provider),session.toString());
+            stash(account,provider,session.toString());
             String scope=namespace(account);
             prefs.edit().putString(scope+"_provider",provider).putString(scope+"_model_"+provider,models.isEmpty()?"":models.get(0)).apply();
             cacheModels(account,provider,models);
@@ -212,10 +214,204 @@ public final class OmniChatConnectionStore {
     }
 
     public synchronized void replaceSubscription(String account,String provider,String expected,org.json.JSONObject session){
-        if(!OAuthSubscriptions.supports(provider)||!credential(account,provider).equals(expected))
-            throw new IllegalStateException("OAuth-сессия отключена или изменена");
-        try{vault.put(key(account,provider),new org.json.JSONObject(session.toString()).put("owner",account).put("provider",provider).toString());}
-        catch(org.json.JSONException e){throw new IllegalStateException(e);}
+        if(!OAuthSubscriptions.supports(provider))throw new IllegalStateException("OAuth-сессия отключена или изменена");
+        ensureSessions(account,provider);
+        boolean main=credential(account,provider).equals(expected);
+        String entry=main?prefs.getString(activePref(account,provider),""):sessionIdByRaw(account,provider,expected);
+        if(!main&&entry.isEmpty())throw new IllegalStateException("OAuth-сессия отключена или изменена");
+        try{
+            org.json.JSONObject out=new org.json.JSONObject(session.toString()).put("owner",account).put("provider",provider);
+            if(main)vault.put(key(account,provider),out.toString());
+            if(!entry.isEmpty()){vault.put(sessionVault(account,provider,entry),out.toString());refreshEntryKey(account,provider,entry,out);}
+        }catch(org.json.JSONException e){throw new IllegalStateException(e);}
+    }
+
+    // ------------------------------------------------------------------ several accounts per subscription
+
+    /** One signed-in account of a subscription service. */
+    public static final class OAuthSession {
+        public final String id,label,identity,plan;
+        public final boolean active;
+        public final long pausedUntil;
+        OAuthSession(String id,String label,String identity,String plan,boolean active,long pausedUntil){
+            this.id=id;this.label=label;this.identity=identity;this.plan=plan;this.active=active;this.pausedUntil=pausedUntil;
+        }
+    }
+
+    private final java.util.Map<String,Long> sessionPause=new java.util.HashMap<>();
+
+    private String listPref(String account,String provider){return namespace(account)+"_oauth_"+provider;}
+    private String activePref(String account,String provider){return namespace(account)+"_oauthactive_"+provider;}
+    private String sessionVault(String account,String provider,String id){return "omnichat_oauth_v3_"+namespace(account)+"_"+provider+"_"+id;}
+    private String pauseKey(String account,String provider,String id){return namespace(account)+"|"+provider+"|"+id;}
+
+    private org.json.JSONArray sessionList(String account,String provider){
+        try{return new org.json.JSONArray(prefs.getString(listPref(account,provider),"[]"));}
+        catch(org.json.JSONException damaged){return new org.json.JSONArray();}
+    }
+
+    /** A single session saved before several accounts existed becomes the first entry of the list. */
+    private void ensureSessions(String account,String provider){
+        if(!OAuthSubscriptions.supports(provider))return;
+        if(sessionList(account,provider).length()>0)return;
+        String main=vault.get(key(account,provider));
+        if(main.isEmpty())return;
+        try{stash(account,provider,main);}catch(org.json.JSONException ignored){/* an unreadable session stays the single main one */}
+    }
+
+    /** Adds the session as an account (or updates the same account) and makes it the active one. */
+    private void stash(String account,String provider,String raw)throws org.json.JSONException{
+        org.json.JSONObject session=new org.json.JSONObject(raw);
+        String identity=OAuthSessionPolicy.identityKey(session),id="";
+        org.json.JSONArray list=sessionList(account,provider);
+        for(int i=0;i<list.length()&&id.isEmpty();i++){
+            org.json.JSONObject e=list.optJSONObject(i);
+            if(e!=null&&!identity.isEmpty()&&identity.equals(e.optString("key")))id=e.optString("id");
+        }
+        if(id.isEmpty()){
+            if(list.length()>=12)throw new IllegalArgumentException("Достигнут лимит аккаунтов одного сервиса");
+            id=java.util.UUID.randomUUID().toString().substring(0,8);
+            list.put(new org.json.JSONObject().put("id",id));
+        }
+        for(int i=0;i<list.length();i++){
+            org.json.JSONObject e=list.optJSONObject(i);
+            if(e==null||!id.equals(e.optString("id")))continue;
+            e.put("key",identity).put("identity",session.optString("identity")).put("plan",session.optString("plan"))
+             .put("label",OAuthSessionPolicy.label(session,i+1));
+        }
+        vault.put(sessionVault(account,provider,id),raw);
+        prefs.edit().putString(listPref(account,provider),list.toString()).putString(activePref(account,provider),id).apply();
+        sessionPause.remove(pauseKey(account,provider,id));
+    }
+
+    private void refreshEntryKey(String account,String provider,String id,org.json.JSONObject session){
+        org.json.JSONArray list=sessionList(account,provider);
+        try{
+            for(int i=0;i<list.length();i++){
+                org.json.JSONObject e=list.optJSONObject(i);
+                if(e!=null&&id.equals(e.optString("id"))){
+                    e.put("key",OAuthSessionPolicy.identityKey(session));
+                    if(!session.optString("identity").isEmpty())e.put("identity",session.optString("identity"));
+                    if(!session.optString("plan").isEmpty())e.put("plan",session.optString("plan"));
+                }
+            }
+            prefs.edit().putString(listPref(account,provider),list.toString()).apply();
+        }catch(org.json.JSONException ignored){}
+    }
+
+    private String sessionIdByRaw(String account,String provider,String raw){
+        org.json.JSONArray list=sessionList(account,provider);
+        String wanted="";
+        try{wanted=OAuthSessionPolicy.identityKey(new org.json.JSONObject(raw));}catch(org.json.JSONException ignored){}
+        for(int i=0;i<list.length();i++){
+            org.json.JSONObject e=list.optJSONObject(i);
+            if(e==null)continue;
+            String id=e.optString("id");
+            if(vault.get(sessionVault(account,provider,id)).equals(raw))return id;
+        }
+        if(wanted.isEmpty())return "";
+        for(int i=0;i<list.length();i++){
+            org.json.JSONObject e=list.optJSONObject(i);
+            if(e!=null&&wanted.equals(e.optString("key"))){
+                String id=e.optString("id");
+                try{ // same account, refreshed in between: the caller's copy is stale only if the generation differs
+                    org.json.JSONObject stored=new org.json.JSONObject(vault.get(sessionVault(account,provider,id)));
+                    String generation=new org.json.JSONObject(raw).optString("session_generation");
+                    if(generation.isEmpty()||generation.equals(stored.optString("session_generation")))return id;
+                }catch(org.json.JSONException ignored){}
+            }
+        }
+        return "";
+    }
+
+    public synchronized java.util.List<OAuthSession> sessions(String account,String provider){
+        java.util.List<OAuthSession> result=new java.util.ArrayList<>();
+        if(!OAuthSubscriptions.supports(provider))return result;
+        ensureSessions(account,provider);
+        String active=prefs.getString(activePref(account,provider),"");
+        org.json.JSONArray list=sessionList(account,provider);
+        long now=System.currentTimeMillis();
+        for(int i=0;i<list.length();i++){
+            org.json.JSONObject e=list.optJSONObject(i);
+            if(e==null)continue;
+            String id=e.optString("id");
+            Long pause=sessionPause.get(pauseKey(account,provider,id));
+            result.add(new OAuthSession(id,e.optString("label","Аккаунт "+(i+1)),e.optString("identity"),e.optString("plan"),
+                id.equals(active),pause==null||pause<=now?0:pause));
+        }
+        return result;
+    }
+
+    /** The newest stored copy of the account that {@code raw} belongs to (tokens may have been refreshed since). */
+    public synchronized String latestFor(String account,String provider,String raw){
+        ensureSessions(account,provider);
+        String main=credential(account,provider);
+        if(main.equals(raw))return main;
+        String id=sessionIdByRaw(account,provider,raw);
+        if(id.isEmpty())return main;
+        if(id.equals(prefs.getString(activePref(account,provider),"")))return main;
+        String stored=vault.get(sessionVault(account,provider,id));
+        return stored.isEmpty()?main:stored;
+    }
+
+    public synchronized int sessionCount(String account,String provider){return sessions(account,provider).size();}
+
+    /** Makes the account the one every request uses; its tokens move into the main slot. */
+    public synchronized void activateSession(String account,String provider,String id){
+        ensureSessions(account,provider);
+        String raw=vault.get(sessionVault(account,provider,id));
+        if(raw.isEmpty())throw new IllegalStateException("Аккаунт не найден");
+        vault.put(key(account,provider),raw);
+        prefs.edit().putString(activePref(account,provider),id).apply();
+        sessionPause.remove(pauseKey(account,provider,id));
+    }
+
+    /** Removes one account; the last one removed disconnects the whole service. */
+    public synchronized void removeSession(String account,String provider,String id){
+        ensureSessions(account,provider);
+        org.json.JSONArray list=sessionList(account,provider),kept=new org.json.JSONArray();
+        String firstLeft="";
+        for(int i=0;i<list.length();i++){
+            org.json.JSONObject e=list.optJSONObject(i);
+            if(e==null)continue;
+            if(id.equals(e.optString("id")))continue;
+            kept.put(e);if(firstLeft.isEmpty())firstLeft=e.optString("id");
+        }
+        vault.remove(sessionVault(account,provider,id));
+        sessionPause.remove(pauseKey(account,provider,id));
+        if(kept.length()==0){disconnect(account,provider);return;}
+        boolean wasActive=id.equals(prefs.getString(activePref(account,provider),""));
+        prefs.edit().putString(listPref(account,provider),kept.toString()).apply();
+        if(wasActive)activateSession(account,provider,firstLeft);
+    }
+
+    /**
+     * The account failed with a limit or an authorization error: it rests, the next free account becomes active
+     * and its session is returned. Null when there is nobody else to switch to.
+     */
+    public synchronized String failoverSession(String account,String provider,String failedRaw,int status,String message){
+        if(!OAuthSubscriptions.supports(provider))return null;
+        PoolPolicy.Failure failure=PoolPolicy.classify(status,message);
+        if(!PoolPolicy.failover(failure))return null;
+        ensureSessions(account,provider);
+        org.json.JSONArray list=sessionList(account,provider);
+        if(list.length()<2)return null;
+        String failedId=sessionIdByRaw(account,provider,failedRaw);
+        if(failedId.isEmpty())failedId=prefs.getString(activePref(account,provider),"");
+        long now=System.currentTimeMillis();
+        int failedIndex=0;
+        java.util.List<String> ids=new java.util.ArrayList<>();
+        java.util.List<Long> pauses=new java.util.ArrayList<>();
+        for(int i=0;i<list.length();i++){
+            String id=list.optJSONObject(i)==null?"":list.optJSONObject(i).optString("id");
+            ids.add(id);if(id.equals(failedId))failedIndex=i;
+        }
+        sessionPause.put(pauseKey(account,provider,failedId),now+OAuthSessionPolicy.pauseMillis(failure));
+        for(String id:ids){Long pause=sessionPause.get(pauseKey(account,provider,id));pauses.add(pause==null?0L:pause);}
+        int next=OAuthSessionPolicy.pickNext(pauses,failedIndex,now);
+        if(next<0)return null;
+        activateSession(account,provider,ids.get(next));
+        return vault.get(key(account,provider));
     }
 
     public synchronized void selectAuthenticated(String account,String provider){
@@ -273,6 +469,12 @@ public final class OmniChatConnectionStore {
 
     public synchronized void disconnect(String account, String provider) {
         checkProvider(provider);
+        org.json.JSONArray accounts = sessionList(account, provider);
+        for (int i = 0; i < accounts.length(); i++) {
+            org.json.JSONObject e = accounts.optJSONObject(i);
+            if (e != null) { vault.remove(sessionVault(account, provider, e.optString("id"))); sessionPause.remove(pauseKey(account, provider, e.optString("id"))); }
+        }
+        prefs.edit().remove(listPref(account, provider)).remove(activePref(account, provider)).apply();
         vault.remove(key(account, provider));
         pool.removeProvider(account, provider);
         String scope = namespace(account);
