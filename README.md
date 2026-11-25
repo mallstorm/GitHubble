@@ -5,7 +5,7 @@
 ## Текущая версия
 
 - Version: `1.0.0-rc4.2.74`
-- versionCode: `120`
+- versionCode: `121`
 - release channel: `rc4.2.74`
 - applicationId: `app.githubble.mobile`
 - minSdk: `28`
