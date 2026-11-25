@@ -365,6 +365,10 @@ public final class AgentRun {
         return "Удаление репозитория";
       case "setup_release_signing":
         return "Ключ подписи релиза";
+      case "mirror_repository":
+        return "Копия репозитория на другой аккаунт";
+      case "mirror_status":
+        return "Ход копирования репозитория";
       case "create_issue":
         return "Создание задачи";
       case "update_issue":

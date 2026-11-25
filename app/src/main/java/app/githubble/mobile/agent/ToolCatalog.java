@@ -50,6 +50,8 @@ public final class ToolCatalog {
         add(b,"github_request","method path body account","method path",remote,true,false,false);
         add(b,"delete_repository","repository account","repository",remote,true,false,false);
         add(b,"setup_release_signing","repository account replace:boolean","repository",remote,true,true,false);
+        add(b,"mirror_repository","repository to_account name","repository",remote,true,false,false);
+        add(b,"mirror_status","job_id","job_id",gh,false,false,false);
         add(b,"actions_cleanup","repository kind older_than_days:integer account","repository kind",remote,true,false,false);
         add(b,"github_accounts","","",gh,false,false,false);
         for (String n:Arrays.asList("list_repositories","github_profile","github_usage","github_rate_limit","github_capabilities"))

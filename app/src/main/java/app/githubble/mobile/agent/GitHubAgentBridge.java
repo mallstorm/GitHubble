@@ -102,6 +102,54 @@ public final class GitHubAgentBridge {
     }
 
     /** A client for another connected account. It never switches the foreground account and is never used for writes. */
+    /** Mirror Manager access for the agent (set by the host): full-history copy of a repository to another connected account. */
+    public interface MirrorService {
+        JSONObject start(String sourceFull, String sourceAccountId, String targetAccountId, String targetName) throws Exception;
+        JSONObject status(String jobId) throws Exception;
+    }
+    private volatile MirrorService mirror;
+    public void setMirror(MirrorService value) { mirror = value; }
+
+    public String activeLogin() {
+        GitHubAccountStore.Account active = accounts.activeAccount();
+        return active == null ? "" : active.login;
+    }
+
+    /** Copies {@code sourceFull} (owned by a connected account) into another connected account. "" target = active account. */
+    public JSONObject mirrorStart(String sourceFull, String targetLogin, String targetName) throws Exception {
+        MirrorService service = mirror;
+        if (service == null) throw new IllegalStateException("Mirror Manager недоступен");
+        verifyRepo(sourceFull);
+        GitHubAccountStore.Account from = accountByLogin(sourceFull.substring(0, sourceFull.indexOf('/')));
+        if (from == null) throw new IllegalArgumentException("Владелец источника не подключён к GitHubble: зеркалировать можно репозитории подключённых аккаунтов");
+        String login = targetLogin == null ? "" : targetLogin.trim();
+        if (login.startsWith("@")) login = login.substring(1);
+        GitHubAccountStore.Account to = login.isEmpty() ? accounts.activeAccount() : accountByLogin(login);
+        if (to == null) throw new IllegalArgumentException("Аккаунт назначения не подключён: " + login);
+        if (to.id.equals(from.id)) throw new IllegalArgumentException("Источник и назначение — один аккаунт (@" + to.login + "); для копии внутри аккаунта укажите другой to_account");
+        return service.start(sourceFull, from.id, to.id, targetName);
+    }
+
+    public JSONObject mirrorStatus(String jobId) throws Exception {
+        MirrorService service = mirror;
+        if (service == null) throw new IllegalStateException("Mirror Manager недоступен");
+        if (jobId == null || !jobId.matches("[A-Za-z0-9-]{8,64}")) throw new IllegalArgumentException("Нужен job_id из mirror_repository");
+        return service.status(jobId);
+    }
+
+    /** Owner of the repository named in the tool arguments, when that owner is a connected account other than the active one. */
+    private String ownerAccount(JSONObject args) {
+        String subject = args.optString("repository", "").trim();
+        if (subject.isEmpty()) {
+            java.util.regex.Matcher m = java.util.regex.Pattern.compile("^/?repos/([A-Za-z0-9-]{1,39})/[A-Za-z0-9._-]+").matcher(args.optString("path", "").trim());
+            if (m.find()) subject = m.group(1) + "/x";
+        }
+        int slash = subject.indexOf('/');
+        if (slash <= 0) return "";
+        GitHubAccountStore.Account owner = accountByLogin(subject.substring(0, slash));
+        return owner == null || owner.active ? "" : owner.login;
+    }
+
     /** Renews a saved session of any connected account without the user (set by the host). */
     public interface AccountRefresher { boolean refresh(String accountId, boolean force) throws Exception; }
     private volatile AccountRefresher refresher;
@@ -187,14 +235,15 @@ public final class GitHubAgentBridge {
         String active = "";
         for (GitHubAccountStore.Account a : accounts.listAccounts()) {
             list.put(new JSONObject().put("login", a.login).put("name", a.name).put("active", a.active)
-                    .put("status", a.active ? "active (builds, publishing, default for writes)" : "connected (reads; repository deletes, github_request and release signing accept {account} after the user approves)"));
+                    .put("status", a.active ? "active (builds, publishing, default for writes)" : "connected (full access for you: reads, repository tools and writes are routed to this account by repository owner or {account}; writes show the user a card naming the account)"));
             if (a.active) active = a.login;
         }
         return new JSONObject().put("count", list.length()).put("max", GitHubAccountStore.MAX_ACCOUNTS)
                 .put("active_login", active).put("accounts", list)
-                .put("note", "To read another connected account pass {\"account\":\"<login>\"} to a read-only tool; "
-                        + "list_repositories also accepts \"all\". github_request, delete_repository, actions_cleanup and setup_release_signing accept the same {\"account\":\"<login>\"} "
-                        + "and always show the user a confirmation card with that account; builds and file publishing use the active account.");
+                .put("note", "ALL connected accounts are available to you on equal terms. A repository named as owner/repo is read through the account that owns it automatically; "
+                        + "you may also pass {\"account\":\"<login>\"}. list_repositories {account:\"all\"} lists every account. github_request, delete_repository, actions_cleanup and setup_release_signing "
+                        + "act as the owner account and always show the user a card naming it. To copy a repository from one connected account to another (full history, like Mirror Manager) use "
+                        + "mirror_repository {repository, to_account?, name?} then poll mirror_status {job_id}. Builds and file publishing of the open task use the active account.");
     }
 
     /** Repositories of every connected account; a broken session of one account is reported, not fatal. */
@@ -330,6 +379,7 @@ public final class GitHubAgentBridge {
         if("github_accounts".equals(name))return connectedAccounts(expected);
         String other=args.optString("account","").trim();
         if(other.startsWith("@"))other=other.substring(1);
+        if(other.isEmpty())other=ownerAccount(args); // the repository's owner decides, no explicit {account} needed
         if(other.isEmpty())return executeReadOnlyActive(expected,name,args,linkedRepo,branch);
         if("all".equalsIgnoreCase(other)&&"list_repositories".equals(name))return listAllRepositories(expected);
         if(!other.matches("[A-Za-z0-9-]{1,39}"))throw new IllegalArgumentException("Некорректный логин аккаунта");

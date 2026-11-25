@@ -13,14 +13,15 @@ import org.json.JSONObject;
 public final class GitHubAgentOperations {
     public static final Set<String> READS=set("github_profile","github_usage","github_rate_limit","github_capabilities",
         "repository_branches","repository_read_file","repository_issues","repository_pulls",
-        "issue_details","pull_request_details","build_artifacts","verify_build","build_run_status","list_releases","github_get");
+        "issue_details","pull_request_details","build_artifacts","verify_build","build_run_status","list_releases","github_get","mirror_status");
     public static final Set<String> WRITES=set("create_repository","create_branch",
         "update_repository","update_account_profile","create_issue","update_issue",
         "create_pull_request","update_pull_request","comment_issue","merge_pull_request","dispatch_workflow","create_release",
-        "github_request","delete_repository","actions_cleanup","setup_release_signing");
+        "github_request","delete_repository","actions_cleanup","setup_release_signing","mirror_repository");
     /** Executed by the host through the risk gateway (GatewayPolicy), never by write(). */
-    public static final Set<String> GATEWAY_WRITES=set("github_request","delete_repository","actions_cleanup","setup_release_signing");
+    public static final Set<String> GATEWAY_WRITES=set("github_request","delete_repository","actions_cleanup","setup_release_signing","mirror_repository");
     public static final String READ_CATALOG="github_get {path,account?} (any GET on api.github.com: billing /users/{login}/settings/billing/usage, packages /users/{login}/packages?package_type=container, Actions caches /repos/{o}/{r}/actions/caches, storage, secrets NAMES, rulesets; files and CI logs have their own tools), list_releases {repository}, github_profile {}, github_usage {} (usage, not remaining quota), "+
+        "mirror_status {job_id} (progress of a mirror_repository copy: preparing/running/verified/failed), "+
         "github_rate_limit {}, github_capabilities {} (GitHub App installations and grants), repository_branches {repository}, "+
         "repository_read_file {repository,path,branch}, repository_issues {repository}, "+
         "repository_pulls {repository}, issue_details {repository,number}, "+
@@ -42,6 +43,7 @@ public final class GitHubAgentOperations {
         "create_release {repository,tag,name,body,target,draft:true,prerelease:false} (draft by default; no asset upload), "+
         "github_request {method:POST|PATCH|PUT|DELETE,path,body?} (any other REST write on api.github.com as the user; the HOST classifies risk: reversible writes follow the permission level, deletions always ask, irreversible ones — delete repo, visibility, transfer, force-push, hooks/permissions/protection — need the user to type the exact name; secret values, SSH/GPG keys, tokens and billing writes are unreachable), "+
         "delete_repository {repository,account?} (own repository; account = login of ANY connected account that owns it; the user answers one red Yes / blue No card showing repository and account — no typing), "+
+        "mirror_repository {repository,to_account?,name?} (full-history copy of a repository owned by ANY connected account into another connected account — by default the active one — exactly like Mirror Manager; the user answers one Yes/No card with source, accounts and name; returns job_id, then poll mirror_status {job_id} until state is verified), "+
         "setup_release_signing {repository,account?,replace?} (generates an Android release keystore on the device and writes ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD into the repository Actions secrets; secret values never reach you; then wire them into the release workflow), "+
         "actions_cleanup {repository,kind:caches|artifacts|runs,older_than_days?} (host lists and shows count/size first, one confirmation, max 300).";
     private static Set<String> set(String... names){return java.util.Collections.unmodifiableSet(new java.util.HashSet<>(java.util.Arrays.asList(names)));}
@@ -138,6 +140,7 @@ public final class GitHubAgentOperations {
     }
     public static JSONObject read(GitHubAgentBridge bridge,String account,String name,JSONObject a,
             String linked,String branch)throws Exception{
+        if("mirror_status".equals(name))return bridge.mirrorStatus(a.optString("job_id"));
         GitHubApiClient api=bridge.toolApi(account);
         if("github_profile".equals(name)){
             JSONObject profile=api.getJson("https://api.github.com/user");

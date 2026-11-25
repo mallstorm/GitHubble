@@ -284,7 +284,7 @@ public final class NativeAgentToolHost implements ProjectRuntime.ToolHost {
     private String brokerConfirmedPlugin="";
     public boolean confirmBroker(String name,JSONObject args) throws Exception {
         // These two show their own Yes/No card with the repository and the account; a generic dialog before it would be a duplicate.
-        if("delete_repository".equals(name)||"setup_release_signing".equals(name))return true;
+        if("delete_repository".equals(name)||"setup_release_signing".equals(name)||"mirror_repository".equals(name))return true;
         JSONObject plugin=plugins.operation(name);
         String config=plugin==null?"":plugin.toString();
         AgentProjectStore.Project selected=projects.projectForChat(account,thread);
@@ -808,6 +808,7 @@ public final class NativeAgentToolHost implements ProjectRuntime.ToolHost {
     /** All generic GitHub writes: the host classifies risk from (method,path,body) and picks the approval itself. */
     private String gateway(String name,JSONObject a)throws Exception{
         if(run!=null)run.requireNotDuplicate();
+        if("mirror_repository".equals(name))return mirrorRepository(a);
         String subject=a.optString("repository",a.optString("path"));
         actingAs=resolveAccount(a,subject);
         try{
@@ -815,6 +816,24 @@ public final class NativeAgentToolHost implements ProjectRuntime.ToolHost {
             if("setup_release_signing".equals(name))return setupSigning(a,api);
             return gatewayWrite(name,a,api);
         }finally{actingAs="";}
+    }
+    /** Full-history copy of a connected account's repository into another connected account (Mirror Manager's copy, started by the agent). */
+    private String mirrorRepository(JSONObject a)throws Exception{
+        String repo=GitHubAgentOperations.repository(a,"");
+        String copyName=a.optString("name","").trim();
+        if(copyName.isEmpty())copyName=repo.substring(repo.indexOf('/')+1);
+        String target=a.optString("to_account","").trim();if(target.startsWith("@"))target=target.substring(1);
+        String targetLogin=target.isEmpty()?github.activeLogin():target;
+        String owner=repo.substring(0,repo.indexOf('/'));
+        check();
+        app.githubble.mobile.ui.ConfirmSheet.Spec spec=new app.githubble.mobile.ui.ConfirmSheet.Spec("Скопировать репозиторий?","Да, копировать","Нет",false)
+            .fact("Источник",repo).fact("Из аккаунта","@"+owner).fact("В аккаунт","@"+targetLogin).fact("Имя копии",targetLogin+"/"+copyName)
+            .note("Создаётся независимая копия с полной историей, как в Mirror Manager. Видимость копии такая же, как у источника. Исходный репозиторий не меняется.");
+        if(!approve("mirror_repository","Копия "+repo+" → @"+targetLogin+"/"+copyName,true,true,null,spec))return denied("mirror_repository");
+        check();requireWrite();github.requireAccount(account);if(run!=null)run.remoteDispatched();
+        JSONObject job=github.mirrorStart(repo,target,copyName);
+        event("✓ mirror_repository · "+repo+" → "+job.optString("destination"),null);
+        return job.put("next","Опрашивайте mirror_status {job_id}: состояние verified означает, что копия готова.").toString();
     }
     /** Explicit {account} wins; otherwise a repository owned by another connected account is written as that account. */
     private String resolveAccount(JSONObject a,String subject)throws Exception{

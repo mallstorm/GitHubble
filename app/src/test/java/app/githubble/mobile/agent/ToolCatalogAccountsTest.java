@@ -41,4 +41,18 @@ public class ToolCatalogAccountsTest {
             fail("a write tool must not accept a foreign account");
         } catch (Exception expected) { /* schema rejects unknown arguments */ }
     }
+
+    @Test public void mirrorToolsAreRegisteredAndTyped() throws Exception {
+        List<String> seen = new ArrayList<>();
+        ToolBroker b = broker(seen);
+        b.execute("mirror_repository", new JSONObject().put("repository", "a/b").put("to_account", "other").put("name", "b-copy"));
+        b.execute("mirror_status", new JSONObject().put("job_id", "0123456789abcdef"));
+        assertEquals(2, seen.size());
+        assertTrue(GitHubAgentOperations.GATEWAY_WRITES.contains("mirror_repository"));
+        assertTrue(GitHubAgentOperations.READS.contains("mirror_status"));
+        try {
+            b.execute("mirror_repository", new JSONObject().put("repository", "a/b").put("token", "x"));
+            fail("unknown arguments must be rejected");
+        } catch (Exception expected) { /* schema rejects unknown arguments */ }
+    }
 }
