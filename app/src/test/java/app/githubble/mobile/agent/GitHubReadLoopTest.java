@@ -52,4 +52,12 @@ public final class GitHubReadLoopTest {
         assertEquals("",GitHubReadLoop.namedAccount("Сколько репозиториев на аккаунте?",accounts));
         assertEquals("",GitHubReadLoop.namedAccount("Сравни все репозитории и какие проекты на каком аккаунте есть. Табличный вид.",accounts));
     }
+    @Test public void accountMatrixIntentNeedsRepositoriesAndAccounts(){
+        assertTrue(GitHubReadLoop.wantsAccountMatrix("Проанализируй сколько аккаунтов подключенных ты видишь и сопоставь все репозитории"));
+        assertTrue(GitHubReadLoop.wantsAccountMatrix("Сравни все репозитории и какие проекты на каком аккаунте есть"));
+        assertFalse(GitHubReadLoop.wantsAccountMatrix("Сравни репозитории owner/a и owner/b по коду"));
+        assertFalse(GitHubReadLoop.wantsAccountMatrix("покажи мои репозитории"));
+        assertTrue(GitHubReadLoop.isDirectRepositoryQuestion("Сопоставь репозитории по всем аккаунтам"));
+        assertTrue(DirectAnswers.handles("Проанализируй сколько аккаунтов подключенных ты видишь и сопоставь все репозитории"));
+    }
 }

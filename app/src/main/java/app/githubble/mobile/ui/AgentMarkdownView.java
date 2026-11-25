@@ -348,13 +348,28 @@ public final class AgentMarkdownView {
     final int ink = night ? 0xFFF1E8D4 : 0xFF3A3123;
     final int headInk = night ? 0xFFFFE6B0 : 0xFF2A200F;
     final int linkInk = night ? 0xFFF0C070 : 0xFF8A5A00;
+    // A matrix wider than the message column scrolls sideways (marker columns keep a fixed width).
+    final int nameWidth = dp(128);
+    int markers = 0;
+    for (int c = 1; c < cols; c++) markers += fixed[c];
+    final int available = activity.getResources().getDisplayMetrics().widthPixels - dp(34);
+    final boolean scrolls = matrix && nameWidth + markers > available;
     final LinearLayout frame = new LinearLayout(activity);
     GradientDrawable frameShape = new GradientDrawable();
     frameShape.setColor(paper);
     frameShape.setStroke(dp(1), line);
     frame.setBackground(frameShape);
     frame.setOrientation(LinearLayout.VERTICAL);
-    final LinearLayout grid = frame;
+    final LinearLayout grid;
+    if (scrolls) {
+      HorizontalScrollView sideways = new HorizontalScrollView(activity);
+      sideways.setHorizontalScrollBarEnabled(false);
+      sideways.setOverScrollMode(View.OVER_SCROLL_NEVER);
+      grid = new LinearLayout(activity);
+      grid.setOrientation(LinearLayout.VERTICAL);
+      sideways.addView(grid, new FrameLayout.LayoutParams(nameWidth + markers, -2));
+      frame.addView(sideways, new LinearLayout.LayoutParams(-1, -2));
+    } else grid = frame;
     final int columns = cols;
     int[] next = {0};
     Runnable[] more = {null};
@@ -388,7 +403,9 @@ public final class AgentMarkdownView {
                   value,
                   fixed[c] > 0
                       ? new LinearLayout.LayoutParams(fixed[c], -2)
-                      : new LinearLayout.LayoutParams(0, -2, matrix ? 1f : weight[c]));
+                      : scrolls && matrix
+                          ? new LinearLayout.LayoutParams(nameWidth, -2)
+                          : new LinearLayout.LayoutParams(0, -2, matrix ? 1f : weight[c]));
             }
             grid.addView(row, new LinearLayout.LayoutParams(-1, -2));
             View separator = new View(activity);
@@ -408,7 +425,7 @@ public final class AgentMarkdownView {
 
   /** 3–7 columns, a header and body cells in the marker columns that are only a mark (✅, —, +): a tick matrix. */
   private static boolean isMatrix(List<List<SpannableStringBuilder>> cells, int cols) {
-    if (cols < 3 || cols > 7 || cells.size() < 2) return false;
+    if (cols < 3 || cols > 24 || cells.size() < 2) return false;
     for (int r = 1; r < cells.size(); r++)
       for (int c = 1; c < cols && c < cells.get(r).size(); c++)
         if (cells.get(r).get(c).toString().trim().length() > 3) return false;

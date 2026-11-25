@@ -1620,7 +1620,7 @@ public class MainActivity extends Activity {
                 String id = chat.optString("id");
                 String name = chat.optString("title", "Диалог");
                 if (!filter.isEmpty() && !name.toLowerCase(Locale.ROOT).contains(filter)) continue;
-                TextView item = ui.label((id.equals(active) ? "💬  " : "      ") + name, 14, id.equals(active));
+                TextView item = ui.label("💬  " + name, 14, id.equals(active));
                 item.setSingleLine();
                 item.setEllipsize(TextUtils.TruncateAt.END);
                 item.setGravity(Gravity.CENTER_VERTICAL);
@@ -1632,7 +1632,7 @@ public class MainActivity extends Activity {
                     activeBg.setCornerRadius(dp(14));
                     activeBg.setStroke(dp(1), mixColors(ui.line, GREEN, .5f));
                     item.setBackground(activeBg);
-                } else item.setBackground(ui.shape(Color.TRANSPARENT,14,0));
+                } else item.setBackground(ui.shape(ui.dark ? 0xFF434A53 : 0xFFF7F9FA,14,ui.line));
                 LinearLayout.LayoutParams row = new LinearLayout.LayoutParams(-1, dp(46));
                 row.bottomMargin = dp(4);
                 list.addView(item, row);
