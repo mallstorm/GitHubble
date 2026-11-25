@@ -1,6 +1,8 @@
 package app.githubble.mobile.ui;
 
 import android.app.*;
+import app.githubble.mobile.ui.SheetProgress;
+import app.githubble.mobile.ui.SheetDialog;
 import android.content.*;
 import android.net.Uri;
 import android.widget.*;
@@ -32,16 +34,16 @@ public final class AgentFeatureScreens {
     private String wid(){return projects.project(owner).workspaceId;}
     private interface Action {void run()throws Exception;}
     private interface Form {void run(String[] values)throws Exception;}
-    private void error(Exception e){new AlertDialog.Builder(a).setTitle("Не удалось выполнить").setMessage(e.getMessage()).setPositiveButton("ОК",null).show();}
+    private void error(Exception e){new SheetDialog.Builder(a).setTitle("Не удалось выполнить").setMessage(e.getMessage()).setPositiveButton("ОК",null).show();}
     private void run(Action action){if(!current())return;try{action.run();}catch(Exception e){error(e);}}
-    private void async(String title,Action action,Runnable done){if(!current())return;ProgressDialog p=ProgressDialog.show(a,title,"Выполняется…",true,false);
+    private void async(String title,Action action,Runnable done){if(!current())return;SheetProgress p=SheetProgress.show(a,title,"Выполняется…",true,false);
         io.execute(()->{Exception failure=null;try{if(current())action.run();}catch(Exception e){failure=e;}final Exception problem=failure;
             a.runOnUiThread(()->{p.dismiss();if(!current())return;if(problem!=null)error(problem);else done.run();});});}
     private void form(String title,String[] labels,String[] defaults,Form action){
         LinearLayout fields=ui.body(title,false);EditText[] inputs=new EditText[labels.length];
         for(int i=0;i<labels.length;i++){inputs[i]=new EditText(a);inputs[i].setHint(labels[i]);inputs[i].setText(defaults[i]);inputs[i].setTextColor(ui.text);fields.addView(inputs[i]);}
         ScrollView scroll=new ScrollView(a);scroll.addView(fields);
-        AlertDialog d=new AlertDialog.Builder(a).setView(scroll).setPositiveButton("Сохранить",null).setNegativeButton("Отмена",null).create();
+        SheetDialog d=new SheetDialog.Builder(a).setView(scroll).setPositiveButton("Сохранить",null).setNegativeButton("Отмена",null).create();
         d.setOnShowListener(x->d.getButton(-1).setOnClickListener(v->{if(!current()){d.dismiss();return;}try{String[] values=new String[inputs.length];for(int i=0;i<values.length;i++)values[i]=inputs[i].getText().toString();action.run(values);d.dismiss();}catch(Exception e){error(e);}}));d.show();
     }
     public void network(){run(()->{
@@ -49,14 +51,14 @@ public final class AgentFeatureScreens {
         ui.note(body,"API и подписки используют общий DNS и маршрут Xray. Настройки действуют внутри GitHubble.");
         final Dialog[] d={null};
         ui.action(body,"Режим DNS",config.optString("mode")+" · "+config.optString("endpoint"),0xFF2863B8,()->{
-            new AlertDialog.Builder(a).setTitle("Режим DNS").setItems(new String[]{"Системный","Smart — автоматический маршрут","DNS over HTTPS","DNS over TLS"},(x,n)->{
+            new SheetDialog.Builder(a).setTitle("Режим DNS").setItems(new String[]{"Системный","Smart — автоматический маршрут","DNS over HTTPS","DNS over TLS"},(x,n)->{
                 String mode=new String[]{"system","smart","doh","dot"}[n];
                 if(n<2)run(()->{AiNetwork.save(mode,"");d[0].dismiss();network();});
                 else form("Свой DNS",new String[]{"Endpoint"},new String[]{config.optString("endpoint")},v->{AiNetwork.save(mode,v[0]);d[0].dismiss();network();});
             }).show();});
         ui.action(body,"Проверить DNS/TLS/HTTP","Доступность провайдеров и качество маршрутов",0xFF14846C,()->async("Проверка маршрутов",AiNetwork::sweep,()->{d[0].dismiss();network();}));
         ui.action(body,"Проверить домен","Например auth.openai.com или api.cline.bot",0xFF14846C,()->form("DNS probe",new String[]{"Домен"},new String[]{"api.cline.bot"},v->async("DNS",()->{
-            String result=AiNetwork.probe(v[0]);a.runOnUiThread(()->{if(current())new AlertDialog.Builder(a).setTitle("Результат").setMessage(result).setPositiveButton("ОК",null).show();});},()->{})));
+            String result=AiNetwork.probe(v[0]);a.runOnUiThread(()->{if(current())new SheetDialog.Builder(a).setTitle("Результат").setMessage(result).setPositiveButton("ОК",null).show();});},()->{})));
         JSONObject registry=new JSONObject(AiNetwork.registry());
         ui.action(body,"Удалённый DNS-реестр",registry.optString("url"),0xFF435B69,()->form("Реестр HTTPS JSON",new String[]{"URL (пусто — отключить)"},new String[]{registry.optString("url")},v->async("Обновление реестра",()->AiNetwork.refreshRegistry(v[0]),()->{d[0].dismiss();network();})));
         ui.action(body,"Добавить DNS-профиль","DoH/DoT · домены · сервисы",0xFF2863B8,()->form("DNS-профиль",new String[]{"Название","doh или dot","Endpoint","Домены через запятую","Сервисы: openai,gemini,grok,cline…"},new String[]{"Мой DNS","doh","","",""},v->{AiNetwork.addDns(v[0],v[1],v[2],v[3],v[4]);d[0].dismiss();network();}));
@@ -64,9 +66,9 @@ public final class AgentFeatureScreens {
         ui.section(body,"DNS-профили");JSONArray profiles=registry.optJSONArray("profiles");
         if(profiles!=null)for(int i=0;i<profiles.length();i++){JSONObject p=profiles.getJSONObject(i);
             ui.action(body,p.optString("name"),p.optString("mode")+" · "+p.optString("endpoint")+"\n"+p.optString("capabilities")+" · "+p.optString("health"),0xFF435B69,()->{
-                if("local".equals(p.optString("source")))new AlertDialog.Builder(a).setTitle(p.optString("name")).setMessage(p.toString())
+                if("local".equals(p.optString("source")))new SheetDialog.Builder(a).setTitle(p.optString("name")).setMessage(p.toString())
                     .setPositiveButton("Удалить профиль",(x,n)->run(()->{AiNetwork.removeDns(p.optString("id"));d[0].dismiss();network();})).setNegativeButton("Закрыть",null).show();
-                else new AlertDialog.Builder(a).setMessage(p.toString()).setPositiveButton("ОК",null).show();});}
+                else new SheetDialog.Builder(a).setMessage(p.toString()).setPositiveButton("ОК",null).show();});}
         ui.note(body,registry.optString("error")+"\n"+registry.optString("routes"));d[0]=ui.present(body,true);
     });}
     public void xray(){run(()->{
@@ -76,7 +78,7 @@ public final class AgentFeatureScreens {
         ui.action(body,"Загрузить файл профиля","JSON / TXT · до 512 КБ",0xFF2863B8,()->pick(IMPORT_XRAY,"*/*",false,""));
         if(state.optBoolean("enabled"))ui.action(body,"Отключить Xray","Вернуться к обычному маршруту",0xFF713CB3,()->run(()->{AiNetwork.disable();d[0].dismiss();xray();}));
         JSONArray list=state.getJSONArray("profiles");for(int i=0;i<list.length();i++){JSONObject p=list.getJSONObject(i);
-            ui.action(body,(p.optBoolean("active")?"✓ ":"")+p.optString("name"),p.optBoolean("active")?"Активен":"Выбрать профиль",0xFF14846C,()->new AlertDialog.Builder(a).setTitle(p.optString("name"))
+            ui.action(body,(p.optBoolean("active")?"✓ ":"")+p.optString("name"),p.optBoolean("active")?"Активен":"Выбрать профиль",0xFF14846C,()->new SheetDialog.Builder(a).setTitle(p.optString("name"))
                 .setItems(new String[]{"Подключить","Удалить"},(x,n)->{if(n==0)async("Запуск Xray",()->AiNetwork.enable(p.getString("id")),()->{d[0].dismiss();xray();});
                     else run(()->{AiNetwork.removeProfile(p.getString("id"));d[0].dismiss();xray();});}).show());}
         ui.note(body,state.optString("error"));d[0]=ui.present(body,true);
@@ -94,14 +96,14 @@ public final class AgentFeatureScreens {
             }
         },()->{d[0].dismiss();memory();}));
         ui.action(body,"Объём вспоминания",memory.maxRecall(owner)+" записей · лимит контекста 7000 символов",0xFF435B69,()->form("Память",new String[]{"Число записей 4–16"},new String[]{String.valueOf(memory.maxRecall(owner))},v->{memory.setMaxRecall(owner,Integer.parseInt(v[0]));d[0].dismiss();memory();}));
-        ui.action(body,"Очистить память аккаунта","Переписки и файлы Workspace сохранятся",0xFF713CB3,()->new AlertDialog.Builder(a).setTitle("Удалить все воспоминания аккаунта?").setPositiveButton("Очистить",(x,n)->run(()->{memory.clear(owner);d[0].dismiss();memory();})).setNegativeButton("Отмена",null).show());
+        ui.action(body,"Очистить память аккаунта","Переписки и файлы Workspace сохранятся",0xFF713CB3,()->new SheetDialog.Builder(a).setTitle("Удалить все воспоминания аккаунта?").setPositiveButton("Очистить",(x,n)->run(()->{memory.clear(owner);d[0].dismiss();memory();})).setNegativeButton("Отмена",null).show());
         ui.action(body,"Добавить воспоминание","Глобально или для текущего Workspace",0xFF14846C,()->form("Запомнить",new String[]{"Содержание","Область: global или project"},new String[]{"",wid().isEmpty()?"global":"project"},v->{memory.add(owner,"project".equals(v[1])?wid():"",chat,v[0],"fact","",false,70);d[0].dismiss();memory();}));
         ui.action(body,"Экспорт памяти","JSON в выбранный файл",0xFF435B69,()->pick(EXPORT_MEMORY,"application/json",true,"GitAgent-memory.json"));
         ui.action(body,"Импорт памяти","JSON · ключи и секреты будут отклонены",0xFF435B69,()->pick(IMPORT_MEMORY,"application/json",false,""));
         EditText search=new EditText(a);search.setHint("Поиск в памяти");search.setTextColor(ui.text);body.addView(search);LinearLayout rows=ui.column();body.addView(rows);
         Runnable render=()->run(()->{rows.removeAllViews();JSONArray list=memory.list(owner,wid());String q=search.getText().toString().toLowerCase(java.util.Locale.ROOT);
             for(int i=0;i<list.length();i++){JSONObject item=list.getJSONObject(i);if(!item.getString("content").toLowerCase(java.util.Locale.ROOT).contains(q))continue;
-                ui.action(rows,(item.optBoolean("pinned")?"★ ":"")+item.getString("content"),item.optString("workspace").isEmpty()?"Глобальная память":"Память Workspace",0xFF435B69,()->new AlertDialog.Builder(a).setTitle("Воспоминание")
+                ui.action(rows,(item.optBoolean("pinned")?"★ ":"")+item.getString("content"),item.optString("workspace").isEmpty()?"Глобальная память":"Память Workspace",0xFF435B69,()->new SheetDialog.Builder(a).setTitle("Воспоминание")
                     .setItems(new String[]{"Закрепить / открепить","Редактировать","Удалить"},(x,n)->run(()->{
                         if(n==0)memory.togglePin(owner,item.getLong("id"));
                         if(n==2)memory.remove(owner,item.getLong("id"));
@@ -133,7 +135,7 @@ public final class AgentFeatureScreens {
                     boolean resumable=!java.util.Arrays.asList("COMPLETED","CANCELLED","RUNNING","EXECUTING","BUILDING","VERIFYING","DELIVERING").contains(state);
                     java.util.List<String> labels=new java.util.ArrayList<>(java.util.Arrays.asList("Открыть чат задачи"));
                     if(resumable)labels.add("Продолжить задачу");
-                    new AlertDialog.Builder(a).setTitle(t.optString("title","Задача"))
+                    new SheetDialog.Builder(a).setTitle(t.optString("title","Задача"))
                         .setItems(labels.toArray(new String[0]),(dialog,which)->{
                             if(d[0]!=null)d[0].dismiss();
                             if(taskAction!=null)taskAction.accept(which==0?"open":"resume",id);
@@ -163,7 +165,7 @@ public final class AgentFeatureScreens {
                             .append(item.optString("thread")).append("\n")
                             .append(snippet).append("\n\n");
                     }
-                    new AlertDialog.Builder(a).setTitle("Найдено: "+matches.length())
+                    new SheetDialog.Builder(a).setTitle("Найдено: "+matches.length())
                         .setMessage(result.length()==0?"Совпадений нет":result.toString())
                         .setPositiveButton("Закрыть",null).show();
                 })));
@@ -181,7 +183,7 @@ public final class AgentFeatureScreens {
                         preview.append(msg.optString("role")).append(": ")
                             .append(bodyText).append("\n\n");
                     }
-                    new AlertDialog.Builder(a).setTitle(chat.optString("title"))
+                    new SheetDialog.Builder(a).setTitle(chat.optString("title"))
                         .setMessage(preview.length()==0?"Сообщений нет":preview.toString())
                         .setPositiveButton("Закрыть",null).show();
                 }));
@@ -192,16 +194,16 @@ public final class AgentFeatureScreens {
     public void files(){run(()->{
         String id=wid();if(id.isEmpty()){Toast.makeText(a,"У этого диалога нет проекта. Создайте или выберите проект в «Проектах».",Toast.LENGTH_LONG).show();return;}JSONObject meta=workspaces.info(owner,id);LinearLayout body=ui.body(meta.optString("name"),true);final Dialog[] d={null};
         ui.action(body,"Контекст и архитектура",meta.optString("state"),0xFF435B69,()->form("Проект",new String[]{"Название","CREATED / PLANNING / ARCHITECTURE_SELECTED / DEVELOPMENT / READY","Инструкции проекта"},new String[]{meta.optString("name"),meta.optString("state"),meta.optString("instructions")},v->{workspaces.configure(owner,id,v[0],v[1],v[2]);AgentProjectStore.Project p=projects.project(owner);projects.save(new AgentProjectStore.Project(owner,v[0],p.repository,p.branch,id));d[0].dismiss();refresh.run();files();}));
-        ui.action(body,"Поиск по проекту","Текст во всех файлах Workspace",0xFF435B69,()->form("Поиск",new String[]{"Текст"},new String[]{""},v->async("Поиск",()->{String result=WorkspaceEngine.search(a,workspaces.root(owner,id),id,v[0]);a.runOnUiThread(()->{if(current())new AlertDialog.Builder(a).setTitle("Результаты").setMessage(result).setPositiveButton("ОК",null).show();});},()->{})));
-        ui.action(body,"Карта и индекс символов","Структура проекта, функции и определения",0xFF435B69,()->form("Символы проекта",new String[]{"Имя / часть имени"},new String[]{""},v->async("Индекс",()->{String result=WorkspaceEngine.index(a,workspaces.root(owner,id),id,v[0]);a.runOnUiThread(()->{if(current())new AlertDialog.Builder(a).setTitle("Индекс проекта").setMessage(result).setPositiveButton("ОК",null).show();});},()->{})));
+        ui.action(body,"Поиск по проекту","Текст во всех файлах Workspace",0xFF435B69,()->form("Поиск",new String[]{"Текст"},new String[]{""},v->async("Поиск",()->{String result=WorkspaceEngine.search(a,workspaces.root(owner,id),id,v[0]);a.runOnUiThread(()->{if(current())new SheetDialog.Builder(a).setTitle("Результаты").setMessage(result).setPositiveButton("ОК",null).show();});},()->{})));
+        ui.action(body,"Карта и индекс символов","Структура проекта, функции и определения",0xFF435B69,()->form("Символы проекта",new String[]{"Имя / часть имени"},new String[]{""},v->async("Индекс",()->{String result=WorkspaceEngine.index(a,workspaces.root(owner,id),id,v[0]);a.runOnUiThread(()->{if(current())new SheetDialog.Builder(a).setTitle("Индекс проекта").setMessage(result).setPositiveButton("ОК",null).show();});},()->{})));
         ui.action(body,"Контрольные точки","Снимки проекта и восстановление",0xFF14846C,()->run(()->{
             JSONArray points=WorkspaceEngine.checkpoints(a,workspaces.root(owner,id),id);String[] labels=new String[points.length()+1];labels[0]="Создать снимок";for(int i=0;i<points.length();i++)labels[i+1]=points.getJSONObject(i).optString("label");
-            new AlertDialog.Builder(a).setTitle("Контрольные точки").setItems(labels,(x,n)->{
+            new SheetDialog.Builder(a).setTitle("Контрольные точки").setItems(labels,(x,n)->{
                 if(n==0)async("Снимок",()->WorkspaceEngine.checkpoint(a,workspaces.root(owner,id),id,"Снимок "+System.currentTimeMillis()),()->Toast.makeText(a,"Снимок создан",Toast.LENGTH_SHORT).show());
-                else new AlertDialog.Builder(a).setTitle("Восстановить снимок?").setMessage("Текущие файлы проекта будут заменены.").setPositiveButton("Восстановить",(y,z)->async("Восстановление",()->WorkspaceEngine.restore(a,workspaces.root(owner,id),id,points.getJSONObject(n-1).getString("id")),()->{d[0].dismiss();files();})).setNegativeButton("Отмена",null).show();
+                else new SheetDialog.Builder(a).setTitle("Восстановить снимок?").setMessage("Текущие файлы проекта будут заменены.").setPositiveButton("Восстановить",(y,z)->async("Восстановление",()->WorkspaceEngine.restore(a,workspaces.root(owner,id),id,points.getJSONObject(n-1).getString("id")),()->{d[0].dismiss();files();})).setNegativeButton("Отмена",null).show();
             }).show();
         }));
-        ui.action(body,"Операции с файлами","Создать каталог · переместить · удалить · переименовать символ",0xFF435B69,()->form("Операция Workspace",new String[]{"mkdir / move / delete / rename_symbol","Путь или имя символа","Новое имя / путь (для move/rename_symbol)"},new String[]{"mkdir","",""},v->new AlertDialog.Builder(a).setTitle("Выполнить операцию?").setMessage(v[0]+": "+v[1]+" → "+v[2]).setPositiveButton("Выполнить",(x,n)->async("Workspace",()->{
+        ui.action(body,"Операции с файлами","Создать каталог · переместить · удалить · переименовать символ",0xFF435B69,()->form("Операция Workspace",new String[]{"mkdir / move / delete / rename_symbol","Путь или имя символа","Новое имя / путь (для move/rename_symbol)"},new String[]{"mkdir","",""},v->new SheetDialog.Builder(a).setTitle("Выполнить операцию?").setMessage(v[0]+": "+v[1]+" → "+v[2]).setPositiveButton("Выполнить",(x,n)->async("Workspace",()->{
             if(v[1].endsWith(".workspace.json")||v[2].endsWith(".workspace.json"))throw new IOException("Метаданные Workspace защищены");
             WorkspaceEngine.operation(a,workspaces.root(owner,id),id,v[0],v[1],v[2]);
         },()->{d[0].dismiss();files();})).setNegativeButton("Отмена",null).show()));

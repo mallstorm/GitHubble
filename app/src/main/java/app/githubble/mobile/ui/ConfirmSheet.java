@@ -31,7 +31,7 @@ public final class ConfirmSheet {
         public Spec note(String text) { note = text == null ? "" : text; return this; }
     }
 
-    private static volatile int bg = 0xFFFFFFFF, text = 0xFF1B2733, muted = 0xFF6B7A88, subtle = 0xFFF1F4F7, border = 0xFFDCE3E9, accent = 0xFF1565C0;
+    static volatile int bg = 0xFFFFFFFF, text = 0xFF1B2733, muted = 0xFF6B7A88, subtle = 0xFFF1F4F7, border = 0xFFDCE3E9, accent = 0xFF1565C0;
 
     private ConfirmSheet() {}
 

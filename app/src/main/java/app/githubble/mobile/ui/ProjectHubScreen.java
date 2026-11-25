@@ -1,7 +1,7 @@
 package app.githubble.mobile.ui;
 
 import android.app.Activity;
-import android.app.AlertDialog;
+import app.githubble.mobile.ui.SheetDialog;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.EditText;
@@ -25,7 +25,7 @@ public final class ProjectHubScreen {
         this.activity=activity;this.store=store;this.account=account;this.current=current;this.refresh=refresh;this.changes=changes;
     }
     private void failure(Exception error) {
-        if(current.getAsBoolean())new AlertDialog.Builder(activity).setMessage(error.getMessage()).setPositiveButton("ОК",null).show();
+        if(current.getAsBoolean())new SheetDialog.Builder(activity).setMessage(error.getMessage()).setPositiveButton("ОК",null).show();
     }
     public interface WorkspaceEraser { void erase(String workspaceId) throws Exception; }
     private app.githubble.mobile.agent.WorkspaceHub hub;
@@ -136,7 +136,7 @@ public final class ProjectHubScreen {
                 TextView n=text("📁  "+name,15,true,ink);n.setSingleLine();n.setEllipsize(android.text.TextUtils.TruncateAt.END);
                 row.addView(n,new LinearLayout.LayoutParams(0,-2,1));
                 TextView cross=text("✕",18,true,0xFFC75B66);cross.setGravity(Gravity.CENTER);cross.setContentDescription("Стереть папку "+name);
-                cross.setOnClickListener(v->new AlertDialog.Builder(activity).setTitle("Стереть папку «"+name+"»?")
+                cross.setOnClickListener(v->new SheetDialog.Builder(activity).setTitle("Стереть папку «"+name+"»?")
                     .setMessage("Файлы папки и её память будут удалены без возможности восстановления.")
                     .setPositiveButton("Стереть",(d,w)->{try{if(eraser!=null)eraser.erase(id);done.run();refresh.run();}catch(Exception error){failure(error);}})
                     .setNegativeButton("Отмена",null).show());
@@ -150,7 +150,7 @@ public final class ProjectHubScreen {
         }catch(Exception ignored){}
     }
     private void confirmDelete(String projectId,String name,int tasks,Runnable done) {
-        new AlertDialog.Builder(activity).setTitle("Удалить проект «"+name+"»?")
+        new SheetDialog.Builder(activity).setTitle("Удалить проект «"+name+"»?")
             .setMessage("Проект будет полностью стёрт и снят с работы агента: доступ модели отозван, привязка репозитория удалена. "
                 +"Задач в проекте: "+tasks+". Диалоги можно оставить (без привязки к проекту) или удалить вместе с проектом.")
             .setPositiveButton("Удалить проект",(d,w)->remove(projectId,false,done))
@@ -172,7 +172,7 @@ public final class ProjectHubScreen {
         LinearLayout fields=new LinearLayout(activity);fields.setOrientation(LinearLayout.VERTICAL);fields.setPadding(24,8,24,8);
         EditText name=new EditText(activity);name.setHint("Название проекта");name.setSingleLine(true);fields.addView(name);
         EditText repo=new EditText(activity);repo.setHint("OWNER/REPO · необязательно");repo.setSingleLine(true);fields.addView(repo);
-        new AlertDialog.Builder(activity).setTitle("Новый проект").setView(fields)
+        new SheetDialog.Builder(activity).setTitle("Новый проект").setView(fields)
             .setPositiveButton("Создать",(d,w)->{
                 if(!current.getAsBoolean())return;
                 try{
@@ -195,7 +195,7 @@ public final class ProjectHubScreen {
             for(int i=0;i<labels.length;i++){
                 JSONObject t=tasks.getJSONObject(i);labels[i]=t.optString("title")+" · "+TaskWorkPanel.state(t.optString("state"));
             }
-            new AlertDialog.Builder(activity).setTitle(project.optString("name"))
+            new SheetDialog.Builder(activity).setTitle(project.optString("name"))
                 .setItems(labels,(d,index)->{
                     if(!current.getAsBoolean())return;
                     JSONObject task=tasks.optJSONObject(index);
@@ -204,7 +204,7 @@ public final class ProjectHubScreen {
                 .setNeutralButton(project.optBoolean("modelAccess")?"Отозвать доступ AI":"Доступ AI",(d,w)->{
                     if(!current.getAsBoolean())return;
                     if(project.optBoolean("modelAccess")){store.registry.modelAccess(account,projectId,false);tasks(projectId);return;}
-                    new AlertDialog.Builder(activity).setTitle("Доступ модели к проекту")
+                    new SheetDialog.Builder(activity).setTitle("Доступ модели к проекту")
                         .setMessage("Разрешить передачу данных этого проекта выбранному AI-провайдеру? Файлы и GitHub дополнительно ограничены существующими настройками. CI-логи требуют отдельного согласия.")
                         .setPositiveButton("Разрешить",(x,y)->{if(current.getAsBoolean()){store.registry.modelAccess(account,projectId,true);tasks(projectId);}})
                         .setNegativeButton("Отмена",null).show();
@@ -213,7 +213,7 @@ public final class ProjectHubScreen {
     }
     private void newTask(String projectId) {
         EditText goal=new EditText(activity);goal.setHint("Цель задачи");
-        new AlertDialog.Builder(activity).setTitle("Новая задача").setView(goal).setPositiveButton("Создать",(d,w)->{
+        new SheetDialog.Builder(activity).setTitle("Новая задача").setView(goal).setPositiveButton("Создать",(d,w)->{
             if(!current.getAsBoolean())return;
             try{
                 String text=goal.getText().toString().trim();

@@ -1,8 +1,8 @@
 package app.githubble.mobile.ui;
 
 import android.app.Activity;
-import android.app.AlertDialog;
-import android.app.ProgressDialog;
+import app.githubble.mobile.ui.SheetDialog;
+import app.githubble.mobile.ui.SheetProgress;
 import android.graphics.Typeface;
 import android.text.Editable;
 import android.text.TextWatcher;
@@ -67,7 +67,7 @@ public final class RepositoryComparisonScreen {
     }
 
     private static void error(Activity a, String message) {
-        new AlertDialog.Builder(a).setTitle("Сравнение репозиториев")
+        new SheetDialog.Builder(a).setTitle("Сравнение репозиториев")
                 .setMessage(message == null ? "Операция не выполнена" : message)
                 .setPositiveButton("Закрыть", null).show();
     }
@@ -163,7 +163,7 @@ public final class RepositoryComparisonScreen {
 
             compare.setEnabled(false);
             results.removeAllViews();
-            ProgressDialog spinner = ProgressDialog.show(activity, "Сравнение Git",
+            SheetProgress spinner = SheetProgress.show(activity, "Сравнение Git",
                     "Загружаются деревья обеих основных веток…", true, false);
             background.execute(() -> {
                 try {
@@ -316,7 +316,7 @@ public final class RepositoryComparisonScreen {
                 return;
             }
             List<String> chosen = new ArrayList<>(selected);
-            new AlertDialog.Builder(activity)
+            new SheetDialog.Builder(activity)
                     .setTitle("Перенести выбранные файлы?")
                     .setMessage("Создать отдельную ветку и черновик Pull Request в "
                             + comparison.destination + "?\n\nФайлов: " + chosen.size()
@@ -324,7 +324,7 @@ public final class RepositoryComparisonScreen {
                     .setNegativeButton("Отмена", null)
                     .setPositiveButton("Создать PR", (d, which) -> {
                         stage.setEnabled(false);
-                        ProgressDialog progress = ProgressDialog.show(activity, "Выборочный перенос",
+                        SheetProgress progress = SheetProgress.show(activity, "Выборочный перенос",
                                 "Проверка SHA, передача файлов и создание PR…", true, false);
                         background.execute(() -> {
                             try {
@@ -332,7 +332,7 @@ public final class RepositoryComparisonScreen {
                                         manager.preparePullRequest(comparison, chosen);
                                 activity.runOnUiThread(() -> {
                                     progress.dismiss(); stage.setEnabled(true);
-                                    new AlertDialog.Builder(activity)
+                                    new SheetDialog.Builder(activity)
                                             .setTitle("Черновик PR создан")
                                             .setMessage("Перенесено файлов: " + pr.files + "\nВетка: "
                                                     + pr.branch + "\n\nИзменения ожидают проверки.")

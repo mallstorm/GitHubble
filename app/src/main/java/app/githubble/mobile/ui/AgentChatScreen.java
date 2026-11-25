@@ -339,7 +339,7 @@ public final class AgentChatScreen {
                 TextView save=label("⤓  Сохранить изображение",12,true,accent);save.setPadding(0,dp(8),0,dp(8));
                 save.setOnClickListener(v->actions.exportMedia(path,mime));preview.setOnClickListener(v->{
                     ImageView full=new ImageView(activity);full.setImageBitmap(bitmap);full.setAdjustViewBounds(true);
-                    new android.app.AlertDialog.Builder(activity).setView(full).setPositiveButton("Сохранить",(d,w)->actions.exportMedia(path,mime)).setNegativeButton("Закрыть",null).show();
+                    new app.githubble.mobile.ui.SheetDialog.Builder(activity).setView(full).setPositiveButton("Сохранить",(d,w)->actions.exportMedia(path,mime)).setNegativeButton("Закрыть",null).show();
                 });bubble.addView(save);
             }catch(Exception unavailable){/* Keep text history readable when media was removed. */}
         }
@@ -528,7 +528,7 @@ public final class AgentChatScreen {
         TextView view=new TextView(activity);view.setText(body);view.setTextSize(16);view.setTextIsSelectable(true);
         view.setLineSpacing(dp(2),1.05f);view.setPadding(dp(20),dp(12),dp(20),dp(8));
         ScrollView scroll=new ScrollView(activity);scroll.addView(view);
-        new android.app.AlertDialog.Builder(activity).setTitle("Выделить текст").setView(scroll)
+        new app.githubble.mobile.ui.SheetDialog.Builder(activity).setTitle("Выделить текст").setView(scroll)
             .setPositiveButton("Закрыть",null)
             .setNeutralButton("Копировать всё",(d,w)->{
                 ClipboardManager cb=(ClipboardManager)activity.getSystemService(Context.CLIPBOARD_SERVICE);
@@ -595,7 +595,7 @@ public final class AgentChatScreen {
         chip.setOnClickListener(v->{
             String[] titles=new String[sources.size()];
             for(int i=0;i<titles.length;i++)titles[i]=sources.get(i).title+"\n"+sources.get(i).host;
-            new android.app.AlertDialog.Builder(activity).setTitle(MessageSources.count(sources.size())).setItems(titles,(d,which)->{
+            new app.githubble.mobile.ui.SheetDialog.Builder(activity).setTitle(MessageSources.count(sources.size())).setItems(titles,(d,which)->{
                 try{activity.startActivity(new android.content.Intent(android.content.Intent.ACTION_VIEW,android.net.Uri.parse(sources.get(which).url)));}
                 catch(Exception ignored){android.widget.Toast.makeText(activity,"Нет приложения для открытия ссылки",android.widget.Toast.LENGTH_SHORT).show();}
             }).setNegativeButton("Закрыть",null).show();

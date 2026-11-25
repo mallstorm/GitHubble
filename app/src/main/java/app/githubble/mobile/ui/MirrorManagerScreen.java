@@ -1,8 +1,8 @@
 package app.githubble.mobile.ui;
 
 import android.app.Activity;
-import android.app.AlertDialog;
-import android.app.ProgressDialog;
+import app.githubble.mobile.ui.SheetDialog;
+import app.githubble.mobile.ui.SheetProgress;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.graphics.Typeface;
@@ -119,7 +119,7 @@ public final class MirrorManagerScreen {
                     try{MirrorPolicy.requireName(repoName);}
                     catch(Exception invalid){name.setError(invalid.getMessage());return;}
                     String existing=targets.get(index).login+"/"+repoName;
-                    new AlertDialog.Builder(activity)
+                    new SheetDialog.Builder(activity)
                         .setTitle("Связать существующие репозитории?")
                         .setMessage(source+" ↔ "+existing
                                 +"\n\nНикакие файлы, ветки и настройки репозиториев не меняются. "
@@ -139,7 +139,7 @@ public final class MirrorManagerScreen {
                     catch(Exception invalid){name.setError(invalid.getMessage());return;}
                     GitHubAccountStore.Account dstAccount=targets.get(index);
                     String destination=dstAccount.login+"/"+repoName;
-                    new AlertDialog.Builder(activity)
+                    new SheetDialog.Builder(activity)
                         .setTitle("Копировать репозиторий?")
                         .setMessage(source+"  →  "+destination
                                 +"\n\nСоздадим новый пустой репозиторий и перенесём "
@@ -182,7 +182,7 @@ public final class MirrorManagerScreen {
         if(anyFailed){
             TextView clear=body(activity,"Очистить ошибки",accent,12);
             clear.setPadding(dp(activity,4),dp(activity,5),dp(activity,12),dp(activity,5));
-            clear.setOnClickListener(v->new AlertDialog.Builder(activity)
+            clear.setOnClickListener(v->new SheetDialog.Builder(activity)
                     .setTitle("Убрать неудачные записи?")
                     .setMessage("Будут удалены записи со статусами «Ошибка», «Требуется проверка» и «Различаются снимки». Репозитории на GitHub не затрагиваются.")
                     .setNegativeButton("Отмена",null)
@@ -261,7 +261,7 @@ public final class MirrorManagerScreen {
                 Button discard=button(activity,"Удалить запись из истории",0xFFC75B66,card,border,false);
                 LinearLayout.LayoutParams dp0=new LinearLayout.LayoutParams(-1,dp(activity,44));
                 dp0.setMargins(0,dp(activity,8),0,0);
-                discard.setOnClickListener(v->new AlertDialog.Builder(activity)
+                discard.setOnClickListener(v->new SheetDialog.Builder(activity)
                         .setTitle("Удалить запись?")
                         .setMessage("Запись о переносе "+job.source+" → "+job.destination
                                 +" исчезнет из истории. Репозитории на GitHub не затрагиваются; временные файлы переноса будут удалены, если они остались.")
@@ -384,7 +384,7 @@ public final class MirrorManagerScreen {
 
     private static void confirmTransfer(Activity a,Executor executor,MirrorManager manager,
             MirrorLinkRegistry.Link link,String from,String to,Runnable reload){
-        new AlertDialog.Builder(a)
+        new SheetDialog.Builder(a)
             .setTitle("Перенести изменения?")
             .setMessage(from+"  →  "+to
                     +"\n\nЕсли Git-история допускает fast-forward, существующий "
@@ -400,7 +400,7 @@ public final class MirrorManagerScreen {
 
     private static void runInspect(Activity a,Executor executor,MirrorManager manager,
             String linkId,String from){
-        ProgressDialog progress=ProgressDialog.show(a,"Mirror Manager",
+        SheetProgress progress=SheetProgress.show(a,"Mirror Manager",
                 "Проверяем состояние двух репозиториев…",true,false);
         executor.execute(()->{
             try{
@@ -420,13 +420,13 @@ public final class MirrorManagerScreen {
                 a.runOnUiThread(()->{
                     if(a.isFinishing())return;
                     progress.dismiss();
-                    new AlertDialog.Builder(a).setTitle("Сравнение Git-истории")
+                    new SheetDialog.Builder(a).setTitle("Сравнение Git-истории")
                             .setMessage(message).setPositiveButton("Закрыть",null).show();
                 });
             }catch(Exception error){a.runOnUiThread(()->{
                 if(a.isFinishing())return;
                 progress.dismiss();
-                new AlertDialog.Builder(a).setTitle("Не удалось сравнить")
+                new SheetDialog.Builder(a).setTitle("Не удалось сравнить")
                         .setMessage(error.getMessage()).setPositiveButton("OK",null).show();
             });}
         });
@@ -434,7 +434,7 @@ public final class MirrorManagerScreen {
 
     private interface LinkTask{MirrorLinkRegistry.Link execute()throws Exception;}
     private static void runLink(Activity a,Executor background,String label,LinkTask task,Runnable reload){
-        ProgressDialog progress=ProgressDialog.show(a,label,"Проверяем Git-историю…",true,false);
+        SheetProgress progress=SheetProgress.show(a,label,"Проверяем Git-историю…",true,false);
         background.execute(()->{
             try{
                 MirrorLinkRegistry.Link link=task.execute();
@@ -442,7 +442,7 @@ public final class MirrorManagerScreen {
                     if(a.isFinishing())return;
                     progress.dismiss();
                     reload.run();
-                    new AlertDialog.Builder(a).setTitle("Репозитории связаны")
+                    new SheetDialog.Builder(a).setTitle("Репозитории связаны")
                             .setMessage(link.left+" ⇄ "+link.right
                                     +"\n\nТеперь доступны «Отправить» и «Получить» с обеих сторон.")
                             .setPositiveButton("OK",null).show();
@@ -450,7 +450,7 @@ public final class MirrorManagerScreen {
             }catch(Exception error){a.runOnUiThread(()->{
                 if(a.isFinishing())return;
                 progress.dismiss();
-                new AlertDialog.Builder(a).setTitle("Связь не создана")
+                new SheetDialog.Builder(a).setTitle("Связь не создана")
                         .setMessage(error.getMessage()).setPositiveButton("OK",null).show();
             });}
         });
@@ -476,7 +476,7 @@ public final class MirrorManagerScreen {
             a.runOnUiThread(()->{
                 if(a.isFinishing()||!MirrorLiveProgress.attached())return;
                 reload.run();
-                if(message!=null)new AlertDialog.Builder(a).setTitle("Зеркалирование")
+                if(message!=null)new SheetDialog.Builder(a).setTitle("Зеркалирование")
                         .setMessage(message).setPositiveButton("OK",null).show();
             });
         });
