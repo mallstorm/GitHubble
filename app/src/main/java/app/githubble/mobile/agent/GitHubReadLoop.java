@@ -24,6 +24,14 @@ public final class GitHubReadLoop {
                 ||q.contains("how many")||q.contains("list ")||q.contains("show "));
     }
 
+    /** «Сравни», «таблицей», «на каком аккаунте» — the user wants projects matched against accounts. */
+    static boolean wantsComparison(String question){
+        if(question==null)return false;
+        String q=question.toLowerCase(Locale.ROOT);
+        return q.contains("сравн")||q.contains("сопостав")||q.contains("табли")||q.contains("на каком аккаунт")
+            ||q.contains("по аккаунт")||q.contains("compare")||q.contains("table")||q.contains("matrix");
+    }
+
     public static String directAnswer(GitHubAgentBridge github,String owner,String question)throws Exception{
         Objects.requireNonNull(github,"github");
         if(question!=null&&question.trim().equalsIgnoreCase("/github whoami")){
@@ -34,48 +42,89 @@ public final class GitHubReadLoop {
         boolean countOnly=question!=null&&(question.toLowerCase(Locale.ROOT).contains("сколько")
             ||question.toLowerCase(Locale.ROOT).contains("how many"))
             &&!question.toLowerCase(Locale.ROOT).contains("покажи")&&!question.toLowerCase(Locale.ROOT).contains("список");
-        if(github.connectedAccounts(owner).optInt("count")>1)return allAccountsAnswer(github.listAllRepositories(owner),countOnly);
+        if(github.connectedAccounts(owner).optInt("count")>1)
+            return allAccountsAnswer(github.listAllRepositories(owner),countOnly,wantsComparison(question));
         JSONObject data=github.listAccessibleRepositories(owner);
         JSONArray repos=data.getJSONArray("repositories");
         StringBuilder answer=new StringBuilder();
-        answer.append("GitHub @").append(data.optString("account"))
-            .append(": доступно ").append(data.optInt("count")).append(" репозиториев");
+        answer.append("## @").append(data.optString("account")).append(" — ").append(data.optInt("count")).append(" репозиториев");
         if(data.optBoolean("truncated"))answer.append(" (показаны первые 1000; список неполный)");
-        answer.append(".\n");
-        if(!countOnly){
-            int show=Math.min(80,repos.length());
-            for(int i=0;i<show;i++){
-                JSONObject repo=repos.getJSONObject(i);
-                answer.append("\n").append(i+1).append(". ").append(repo.optString("full_name"))
-                    .append(repo.optBoolean("private")?" · приватный":" · публичный");
-            }
-            if(repos.length()>show)answer.append("\n… ещё ").append(repos.length()-show)
-                .append(". Полный список доступен в разделе «Репозитории».");
-        }
-        answer.append("\nИсточник: GitHub API активного аккаунта. Видимость зависит от OAuth-разрешений.");
+        answer.append("\n");
+        if(!countOnly)repoTable(answer,repos,80);
+        answer.append("\n*Источник: GitHub API активного аккаунта. Видимость зависит от OAuth-разрешений.*");
         return answer.toString();
     }
 
-    /** Every connected account with its real repository names (never a profile estimate). */
-    static String allAccountsAnswer(JSONObject all,boolean countOnly)throws Exception{
+    /** Two-column Markdown table (it renders as a real table on a phone, not as cards). */
+    private static void repoTable(StringBuilder out,JSONArray repos,int limit){
+        int show=repos==null?0:Math.min(limit,repos.length());
+        if(show==0){out.append("\nРепозиториев нет.\n");return;}
+        out.append("\n| Репозиторий | Доступ |\n| --- | --- |\n");
+        for(int i=0;i<show;i++){
+            JSONObject repo=repos.optJSONObject(i);
+            if(repo==null)continue;
+            out.append("| ").append(cell(repo.optString("full_name"))).append(" | ")
+                .append(repo.optBoolean("private")?"приватный":"публичный").append(" |\n");
+        }
+        if(repos.length()>show)out.append("\n… ещё ").append(repos.length()-show).append(". Полный список — в разделе «Репозитории».\n");
+    }
+
+    private static String cell(String text){
+        return text==null?"":text.replace("|","\\|").replace("\n"," ");
+    }
+
+    /** Every connected account with its real repository names, as Markdown tables (never a profile estimate). */
+    static String allAccountsAnswer(JSONObject all,boolean countOnly,boolean compare)throws Exception{
         JSONArray accounts=all.getJSONArray("accounts");
-        StringBuilder out=new StringBuilder("Подключено аккаунтов GitHub: ").append(accounts.length())
-            .append(", репозиториев всего: ").append(all.optInt("total_repositories")).append(".\n");
+        StringBuilder out=new StringBuilder("**Подключено аккаунтов GitHub: ").append(accounts.length())
+            .append(" · репозиториев всего: ").append(all.optInt("total_repositories")).append("**\n");
+        out.append("\n## Аккаунты\n\n| Аккаунт | Репозиториев |\n| --- | --- |\n");
         for(int a=0;a<accounts.length();a++){
             JSONObject account=accounts.getJSONObject(a);
-            out.append("\n@").append(account.optString("login")).append(account.optBoolean("active")?" (активный)":"");
-            if(account.has("error")){out.append(" — ").append(account.optString("error")).append("\n");continue;}
-            out.append(" — ").append(account.optInt("count")).append(account.optBoolean("truncated")?"+ (список неполный)":"").append(":\n");
-            if(countOnly)continue;
+            out.append("| @").append(cell(account.optString("login"))).append(account.optBoolean("active")?" (активный)":"").append(" | ");
+            if(account.has("error")){out.append(cell(account.optString("error"))).append(" |\n");continue;}
             JSONArray repos=account.optJSONArray("repositories");
-            int show=repos==null?0:Math.min(40,repos.length());
-            for(int i=0;i<show;i++){
-                JSONObject repo=repos.getJSONObject(i);
-                out.append("• ").append(repo.optString("full_name")).append(repo.optBoolean("private")?" · приватный":" · публичный").append("\n");
-            }
-            if(repos!=null&&repos.length()>show)out.append("… ещё ").append(repos.length()-show).append("\n");
+            int priv=0;
+            for(int i=0;repos!=null&&i<repos.length();i++)if(repos.getJSONObject(i).optBoolean("private"))priv++;
+            out.append(account.optInt("count")).append(account.optBoolean("truncated")?"+":"")
+                .append(" · приватных ").append(priv).append(" |\n");
         }
-        return out.append("\nИсточник: GitHub API каждого подключённого аккаунта; полный список — в разделе «Репозитории».").toString();
+        if(compare){
+            // project (short name) -> accounts that have it; own copies and access to somebody else's copy are told apart.
+            java.util.Map<String,java.util.List<String>> where=new java.util.LinkedHashMap<>();
+            java.util.Map<String,String> title=new java.util.HashMap<>();
+            for(int a=0;a<accounts.length();a++){
+                JSONObject account=accounts.getJSONObject(a);
+                String login=account.optString("login");
+                JSONArray repos=account.optJSONArray("repositories");
+                for(int i=0;repos!=null&&i<repos.length();i++){
+                    String full=repos.getJSONObject(i).optString("full_name");
+                    int slash=full.indexOf('/');
+                    String name=slash<0?full:full.substring(slash+1);
+                    String ownerName=slash<0?login:full.substring(0,slash);
+                    String key=name.toLowerCase(Locale.ROOT);
+                    title.putIfAbsent(key,name);
+                    where.computeIfAbsent(key,k->new java.util.ArrayList<>())
+                        .add("@"+login+(ownerName.equalsIgnoreCase(login)?"":" (доступ к "+ownerName+")"));
+                }
+            }
+            java.util.List<String> keys=new java.util.ArrayList<>(where.keySet());
+            java.util.Collections.sort(keys,(x,y)->{
+                int byCount=Integer.compare(where.get(y).size(),where.get(x).size());
+                return byCount!=0?byCount:x.compareTo(y);
+            });
+            out.append("\n## Проекты и аккаунты\n\n| Проект | Где есть |\n| --- | --- |\n");
+            for(String key:keys)out.append("| ").append(cell(title.get(key))).append(" | ")
+                .append(cell(String.join(" · ",where.get(key)))).append(" |\n");
+        }else if(!countOnly){
+            for(int a=0;a<accounts.length();a++){
+                JSONObject account=accounts.getJSONObject(a);
+                if(account.has("error"))continue;
+                out.append("\n## @").append(cell(account.optString("login"))).append(" — ").append(account.optInt("count")).append("\n");
+                repoTable(out,account.optJSONArray("repositories"),40);
+            }
+        }
+        return out.append("\n*Источник: GitHub API каждого подключённого аккаунта.*").toString();
     }
 
     /**
