@@ -13,8 +13,6 @@ public final class DeployKeysTest {
     }
     @Test public void previewHidesTheMiddleOfTheKey(){
         String preview=DeployKeys.preview("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl user");
-        assertEquals("ssh-ed25519 AAAAC3Nz…dh2l9GKJl".replace("dh2l9GKJl","2l9GKJl"),preview.replace("…","…").replaceAll("….*(.{8})$","…$1").replace("AAAAC3Nz…","AAAAC3Nz…"));
-        assertTrue(preview.startsWith("ssh-ed25519 AAAAC3Nz…"));
-        assertFalse(preview.contains("user"));
+        assertEquals("ssh-ed25519 AAAAC3Nz…h2l9GKJl",preview);
     }
 }
