@@ -150,6 +150,7 @@ public class MainActivity extends Activity {
     private app.githubble.mobile.memory.MemoryHub agentMemory;
     private app.githubble.mobile.agent.WorkspaceHub agentWorkspaces;
     private final ActionsScreens actionsScreens=new ActionsScreens(this);
+    private final ActionsSecretsScreen actionsSecrets=new ActionsSecretsScreen(this);
     private app.githubble.mobile.ui.AgentFeatureScreens agentFeatures;
     private app.githubble.mobile.ui.AgentFeatureScreens agentFeatures(String owner){
         agentFeatures=new app.githubble.mobile.ui.AgentFeatureScreens(this,owner,()->accountStore.activeCacheKey(),agentProjects,agentMemory,io,BG,CARD,TEXT,MUTED,GREEN,BORDER,()->agentRefreshIfCurrent(owner));
@@ -465,6 +466,14 @@ public class MainActivity extends Activity {
     }
 
     private static final int REQUEST_APP_LOCK = 7741;
+    private static final int REQUEST_SECRET_FILE = 2731;
+    private java.util.function.Consumer<android.net.Uri> pendingSecretFile;
+    /** Lets the user choose one file (a keystore or a credentials file for a secret); the receiver gets its Uri. */
+    void pickFile(java.util.function.Consumer<android.net.Uri> receiver){
+        pendingSecretFile=receiver;
+        Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT);intent.addCategory(Intent.CATEGORY_OPENABLE);intent.setType("*/*");
+        startActivityForResult(intent,REQUEST_SECRET_FILE);
+    }
     private long lockBackgroundedAt, lockUnlockedAt;
     private boolean lockPrompting;
     private View lockOverlay;
@@ -4288,8 +4297,8 @@ public class MainActivity extends Activity {
         LinearLayout tabs=new LinearLayout(this);
         tabs.setOrientation(LinearLayout.HORIZONTAL);
         tabs.setGravity(Gravity.CENTER_VERTICAL);
-        final String[] names={"Сборки","Артефакты"};
-        for(int i=0;i<2;i++){
+        final String[] names={"Сборки","Артефакты","Секреты"};
+        for(int i=0;i<3;i++){
             final int position=i;
             Button tab=button(names[i]);
             tab.setTextSize(13);
@@ -4303,10 +4312,11 @@ public class MainActivity extends Activity {
             tab.setOnClickListener(v->{
                 if(selected==position)return;
                 if(position==0)navigate(()->showBuildCenter(full));
-                else navigate(()->actionsScreens.showActionsStorage(full));
+                else if(position==1)navigate(()->actionsScreens.showActionsStorage(full));
+                else navigate(()->actionsSecrets.show(full,0));
             });
             LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(0,dp(48),1f);
-            if(i==1)params.setMargins(dp(9),0,0,0);
+            if(i>0)params.setMargins(dp(9),0,0,0);
             tabs.addView(tab,params);
         }
         LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,dp(48));
@@ -6693,6 +6703,10 @@ public class MainActivity extends Activity {
         Button retention=button("⚙  Хранилище Actions · срок и лимиты");
         retention.setOnClickListener(v->navigate(()->actionsScreens.showActionsStorage(full)));
         content.addView(retention,new LinearLayout.LayoutParams(-1,dp(50)));
+        Button secretsButton=button("🔑  Секреты и переменные · ключ подписи");
+        secretsButton.setOnClickListener(v->navigate(()->actionsSecrets.show(full,0)));
+        LinearLayout.LayoutParams secretsParams=new LinearLayout.LayoutParams(-1,dp(50));secretsParams.setMargins(0,dp(8),0,dp(8));
+        content.addView(secretsButton,secretsParams);
         GridLayout settings=new GridLayout(this);settings.setColumnCount(adaptiveColumns(2));
         if(admin){addAction(settings,"Имя и описание",()->showEditRepositoryDialog(full,repo));addAction(settings,isPrivate?"Сделать публичным":"Сделать приватным",()->showRepositoryVisibilityDialog(full,isPrivate));addAction(settings,"Удалить репозиторий",()->showDeleteRepositoryDialog(full));}
         else{TextView ro=text("У вашего аккаунта нет административных прав на этот репозиторий. Загрузка кода и обычные Git-операции остаются доступны в пределах выданных разрешений.",12,false);ro.setTextColor(MUTED);settings.addView(ro,new GridLayout.LayoutParams());}
@@ -10479,6 +10493,11 @@ public class MainActivity extends Activity {
 
     @Override protected void onActivityResult(int requestCode,int resultCode,Intent data){
         super.onActivityResult(requestCode,resultCode,data);
+        if(requestCode==REQUEST_SECRET_FILE){
+            java.util.function.Consumer<android.net.Uri> receiver=pendingSecretFile;pendingSecretFile=null;
+            if(resultCode==RESULT_OK&&data!=null&&data.getData()!=null&&receiver!=null)receiver.accept(data.getData());
+            return;
+        }
         if(requestCode==REQUEST_APP_LOCK){
             lockPrompting=false;
             if(resultCode==RESULT_OK){lockUnlockedAt=SystemClock.elapsedRealtime();hideAppLock();}
