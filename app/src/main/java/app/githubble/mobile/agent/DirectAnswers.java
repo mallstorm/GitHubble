@@ -4,6 +4,7 @@ package app.githubble.mobile.agent;
 public final class DirectAnswers {
     private DirectAnswers() {}
     public static boolean handles(String question) {
+        if(!AgentInstructions.directAnswers())return false;
         if(question==null||question.length()>1500)return false;
         String q=question.toLowerCase(java.util.Locale.ROOT);
         boolean changes=q.matches("(?s).*(?:исправ|измен|созда|добав|собер|сборк|удал|repair|fix|edit|build|create|delete).*");

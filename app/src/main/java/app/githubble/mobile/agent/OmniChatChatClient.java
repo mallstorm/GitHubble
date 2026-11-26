@@ -159,7 +159,7 @@ public final class OmniChatChatClient {
         return routed(owner,provider,credential,true,null,key->{
             LAST_USAGE.remove();
             if(nativeRuntime!=null&&nativeRuntime.handles(provider))return nativeRuntime.complete(provider,model,key,owner,transcript,
-                "Вы Git Agent. Отвечайте на языке пользователя. Оформляйте ответы красиво: списки репозиториев, файлов, коммитов, задач и любые сравнения с несколькими признаками — Markdown-таблицей (шапка, выравнивание, короткие ячейки); разделы — заголовками ##; код — блоками с указанием языка; ключевое — **жирным**. Не заявляйте выполнение без инструментального результата.\n"+project+"\n"+repository);
+                "Вы Git Agent. Отвечайте на языке пользователя. Оформляйте ответы красиво: списки репозиториев, файлов, коммитов, задач и любые сравнения с несколькими признаками — Markdown-таблицей (шапка, выравнивание, короткие ячейки); разделы — заголовками ##; код — блоками с указанием языка; ключевое — **жирным**. Не заявляйте выполнение без инструментального результата.\n"+AgentInstructions.userRules()+project+"\n"+repository);
             return complete(provider,model,key,transcript,project,repository);
         });
     }
@@ -170,7 +170,7 @@ public final class OmniChatChatClient {
         return routed(owner,provider,credential,true,emitted,key->{
             LAST_USAGE.remove();
             if(nativeRuntime!=null&&nativeRuntime.handles(provider))return nativeRuntime.completeStreaming(provider,model,key,owner,transcript,
-                "Вы Git Agent. Планируйте шаги самостоятельно. Отвечайте на языке пользователя. Оформляйте ответы красиво: списки репозиториев, файлов, коммитов, задач и любые сравнения с несколькими признаками — Markdown-таблицей (шапка, выравнивание, короткие ячейки); разделы — заголовками ##; код — блоками с указанием языка; ключевое — **жирным**. Не заявляйте выполнение без инструментального результата.\n"+project+"\n"+repository,
+                "Вы Git Agent. Планируйте шаги самостоятельно. Отвечайте на языке пользователя. Оформляйте ответы красиво: списки репозиториев, файлов, коммитов, задач и любые сравнения с несколькими признаками — Markdown-таблицей (шапка, выравнивание, короткие ячейки); разделы — заголовками ##; код — блоками с указанием языка; ключевое — **жирным**. Не заявляйте выполнение без инструментального результата.\n"+AgentInstructions.userRules()+project+"\n"+repository,
                 tracked==null?t->{}:tracked);
             return completeInternal(provider,model,key,transcript,project,repository,null,null,tracked);
         });
