@@ -32,4 +32,12 @@ public final class RepoSecretsTest {
         List<RepoSecrets.Item> vars=RepoSecrets.parse(new JSONObject("{\"variables\":[{\"name\":\"MODE\",\"value\":\"prod\"}]}"),Kind.ACTIONS_VARIABLE);
         assertEquals("prod",vars.get(0).value);
     }
+    @Test public void environmentEndpointsAreEncodedAndScoped(){
+        assertEquals("https://api.github.com/repos/o/r/environments/production/secrets",RepoSecrets.base("o/r",Kind.ACTIONS_SECRET,"production"));
+        assertEquals("https://api.github.com/repos/o/r/environments/staging%2Feu%20west/variables",RepoSecrets.base("o/r",Kind.ACTIONS_VARIABLE,"staging/eu west"));
+        try{RepoSecrets.base("o/r",Kind.DEPENDABOT_SECRET,"production");fail();}catch(IllegalArgumentException expected){}
+        try{RepoSecrets.checkEnvironment("  ");fail();}catch(IllegalArgumentException expected){}
+        try{RepoSecrets.checkEnvironment("a\nb");fail();}catch(IllegalArgumentException expected){}
+        assertEquals("prod",RepoSecrets.checkEnvironment(" prod "));
+    }
 }

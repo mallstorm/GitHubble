@@ -51,13 +51,63 @@ public final class RepoSecrets {
         return value;
     }
 
-    static String base(String repo, Kind kind) { return "https://api.github.com/repos/" + checkRepo(repo) + "/" + kind.area + "/" + kind.collection; }
+    static String base(String repo, Kind kind) { return base(repo, kind, null); }
 
-    public static List<Item> list(GitHubApiClient api, String repo, Kind kind) throws Exception {
+    /** Collection URL of the repository, or of one of its environments when {@code env} is given. */
+    static String base(String repo, Kind kind, String env) {
+        if (env == null) return "https://api.github.com/repos/" + checkRepo(repo) + "/" + kind.area + "/" + kind.collection;
+        if (kind == Kind.DEPENDABOT_SECRET) throw new IllegalArgumentException("У окружений нет секретов Dependabot");
+        return environmentUrl(repo, env) + "/" + kind.collection;
+    }
+
+    /** Environment names may hold spaces and slashes; the API needs them percent-encoded (slash as %2F). */
+    public static String checkEnvironment(String raw) {
+        String name = raw == null ? "" : raw.trim();
+        if (name.isEmpty()) throw new IllegalArgumentException("Введите название окружения");
+        if (name.length() > 255) throw new IllegalArgumentException("Название длиннее 255 символов");
+        for (int i = 0; i < name.length(); i++) if (Character.isISOControl(name.charAt(i))) throw new IllegalArgumentException("В названии недопустимые символы");
+        return name;
+    }
+
+    static String environmentUrl(String repo, String env) {
+        String name = checkEnvironment(env);
+        try { return "https://api.github.com/repos/" + checkRepo(repo) + "/environments/" + java.net.URLEncoder.encode(name, "UTF-8").replace("+", "%20"); }
+        catch (java.io.UnsupportedEncodingException impossible) { throw new IllegalStateException(impossible); }
+    }
+
+    public static List<Item> listEnvironments(GitHubApiClient api, String repo) throws Exception {
+        List<Item> out = new ArrayList<>();
+        for (int page = 1; page <= 10; page++) {
+            JSONObject json = api.getJsonFresh("https://api.github.com/repos/" + checkRepo(repo) + "/environments?per_page=100&page=" + page);
+            JSONArray array = json.optJSONArray("environments");
+            if (array == null) break;
+            for (int i = 0; i < array.length(); i++) {
+                JSONObject x = array.optJSONObject(i);
+                if (x != null && !x.optString("name").isEmpty()) out.add(new Item(x.optString("name"), "", x.optString("created_at"), x.optString("updated_at")));
+            }
+            if (array.length() < 100) break;
+        }
+        return out;
+    }
+
+    /** Creates the environment, or leaves an existing one unchanged. */
+    public static void createEnvironment(GitHubApiClient api, String repo, String env) throws Exception {
+        api.putJson(environmentUrl(repo, env), new JSONObject());
+    }
+
+    /** Removing an environment also removes its secrets, variables and protection rules. */
+    public static void deleteEnvironment(GitHubApiClient api, String repo, String env) throws Exception {
+        try { api.delete(environmentUrl(repo, env)); }
+        catch (GitHubApiClient.ApiException e) { if (e.statusCode != 404) throw e; }
+    }
+
+    public static List<Item> list(GitHubApiClient api, String repo, Kind kind) throws Exception { return list(api, repo, kind, null); }
+
+    public static List<Item> list(GitHubApiClient api, String repo, Kind kind, String env) throws Exception {
         List<Item> out = new ArrayList<>();
         int perPage = kind.variable ? 30 : 100;
         for (int page = 1; page <= 20; page++) {
-            JSONObject json = api.getJsonFresh(base(repo, kind) + "?per_page=" + perPage + "&page=" + page);
+            JSONObject json = api.getJsonFresh(base(repo, kind, env) + "?per_page=" + perPage + "&page=" + page);
             out.addAll(parse(json, kind));
             JSONArray array = json.optJSONArray(kind.collection);
             if (array == null || array.length() < perPage) break;
@@ -78,30 +128,36 @@ public final class RepoSecrets {
     }
 
     /** Creates or replaces a secret; the plain value never leaves the phone unencrypted. */
-    public static void putSecret(GitHubApiClient api, String repo, Kind kind, String rawName, String value) throws Exception {
+    public static void putSecret(GitHubApiClient api, String repo, Kind kind, String rawName, String value) throws Exception { putSecret(api, repo, kind, null, rawName, value); }
+
+    public static void putSecret(GitHubApiClient api, String repo, Kind kind, String env, String rawName, String value) throws Exception {
         if (kind.variable) throw new IllegalArgumentException("Это переменная, а не секрет");
         String name = checkName(rawName);
         checkValue(value);
-        JSONObject key = api.getJsonFresh(base(repo, kind) + "/public-key");
+        JSONObject key = api.getJsonFresh(base(repo, kind, env) + "/public-key");
         String id = key.optString("key_id"), pub = key.optString("key");
         if (id.isEmpty() || pub.isEmpty()) throw new SecurityException("GitHub не вернул публичный ключ репозитория");
         byte[] raw = value.getBytes(StandardCharsets.UTF_8);
         try {
-            api.putJson(base(repo, kind) + "/" + name, new JSONObject().put("key_id", id).put("encrypted_value", MirrorSecrets.encryptForGitHub(raw, pub)));
+            api.putJson(base(repo, kind, env) + "/" + name, new JSONObject().put("key_id", id).put("encrypted_value", MirrorSecrets.encryptForGitHub(raw, pub)));
         } finally { Arrays.fill(raw, (byte) 0); }
     }
 
     /** Creates a variable, or changes its value when it already exists. */
-    public static void saveVariable(GitHubApiClient api, String repo, String rawName, String value, boolean exists) throws Exception {
+    public static void saveVariable(GitHubApiClient api, String repo, String rawName, String value, boolean exists) throws Exception { saveVariable(api, repo, null, rawName, value, exists); }
+
+    public static void saveVariable(GitHubApiClient api, String repo, String env, String rawName, String value, boolean exists) throws Exception {
         String name = checkName(rawName);
         checkValue(value);
-        String url = base(repo, Kind.ACTIONS_VARIABLE);
+        String url = base(repo, Kind.ACTIONS_VARIABLE, env);
         if (exists) api.patchJson(url + "/" + name, new JSONObject().put("name", name).put("value", value));
         else api.postJson(url, new JSONObject().put("name", name).put("value", value), true);
     }
 
-    public static void delete(GitHubApiClient api, String repo, Kind kind, String rawName) throws Exception {
-        try { api.delete(base(repo, kind) + "/" + checkName(rawName)); }
+    public static void delete(GitHubApiClient api, String repo, Kind kind, String rawName) throws Exception { delete(api, repo, kind, null, rawName); }
+
+    public static void delete(GitHubApiClient api, String repo, Kind kind, String env, String rawName) throws Exception {
+        try { api.delete(base(repo, kind, env) + "/" + checkName(rawName)); }
         catch (GitHubApiClient.ApiException e) { if (e.statusCode != 404) throw e; }
     }
 
