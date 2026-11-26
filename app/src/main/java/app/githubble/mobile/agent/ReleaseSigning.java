@@ -72,11 +72,35 @@ public final class ReleaseSigning {
     }
 
     public static void publish(GitHubApiClient api, String repo, Bundle bundle) throws Exception {
+        publishValues(api, repo, bundle.keystore, bundle.password, bundle.alias, bundle.password);
+    }
+
+    /** Writes the four signing secrets from any keystore, e.g. one the user already has (JKS or PKCS12). */
+    public static void publishValues(GitHubApiClient api, String repo, byte[] keystore, String storePassword, String alias, String keyPassword) throws Exception {
         JSONObject key = MirrorSecrets.publicKey(api, repo);
-        put(api, repo, key, S_KEYSTORE, Base64.getEncoder().encodeToString(bundle.keystore));
-        put(api, repo, key, S_STORE_PASSWORD, bundle.password);
-        put(api, repo, key, S_ALIAS, bundle.alias);
-        put(api, repo, key, S_KEY_PASSWORD, bundle.password);
+        put(api, repo, key, S_KEYSTORE, Base64.getEncoder().encodeToString(keystore));
+        put(api, repo, key, S_STORE_PASSWORD, storePassword);
+        put(api, repo, key, S_ALIAS, alias);
+        put(api, repo, key, S_KEY_PASSWORD, keyPassword);
+    }
+
+    /** Opens a user's keystore with its password to make sure the file and the alias are right before anything is uploaded. */
+    public static String verifyKeystore(byte[] keystore, String storePassword, String alias, String keyPassword) throws Exception {
+        java.security.KeyStore store = null;
+        Exception failure = null;
+        for (String type : new String[]{"PKCS12", "JKS"}) {
+            try {
+                java.security.KeyStore candidate = java.security.KeyStore.getInstance(type);
+                candidate.load(new java.io.ByteArrayInputStream(keystore), storePassword.toCharArray());
+                store = candidate; break;
+            } catch (Exception e) { failure = e; }
+        }
+        if (store == null) throw new IllegalArgumentException("Не удалось открыть keystore: проверьте файл и пароль хранилища" + (failure == null ? "" : " (" + failure.getClass().getSimpleName() + ")"));
+        if (!store.isKeyEntry(alias)) throw new IllegalArgumentException("В keystore нет ключа с alias «" + alias + "»");
+        try { store.getKey(alias, keyPassword.toCharArray()); }
+        catch (java.security.UnrecoverableKeyException e) { throw new IllegalArgumentException("Неверный пароль ключа"); }
+        java.security.cert.Certificate cert = store.getCertificate(alias);
+        return cert == null ? "" : hex(MessageDigest.getInstance("SHA-256").digest(cert.getEncoded()));
     }
 
     /** Keeps a local copy: losing the key would make every already-signed app impossible to update. */
