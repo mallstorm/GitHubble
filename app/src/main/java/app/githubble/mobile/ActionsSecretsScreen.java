@@ -20,29 +20,34 @@ import java.util.List;
 /** Repository «Секреты и переменные»: Actions secrets and variables, Dependabot secrets and the Android signing key, all on the phone. */
 final class ActionsSecretsScreen {
     private final MainActivity a;
-    ActionsSecretsScreen(MainActivity activity) { this.a = activity; }
+    ActionsSecretsScreen(MainActivity activity) { this.a = activity; this.protection = new EnvironmentProtectionView(activity); }
 
     /** Segments of the repository level; the last one lists environments. Inside an environment only the first two exist. */
-    private static final Kind[] KINDS = {Kind.ACTIONS_SECRET, Kind.ACTIONS_VARIABLE, Kind.DEPENDABOT_SECRET};
-    private static final int ENVIRONMENTS = 3;
+    private static final Kind[] KINDS = {Kind.ACTIONS_SECRET, Kind.ACTIONS_VARIABLE, Kind.DEPENDABOT_SECRET, Kind.CODESPACES_SECRET};
+    private static final int PROTECTION = 2;
+    /** True when opened from the Actions tabs; false when opened from the repository Settings. */
+    private boolean actionsTabs = true;
+    private final EnvironmentProtectionView protection;
 
-    void show(String full, int segment) { show(full, segment, null); }
+    void show(String full, int segment) { actionsTabs = true; show(full, segment, null); }
+
+    /** Entry from Settings → Secrets and variables (segments: Actions secrets, Actions variables, Dependabot, Codespaces). */
+    void settings(String full, int segment) { actionsTabs = false; show(full, segment, null); }
 
     void show(String full, int segment, String env) {
         if (!full.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")) { a.errorDialog("Секреты", "Некорректное имя репозитория"); return; }
         a.setCurrentScreen(() -> show(full, segment, env));
         a.shell(env == null ? "Секреты и переменные" : "Окружение", false);
-        a.repoSectionHeader(full, "GitHub Actions", env == null ? "Секреты и переменные" : "Окружение " + env, R.drawable.ic_android);
-        a.addRepositoryActionsTabs(full, 2);
+        a.repoSectionHeader(full, actionsTabs ? "GitHub Actions" : "Настройки", env == null ? "Secrets and variables" : "Окружение " + env, R.drawable.ic_android);
+        if (actionsTabs && env == null) a.addRepositoryActionsTabs(full, 2);
         if (!a.isSignedIn()) { a.accountRequiredCard("Подключите GitHub, чтобы управлять секретами."); return; }
-        if (env == null && segment == ENVIRONMENTS) { environments(full); return; }
-        final Kind kind = KINDS[segment];
+        final Kind kind = KINDS[env != null && segment == PROTECTION ? 0 : segment];
         final long generation = a.screenGeneration.get();
         final String account = a.currentAccountId();
         final LinearLayout host = a.content;
 
         LinearLayout segments = new LinearLayout(a);
-        String[] names = env == null ? new String[]{"Секреты", "Переменные", "Dependabot", "Окружения"} : new String[]{"Секреты окружения", "Переменные окружения"};
+        String[] names = env == null ? new String[]{"Actions", "Variables", "Dependabot", "Codespaces"} : new String[]{"Секреты", "Переменные", "Защита"};
         for (int i = 0; i < names.length; i++) {
             final int index = i; boolean active = i == segment;
             Button b = a.compactButton(names[i]);
@@ -59,14 +64,17 @@ final class ActionsSecretsScreen {
 
         if (env != null) {
             Button back = a.compactButton("←  К списку окружений");
-            back.setOnClickListener(v -> show(full, ENVIRONMENTS, null));
+            back.setOnClickListener(v -> environments(full));
             LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(-1, a.dp(40)); bp.setMargins(0, 0, 0, a.dp(10));
             a.content.addView(back, bp);
+            if (segment == PROTECTION) { protection.render(full, env, () -> show(full, segment, env)); return; }
         }
         TextView note = a.text(kind.variable
             ? "Переменные видны всем, кто имеет доступ к репозиторию, и подставляются в workflow как vars.ИМЯ. Для паролей и ключей используйте секреты."
             : (kind == Kind.DEPENDABOT_SECRET
                 ? "Секреты Dependabot доступны только его обновлениям и не видны обычным workflow."
+                : kind == Kind.CODESPACES_SECRET
+                ? "Секреты Codespaces попадают в окружение разработки репозитория как переменные окружения; значение шифруется на телефоне."
                 : "Значение шифруется на телефоне открытым ключом репозитория и в открытом виде никуда не уходит. После сохранения GitHub его никому не показывает: секрет можно только заменить или удалить. В workflow он доступен как secrets.ИМЯ."), 12, false);
         note.setTextColor(a.MUTED); a.card(note);
 
@@ -193,26 +201,16 @@ final class ActionsSecretsScreen {
 
     // ---- environments ---------------------------------------------------------------------------------------------
 
-    private void environments(String full) {
+    /** Settings → Environments: the list; each environment opens its secrets, variables and protection rules. */
+    void environments(String full) {
+        a.setCurrentScreen(() -> environments(full));
+        a.shell("Environments", false);
+        a.repoSectionHeader(full, actionsTabs ? "GitHub Actions" : "Настройки", "Environments", R.drawable.ic_android);
+        if (!a.isSignedIn()) { a.accountRequiredCard("Подключите GitHub, чтобы управлять окружениями."); return; }
         final long generation = a.screenGeneration.get();
         final String account = a.currentAccountId();
         final LinearLayout host = a.content;
-        LinearLayout segments = new LinearLayout(a);
-        String[] names = {"Секреты", "Переменные", "Dependabot", "Окружения"};
-        for (int i = 0; i < names.length; i++) {
-            final int index = i; boolean active = i == ENVIRONMENTS;
-            Button b = a.compactButton(names[i]);
-            b.setTextSize(11); b.setPadding(a.dp(2), 0, a.dp(2), 0); b.setMaxLines(1);
-            b.setTextColor(active ? 0xFFFFFFFF : a.GREEN);
-            b.setBackground(a.round(active ? a.GREEN : a.CARD, 13, active ? a.GREEN : a.BORDER, active ? 0 : 1));
-            b.setOnClickListener(v -> { if (index != ENVIRONMENTS) show(full, index, null); });
-            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, a.dp(42), 1f);
-            if (i > 0) p.setMargins(a.dp(8), 0, 0, 0);
-            segments.addView(b, p);
-        }
-        LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(-1, a.dp(42)); sp.setMargins(0, 0, 0, a.dp(10));
-        a.content.addView(segments, sp);
-        TextView note = a.text("Окружения (production, staging…) имеют свои секреты и переменные, которые видны только заданиям workflow с `environment: имя`. Откройте окружение, чтобы управлять ими. Правила защиты (проверяющие, ожидание) настраиваются на github.com.", 12, false);
+        TextView note = a.text("Окружения (production, staging…) имеют свои секреты и переменные, видимые только заданиям workflow с `environment: имя`, и правила защиты: проверяющие, ожидание, допустимые ветки. Откройте окружение, чтобы настроить всё это.", 12, false);
         note.setTextColor(a.MUTED); a.card(note);
         Button add = a.button("+  Новое окружение");
         add.setOnClickListener(v -> {
@@ -226,7 +224,7 @@ final class ActionsSecretsScreen {
                 catch (IllegalArgumentException bad) { name.setError(bad.getMessage()); return; }
                 dialog.dismiss();
                 a.io.execute(() -> {
-                    try { RepoSecrets.createEnvironment(a.api, full, n); a.runOnUiThread(() -> { a.toast("Окружение создано: " + n); show(full, ENVIRONMENTS, null); }); }
+                    try { RepoSecrets.createEnvironment(a.api, full, n); a.runOnUiThread(() -> { a.toast("Окружение создано: " + n); environments(full); }); }
                     catch (Exception e) { final String m = RepoSecrets.explain(e); a.runOnUiThread(() -> a.errorDialog("Не создано", m)); }
                 });
             }));
@@ -260,13 +258,13 @@ final class ActionsSecretsScreen {
         TextView meta = a.text(updated.isEmpty() ? "Окружение" : "Обновлено " + updated, 12, false);
         meta.setTextColor(a.MUTED); meta.setPadding(0, a.dp(3), 0, a.dp(6)); box.addView(meta);
         LinearLayout actions = new LinearLayout(a);
-        Button open = a.compactButton("Секреты и переменные");
+        Button open = a.compactButton("Настроить: секреты, защита");
         open.setOnClickListener(v -> show(full, 0, item.name));
         Button del = a.compactButton("Удалить"); del.setTextColor(0xFFC34F48);
         del.setOnClickListener(v -> new SheetDialog.Builder(a).setTitle("Удалить окружение «" + item.name + "»?")
             .setMessage("Вместе с окружением удалятся его секреты, переменные и правила защиты. Workflow, которые на него ссылаются, создадут пустое окружение заново или будут ждать одобрения. Вернуть удалённое нельзя.")
             .setPositiveButton("Удалить", (d, w) -> a.io.execute(() -> {
-                try { RepoSecrets.deleteEnvironment(a.api, full, item.name); a.runOnUiThread(() -> { a.toast("Окружение удалено"); show(full, ENVIRONMENTS, null); }); }
+                try { RepoSecrets.deleteEnvironment(a.api, full, item.name); a.runOnUiThread(() -> { a.toast("Окружение удалено"); environments(full); }); }
                 catch (Exception e) { final String m = RepoSecrets.explain(e); a.runOnUiThread(() -> a.errorDialog("Не удалено", m)); }
             })).setNegativeButton("Отмена", null).show());
         actions.addView(open, new LinearLayout.LayoutParams(0, a.dp(40), 1.8f));
