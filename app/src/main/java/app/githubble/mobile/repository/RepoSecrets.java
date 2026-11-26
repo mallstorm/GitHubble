@@ -41,7 +41,7 @@ public final class RepoSecrets {
     }
 
     static String checkRepo(String repo) {
-        if (repo == null || !repo.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")) throw new IllegalArgumentException("Некорректное имя репозитория");
+        if (repo == null || !repo.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+") || repo.startsWith(".") || repo.contains("/.")) throw new IllegalArgumentException("Некорректное имя репозитория");
         return repo;
     }
 
