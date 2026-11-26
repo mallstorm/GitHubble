@@ -98,7 +98,7 @@ final class ActionsSecretsScreen {
                     for (RepoSecrets.Item item : items) rows.addView(row(full, kind, env, item, () -> show(full, segment, env)));
                 });
             } catch (Exception error) {
-                final String text = RepoSecrets.explain(error);
+                final String text = RepoSecrets.explain(error, kind, env);
                 a.runOnUiThread(() -> { if (generation == a.screenGeneration.get() && host == a.content) { status.setText(text); status.setTextColor(0xFFC34F48); } });
             }
         });
@@ -123,7 +123,7 @@ final class ActionsSecretsScreen {
             .setMessage(kind.variable ? "Переменная пропадёт из репозитория; workflow, которые её используют, получат пустое значение." : "Секрет будет удалён из репозитория. Workflow, которые его используют, перестанут работать. Вернуть значение нельзя — GitHub его не хранит в открытом виде.")
             .setPositiveButton("Удалить", (d, w) -> a.io.execute(() -> {
                 try { RepoSecrets.delete(a.api, full, kind, env, item.name); a.runOnUiThread(() -> { a.toast("Удалено: " + item.name); reload.run(); }); }
-                catch (Exception e) { final String m = RepoSecrets.explain(e); a.runOnUiThread(() -> a.errorDialog("Не удалено", m)); }
+                catch (Exception e) { final String m = RepoSecrets.explain(e, kind, env); a.runOnUiThread(() -> a.errorDialog("Не удалено", m)); }
             })).setNegativeButton("Отмена", null).show());
         actions.addView(edit, new LinearLayout.LayoutParams(0, a.dp(40), 1.5f));
         LinearLayout.LayoutParams dp = new LinearLayout.LayoutParams(0, a.dp(40), 1f); dp.setMargins(a.dp(8), 0, 0, 0);
@@ -175,7 +175,7 @@ final class ActionsSecretsScreen {
                     if (kind.variable) RepoSecrets.saveVariable(a.api, full, env, n, val, existingName != null || exists(full, env, n));
                     else RepoSecrets.putSecret(a.api, full, kind, env, n, val);
                     a.runOnUiThread(() -> { a.toast("Сохранено: " + n); reload.run(); });
-                } catch (Exception e) { final String m = RepoSecrets.explain(e); a.runOnUiThread(() -> a.errorDialog("Не сохранено", m)); }
+                } catch (Exception e) { final String m = RepoSecrets.explain(e, kind, env); a.runOnUiThread(() -> a.errorDialog("Не сохранено", m)); }
             });
         }));
     }
@@ -225,7 +225,7 @@ final class ActionsSecretsScreen {
                 dialog.dismiss();
                 a.io.execute(() -> {
                     try { RepoSecrets.createEnvironment(a.api, full, n); a.runOnUiThread(() -> { a.toast("Окружение создано: " + n); environments(full); }); }
-                    catch (Exception e) { final String m = RepoSecrets.explain(e); a.runOnUiThread(() -> a.errorDialog("Не создано", m)); }
+                    catch (Exception e) { final String m = RepoSecrets.explain(e, "Environments"); a.runOnUiThread(() -> a.errorDialog("Не создано", m)); }
                 });
             }));
         });
@@ -244,7 +244,7 @@ final class ActionsSecretsScreen {
                     for (RepoSecrets.Item item : items) rows.addView(environmentRow(full, item));
                 });
             } catch (Exception error) {
-                final String text = RepoSecrets.explain(error);
+                final String text = RepoSecrets.explain(error, "Environments");
                 a.runOnUiThread(() -> { if (generation == a.screenGeneration.get() && host == a.content) { status.setText(text); status.setTextColor(0xFFC34F48); } });
             }
         });
@@ -265,7 +265,7 @@ final class ActionsSecretsScreen {
             .setMessage("Вместе с окружением удалятся его секреты, переменные и правила защиты. Workflow, которые на него ссылаются, создадут пустое окружение заново или будут ждать одобрения. Вернуть удалённое нельзя.")
             .setPositiveButton("Удалить", (d, w) -> a.io.execute(() -> {
                 try { RepoSecrets.deleteEnvironment(a.api, full, item.name); a.runOnUiThread(() -> { a.toast("Окружение удалено"); environments(full); }); }
-                catch (Exception e) { final String m = RepoSecrets.explain(e); a.runOnUiThread(() -> a.errorDialog("Не удалено", m)); }
+                catch (Exception e) { final String m = RepoSecrets.explain(e, "Environments"); a.runOnUiThread(() -> a.errorDialog("Не удалено", m)); }
             })).setNegativeButton("Отмена", null).show());
         actions.addView(open, new LinearLayout.LayoutParams(0, a.dp(40), 1.8f));
         LinearLayout.LayoutParams dp = new LinearLayout.LayoutParams(0, a.dp(40), 1f); dp.setMargins(a.dp(8), 0, 0, 0);
@@ -299,7 +299,7 @@ final class ActionsSecretsScreen {
                 exists[0] = ReleaseSigning.exists(a.api, full);
                 text = exists[0] ? "В репозитории уже есть секреты подписи (" + ReleaseSigning.S_KEYSTORE + ", " + ReleaseSigning.S_STORE_PASSWORD + ", " + ReleaseSigning.S_ALIAS + ", " + ReleaseSigning.S_KEY_PASSWORD + "). Замена ключа сломает обновления уже подписанных приложений."
                     : "Ключа пока нет. Создайте новый на телефоне или загрузите свой .jks/.keystore: будут записаны четыре секрета " + ReleaseSigning.S_KEYSTORE + ", " + ReleaseSigning.S_STORE_PASSWORD + ", " + ReleaseSigning.S_ALIAS + ", " + ReleaseSigning.S_KEY_PASSWORD + ".";
-            } catch (Exception e) { text = RepoSecrets.explain(e); }
+            } catch (Exception e) { text = RepoSecrets.explain(e, "Secrets"); }
             final String shown = text;
             a.runOnUiThread(() -> state.setText(shown));
         });
@@ -311,7 +311,7 @@ final class ActionsSecretsScreen {
                     ReleaseSigning.publish(a.api, full, bundle);
                     ReleaseSigning.backup(a, full, bundle);
                     a.runOnUiThread(() -> { a.errorDialog("Ключ записан", "Секреты подписи созданы в " + full + ".\nAlias: " + bundle.alias + "\nSHA-256 сертификата:\n" + bundle.sha256 + "\n\nКопия ключа хранится в защищённом хранилище приложения. Подключите секреты к workflow: ANDROID_KEYSTORE_BASE64 декодируется в файл, остальные три передаются в signingConfig."); show(full, 0); });
-                } catch (Exception e) { final String m = RepoSecrets.explain(e); a.runOnUiThread(() -> a.errorDialog("Ключ не создан", m)); }
+                } catch (Exception e) { final String m = RepoSecrets.explain(e, "Secrets"); a.runOnUiThread(() -> a.errorDialog("Ключ не создан", m)); }
             })));
         own.setOnClickListener(v -> a.pickFile(uri -> a.io.execute(() -> {
             try {

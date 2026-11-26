@@ -16,7 +16,10 @@ import java.util.List;
 /** Repository «Настройки» as on github.com: sections for general settings, Actions, Environments, Deploy keys and Secrets and variables. */
 final class RepoSettingsScreens {
     private final MainActivity a;
-    RepoSettingsScreens(MainActivity activity) { this.a = activity; }
+    private final SettingsKit kit;
+    private final RepoSettingsCode code;
+    private final RepoSettingsRest rest;
+    RepoSettingsScreens(MainActivity activity) { this.a = activity; this.kit = new SettingsKit(activity); this.code = new RepoSettingsCode(activity, kit); this.rest = new RepoSettingsRest(activity, kit); }
 
     void hub(String full) {
         if (!full.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")) { a.errorDialog("Настройки", "Некорректное имя репозитория"); return; }
@@ -26,15 +29,23 @@ final class RepoSettingsScreens {
         if (!a.isSignedIn()) { a.accountRequiredCard("Подключите GitHub, чтобы менять настройки репозитория."); return; }
         a.sectionTitle("Общие", null);
         GridLayout general = new GridLayout(a); general.setColumnCount(a.adaptiveColumns(2));
+        a.addAction(general, "Общие: описание, темы, слияние", () -> a.navigate(() -> rest.general(full)));
         a.addAction(general, "Имя, видимость, удаление", () -> a.navigate(() -> a.openRepositoryAdmin(full)));
+        a.addAction(general, "Доступ · Collaborators", () -> a.navigate(() -> code.collaborators(full)));
+        a.addAction(general, "Branches и Rulesets", () -> a.navigate(() -> code.branches(full)));
+        a.addAction(general, "Custom properties", () -> a.navigate(() -> rest.properties(full)));
         a.content.addView(general);
         a.sectionTitle("Код и автоматизация", null);
         GridLayout automation = new GridLayout(a); automation.setColumnCount(a.adaptiveColumns(2));
+        a.addAction(automation, "Actions: общие", () -> a.navigate(() -> code.actionsGeneral(full)));
         a.addAction(automation, "Actions: хранилище", () -> a.navigate(() -> a.openActionsStorage(full)));
         a.addAction(automation, "Environments", () -> a.navigate(() -> a.actionsSecretsScreen().environments(full)));
+        a.addAction(automation, "Webhooks", () -> a.navigate(() -> code.webhooks(full)));
+        a.addAction(automation, "Pages", () -> a.navigate(() -> rest.pages(full)));
         a.content.addView(automation);
         a.sectionTitle("Безопасность", null);
         GridLayout security = new GridLayout(a); security.setColumnCount(a.adaptiveColumns(2));
+        a.addAction(security, "Code security и оповещения", () -> a.navigate(() -> rest.security(full)));
         a.addAction(security, "Deploy keys", () -> a.navigate(() -> deployKeys(full)));
         a.addAction(security, "Secrets · Actions", () -> a.navigate(() -> a.actionsSecretsScreen().settings(full, 0)));
         a.addAction(security, "Variables · Actions", () -> a.navigate(() -> a.actionsSecretsScreen().settings(full, 1)));
