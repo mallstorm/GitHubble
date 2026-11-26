@@ -151,6 +151,10 @@ public class MainActivity extends Activity {
     private app.githubble.mobile.agent.WorkspaceHub agentWorkspaces;
     private final ActionsScreens actionsScreens=new ActionsScreens(this);
     private final ActionsSecretsScreen actionsSecrets=new ActionsSecretsScreen(this);
+    private final RepoSettingsScreens repoSettings=new RepoSettingsScreens(this);
+    ActionsSecretsScreen actionsSecretsScreen(){return actionsSecrets;}
+    void openRepositoryAdmin(String full){showRepositoryAdmin(full,null);}
+    void openActionsStorage(String full){actionsScreens.showActionsStorage(full);}
     private app.githubble.mobile.ui.AgentFeatureScreens agentFeatures;
     private app.githubble.mobile.ui.AgentFeatureScreens agentFeatures(String owner){
         agentFeatures=new app.githubble.mobile.ui.AgentFeatureScreens(this,owner,()->accountStore.activeCacheKey(),agentProjects,agentMemory,io,BG,CARD,TEXT,MUTED,GREEN,BORDER,()->agentRefreshIfCurrent(owner));
@@ -4757,7 +4761,7 @@ public class MainActivity extends Activity {
                             }
                             @Override public void menu(JSONObject repo){
                                 String full=repo.optString("full_name","");
-                                String[] items={"Открыть","Управление","Зеркалировать","Открыть на GitHub","Обновить репозитории"};
+                                String[] items={"Открыть","Управление","Зеркалировать","Открыть на GitHub","Обновить репозитории","Настройки (секреты, окружения)"};
                                 new SheetDialog.Builder(MainActivity.this)
                                         .setTitle(full).setItems(items,(dialog,index)->{
                                             if(index==0)navigate(() -> showRepository(full));
@@ -4765,6 +4769,7 @@ public class MainActivity extends Activity {
                                             if(index==2)navigate(()->showMirrorManager(full));
                                              if(index==3)openWeb("https://github.com/"+full);
                                             if(index==4)showMyRepositories(true);
+                                            if(index==5)navigate(() -> repoSettings.hub(full));
                                         }).show();
                             }
                         },CARD,TEXT,MUTED,GREEN,BORDER,SUBTLE,
@@ -5597,7 +5602,8 @@ public class MainActivity extends Activity {
             if(isSignedIn()){
                 if(starred!=null)repoActionCard(actions,R.drawable.ic_star,starred?"★ Убрать звезду":"☆ Поставить звезду","GitHub Stars",()->toggleRepositoryStar(full,starred));
                 else repoActionCard(actions,R.drawable.ic_star,"Звезда недоступна","Проверьте права",()->toast("Проверьте сеть и разрешения GitHub"));
-                repoActionCard(actions,R.drawable.ic_settings,"Управление","Настройки проекта",()->navigate(()->showRepositoryAdmin(full,r)));
+                repoActionCard(actions,R.drawable.ic_settings,"Настройки","Секреты, окружения, ключи",()->navigate(()->repoSettings.hub(full)));
+                repoActionCard(actions,R.drawable.ic_settings,"Управление","Загрузка, Git, видимость",()->navigate(()->showRepositoryAdmin(full,r)));
             }
             repoActionCard(actions,R.drawable.ic_repository,"Mirror Manager","Копия на другом аккаунте",()->navigate(()->showMirrorManager(full)));
             if(isSignedIn())
@@ -6703,8 +6709,8 @@ public class MainActivity extends Activity {
         Button retention=button("⚙  Хранилище Actions · срок и лимиты");
         retention.setOnClickListener(v->navigate(()->actionsScreens.showActionsStorage(full)));
         content.addView(retention,new LinearLayout.LayoutParams(-1,dp(50)));
-        Button secretsButton=button("🔑  Секреты и переменные · ключ подписи");
-        secretsButton.setOnClickListener(v->navigate(()->actionsSecrets.show(full,0)));
+        Button secretsButton=button("⚙  Настройки · секреты, окружения, deploy keys");
+        secretsButton.setOnClickListener(v->navigate(()->repoSettings.hub(full)));
         LinearLayout.LayoutParams secretsParams=new LinearLayout.LayoutParams(-1,dp(50));secretsParams.setMargins(0,dp(8),0,dp(8));
         content.addView(secretsButton,secretsParams);
         GridLayout settings=new GridLayout(this);settings.setColumnCount(adaptiveColumns(2));
@@ -7716,7 +7722,7 @@ public class MainActivity extends Activity {
         });
     }
 
-    private void addAction(GridLayout g,String label,Runnable r){TextView v=text(label,14,true);v.setGravity(Gravity.CENTER);v.setTextColor(BLUE);v.setContentDescription(label);v.setMinHeight(dp(48));v.setBackground(round(CARD,14,BORDER,1));v.setOnClickListener(x->r.run());GridLayout.LayoutParams p=new GridLayout.LayoutParams();p.width=0;p.height=dp(isLargeText()?64:52);p.columnSpec=GridLayout.spec(GridLayout.UNDEFINED,1f);p.setMargins(dp(4),dp(4),dp(4),dp(4));g.addView(v,p);}
+    void addAction(GridLayout g,String label,Runnable r){TextView v=text(label,14,true);v.setGravity(Gravity.CENTER);v.setTextColor(BLUE);v.setContentDescription(label);v.setMinHeight(dp(48));v.setBackground(round(CARD,14,BORDER,1));v.setOnClickListener(x->r.run());GridLayout.LayoutParams p=new GridLayout.LayoutParams();p.width=0;p.height=dp(isLargeText()?64:52);p.columnSpec=GridLayout.spec(GridLayout.UNDEFINED,1f);p.setMargins(dp(4),dp(4),dp(4),dp(4));g.addView(v,p);}
 
     private void renderMarkdownCard(String source){addTranslatableMarkdownCard("markdown:"+TranslationCache.sha256(source),source,"");}
 

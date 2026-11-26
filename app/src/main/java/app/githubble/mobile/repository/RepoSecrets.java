@@ -18,7 +18,8 @@ public final class RepoSecrets {
     private RepoSecrets() {}
 
     public enum Kind {
-        ACTIONS_SECRET("actions", "secrets", false), DEPENDABOT_SECRET("dependabot", "secrets", false), ACTIONS_VARIABLE("actions", "variables", true);
+        ACTIONS_SECRET("actions", "secrets", false), DEPENDABOT_SECRET("dependabot", "secrets", false), ACTIONS_VARIABLE("actions", "variables", true),
+        CODESPACES_SECRET("codespaces", "secrets", false);
         final String area, collection; public final boolean variable;
         Kind(String area, String collection, boolean variable) { this.area = area; this.collection = collection; this.variable = variable; }
     }
@@ -56,7 +57,7 @@ public final class RepoSecrets {
     /** Collection URL of the repository, or of one of its environments when {@code env} is given. */
     static String base(String repo, Kind kind, String env) {
         if (env == null) return "https://api.github.com/repos/" + checkRepo(repo) + "/" + kind.area + "/" + kind.collection;
-        if (kind == Kind.DEPENDABOT_SECRET) throw new IllegalArgumentException("У окружений нет секретов Dependabot");
+        if (kind == Kind.DEPENDABOT_SECRET || kind == Kind.CODESPACES_SECRET) throw new IllegalArgumentException("У окружений нет секретов Dependabot и Codespaces");
         return environmentUrl(repo, env) + "/" + kind.collection;
     }
 
