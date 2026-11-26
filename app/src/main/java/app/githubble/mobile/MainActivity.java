@@ -10794,7 +10794,7 @@ public class MainActivity extends Activity {
     boolean isSignedIn(){return oauth!=null&&oauth.hasUsableToken();}
     String currentAccountId(){return api.accountScope();}
     void accountRequiredCard(String message){TextView note=text(message,14,false);note.setTextColor(MUTED);card(note);Button login=button("Войти через GitHub");login.setOnClickListener(v->navigate(this::showProfile));content.addView(login,new LinearLayout.LayoutParams(-1,dp(50)));}
-    private void openWeb(String url){try{startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse(url)));}catch(Exception e){toast("Не удалось открыть ссылку");}}
+    void openWeb(String url){try{startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse(url)));}catch(Exception e){toast("Не удалось открыть ссылку");}}
     String formatGitHubDate(String iso){if(iso==null||iso.isEmpty())return "";try{java.time.Instant instant=java.time.Instant.parse(iso);java.time.format.DateTimeFormatter formatter=java.time.format.DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm",new Locale("ru")).withZone(java.time.ZoneId.systemDefault());return formatter.format(instant);}catch(Exception e){return iso.length()>=10?iso.substring(0,10):iso;}}
     private String isoNow(){return java.time.Instant.now().toString();}
 

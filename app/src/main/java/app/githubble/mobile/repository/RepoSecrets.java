@@ -162,6 +162,22 @@ public final class RepoSecrets {
         catch (GitHubApiClient.ApiException e) { if (e.statusCode != 404) throw e; }
     }
 
+    /** The GitHub App permission that guards this kind of data. */
+    public static String permission(Kind kind, String env) {
+        if (env != null && !env.isEmpty()) return "Environments";
+        switch (kind) {
+            case DEPENDABOT_SECRET: return "Dependabot secrets";
+            case CODESPACES_SECRET: return "Codespaces secrets";
+            case ACTIONS_VARIABLE: return "Variables";
+            default: return "Secrets";
+        }
+    }
+
+    /** Names the exact App permission to switch on instead of a generic refusal. */
+    public static String explain(Exception error, Kind kind, String env) { return Gh.explain(error, permission(kind, env)); }
+
+    public static String explain(Exception error, String permission) { return Gh.explain(error, permission); }
+
     /** Human explanation for the usual refusals (missing right to manage secrets). */
     public static String explain(Exception error) {
         if (error instanceof GitHubApiClient.ApiException) {

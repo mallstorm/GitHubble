@@ -1,3 +1,10 @@
+# GitHubble 1.0.0-rc4.2.85
+
+- Настройки репозитория дополнены разделами сайта: «Общие» (описание, сайт, темы, Issues/Wiki/Projects/Discussions, способы слияния, ветка по умолчанию, архивирование), «Branches и Rulesets» (защита веток, правила репозитория), «Доступ» (участники, роли, приглашения), «Custom properties».
+- Actions → General: включение Actions, разрешённые actions, права GITHUB_TOKEN, одобрение workflow из fork pull request. Webhooks: создание, правка, тест, журнал доставок с повтором. Pages: источник, домен, HTTPS, пересборка.
+- Безопасность: переключатели Dependabot alerts и security updates, secret scanning и push protection; списки оповещений Dependabot, code scanning и secret scanning с закрытием и повторным открытием; Security advisories.
+- Ошибки доступа теперь называют конкретное право GitHub App, которое нужно включить, и напоминают подтвердить его на github.com/settings/installations.
+
 # GitHubble 1.0.0-rc4.2.84
 
 - Настройки репозитория как на github.com → Settings: в карточке репозитория кнопка «Настройки» открывает разделы «Общие», «Код и автоматизация» (Actions, Environments) и «Безопасность» (Deploy keys, Secrets и Variables для Actions, секреты Dependabot и Codespaces). Всё делается напрямую через GitHub API, без захода на сайт.
