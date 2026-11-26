@@ -406,6 +406,7 @@ public final class ProviderHubScreen {
         card.addView(label("Запросов " + slot.calls + " (ошибок " + slot.failCalls + ") · токены "
                 + PoolPolicy.compact(slot.inTokens) + "↑ " + PoolPolicy.compact(slot.outTokens) + "↓ · "
                 + (slot.lastUsed == 0 ? "ещё не использовался" : "использован " + ago(slot.lastUsed, now)), 12, palette.muted, false), params(-1, -2, 0, 6, 0, 0));
+        if (QuotaProbe.supported(provider)) balanceLine(card, provider, slot);
         if (slot.quotaTokens > 0) card.addView(limitLine("Токены за период", slot.periodTokens, slot.quotaTokens), params(-1, -2, 0, 8, 0, 0));
         if (slot.quotaRequests > 0) card.addView(limitLine("Запросы за период", slot.periodRequests, slot.quotaRequests), params(-1, -2, 0, 8, 0, 0));
         if (!slot.lastError.isEmpty() && slot.lastErrorAt > 0)
@@ -938,14 +939,58 @@ public final class ProviderHubScreen {
         });
     }
 
+    private String fetchBalance(String provider, PoolPolicy.Slot slot) throws Exception {
+        JSONObject config = store.configuration(owner, provider);
+        return QuotaProbe.fetch(activity, provider, pool().secret(owner, provider, slot.id), config.optString("base_url"), config.optString("auth_scope"));
+    }
+
+    private android.content.SharedPreferences balanceCache() { return activity.getSharedPreferences("provider_balance_cache", android.content.Context.MODE_PRIVATE); }
+    private String balanceKey(String provider, PoolPolicy.Slot slot) { return owner + "|" + provider + "|" + slot.id; }
+
+    private void rememberBalance(String provider, PoolPolicy.Slot slot, String text, boolean failed) {
+        balanceCache().edit().putString(balanceKey(provider, slot), System.currentTimeMillis() + "|" + (failed ? "!" : "=") + text).apply();
+    }
+
+    /** Remaining quota of the key: the last answer is shown at once and refreshed in the background when it is older than ten minutes. */
+    private void balanceLine(LinearLayout card, String provider, PoolPolicy.Slot slot) {
+        final TextView line = label("", 12, palette.muted, false);
+        line.setVisibility(View.GONE);
+        card.addView(line, params(-1, -2, 0, 6, 0, 0));
+        String saved = balanceCache().getString(balanceKey(provider, slot), "");
+        long at = 0;
+        int bar = saved.indexOf('|');
+        if (bar > 0) { try { at = Long.parseLong(saved.substring(0, bar)); } catch (NumberFormatException ignored) { at = 0; } }
+        if (at > 0) showBalance(line, saved.substring(bar + 1), at);
+        if (!slot.enabled || System.currentTimeMillis() - at < 10 * 60_000L) return;
+        io.execute(() -> {
+            String text; boolean failed = false;
+            try { text = fetchBalance(provider, slot); }
+            catch (Exception error) { text = error.getMessage() == null ? "ошибка сети" : error.getMessage(); failed = true; }
+            rememberBalance(provider, slot, text, failed);
+            final String shown = (failed ? "!" : "=") + text;
+            activity.runOnUiThread(() -> showBalance(line, shown, System.currentTimeMillis()));
+        });
+    }
+
+    private void showBalance(TextView line, String tagged, long at) {
+        boolean failed = tagged.startsWith("!");
+        String text = tagged.length() > 1 ? tagged.substring(1) : "";
+        String time = new java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(new java.util.Date(at));
+        line.setText(failed ? "Остаток не получен (" + time + "): " + text : "Остаток · " + time + "\n" + text);
+        line.setTextColor(failed ? warn : palette.text);
+        line.setVisibility(View.VISIBLE);
+    }
+
     private void balance(String provider, PoolPolicy.Slot slot) {
         toast("Запрашиваем баланс…");
         io.execute(() -> {
             String result;
             try {
-                result = QuotaProbe.fetch(provider, pool().secret(owner, provider, slot.id));
+                result = fetchBalance(provider, slot);
+                rememberBalance(provider, slot, result, false);
             } catch (Exception error) {
                 result = "Не удалось получить баланс: " + (error.getMessage() == null ? "ошибка" : error.getMessage());
+                rememberBalance(provider, slot, result, true);
             }
             final String text = result;
             activity.runOnUiThread(() -> new SheetDialog.Builder(activity).setTitle("Баланс · " + slot.label)

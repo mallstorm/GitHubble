@@ -306,6 +306,16 @@ class ApiGateway(private val context: Context) {
         } finally { canceller.cancel() }
     }
 
+    /** GigaChat token balance per model (`GET /balance`); answers 403 for pay-as-you-go accounts. */
+    suspend fun gigaBalance(key: String, scope: String): List<Pair<String, Long>> = withContext(Dispatchers.IO) {
+        val url = "https://api.giga.chat/v1/balance".toHttpUrlOrNull() ?: throw ApiFailure("Некорректный адрес баланса GigaChat")
+        var body = ""
+        execute(request(url, key, CHAT, "gigachat", scope).header("Accept", "application/json").get().build()) { response ->
+            body = response.body?.string().orEmpty()
+        }
+        GigaChatBalance.parse(body)
+    }
+
     suspend fun cloudflareAccounts(apiToken: String): List<CloudflareAccount> = withContext(Dispatchers.IO) {
         require(apiToken.isNotBlank()) { "Введите Cloudflare API token" }
         val url = "https://api.cloudflare.com/client/v4/accounts"
