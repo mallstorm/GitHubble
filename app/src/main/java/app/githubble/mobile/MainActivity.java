@@ -345,6 +345,7 @@ public class MainActivity extends Activity {
     @Override public void onCreate(Bundle b) {
         super.onCreate(b);
         app.githubble.mobile.agent.AgentQuota.init(this);
+        app.githubble.mobile.agent.AgentInstructions.init(this);
         if (Build.VERSION.SDK_INT >= 33) {
             getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
                     android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT,
@@ -1747,6 +1748,28 @@ public class MainActivity extends Activity {
 
     // The agent plans naturally. Write authority remains controlled by AgentPermissionPolicy.
     private boolean agentPlanning(String owner){return false;}
+    /** Settings → «Инструкции агента»; the generator writes a finished instruction with the model selected for this account. */
+    private void agentInstructionsScreen(String owner){
+        new app.githubble.mobile.ui.AgentInstructionsScreen(this,(meta,done,failed)->{
+            String provider=aiConnections.selectedProvider(owner);
+            if(provider.isEmpty()||!aiConnections.isConfigured(owner,provider)){failed.accept("Сначала подключите и выберите модель в настройках ИИ");return;}
+            final String model=aiConnections.model(owner,provider),credential=aiConnections.credential(owner,provider);
+            io.submit(()->{
+                try{
+                    JSONArray transcript=new JSONArray().put(new JSONObject().put("role","user").put("body",meta));
+                    String answer=aiChatClient.completeForAccount(owner,provider,model,credential,transcript,"Agent instruction","");
+                    aiUsage.record(owner,provider,model,OmniChatChatClient.takeUsage());
+                    runOnUiThread(()->done.accept(answer));
+                }catch(Exception error){
+                    String detail=app.githubble.mobile.agent.AgentLogRedactor.redact(error.getMessage());
+                    if(credential!=null&&!credential.isEmpty())detail=detail.replace(credential,"[REDACTED]");
+                    final String shown=detail;
+                    runOnUiThread(()->failed.accept(shown));
+                }
+            });
+        }).palette(BG,CARD,TEXT,MUTED,GREEN,BORDER).show();
+    }
+
     /** Settings → «Лимиты агента»: presets and own values for rounds, tools and tokens of one agent run. */
     private void agentQuotaDialog(){
         final app.githubble.mobile.agent.AgentQuota.Preset[] presets=app.githubble.mobile.agent.AgentQuota.PRESETS;
@@ -9920,6 +9943,9 @@ public class MainActivity extends Activity {
                 "Контекст проектов, импорт и экспорт","память контекст",()->agentFeatures(owner).memory()));
         workspace.add(SettingsScreen.Item.action(R.drawable.ic_history,"Задачи агента",
                 "Все задачи, состояние и продолжение прерванных","задачи агент продолжить прервана",()->agentFeatures(owner).tasks()));
+        workspace.add(SettingsScreen.Item.action(R.drawable.ic_agent_extension,"Инструкции агента",
+                "Что агенту зашито: профили «Стандартный» и «Расширенный», свои условия и генератор промтов, сейчас: "+(app.githubble.mobile.agent.AgentInstructions.extended()?"расширенный":"стандартный"),
+                "инструкции промт промпт правила условия профиль стандартный расширенный агент генератор",()->agentInstructionsScreen(owner)));
         workspace.add(SettingsScreen.Item.action(R.drawable.ic_ai,"Лимиты агента",
                 "Сколько действий агент делает за запуск: сейчас "+app.githubble.mobile.agent.AgentQuota.describe(),
                 "лимит квота бюджет токены раунды инструменты действия агент",()->agentQuotaDialog()));
