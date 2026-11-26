@@ -100,13 +100,13 @@ final class SettingsKit {
 
     RadioGroup radios(LinearLayout into, String[] labels, int selected) {
         RadioGroup g = new RadioGroup(a);
-        for (int i = 0; i < labels.length; i++) { RadioButton r = new RadioButton(a); r.setId(1000 + i); r.setText(labels[i]); r.setTextColor(a.TEXT); g.addView(r); }
-        g.check(1000 + Math.max(0, Math.min(selected, labels.length - 1)));
+        for (int i = 0; i < labels.length; i++) { RadioButton r = new RadioButton(a); r.setId(View.generateViewId()); r.setText(labels[i]); r.setTextColor(a.TEXT); g.addView(r); }
+        ((RadioButton) g.getChildAt(Math.max(0, Math.min(selected, labels.length - 1)))).setChecked(true);
         into.addView(g);
         return g;
     }
 
-    static int selected(RadioGroup g) { return g.getCheckedRadioButtonId() - 1000; }
+    static int selected(RadioGroup g) { View v = g.findViewById(g.getCheckedRadioButtonId()); return v == null ? 0 : Math.max(0, g.indexOfChild(v)); }
 
     void choose(String title, String[] labels, IntConsumer pick) {
         new SheetDialog.Builder(a).setTitle(title).setItems(labels, (d, which) -> pick.accept(which)).setNegativeButton("Отмена", null).show();
