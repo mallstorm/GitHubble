@@ -20,7 +20,8 @@ final class RepoSettingsScreens {
     private final RepoSettingsCode code;
     private final RepoSettingsRest rest;
     private final RepoRevertScreen revert;
-    RepoSettingsScreens(MainActivity activity) { this.a = activity; this.kit = new SettingsKit(activity); this.code = new RepoSettingsCode(activity, kit); this.rest = new RepoSettingsRest(activity, kit); this.revert = new RepoRevertScreen(activity, kit); }
+    private final RepoSettingsOps ops;
+    RepoSettingsScreens(MainActivity activity) { this.a = activity; this.kit = new SettingsKit(activity); this.code = new RepoSettingsCode(activity, kit); this.rest = new RepoSettingsRest(activity, kit); this.revert = new RepoRevertScreen(activity, kit); this.ops = new RepoSettingsOps(activity, kit); }
 
     void hub(String full) {
         if (!full.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")) { a.errorDialog("Настройки", "Некорректное имя репозитория"); return; }
@@ -34,6 +35,7 @@ final class RepoSettingsScreens {
         a.addAction(general, "Имя, видимость, удаление", () -> a.navigate(() -> a.openRepositoryAdmin(full)));
         a.addAction(general, "Доступ · Collaborators", () -> a.navigate(() -> code.collaborators(full)));
         a.addAction(general, "Branches и Rulesets", () -> a.navigate(() -> code.branches(full)));
+        a.addAction(general, "Очистка веток", () -> a.navigate(() -> ops.cleanup(full)));
         a.addAction(general, "Откат · revert на N шагов", () -> a.navigate(() -> revert.show(full)));
         a.addAction(general, "Custom properties", () -> a.navigate(() -> rest.properties(full)));
         a.content.addView(general);
@@ -42,6 +44,8 @@ final class RepoSettingsScreens {
         a.addAction(automation, "Actions: общие", () -> a.navigate(() -> code.actionsGeneral(full)));
         a.addAction(automation, "Actions: хранилище", () -> a.navigate(() -> a.openActionsStorage(full)));
         a.addAction(automation, "Environments", () -> a.navigate(() -> a.actionsSecretsScreen().environments(full)));
+        a.addAction(automation, "Релизы и теги", () -> a.navigate(() -> ops.releases(full)));
+        a.addAction(automation, "Деплои на одобрение", () -> a.navigate(() -> ops.deployments(full)));
         a.addAction(automation, "Webhooks", () -> a.navigate(() -> code.webhooks(full)));
         a.addAction(automation, "Pages", () -> a.navigate(() -> rest.pages(full)));
         a.content.addView(automation);
