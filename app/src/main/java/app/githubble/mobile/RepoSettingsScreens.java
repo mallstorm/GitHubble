@@ -21,7 +21,8 @@ final class RepoSettingsScreens {
     private final RepoSettingsRest rest;
     private final RepoRevertScreen revert;
     private final RepoSettingsOps ops;
-    RepoSettingsScreens(MainActivity activity) { this.a = activity; this.kit = new SettingsKit(activity); this.code = new RepoSettingsCode(activity, kit); this.rest = new RepoSettingsRest(activity, kit); this.revert = new RepoRevertScreen(activity, kit); this.ops = new RepoSettingsOps(activity, kit); }
+    private final RepoCopyScreen copy;
+    RepoSettingsScreens(MainActivity activity) { this.a = activity; this.kit = new SettingsKit(activity); this.code = new RepoSettingsCode(activity, kit); this.rest = new RepoSettingsRest(activity, kit); this.revert = new RepoRevertScreen(activity, kit); this.ops = new RepoSettingsOps(activity, kit); this.copy = new RepoCopyScreen(activity, kit); }
 
     void hub(String full) {
         if (!full.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")) { a.errorDialog("Настройки", "Некорректное имя репозитория"); return; }
@@ -35,8 +36,9 @@ final class RepoSettingsScreens {
         a.addAction(general, "Имя, видимость, удаление", () -> a.navigate(() -> a.openRepositoryAdmin(full)));
         a.addAction(general, "Доступ · Collaborators", () -> a.navigate(() -> code.collaborators(full)));
         a.addAction(general, "Branches и Rulesets", () -> a.navigate(() -> code.branches(full)));
+        a.addAction(general, "Копировать настройки из…", () -> a.navigate(() -> copy.show(full)));
         a.addAction(general, "Очистка веток", () -> a.navigate(() -> ops.cleanup(full)));
-        a.addAction(general, "Откат · revert на N шагов", () -> a.navigate(() -> revert.show(full)));
+        a.addAction(general, "Откат и отмена коммитов", () -> a.navigate(() -> revert.show(full)));
         a.addAction(general, "Custom properties", () -> a.navigate(() -> rest.properties(full)));
         a.content.addView(general);
         a.sectionTitle("Код и автоматизация", null);
