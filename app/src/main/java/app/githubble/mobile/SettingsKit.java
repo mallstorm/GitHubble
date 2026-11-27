@@ -9,8 +9,11 @@ import android.widget.LinearLayout;
 import android.widget.RadioButton;
 import android.widget.RadioGroup;
 import android.widget.TextView;
+import app.githubble.mobile.repository.BranchRules;
 import app.githubble.mobile.repository.Gh;
 import app.githubble.mobile.ui.SheetDialog;
+import java.util.List;
+import java.util.function.Consumer;
 import java.util.function.IntConsumer;
 import java.util.function.Supplier;
 
@@ -151,6 +154,21 @@ final class SettingsKit {
             dialog.dismiss();
             run(permission, done, then, job);
         }));
+    }
+
+    /** Loads the branch names and lets the user pick one. */
+    void pickBranch(String full, Consumer<String> picked) {
+        a.io.execute(() -> {
+            try {
+                final List<BranchRules.Branch> list = BranchRules.branches(a.api, full);
+                final String[] names = new String[list.size()];
+                for (int i = 0; i < names.length; i++) names[i] = list.get(i).name;
+                a.runOnUiThread(() -> { if (names.length == 0) a.toast("В репозитории нет веток"); else choose("Ветка", names, which -> picked.accept(names[which])); });
+            } catch (Exception error) {
+                final String text = Gh.explain(error, "Contents");
+                a.runOnUiThread(() -> a.errorDialog("Ветки", text));
+            }
+        });
     }
 
     static String date(String iso) { return iso != null && iso.length() >= 10 ? iso.substring(0, 10) : (iso == null ? "" : iso); }
