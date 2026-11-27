@@ -4,9 +4,9 @@
 
 ## Текущая версия
 
-- Version: `1.0.0-rc4.2.85`
-- versionCode: `132`
-- release channel: `rc4.2.85`
+- Version: `1.0.0-rc4.2.86`
+- versionCode: `133`
+- release channel: `rc4.2.86`
 - applicationId: `app.githubble.mobile`
 - minSdk: `28`
 - targetSdk / compileSdk: `36`
@@ -304,4 +304,4 @@ Production-signed Release APK создаётся только в `main` и то�
 
 ---
 
-**Текущий эталон исходников: GitHubble `1.0.0-rc4.2.85`, versionCode `132`.**
+**Текущий эталон исходников: GitHubble `1.0.0-rc4.2.86`, versionCode `133`.**
