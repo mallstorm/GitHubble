@@ -9451,6 +9451,16 @@ public class MainActivity extends Activity {
                 "Стоимость Actions, скидки, бюджеты в USD",
                 "оплата расходы бюджет стоимость деньги",()->navigate(()->actionsScreens.showActionsBillingCost(""))));
         sections.add(quotas);
+        if(isSignedIn()){
+            SettingsScreen.Section allRepos=new SettingsScreen.Section("Все репозитории");
+            allRepos.add(SettingsScreen.Item.action(R.drawable.ic_lock,"Сводка безопасности",
+                    "Открытые оповещения Dependabot, code scanning и секретов по всем репозиториям",
+                    "безопасность уязвимости dependabot alerts code scanning secret сводка",()->navigate(repoSettings::securitySummary)));
+            allRepos.add(SettingsScreen.Item.action(R.drawable.ic_settings,"Массовые настройки",
+                    "Одна настройка сразу для многих репозиториев или копирование из шаблона",
+                    "массовые настройки шаблон все репозитории dependabot squash токен",()->navigate(repoSettings::bulk)));
+            sections.add(allRepos);
+        }
         return sections;
     }
 
