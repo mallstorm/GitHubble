@@ -22,7 +22,8 @@ final class RepoSettingsScreens {
     private final RepoRevertScreen revert;
     private final RepoSettingsOps ops;
     private final RepoCopyScreen copy;
-    RepoSettingsScreens(MainActivity activity) { this.a = activity; this.kit = new SettingsKit(activity); this.code = new RepoSettingsCode(activity, kit); this.rest = new RepoSettingsRest(activity, kit); this.revert = new RepoRevertScreen(activity, kit); this.ops = new RepoSettingsOps(activity, kit); this.copy = new RepoCopyScreen(activity, kit); }
+    private final RepoSettingsMore more;
+    RepoSettingsScreens(MainActivity activity) { this.a = activity; this.kit = new SettingsKit(activity); this.code = new RepoSettingsCode(activity, kit); this.rest = new RepoSettingsRest(activity, kit); this.revert = new RepoRevertScreen(activity, kit); this.ops = new RepoSettingsOps(activity, kit); this.copy = new RepoCopyScreen(activity, kit); this.more = new RepoSettingsMore(activity, kit); }
 
     void hub(String full) {
         if (!full.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")) { a.errorDialog("Настройки", "Некорректное имя репозитория"); return; }
@@ -41,8 +42,17 @@ final class RepoSettingsScreens {
         a.addAction(general, "Откат и отмена коммитов", () -> a.navigate(() -> revert.show(full)));
         a.addAction(general, "Custom properties", () -> a.navigate(() -> rest.properties(full)));
         a.content.addView(general);
+        a.sectionTitle("Сообщество и аналитика", null);
+        GridLayout community = new GridLayout(a); community.setColumnCount(a.adaptiveColumns(2));
+        a.addAction(community, "Метки · Labels", () -> a.navigate(() -> more.labels(full)));
+        a.addAction(community, "Этапы · Milestones", () -> a.navigate(() -> more.milestones(full)));
+        a.addAction(community, "CODEOWNERS и шаблоны", () -> a.navigate(() -> more.files(full)));
+        a.addAction(community, "Мастер Dependabot", () -> a.navigate(() -> more.dependabot(full)));
+        a.addAction(community, "Трафик", () -> a.navigate(() -> more.traffic(full)));
+        a.content.addView(community);
         a.sectionTitle("Код и автоматизация", null);
         GridLayout automation = new GridLayout(a); automation.setColumnCount(a.adaptiveColumns(2));
+        a.addAction(automation, "Actions: запуски и кэши", () -> a.navigate(() -> more.actions(full)));
         a.addAction(automation, "Actions: общие", () -> a.navigate(() -> code.actionsGeneral(full)));
         a.addAction(automation, "Actions: хранилище", () -> a.navigate(() -> a.openActionsStorage(full)));
         a.addAction(automation, "Environments", () -> a.navigate(() -> a.actionsSecretsScreen().environments(full)));

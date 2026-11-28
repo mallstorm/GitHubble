@@ -27,6 +27,13 @@ public final class Gh {
         catch (java.io.UnsupportedEncodingException impossible) { throw new IllegalStateException(impossible); }
     }
 
+    /** One path component: unlike {@link #segment} a slash is encoded too (label names such as type/bug). */
+    public static String component(String raw) {
+        if (raw == null || raw.trim().isEmpty()) throw new IllegalArgumentException("Пустое имя");
+        try { return java.net.URLEncoder.encode(raw.trim(), "UTF-8").replace("+", "%20"); }
+        catch (java.io.UnsupportedEncodingException impossible) { throw new IllegalStateException(impossible); }
+    }
+
     public static int status(Exception error) { return error instanceof GitHubApiClient.ApiException ? ((GitHubApiClient.ApiException) error).statusCode : 0; }
 
     /** Names the GitHub App permission that is most likely missing, so the user knows exactly what to switch on. */
