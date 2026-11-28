@@ -23,7 +23,11 @@ final class RepoSettingsScreens {
     private final RepoSettingsOps ops;
     private final RepoCopyScreen copy;
     private final RepoSettingsMore more;
-    RepoSettingsScreens(MainActivity activity) { this.a = activity; this.kit = new SettingsKit(activity); this.code = new RepoSettingsCode(activity, kit); this.rest = new RepoSettingsRest(activity, kit); this.revert = new RepoRevertScreen(activity, kit); this.ops = new RepoSettingsOps(activity, kit); this.copy = new RepoCopyScreen(activity, kit); this.more = new RepoSettingsMore(activity, kit); }
+    private final RepoAccountScreens account;
+    RepoSettingsScreens(MainActivity activity) { this.a = activity; this.kit = new SettingsKit(activity); this.code = new RepoSettingsCode(activity, kit); this.rest = new RepoSettingsRest(activity, kit); this.revert = new RepoRevertScreen(activity, kit); this.ops = new RepoSettingsOps(activity, kit); this.copy = new RepoCopyScreen(activity, kit); this.more = new RepoSettingsMore(activity, kit); this.account = new RepoAccountScreens(activity, kit, repo -> rest.security(repo)); }
+
+    void securitySummary() { account.securitySummary(); }
+    void bulk() { account.bulk(); }
 
     void hub(String full) {
         if (!full.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")) { a.errorDialog("Настройки", "Некорректное имя репозитория"); return; }
